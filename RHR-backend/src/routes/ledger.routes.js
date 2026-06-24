@@ -1,9 +1,8 @@
 const express = require('express');
 const router  = express.Router();
-const { getCompanies } = require('../controllers/companies.controller');
+const ctrl    = require('../controllers/ledger.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 
-// Public — used in register screen branch dropdown
-router.get('/', getCompanies);
+router.get('/:customerId', authenticate, ctrl.getLedger);
 
 module.exports = router;

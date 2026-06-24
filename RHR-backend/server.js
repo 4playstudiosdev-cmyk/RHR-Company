@@ -23,9 +23,14 @@ app.get('/health', (req, res) => {
 });
 
 // Routes
-app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/auth',      authRoutes);
 app.use('/api/v1/customers', require('./src/routes/customers.routes'));
 app.use('/api/v1/companies', require('./src/routes/companies.routes'));
+app.use('/api/v1/products',  require('./src/routes/products.routes'));
+app.use('/api/v1/orders',    require('./src/routes/orders.routes'));
+app.use('/api/v1/payments',  require('./src/routes/payments.routes'));
+app.use('/api/v1/ledger',    require('./src/routes/ledger.routes'));
+app.use('/api/v1/storage',   require('./src/routes/storage.routes'));
 
 // 404 handler
 app.use((req, res) => {

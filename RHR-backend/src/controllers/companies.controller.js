@@ -1,21 +1,19 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 
-// GET /api/v1/companies
-// Public — needed during customer registration to pick a branch
-const getCompaniesHandler = async (req, res) => {
+const getCompanies = async (req, res) => {
   try {
     const { data, error: dbError } = await supabaseAdmin
       .from('companies')
-      .select('id, name, city')
-      .order('name', { ascending: true });
+      .select('id, name, city, is_hq')
+      .eq('is_active', true)
+      .order('city');
 
     if (dbError) throw new Error(dbError.message);
-
-    return success(res, data, 'Companies');
+    return success(res, data, 'Companies loaded');
   } catch (err) {
-    return error(res, err.message, 500);
+    return error(res, err.message);
   }
 };
 
-module.exports = { getCompaniesHandler };
+module.exports = { getCompanies };

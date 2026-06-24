@@ -1,29 +1,65 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 
-// GET /api/v1/customers/pending
-// Returns all unapproved customers (scoped to admin's company)
-const getPendingCustomersHandler = async (req, res) => {
+const getCustomers = async (req, res) => {
   try {
-    let query = supabaseAdmin
+    const user = req.user;
+    let query  = supabaseAdmin
       .from('users')
-      .select('id, full_name, phone, created_at, company_id')
+      .select('id, full_name, phone, email, is_approved, salesman_id, created_at')
       .eq('role', 'customer')
-      .eq('is_approved', false)
-      .order('created_at', { ascending: false });
+      .eq('is_active', true);
 
-    // Branch admins only see their own company's pending customers
-    if (req.user.role === 'branch_admin') {
-      query = query.eq('company_id', req.user.company_id);
+    // Salesman sees only his assigned customers
+    if (user.role === 'salesman') {
+      query = query.eq('salesman_id', user.id);
+    } else {
+      // Admin sees all customers in their company
+      query = query.eq('company_id', user.company_id);
     }
 
-    const { data, error: dbError } = await query;
+    const { data, error: dbError } = await query.order('full_name');
     if (dbError) throw new Error(dbError.message);
-
-    return success(res, data, 'Pending customers');
-  } catch (err) {
-    return error(res, err.message, 500);
-  }
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getPendingCustomersHandler };
+const getPendingCustomers = async (req, res) => {
+  try {
+    const { data, error: dbError } = await supabaseAdmin
+      .from('users')
+      .select('id, full_name, phone, created_at')
+      .eq('role', 'customer')
+      .eq('is_approved', false)
+      .eq('is_active', true)
+      .eq('company_id', req.user.company_id)
+      .order('created_at', { ascending: false });
+
+    if (dbError) throw new Error(dbError.message);
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
+};
+
+const getCustomerById = async (req, res) => {
+  try {
+    const user = req.user;
+    let query  = supabaseAdmin
+      .from('users')
+      .select('id, full_name, phone, email, is_approved, salesman_id, company_id, created_at')
+      .eq('id', req.params.id)
+      .eq('role', 'customer')
+      .single();
+
+    const { data, error: dbError } = await query;
+    if (dbError) return error(res, 'Customer not found', 404);
+
+    // Salesman can only view his own customers
+    if (user.role === 'salesman' && data.salesman_id !== user.id) {
+      return error(res, 'Access denied', 403);
+    }
+
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { getCustomers, getPendingCustomers, getCustomerById };

@@ -1,508 +1,565 @@
-// ── STATE ──────────────────────────────────────────────────────────────────
-var API_BASE    = localStorage.getItem('rhr_api') || 'http://localhost:3000';
-var token       = localStorage.getItem('rhr_token') || null;
-var currentUser = null;
-var otpPhone    = '';
-var companies   = [];
+/* RHR & Company — Dev Test UI — app.js */
+/* All JS must be in this external file (Helmet CSP blocks inline scripts) */
 
-try { currentUser = JSON.parse(localStorage.getItem('rhr_user')); }   catch(e) {}
-try { companies   = JSON.parse(localStorage.getItem('rhr_companies')) || []; } catch(e) {}
+var API_BASE = localStorage.getItem('rhr_api_base') || 'http://localhost:3000';
+var token    = localStorage.getItem('rhr_token')    || null;
+var userData = JSON.parse(localStorage.getItem('rhr_user') || 'null');
 
-// ── BOOT ───────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', function() {
-  document.getElementById('apiBaseInput').value = API_BASE;
+/* ═══ CAPTURED IDs (shared across test screens) ═══ */
+var capturedIds = { product: null, customer: null, order: null, payment: null };
 
-  // Nav buttons
-  document.querySelectorAll('.nav-btn[data-screen]').forEach(function(btn) {
-    btn.addEventListener('click', function() { go(btn.dataset.screen); });
-  });
-  document.querySelectorAll('[data-goto]').forEach(function(btn) {
-    btn.addEventListener('click', function() { go(btn.dataset.goto); });
-  });
-
-  // Login
-  document.getElementById('loginBtn').addEventListener('click', doLogin);
-  document.getElementById('loginPassword').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') doLogin();
-  });
-
-  // Register flow
-  document.getElementById('sendOtpBtn').addEventListener('click', doSendOTP);
-  document.getElementById('verifyOtpBtn').addEventListener('click', doVerifyStep);
-  document.getElementById('resendOtpBtn').addEventListener('click', doSendOTP);
-  document.getElementById('registerBtn').addEventListener('click', doRegister);
-  document.getElementById('registerAnotherBtn').addEventListener('click', resetRegister);
-  document.getElementById('regPhone').addEventListener('keydown', function(e) { if (e.key === 'Enter') doSendOTP(); });
-  document.getElementById('regOtp').addEventListener('keydown', function(e)   { if (e.key === 'Enter') doVerifyStep(); });
-
-  // Home
-  document.getElementById('goLoginLink').addEventListener('click', function(e) { e.preventDefault(); go('login'); });
-  document.getElementById('logoutBtn').addEventListener('click', doLogout);
-  document.getElementById('copyTokenBtn').addEventListener('click', copyToken);
-
-  // Pending
-  document.getElementById('refreshPendingBtn').addEventListener('click', loadPending);
-
-  // Config
-  document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
-  document.getElementById('testConnBtn').addEventListener('click', testConn);
-  document.getElementById('clearStateBtn').addEventListener('click', clearAll);
-  document.getElementById('clearLogBtn').addEventListener('click', clearLog);
-
-  // Status checks
-  checkServer();
-  checkWA();
-  setInterval(checkServer, 15000);
-  setInterval(checkWA, 8000);
-
-  // Load companies (public endpoint)
-  loadCompanies();
-  refreshState();
-
-  if (currentUser && token) renderHome();
-});
-
-// ── NAVIGATION ─────────────────────────────────────────────────────────────
-function go(name) {
-  document.querySelectorAll('.screen').forEach(function(s)  { s.classList.remove('active'); });
-  document.querySelectorAll('.nav-btn').forEach(function(b) { b.classList.remove('active'); });
-  var screen = document.getElementById('screen-' + name);
-  var navBtn = document.getElementById('nav-' + name);
-  if (screen) screen.classList.add('active');
-  if (navBtn) navBtn.classList.add('active');
-  if (name === 'home')    renderHome();
-  if (name === 'pending') renderPending();
-  refreshState();
+/* ═══ HELPERS ═══ */
+function authHeaders() {
+  var h = { 'Content-Type': 'application/json' };
+  if (token) h['Authorization'] = 'Bearer ' + token;
+  return h;
 }
 
-// ── LOGGING ────────────────────────────────────────────────────────────────
-function addLog(type, title, detail) {
+function ts() { return new Date().toTimeString().slice(0,8); }
+
+function log(type, msg) {
   var body  = document.getElementById('logBody');
   var entry = document.createElement('div');
   entry.className = 'log-entry ' + type;
-  var t = new Date().toLocaleTimeString();
-  entry.innerHTML = '<div class="log-time">' + t + '</div><div class="log-text">' +
-    esc(title) + (detail ? '\n' + esc(detail) : '') + '</div>';
+  entry.innerHTML = '<div class="log-time">' + ts() + '</div><div class="log-text">' + escHtml(msg) + '</div>';
   body.insertBefore(entry, body.firstChild);
+  while (body.children.length > 60) body.removeChild(body.lastChild);
 }
 
-function clearLog() { document.getElementById('logBody').innerHTML = ''; }
-
-function esc(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// ── API HELPER ─────────────────────────────────────────────────────────────
-function api(method, path, body, useToken) {
-  var url     = API_BASE + path;
-  var headers = { 'Content-Type': 'application/json' };
-  if (useToken !== false && token) headers['Authorization'] = 'Bearer ' + token;
+function showResult(elId, data, ok) {
+  var el = document.getElementById(elId);
+  if (!el) return;
+  el.className = 'result-box show';
+  el.style.borderColor = ok ? 'var(--green)' : 'var(--red)';
+  el.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+}
 
-  addLog('req', method + ' ' + path, body ? JSON.stringify(body, null, 2) : '');
+function setBtn(id, loading, orig) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.disabled = loading;
+  if (loading) { el.dataset.orig = el.innerHTML; el.innerHTML = '<span class="spinner"></span> Working...'; }
+  else          { el.innerHTML = el.dataset.orig || el.innerHTML; }
+}
 
-  return fetch(url, {
-    method:  method,
-    headers: headers,
-    body:    body ? JSON.stringify(body) : undefined
-  })
-  .then(function(res) {
-    return res.json().then(function(data) {
-      if (data.success) {
-        addLog('res-ok',  res.status + ' OK',    JSON.stringify(data, null, 2));
-      } else {
-        addLog('res-err', res.status + ' ERROR', JSON.stringify(data, null, 2));
-      }
-      return { ok: res.ok, status: res.status, data: data };
+function showAlert(id, type, msg) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'alert ' + type + ' show';
+  el.innerHTML = msg;
+}
+
+function hideAlert(id) {
+  var el = document.getElementById(id);
+  if (el) el.className = 'alert';
+}
+
+function copyToClipboard(txt) {
+  var el = document.createElement('textarea');
+  el.value = txt; el.style.position = 'fixed'; el.style.opacity = '0';
+  document.body.appendChild(el); el.select(); document.execCommand('copy');
+  document.body.removeChild(el);
+}
+
+/* ═══ CAPTURED ID MANAGEMENT ═══ */
+function captureId(type, id) {
+  if (!id) return;
+  capturedIds[type] = id;
+  var chip = document.getElementById('chip-' + type);
+  var val  = document.getElementById('chip-' + type + '-val');
+  if (chip && val) {
+    val.textContent = id.slice(0,8) + '...';
+    chip.style.display = 'inline-flex';
+    chip.title = id;
+    chip.onclick = function() { copyToClipboard(id); log('info', 'Copied ' + type + ' ID: ' + id); };
+    var bar = document.getElementById('idBar');
+    if (bar) bar.style.display = 'flex';
+  }
+}
+
+/* ═══ API CALL ═══ */
+function apiFetch(method, path, body, btnId) {
+  var url = API_BASE + path;
+  log('req', method + ' ' + url + (body ? '\n' + JSON.stringify(body) : ''));
+  if (btnId) setBtn(btnId, true);
+  var opts = { method: method, headers: authHeaders() };
+  if (body) opts.body = JSON.stringify(body);
+  return fetch(url, opts).then(function(r) {
+    return r.json().then(function(d) {
+      var ok = r.ok;
+      log(ok ? 'res-ok' : 'res-err', r.status + ' ' + (ok ? 'OK' : 'ERR') + '\n' + JSON.stringify(d, null, 2));
+      if (btnId) setBtn(btnId, false);
+      return { ok: ok, status: r.status, data: d };
     });
-  })
-  .catch(function(e) {
-    addLog('res-err', 'NETWORK ERROR', e.message);
-    return { ok: false, data: { success: false, message: e.message } };
+  }).catch(function(e) {
+    log('res-err', 'Network error: ' + e.message);
+    if (btnId) setBtn(btnId, false);
+    return { ok: false, data: { message: e.message } };
   });
 }
 
-// ── SERVER STATUS ──────────────────────────────────────────────────────────
+/* ═══ NAVIGATION ═══ */
+document.querySelectorAll('.nav-btn[data-screen]').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var target = this.dataset.screen;
+    document.querySelectorAll('.nav-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
+    this.classList.add('active');
+    var sc = document.getElementById('screen-' + target);
+    if (sc) sc.classList.add('active');
+    if (target === 'home')    refreshHome();
+    if (target === 'pending') loadPending();
+    if (target === 'config')  refreshConfigState();
+  });
+});
+
+document.querySelectorAll('[data-goto]').forEach(function(el) {
+  el.addEventListener('click', function() {
+    var btn = document.getElementById('nav-' + this.dataset.goto);
+    if (btn) btn.click();
+  });
+});
+
+/* ═══ STATUS POLLING ═══ */
 function checkServer() {
-  var dot = document.getElementById('serverDot');
-  var txt = document.getElementById('serverTxt');
-  fetch(API_BASE + '/health')
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (d.success) {
-        dot.className    = 'dot green';
-        txt.textContent  = 'Server online';
-      } else {
-        dot.className    = 'dot red';
-        txt.textContent  = 'Server error';
-      }
-    })
-    .catch(function() {
-      dot.className   = 'dot red';
-      txt.textContent = 'Server offline';
-    });
+  fetch(API_BASE + '/health').then(function(r) { return r.json(); }).then(function() {
+    document.getElementById('serverDot').className = 'dot green';
+    document.getElementById('serverTxt').textContent = 'Server OK';
+  }).catch(function() {
+    document.getElementById('serverDot').className = 'dot red';
+    document.getElementById('serverTxt').textContent = 'Server Down';
+  });
 }
 
-// ── WHATSAPP STATUS + QR ──────────────────────────────────────────────────
 function checkWA() {
-  var dot = document.getElementById('waDot');
-  var txt = document.getElementById('waTxt');
-  fetch(API_BASE + '/api/v1/auth/whatsapp-status')
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (d.data && d.data.isReady) {
-        dot.className   = 'dot green';
-        txt.textContent = 'WhatsApp ready';
-        hideQRModal();
-      } else if (d.data && d.data.hasQR) {
-        dot.className   = 'dot spin';
-        txt.textContent = 'Scan QR to connect';
-        loadQRModal();
-      } else {
-        dot.className   = 'dot red';
-        txt.textContent = 'WhatsApp connecting...';
-      }
-    })
-    .catch(function() {
-      dot.className   = 'dot red';
-      txt.textContent = 'WhatsApp offline';
-    });
+  fetch(API_BASE + '/api/v1/auth/whatsapp-status').then(function(r) { return r.json(); }).then(function(d) {
+    var status = d.data || d;
+    if (status.isReady || status.status === 'connected') {
+      document.getElementById('waDot').className = 'dot green';
+      document.getElementById('waTxt').textContent = 'WhatsApp OK';
+      var m = document.getElementById('qrModal');
+      if (m) m.remove();
+    } else if (status.hasQR || status.status === 'qr_ready') {
+      document.getElementById('waDot').className = 'dot spin';
+      document.getElementById('waTxt').textContent = 'Scan QR';
+      showQRModal();
+    } else {
+      document.getElementById('waDot').className = 'dot red';
+      document.getElementById('waTxt').textContent = 'WA Disconnected';
+    }
+  }).catch(function() {});
 }
 
-function loadQRModal() {
-  // Don't reload if already showing
-  if (document.getElementById('waQRModal')) return;
-  fetch(API_BASE + '/api/v1/auth/whatsapp-qr')
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (!d.data || !d.data.qr) return;
-      // Create modal overlay
-      var modal = document.createElement('div');
-      modal.id = 'waQRModal';
-      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:999;display:flex;align-items:center;justify-content:center';
-      modal.innerHTML =
-        '<div style="background:#161B22;border:1px solid #30363D;border-radius:12px;padding:32px;text-align:center;max-width:360px">' +
-        '<div style="font-size:13px;font-weight:700;color:#E3953A;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">WhatsApp Setup</div>' +
-        '<div style="font-size:13px;color:#8B949E;margin-bottom:20px">Open WhatsApp on your phone → Menu → Linked Devices → Link a Device</div>' +
-        '<img src="' + d.data.qr + '" style="width:260px;height:260px;border-radius:8px;background:#fff;padding:8px"/>' +
-        '<div style="font-size:11px;color:#484F58;margin-top:14px;font-family:monospace">QR expires in ~60 seconds. Refreshes automatically.</div>' +
-        '</div>';
-      document.body.appendChild(modal);
-    });
+function showQRModal() {
+  if (document.getElementById('qrModal')) return;
+  fetch(API_BASE + '/api/v1/auth/whatsapp-qr').then(function(r) { return r.json(); }).then(function(d) {
+    var qr = d.data && d.data.qr;
+    if (!qr) return;
+    var modal = document.createElement('div');
+    modal.id = 'qrModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:999';
+    modal.innerHTML = '<div style="background:#161B22;border:1px solid #30363D;border-radius:12px;padding:28px;text-align:center">' +
+      '<div style="font-size:12px;color:#8B949E;margin-bottom:14px;font-family:monospace">SCAN WITH WHATSAPP</div>' +
+      '<img src="' + qr + '" style="width:240px;height:240px;display:block;border-radius:8px"/>' +
+      '<div style="margin-top:12px"><button onclick="document.getElementById(\'qrModal\').remove()" style="padding:7px 14px;background:none;border:1px solid #30363D;color:#8B949E;border-radius:6px;cursor:pointer;font-size:12px">Close</button></div>' +
+      '</div>';
+    document.body.appendChild(modal);
+  }).catch(function() {});
 }
 
-function hideQRModal() {
-  var modal = document.getElementById('waQRModal');
-  if (modal) modal.remove();
+function updateTokenStatus() {
+  var el = document.getElementById('tokenStatus');
+  if (token && userData) {
+    el.style.display = 'flex';
+    document.getElementById('tokenRole').textContent = userData.role || 'logged in';
+  } else {
+    el.style.display = 'none';
+  }
 }
 
-// ── COMPANIES ──────────────────────────────────────────────────────────────
-function loadCompanies() {
-  fetch(API_BASE + '/api/v1/companies')
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (d.data && d.data.length) {
-        companies = d.data;
-        localStorage.setItem('rhr_companies', JSON.stringify(companies));
-        fillCompanySelect();
-      } else if (companies.length) {
-        fillCompanySelect();
-      }
-    })
-    .catch(function() {
-      if (companies.length) fillCompanySelect();
-    });
-}
+checkServer(); checkWA(); updateTokenStatus();
+setInterval(checkServer, 15000);
+setInterval(checkWA, 8000);
 
-function fillCompanySelect() {
-  var sel = document.getElementById('regCompany');
-  sel.innerHTML = '<option value="">— Select Branch —</option>';
-  companies.forEach(function(c) {
-    var o = document.createElement('option');
-    o.value = c.id;
-    o.textContent = c.name + (c.city ? ' (' + c.city + ')' : '');
-    sel.appendChild(o);
-  });
-}
-
-// ── LOGIN ──────────────────────────────────────────────────────────────────
-function doLogin() {
+/* ═══ LOGIN ═══ */
+document.getElementById('loginBtn').addEventListener('click', function() {
   var email    = document.getElementById('loginEmail').value.trim();
-  var password = document.getElementById('loginPassword').value;
-  var alertEl  = document.getElementById('loginAlert');
-  var btn      = document.getElementById('loginBtn');
+  var password = document.getElementById('loginPassword').value.trim();
+  if (!email || !password) return showAlert('loginAlert', 'a-error', 'Email and password required');
+  hideAlert('loginAlert');
+  apiFetch('POST', '/api/v1/auth/login', { email: email, password: password }, 'loginBtn').then(function(r) {
+    if (!r.ok) return showAlert('loginAlert', 'a-error', r.data.message || 'Login failed');
+    token    = r.data.data.token;
+    userData = r.data.data.user;
+    localStorage.setItem('rhr_token', token);
+    localStorage.setItem('rhr_user',  JSON.stringify(userData));
+    updateTokenStatus();
+    showAlert('loginAlert', 'a-success', 'Logged in as <strong>' + escHtml(userData.email) + '</strong> [' + userData.role + ']');
+    document.getElementById('nav-home').click();
+  });
+});
 
-  if (!email || !password) { showAlert(alertEl, 'error', 'Email and password are required'); return; }
+/* ═══ HOME ═══ */
+function refreshHome() {
+  var warn = document.getElementById('homeWarn');
+  var info = document.getElementById('homeInfo');
+  if (!token || !userData) { warn.style.display='block'; info.style.display='none'; return; }
+  warn.style.display='none'; info.style.display='block';
+  var avatar = userData.role === 'super_admin' ? '🔑' : userData.role === 'branch_admin' ? '🏢' : userData.role === 'salesman' ? '💼' : '👤';
+  document.getElementById('homeAvatar').textContent  = avatar;
+  document.getElementById('homeName').textContent    = userData.full_name || userData.email;
+  document.getElementById('homeMeta').textContent    = userData.email + ' · ' + (userData.phone || '');
+  document.getElementById('homeRole').textContent    = userData.role;
+  document.getElementById('homeCompany').textContent = userData.company_id ? userData.company_id.slice(0,8)+'…' : 'no company';
+  document.getElementById('homeToken').textContent   = token;
+}
 
-  btn.innerHTML = '<span class="spinner"></span> Logging in...';
-  btn.disabled  = true;
+document.getElementById('goLoginLink').addEventListener('click', function(e) {
+  e.preventDefault(); document.getElementById('nav-login').click();
+});
 
-  api('POST', '/api/v1/auth/login', { email: email, password: password }, false)
-    .then(function(r) {
-      btn.innerHTML = 'Login';
-      btn.disabled  = false;
+document.getElementById('copyTokenBtn').addEventListener('click', function() {
+  if (token) { copyToClipboard(token); log('info', 'JWT token copied to clipboard'); }
+});
 
-      if (r.ok && r.data.success) {
-        token       = r.data.data.token;
-        currentUser = r.data.data.user;
-        localStorage.setItem('rhr_token', token);
-        localStorage.setItem('rhr_user', JSON.stringify(currentUser));
-        showAlert(alertEl, 'success', '✅ Login successful!');
-        setTimeout(function() { go('home'); loadCompanies(); }, 900);
-      } else {
-        showAlert(alertEl, 'error', '❌ ' + (r.data.message || 'Login failed'));
-      }
+document.getElementById('logoutBtn').addEventListener('click', function() {
+  token = null; userData = null;
+  localStorage.removeItem('rhr_token'); localStorage.removeItem('rhr_user');
+  updateTokenStatus(); refreshHome();
+  document.getElementById('nav-login').click();
+  log('info', 'Logged out');
+});
+
+/* ═══ REGISTER (3-step OTP) ═══ */
+var regPhone = ''; var regOtpToken = '';
+
+function loadCompaniesDropdown() {
+  apiFetch('GET', '/api/v1/companies').then(function(r) {
+    if (!r.ok || !r.data.data) return;
+    var sel = document.getElementById('regCompany');
+    r.data.data.forEach(function(c) {
+      var opt = document.createElement('option');
+      opt.value = c.id; opt.textContent = c.name + ' (' + c.city + ')';
+      sel.appendChild(opt);
     });
+  });
+}
+loadCompaniesDropdown();
+
+function setRegStep(n) {
+  [1,2,3,4].forEach(function(i) {
+    var s = document.getElementById('stp' + i);
+    s.className = i < n ? 'step done' : i === n ? 'step active' : 'step';
+  });
+  ['regS1','regS2','regS3','regSDone'].forEach(function(id, idx) {
+    document.getElementById(id).style.display = (idx + 1 === n) ? 'block' : 'none';
+  });
 }
 
-// ── SEND OTP ───────────────────────────────────────────────────────────────
-function doSendOTP() {
-  var phone   = document.getElementById('regPhone').value.trim();
-  var alertEl = document.getElementById('regAlert');
-  var btn     = document.getElementById('sendOtpBtn');
+document.getElementById('sendOtpBtn').addEventListener('click', function() {
+  regPhone = document.getElementById('regPhone').value.trim();
+  if (!regPhone) return showAlert('regAlert', 'a-error', 'Enter your WhatsApp number');
+  hideAlert('regAlert');
+  apiFetch('POST', '/api/v1/auth/send-otp', { phone: regPhone }, 'sendOtpBtn').then(function(r) {
+    if (!r.ok) return showAlert('regAlert', 'a-error', r.data.message || 'Failed to send OTP');
+    regOtpToken = r.data.data && r.data.data.otpToken;
+    document.getElementById('otpSentTo').textContent = regPhone;
+    setRegStep(2);
+  });
+});
 
-  if (!phone) { showAlert(alertEl, 'error', 'Enter a phone number'); return; }
+document.getElementById('resendOtpBtn').addEventListener('click', function() {
+  document.getElementById('sendOtpBtn').click();
+});
 
-  btn.innerHTML = '<span class="spinner"></span> Sending...';
-  btn.disabled  = true;
+document.getElementById('verifyOtpBtn').addEventListener('click', function() {
+  var otp = document.getElementById('regOtp').value.trim();
+  if (!otp) return showAlert('regAlert', 'a-error', 'Enter the OTP from WhatsApp');
+  hideAlert('regAlert');
+  apiFetch('POST', '/api/v1/auth/verify-otp', { phone: regPhone, otp: otp }, 'verifyOtpBtn').then(function(r) {
+    if (!r.ok) return showAlert('regAlert', 'a-error', r.data.message || 'Invalid OTP');
+    regOtpToken = r.data.data && r.data.data.otpToken;
+    setRegStep(3);
+  });
+});
 
-  api('POST', '/api/v1/auth/send-otp', { phone: phone }, false)
-    .then(function(r) {
-      btn.innerHTML = 'Send OTP via WhatsApp';
-      btn.disabled  = false;
-
-      if (r.ok && r.data.success) {
-        otpPhone = phone;
-        document.getElementById('otpSentTo').textContent = phone;
-        showAlert(alertEl, 'success', '✅ OTP sent to WhatsApp!');
-        setStep(2);
-        document.getElementById('regS1').style.display = 'none';
-        document.getElementById('regS2').style.display = 'block';
-        setTimeout(function() { document.getElementById('regOtp').focus(); }, 100);
-      } else {
-        showAlert(alertEl, 'error', '❌ ' + (r.data.message || 'Failed to send OTP'));
-      }
-    });
-}
-
-// ── VERIFY OTP → STEP 3 ────────────────────────────────────────────────────
-function doVerifyStep() {
-  var otp     = document.getElementById('regOtp').value.trim();
-  var alertEl = document.getElementById('regAlert');
-  if (!otp || otp.length < 4) { showAlert(alertEl, 'error', 'Enter the OTP from WhatsApp'); return; }
-  clearAlert(alertEl);
-  setStep(3);
-  document.getElementById('regS2').style.display = 'none';
-  document.getElementById('regS3').style.display = 'block';
-  setTimeout(function() { document.getElementById('regName').focus(); }, 100);
-}
-
-// ── REGISTER ───────────────────────────────────────────────────────────────
-function doRegister() {
-  var otp       = document.getElementById('regOtp').value.trim();
-  var fullName  = document.getElementById('regName').value.trim();
+document.getElementById('registerBtn').addEventListener('click', function() {
+  var name      = document.getElementById('regName').value.trim();
   var companyId = document.getElementById('regCompany').value;
-  var alertEl   = document.getElementById('regAlert');
-  var btn       = document.getElementById('registerBtn');
-
-  if (!fullName)  { showAlert(alertEl, 'error', 'Enter your full name'); return; }
-  if (!companyId) { showAlert(alertEl, 'error', 'Select a branch'); return; }
-  if (!otp)       { showAlert(alertEl, 'error', 'OTP is missing — go back'); return; }
-
-  btn.innerHTML = '<span class="spinner"></span> Creating account...';
-  btn.disabled  = true;
-
-  api('POST', '/api/v1/auth/verify-otp', {
-    phone: otpPhone, otp: otp, fullName: fullName, companyId: companyId
-  }, false)
-    .then(function(r) {
-      btn.innerHTML = 'Complete Registration';
-      btn.disabled  = false;
-
-      if (r.ok && r.data.success) {
-        setStep(4);
-        document.getElementById('regS3').style.display    = 'none';
-        document.getElementById('regSDone').style.display = 'block';
-        clearAlert(alertEl);
-      } else {
-        showAlert(alertEl, 'error', '❌ ' + (r.data.message || 'Registration failed'));
-      }
-    });
-}
-
-function resetRegister() {
-  ['regS1','regS2','regS3','regSDone'].forEach(function(id) {
-    document.getElementById(id).style.display = 'none';
+  if (!name || !companyId) return showAlert('regAlert', 'a-error', 'Name and branch are required');
+  hideAlert('regAlert');
+  apiFetch('POST', '/api/v1/auth/register', {
+    phone: regPhone, full_name: name, company_id: companyId, otpToken: regOtpToken
+  }, 'registerBtn').then(function(r) {
+    if (!r.ok) return showAlert('regAlert', 'a-error', r.data.message || 'Registration failed');
+    setRegStep(4);
   });
-  document.getElementById('regS1').style.display = 'block';
-  document.getElementById('regPhone').value   = '';
-  document.getElementById('regOtp').value     = '';
-  document.getElementById('regName').value    = '';
-  document.getElementById('regCompany').value = '';
-  clearAlert(document.getElementById('regAlert'));
-  setStep(1);
-  otpPhone = '';
-}
+});
 
-// ── HOME ───────────────────────────────────────────────────────────────────
-function renderHome() {
-  if (!currentUser || !token) {
-    document.getElementById('homeWarn').style.display = 'block';
-    document.getElementById('homeInfo').style.display  = 'none';
-    return;
-  }
-  document.getElementById('homeWarn').style.display = 'none';
-  document.getElementById('homeInfo').style.display  = 'block';
+document.getElementById('registerAnotherBtn').addEventListener('click', function() {
+  regPhone = ''; regOtpToken = '';
+  document.getElementById('regPhone').value = '';
+  document.getElementById('regOtp').value   = '';
+  document.getElementById('regName').value  = '';
+  hideAlert('regAlert');
+  setRegStep(1);
+});
 
-  var emoji = { super_admin:'👑', branch_admin:'🏢', salesman:'🤝', customer:'👤', delivery:'🚚' };
-  var cid   = (currentUser.companyId || currentUser.company_id || '—').toString();
-
-  document.getElementById('homeAvatar').textContent  = emoji[currentUser.role] || '👤';
-  document.getElementById('homeName').textContent    = currentUser.fullName || currentUser.full_name || '—';
-  document.getElementById('homeMeta').textContent    = currentUser.phone || currentUser.email || '—';
-  document.getElementById('homeRole').textContent    = currentUser.role || '—';
-  document.getElementById('homeCompany').textContent = cid.length > 8 ? cid.substring(0, 8) + '...' : cid;
-  document.getElementById('homeToken').textContent   = token ? token.substring(0, 120) + '...' : '—';
-}
-
-function doLogout() {
-  token = null; currentUser = null;
-  localStorage.removeItem('rhr_token');
-  localStorage.removeItem('rhr_user');
-  addLog('info', 'Logged out', 'Token and user cleared');
-  renderHome();
-  go('login');
-}
-
-function copyToken() {
-  if (!token) return;
-  navigator.clipboard.writeText(token).then(function() {
-    addLog('info', 'Token copied', 'Paste into Postman Authorization header');
-  });
-}
-
-// ── PENDING APPROVALS ──────────────────────────────────────────────────────
-function renderPending() {
-  if (!token || !currentUser) {
-    document.getElementById('pendingWarn').style.display    = 'block';
-    document.getElementById('pendingSection').style.display = 'none';
-    return;
-  }
-  document.getElementById('pendingWarn').style.display    = 'none';
-  document.getElementById('pendingSection').style.display = 'block';
-  loadPending();
-}
-
+/* ═══ PENDING APPROVALS ═══ */
 function loadPending() {
-  var list = document.getElementById('pendingList');
-  list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3);font-family:monospace;font-size:12px">Loading...</div>';
-
-  api('GET', '/api/v1/customers/pending')
-    .then(function(r) {
-      if (r.ok && r.data.success && r.data.data) {
-        var customers = r.data.data;
-        if (!customers.length) {
-          list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3);font-family:monospace;font-size:12px">No pending customers 🎉</div>';
-          return;
-        }
-        list.innerHTML = '';
-        customers.forEach(function(c) {
-          var item = document.createElement('div');
-          item.className = 'p-item';
-          item.id = 'pi-' + c.id;
-          item.innerHTML =
-            '<div>' +
-            '<div class="p-name">' + esc(c.full_name || '—') + '</div>' +
-            '<div class="p-phone">' + esc(c.phone || '—') + ' &middot; ID: ' + esc(c.id.substring(0, 12)) + '...</div>' +
-            '</div>' +
-            '<button class="btn btn-success" data-id="' + c.id + '">✓ Approve</button>';
-          list.appendChild(item);
-          item.querySelector('button').addEventListener('click', function(e) {
-            approveCustomer(c.id, e.currentTarget);
-          });
+  var warn = document.getElementById('pendingWarn');
+  var sec  = document.getElementById('pendingSection');
+  if (!token) { warn.style.display='block'; sec.style.display='none'; return; }
+  warn.style.display='none'; sec.style.display='block';
+  apiFetch('GET', '/api/v1/customers/pending').then(function(r) {
+    var list = document.getElementById('pendingList');
+    list.innerHTML = '';
+    var items = r.data && r.data.data;
+    if (!items || items.length === 0) {
+      list.innerHTML = '<div style="color:var(--text3);font-size:12px;text-align:center;padding:20px">No pending approvals</div>';
+      return;
+    }
+    items.forEach(function(c) {
+      var div = document.createElement('div');
+      div.className = 'p-item';
+      div.innerHTML = '<div><div class="p-name">' + escHtml(c.full_name || '—') + '</div><div class="p-phone">' + escHtml(c.phone || '') + '</div></div>' +
+        '<button class="btn btn-success" data-id="' + c.id + '">Approve</button>';
+      div.querySelector('button').addEventListener('click', function() {
+        var id = this.dataset.id;
+        apiFetch('PATCH', '/api/v1/auth/approve-customer/' + id, { approved: true }).then(function(r) {
+          if (r.ok) { log('info', 'Approved customer ' + id); loadPending(); }
         });
-      } else {
-        list.innerHTML = '<div class="alert a-error show">❌ ' + esc((r.data && r.data.message) || 'Failed to load') + '</div>';
+      });
+      list.appendChild(div);
+    });
+  });
+}
+document.getElementById('refreshPendingBtn').addEventListener('click', loadPending);
+
+/* ═══════════════════════════════════════════════════
+   TEST SCREENS
+═══════════════════════════════════════════════════ */
+
+/* ── TEST 1: COMPANIES ── */
+document.getElementById('getCompaniesBtn').addEventListener('click', function() {
+  apiFetch('GET', '/api/v1/companies', null, 'getCompaniesBtn').then(function(r) {
+    showResult('companiesResult', r.data, r.ok);
+  });
+});
+
+/* ── TEST 2 & 3: PRODUCTS ── */
+document.getElementById('createProductBtn').addEventListener('click', function() {
+  var body = {
+    name:           document.getElementById('prodName').value.trim(),
+    price:          parseFloat(document.getElementById('prodPrice').value),
+    stock_quantity: parseInt(document.getElementById('prodStock').value) || 0,
+    unit:           document.getElementById('prodUnit').value.trim() || undefined,
+    description:    document.getElementById('prodDesc').value.trim() || undefined,
+    sku:            document.getElementById('prodSku').value.trim()  || undefined
+  };
+  if (!body.name || isNaN(body.price)) return log('res-err', 'name and price are required');
+  apiFetch('POST', '/api/v1/products', body, 'createProductBtn').then(function(r) {
+    showResult('createProductResult', r.data, r.ok);
+    if (r.ok && r.data.data && r.data.data.id) {
+      captureId('product', r.data.data.id);
+      document.getElementById('stockProductId').value = r.data.data.id;
+      log('info', 'Product ID captured → paste into Orders items: [{"product_id":"' + r.data.data.id + '","quantity":2}]');
+    }
+  });
+});
+
+document.getElementById('getProductsBtn').addEventListener('click', function() {
+  var search = document.getElementById('prodSearch').value.trim();
+  var page   = document.getElementById('prodPage').value || 1;
+  var limit  = document.getElementById('prodLimit').value || 20;
+  var qs = '?page=' + page + '&limit=' + limit + (search ? '&search=' + encodeURIComponent(search) : '');
+  apiFetch('GET', '/api/v1/products' + qs, null, 'getProductsBtn').then(function(r) {
+    showResult('getProductsResult', r.data, r.ok);
+    if (r.ok && r.data.data && r.data.data[0]) captureId('product', r.data.data[0].id);
+  });
+});
+
+document.getElementById('updateStockBtn').addEventListener('click', function() {
+  var prodId = document.getElementById('stockProductId').value.trim();
+  var qty    = parseInt(document.getElementById('stockQty').value);
+  if (!prodId || isNaN(qty)) return log('res-err', 'product ID and quantity required');
+  apiFetch('PATCH', '/api/v1/products/' + prodId + '/stock', { quantity: qty }, 'updateStockBtn').then(function(r) {
+    showResult('updateStockResult', r.data, r.ok);
+  });
+});
+
+/* ── CUSTOMERS ── */
+document.getElementById('getCustomersBtn').addEventListener('click', function() {
+  apiFetch('GET', '/api/v1/customers', null, 'getCustomersBtn').then(function(r) {
+    showResult('customersResult', r.data, r.ok);
+    if (r.ok && r.data.data && r.data.data[0]) {
+      var cid = r.data.data[0].id;
+      captureId('customer', cid);
+      document.getElementById('customerIdInput').value  = cid;
+      document.getElementById('orderCustomerId').value  = cid;
+      document.getElementById('payCustomerId').value    = cid;
+      document.getElementById('ledgerCustomerId').value = cid;
+    }
+  });
+});
+
+document.getElementById('getCustomerByIdBtn').addEventListener('click', function() {
+  var id = document.getElementById('customerIdInput').value.trim();
+  if (!id) return log('res-err', 'Enter a customer UUID');
+  apiFetch('GET', '/api/v1/customers/' + id, null, 'getCustomerByIdBtn').then(function(r) {
+    showResult('customerByIdResult', r.data, r.ok);
+  });
+});
+
+/* ── TEST 4 & 5: ORDERS ── */
+document.getElementById('createOrderBtn').addEventListener('click', function() {
+  var itemsRaw = document.getElementById('orderItems').value.trim();
+  var items;
+  try { items = JSON.parse(itemsRaw); } catch(e) { return log('res-err', 'Items must be a valid JSON array like [{"product_id":"...","quantity":2}]'); }
+  var body = { items: items };
+  var custId  = document.getElementById('orderCustomerId').value.trim();
+  var notes   = document.getElementById('orderNotes').value.trim();
+  var address = document.getElementById('orderAddress').value.trim();
+  if (custId)  body.customer_id      = custId;
+  if (notes)   body.notes            = notes;
+  if (address) body.delivery_address = address;
+  apiFetch('POST', '/api/v1/orders', body, 'createOrderBtn').then(function(r) {
+    showResult('createOrderResult', r.data, r.ok);
+    if (r.ok && r.data.data && r.data.data.id) {
+      captureId('order', r.data.data.id);
+      document.getElementById('orderIdInput').value = r.data.data.id;
+      document.getElementById('payOrderId').value   = r.data.data.id;
+    }
+  });
+});
+
+document.getElementById('getOrdersBtn').addEventListener('click', function() {
+  apiFetch('GET', '/api/v1/orders', null, 'getOrdersBtn').then(function(r) {
+    showResult('getOrdersResult', r.data, r.ok);
+    if (r.ok && r.data.data && r.data.data[0]) captureId('order', r.data.data[0].id);
+  });
+});
+
+document.getElementById('updateOrderStatusBtn').addEventListener('click', function() {
+  var id     = document.getElementById('orderIdInput').value.trim();
+  var status = document.getElementById('orderStatus').value;
+  if (!id) return log('res-err', 'Enter an order UUID');
+  apiFetch('PATCH', '/api/v1/orders/' + id + '/status', { status: status }, 'updateOrderStatusBtn').then(function(r) {
+    showResult('updateOrderStatusResult', r.data, r.ok);
+    if (r.ok && status === 'confirmed') log('info', 'Status = confirmed → DB trigger will create a DEBIT ledger entry automatically.');
+  });
+});
+
+/* ── TEST 6 & 7: PAYMENTS ── */
+document.getElementById('createPaymentBtn').addEventListener('click', function() {
+  var custId   = document.getElementById('payCustomerId').value.trim();
+  var amount   = parseFloat(document.getElementById('payAmount').value);
+  var method   = document.getElementById('payMethod').value;
+  var photoUrl = document.getElementById('payPhotoUrl').value.trim();
+  var orderId  = document.getElementById('payOrderId').value.trim();
+  if (!custId || isNaN(amount) || !photoUrl) return log('res-err', 'customer_id, amount and photo_url are required');
+  var body = { customer_id: custId, amount: amount, method: method, photo_url: photoUrl };
+  if (orderId) body.order_id = orderId;
+  apiFetch('POST', '/api/v1/payments', body, 'createPaymentBtn').then(function(r) {
+    showResult('createPaymentResult', r.data, r.ok);
+    if (r.ok && r.data.data && r.data.data.id) {
+      captureId('payment', r.data.data.id);
+      document.getElementById('reviewPaymentId').value = r.data.data.id;
+    }
+  });
+});
+
+document.getElementById('getPaymentsBtn').addEventListener('click', function() {
+  apiFetch('GET', '/api/v1/payments', null, 'getPaymentsBtn').then(function(r) {
+    showResult('getPaymentsResult', r.data, r.ok);
+    if (r.ok && r.data.data && r.data.data[0]) captureId('payment', r.data.data[0].id);
+  });
+});
+
+document.getElementById('reviewPaymentBtn').addEventListener('click', function() {
+  var id     = document.getElementById('reviewPaymentId').value.trim();
+  var status = document.getElementById('reviewStatus').value;
+  var note   = document.getElementById('reviewNote').value.trim();
+  if (!id) return log('res-err', 'Enter a payment UUID');
+  apiFetch('PATCH', '/api/v1/payments/' + id + '/review', { status: status, admin_note: note }, 'reviewPaymentBtn').then(function(r) {
+    showResult('reviewPaymentResult', r.data, r.ok);
+    if (r.ok && status === 'approved') log('info', 'Payment approved → DB trigger will create a CREDIT ledger entry automatically.');
+  });
+});
+
+/* ── TEST 8: LEDGER ── */
+document.getElementById('getLedgerBtn').addEventListener('click', function() {
+  var id   = document.getElementById('ledgerCustomerId').value.trim();
+  var from = document.getElementById('ledgerFrom').value;
+  var to   = document.getElementById('ledgerTo').value;
+  if (!id) return log('res-err', 'Enter a customer UUID');
+  var qs = '';
+  if (from) qs += '?from_date=' + from;
+  if (to)   qs += (qs ? '&' : '?') + 'to_date=' + to;
+  apiFetch('GET', '/api/v1/ledger/' + id + qs, null, 'getLedgerBtn').then(function(r) {
+    showResult('ledgerResult', r.data, r.ok);
+    if (r.ok && r.data.data) {
+      log('info', 'Balance: ' + r.data.data.currentBalance + ' PKR | Entries: ' + (r.data.data.entries || []).length);
+    }
+  });
+});
+
+/* ── STORAGE ── */
+document.getElementById('uploadFileBtn').addEventListener('click', function() {
+  var fileInput = document.getElementById('storageFile');
+  var bucket    = document.getElementById('storageBucket').value;
+  if (!fileInput.files || !fileInput.files[0]) return log('res-err', 'Pick a file first');
+  var file = fileInput.files[0];
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var b64      = e.target.result.split(',')[1];
+    var mimeType = file.type || 'application/octet-stream';
+    apiFetch('POST', '/api/v1/storage/upload', {
+      bucket: bucket, fileName: file.name, fileBase64: b64, mimeType: mimeType
+    }, 'uploadFileBtn').then(function(r) {
+      showResult('storageResult', r.data, r.ok);
+      if (r.ok && r.data.data && r.data.data.url) {
+        log('info', 'File URL: ' + r.data.data.url);
+        log('info', 'File path: ' + r.data.data.path);
       }
     });
+  };
+  reader.readAsDataURL(file);
+});
+
+/* ═══ CONFIG ═══ */
+function refreshConfigState() {
+  document.getElementById('stToken').textContent = token ? 'Yes (' + (userData && userData.role || '?') + ')' : 'No';
+  document.getElementById('stUser').textContent  = userData ? userData.email : 'No';
+  document.getElementById('stComp').textContent  = document.getElementById('regCompany').options.length > 1 ? 'Loaded' : 'No';
+  document.getElementById('apiBaseInput').value  = API_BASE;
 }
 
-function approveCustomer(id, btn) {
-  btn.innerHTML = '<span class="spinner"></span>';
-  btn.disabled  = true;
-
-  api('PATCH', '/api/v1/auth/approve-customer/' + id)
-    .then(function(r) {
-      if (r.ok && r.data.success) {
-        var item = document.getElementById('pi-' + id);
-        if (item) {
-          item.style.transition = 'opacity .3s';
-          item.style.opacity    = '0';
-          setTimeout(function() { item.remove(); }, 300);
-        }
-        addLog('res-ok', 'Customer approved', id);
-      } else {
-        btn.innerHTML = '✓ Approve';
-        btn.disabled  = false;
-      }
-    });
-}
-
-// ── CONFIG ─────────────────────────────────────────────────────────────────
-function saveConfig() {
+document.getElementById('saveConfigBtn').addEventListener('click', function() {
   API_BASE = document.getElementById('apiBaseInput').value.trim().replace(/\/$/, '');
-  localStorage.setItem('rhr_api', API_BASE);
-  testConn();
-}
+  localStorage.setItem('rhr_api_base', API_BASE);
+  log('info', 'API base set to: ' + API_BASE);
+  checkServer();
+});
 
-function testConn() {
-  var el = document.getElementById('connResult');
-  showAlert(el, 'info', 'Testing...');
-  fetch(API_BASE + '/health')
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (d.success) {
-        showAlert(el, 'success', '✅ Connected! Server running at ' + API_BASE);
-        document.getElementById('serverDot').className = 'dot green';
-        document.getElementById('serverTxt').textContent = 'Server online';
-      } else {
-        showAlert(el, 'error', '❌ Server responded with error');
-      }
-    })
-    .catch(function(e) {
-      showAlert(el, 'error', '❌ Cannot connect: ' + e.message + '. Is npm run dev running?');
-    });
-}
+document.getElementById('testConnBtn').addEventListener('click', function() {
+  fetch(API_BASE + '/health').then(function(r) { return r.json(); }).then(function(d) {
+    showAlert('connResult', 'a-success', 'Connected! ' + JSON.stringify(d));
+  }).catch(function(e) {
+    showAlert('connResult', 'a-error', 'Cannot reach: ' + e.message);
+  });
+});
 
-function clearAll() {
-  localStorage.clear();
-  token = null; currentUser = null; companies = [];
-  addLog('info', 'State cleared', 'All localStorage removed');
-  refreshState();
-}
+document.getElementById('clearStateBtn').addEventListener('click', function() {
+  if (!confirm('Clear all local storage? You will be logged out.')) return;
+  localStorage.clear(); location.reload();
+});
 
-// ── HELPERS ────────────────────────────────────────────────────────────────
-function showAlert(el, type, msg) {
-  el.className   = 'alert a-' + type + ' show';
-  el.textContent = msg;
-}
-function clearAlert(el) { el.className = 'alert'; el.textContent = ''; }
-
-function setStep(n) {
-  for (var i = 1; i <= 4; i++) {
-    var el = document.getElementById('stp' + i);
-    if (!el) continue;
-    el.className = 'step' + (i < n ? ' done' : i === n ? ' active' : '');
-  }
-}
-
-function refreshState() {
-  var st = document.getElementById('stToken');
-  var su = document.getElementById('stUser');
-  var sc = document.getElementById('stComp');
-  if (st) st.textContent = token ? 'Yes ✓' : 'No';
-  if (su) su.textContent = currentUser ? 'Yes ✓ (' + (currentUser.role || '') + ')' : 'No';
-  if (sc) sc.textContent = companies.length ? 'Yes (' + companies.length + ')' : 'No';
-}
+document.getElementById('clearLogBtn').addEventListener('click', function() {
+  document.getElementById('logBody').innerHTML =
+    '<div class="log-entry info"><div class="log-time">' + ts() + '</div><div class="log-text">Log cleared.</div></div>';
+});
