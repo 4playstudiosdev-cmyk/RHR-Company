@@ -31,6 +31,7 @@ app.use('/api/v1/orders',    require('./src/routes/orders.routes'));
 app.use('/api/v1/payments',  require('./src/routes/payments.routes'));
 app.use('/api/v1/ledger',    require('./src/routes/ledger.routes'));
 app.use('/api/v1/storage',   require('./src/routes/storage.routes'));
+app.use('/api/v1/invoices',  require('./src/routes/invoice.routes'));
 
 // 404 handler
 app.use((req, res) => {

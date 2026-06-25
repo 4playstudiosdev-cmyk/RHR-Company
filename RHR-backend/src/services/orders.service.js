@@ -1,4 +1,5 @@
-const { supabaseAdmin } = require('../config/supabase');
+const { supabaseAdmin }    = require('../config/supabase');
+const { generateInvoice }  = require('./invoice.service');
 
 async function createOrder({ customerId, salesmanId, companyId, items, notes, deliveryAddress }) {
   // Step 1: Validate all products exist and have enough stock
@@ -108,19 +109,46 @@ async function getOrderById(id, user) {
 
 async function updateOrderStatus(id, companyId, status) {
   const validStatuses = ['confirmed', 'preparing', 'dispatched', 'delivered', 'cancelled'];
-  if (!validStatuses.includes(status)) throw new Error('Invalid status');
+  if (!validStatuses.includes(status))
+    throw new Error('Invalid status. Must be one of: ' + validStatuses.join(', '));
 
-  let query = supabaseAdmin
+  // Step 1: Check the order exists first
+  const { data: existing, error: fetchErr } = await supabaseAdmin
+    .from('orders')
+    .select('id, status, company_id')
+    .eq('id', id)
+    .single();
+
+  if (fetchErr || !existing) throw new Error('Order not found');
+
+  // Step 2: Do the update separately
+  const { error: updateErr } = await supabaseAdmin
     .from('orders')
     .update({ status })
     .eq('id', id);
 
-  // super_admin has no company_id — skip the scope filter
-  if (companyId) query = query.eq('company_id', companyId);
+  if (updateErr) {
+    console.error('Update error:', updateErr);
+    throw new Error('Failed to update order status: ' + updateErr.message);
+  }
 
-  const { data, error } = await query.select().single();
-  if (error) throw new Error(error.message || 'Order not found');
-  return data;
+  // Step 3: Fetch the updated order to return
+  const { data: updated, error: refetchErr } = await supabaseAdmin
+    .from('orders')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (refetchErr || !updated) throw new Error('Order updated but failed to fetch result');
+
+  // Auto-generate invoice when order is confirmed
+  if (status === 'confirmed') {
+    generateInvoice(id).catch(err =>
+      console.error('Background invoice generation failed:', err.message)
+    );
+  }
+
+  return updated;
 }
 
 module.exports = { createOrder, getOrders, getOrderById, updateOrderStatus };

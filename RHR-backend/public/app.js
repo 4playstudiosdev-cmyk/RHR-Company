@@ -450,7 +450,40 @@ document.getElementById('updateOrderStatusBtn').addEventListener('click', functi
   if (!id) return log('res-err', 'Enter an order UUID');
   apiFetch('PATCH', '/api/v1/orders/' + id + '/status', { status: status }, 'updateOrderStatusBtn').then(function(r) {
     showResult('updateOrderStatusResult', r.data, r.ok);
-    if (r.ok && status === 'confirmed') log('info', 'Status = confirmed → DB trigger will create a DEBIT ledger entry automatically.');
+    if (r.ok && status === 'confirmed') {
+      log('info', 'Status = confirmed → ledger DEBIT + invoice generating in background...');
+      var card = document.getElementById('invoiceCard');
+      card.style.display = 'block';
+      document.getElementById('invoiceOrderId').value = id;
+      document.getElementById('invoiceAlert').textContent = 'Invoice generating in background — click Download in 2-3 seconds.';
+    }
+  });
+});
+
+/* ── INVOICE ── */
+document.getElementById('generateInvoiceBtn').addEventListener('click', function() {
+  var id = document.getElementById('invoiceOrderId').value.trim();
+  if (!id) return log('res-err', 'No order ID set');
+  apiFetch('POST', '/api/v1/invoices/generate/' + id, null, 'generateInvoiceBtn').then(function(r) {
+    showResult('invoiceResult', r.data, r.ok);
+    if (r.ok) {
+      document.getElementById('invoiceAlert').textContent = 'Invoice ready — click Download to open PDF.';
+      log('info', 'Invoice path: ' + (r.data.data && r.data.data.filePath));
+    }
+  });
+});
+
+document.getElementById('downloadInvoiceBtn').addEventListener('click', function() {
+  var id = document.getElementById('invoiceOrderId').value.trim();
+  if (!id) return log('res-err', 'No order ID set');
+  apiFetch('GET', '/api/v1/invoices/download/' + id, null, 'downloadInvoiceBtn').then(function(r) {
+    showResult('invoiceResult', r.data, r.ok);
+    if (r.ok && r.data.data && r.data.data.downloadUrl) {
+      window.open(r.data.data.downloadUrl, '_blank');
+      log('info', 'PDF opened in new tab. URL expires in 1 hour.');
+    } else if (r.ok) {
+      log('res-err', 'No download URL in response — try Generate first.');
+    }
   });
 });
 

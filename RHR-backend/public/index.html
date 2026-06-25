@@ -384,6 +384,16 @@
         <button class="btn btn-success" id="updateOrderStatusBtn">PATCH — Update Status</button>
         <div class="result-box" id="updateOrderStatusResult"></div>
       </div>
+      <div class="card" id="invoiceCard" style="display:none">
+        <div class="card-title">Invoice</div>
+        <div class="alert a-success show" id="invoiceAlert" style="margin-bottom:12px">Invoice is being generated in the background...</div>
+        <div class="fg"><label class="fl">Order ID</label><input class="fi" id="invoiceOrderId" placeholder="order UUID" readonly/></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn btn-purple" id="generateInvoiceBtn">Regenerate Invoice</button>
+          <button class="btn btn-primary" id="downloadInvoiceBtn">Download / View PDF</button>
+        </div>
+        <div class="result-box" id="invoiceResult"></div>
+      </div>
     </div>
 
     <!-- ═══ TEST: PAYMENTS ═══ -->
