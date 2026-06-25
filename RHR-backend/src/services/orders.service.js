@@ -110,14 +110,16 @@ async function updateOrderStatus(id, companyId, status) {
   const validStatuses = ['confirmed', 'preparing', 'dispatched', 'delivered', 'cancelled'];
   if (!validStatuses.includes(status)) throw new Error('Invalid status');
 
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('orders')
     .update({ status })
-    .eq('id', id)
-    .eq('company_id', companyId)
-    .select()
-    .single();
-  if (error) throw new Error('Order not found');
+    .eq('id', id);
+
+  // super_admin has no company_id — skip the scope filter
+  if (companyId) query = query.eq('company_id', companyId);
+
+  const { data, error } = await query.select().single();
+  if (error) throw new Error(error.message || 'Order not found');
   return data;
 }
 

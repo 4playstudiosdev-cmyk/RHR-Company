@@ -11,8 +11,8 @@ const PORT = process.env.PORT || 3000;
 // Security middleware
 app.use(helmetMiddleware);
 app.use(corsMiddleware);
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 // Serve test UI
 app.use(express.static(path.join(__dirname, 'public')));

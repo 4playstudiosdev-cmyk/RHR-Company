@@ -25,12 +25,12 @@ async function createPayment({ companyId, customerId, salesmanId, orderId, amoun
 async function getPayments(user) {
   let query = supabaseAdmin
     .from('payments')
-    .select('*, users!customer_id(full_name, phone), users!salesman_id(full_name)')
+    .select('*, customer:users!customer_id(full_name, phone), salesman:users!salesman_id(full_name)')
     .order('created_at', { ascending: false });
 
   if (user.role === 'salesman') {
     query = query.eq('salesman_id', user.id);
-  } else {
+  } else if (user.company_id) {
     query = query.eq('company_id', user.company_id);
   }
 
@@ -43,7 +43,7 @@ async function reviewPayment(id, companyId, adminId, { status, adminNote }) {
   if (!['approved', 'rejected'].includes(status))
     throw new Error('Status must be approved or rejected');
 
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('payments')
     .update({
       status,
@@ -51,13 +51,14 @@ async function reviewPayment(id, companyId, adminId, { status, adminNote }) {
       reviewed_by: adminId,
       reviewed_at: new Date().toISOString()
     })
-    .eq('id', id)
-    .eq('company_id', companyId)
-    .select()
-    .single();
+    .eq('id', id);
 
+  // super_admin has no company_id — skip scope filter
+  if (companyId) query = query.eq('company_id', companyId);
+
+  const { data, error } = await query.select().single();
   // Note: ledger CREDIT entry is auto-created by DB trigger on approval
-  if (error) throw new Error('Payment not found');
+  if (error) throw new Error(error.message || 'Payment not found');
   return data;
 }
 
