@@ -1,0 +1,158 @@
+const { supabaseAdmin }    = require('../config/supabase');
+const { generateInvoice }  = require('./invoice.service');
+
+async function createOrder({ customerId, salesmanId, companyId, items, notes, deliveryAddress }) {
+  // Step 1: Validate all products exist and have enough stock
+  const productIds = items.map(i => i.product_id);
+  const { data: products, error: pErr } = await supabaseAdmin
+    .from('products')
+    .select('id, name, price, stock_quantity')
+    .in('id', productIds)
+    .eq('company_id', companyId)
+    .eq('is_active', true);
+
+  if (pErr || products.length !== items.length) {
+    throw new Error('One or more products not found');
+  }
+
+  // Step 2: Build order items with price snapshot
+  let totalAmount = 0;
+  const orderItems = items.map(item => {
+    const product = products.find(p => p.id === item.product_id);
+    if (product.stock_quantity < item.quantity) {
+      throw new Error(`Insufficient stock for ${product.name}`);
+    }
+    const subtotal = product.price * item.quantity;
+    totalAmount += subtotal;
+    return {
+      product_id:   item.product_id,
+      product_name: product.name,
+      unit_price:   product.price,
+      quantity:     item.quantity,
+      subtotal
+    };
+  });
+
+  // Step 3: Create the order
+  const date    = new Date();
+  const datePart = `${date.getFullYear()}${String(date.getMonth()+1).padStart(2,'0')}${String(date.getDate()).padStart(2,'0')}`;
+  const randPart = Math.floor(1000 + Math.random() * 9000);
+  const orderNumber = `ORD-${datePart}-${randPart}`;
+
+  const { data: order, error: oErr } = await supabaseAdmin
+    .from('orders')
+    .insert({
+      company_id:       companyId,
+      customer_id:      customerId,
+      salesman_id:      salesmanId || null,
+      order_number:     orderNumber,
+      total_amount:     totalAmount,
+      notes,
+      delivery_address: deliveryAddress
+    })
+    .select()
+    .single();
+
+  if (oErr) throw new Error(oErr.message);
+
+  // Step 4: Insert order items
+  const { error: iErr } = await supabaseAdmin
+    .from('order_items')
+    .insert(orderItems.map(item => ({ ...item, order_id: order.id })));
+
+  if (iErr) throw new Error(iErr.message);
+
+  // Step 5: Deduct stock for each product
+  for (const item of items) {
+    const product = products.find(p => p.id === item.product_id);
+    await supabaseAdmin
+      .from('products')
+      .update({ stock_quantity: product.stock_quantity - item.quantity })
+      .eq('id', item.product_id);
+  }
+
+  return order;
+}
+
+async function getOrders(user) {
+  let query = supabaseAdmin
+    .from('orders')
+    .select('*, order_items(product_name, quantity, unit_price, subtotal), users!customer_id(full_name, phone)')
+    .order('created_at', { ascending: false });
+
+  if (user.role === 'customer') {
+    query = query.eq('customer_id', user.id);
+  } else if (user.role === 'salesman') {
+    query = query.eq('salesman_id', user.id);
+  } else {
+    // Admin sees all in their company
+    query = query.eq('company_id', user.company_id);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function getOrderById(id, user) {
+  const { data, error } = await supabaseAdmin
+    .from('orders')
+    .select('*, order_items(*), users!customer_id(full_name, phone, shop_name, shop_address)')
+    .eq('id', id)
+    .single();
+  if (error) throw new Error('Order not found');
+
+  // Security check
+  if (user.role === 'customer' && data.customer_id !== user.id)
+    throw new Error('Access denied');
+  if (user.role === 'salesman' && data.salesman_id !== user.id)
+    throw new Error('Access denied');
+
+  return data;
+}
+
+async function updateOrderStatus(id, companyId, status) {
+  const validStatuses = ['confirmed', 'preparing', 'dispatched', 'delivered', 'cancelled'];
+  if (!validStatuses.includes(status))
+    throw new Error('Invalid status. Must be one of: ' + validStatuses.join(', '));
+
+  // Step 1: Check the order exists first
+  const { data: existing, error: fetchErr } = await supabaseAdmin
+    .from('orders')
+    .select('id, status, company_id')
+    .eq('id', id)
+    .single();
+
+  if (fetchErr || !existing) throw new Error('Order not found');
+
+  // Step 2: Do the update separately
+  const { error: updateErr } = await supabaseAdmin
+    .from('orders')
+    .update({ status })
+    .eq('id', id);
+
+  if (updateErr) {
+    console.error('Update error:', updateErr);
+    throw new Error('Failed to update order status: ' + updateErr.message);
+  }
+
+  // Step 3: Fetch the updated order to return
+  const { data: updated, error: refetchErr } = await supabaseAdmin
+    .from('orders')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (refetchErr || !updated) throw new Error('Order updated but failed to fetch result');
+
+  // Auto-generate invoice when order is confirmed
+  if (status === 'confirmed') {
+    generateInvoice(id).catch(err =>
+      console.error('Background invoice generation failed:', err.message)
+    );
+  }
+
+  return updated;
+}
+
+module.exports = { createOrder, getOrders, getOrderById, updateOrderStatus };

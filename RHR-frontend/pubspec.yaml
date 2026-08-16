@@ -1,0 +1,61 @@
+name: rhr_app
+description: "RHR & Company Enterprise App"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # Navigation
+  go_router: ^14.0.0
+
+  # State Management
+  flutter_riverpod: ^2.6.1
+
+  # HTTP Client
+  dio: ^5.7.0
+
+  # Offline Storage
+  hive_flutter: ^1.1.0
+
+  # Secure Storage
+  flutter_secure_storage: ^9.2.2
+
+  # Image Picker
+  image_picker: ^1.1.2
+
+  # GPS / Location
+  geolocator: ^13.0.1
+
+  # Connectivity check (for offline GPS queuing)
+  connectivity_plus: ^6.0.0
+
+  # Maps — OpenStreetMap tiles, no API key needed (same reasoning as the
+  # desktop app's Leaflet choice: no Google Maps key configured anywhere)
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+
+  # SVG Support
+  flutter_svg: ^2.0.10+1
+
+  # Charts
+  fl_chart: ^0.68.0
+
+  # PDF generation
+  printing: ^5.12.0
+  pdf: ^3.10.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/rhr-logo.jpeg

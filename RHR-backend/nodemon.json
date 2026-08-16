@@ -1,0 +1,10 @@
+{
+  "watch": ["server.js", "src"],
+  "ext": "js,json",
+  "ignore": [
+    "session_data/**",
+    ".wwebjs_cache/**",
+    "node_modules/**",
+    "public/**"
+  ]
+}
