@@ -16,7 +16,7 @@ const getSalesmanAnalytics = async (req, res) => {
     // Orders this month
     const { data: orders } = await supabaseAdmin
       .from('orders')
-      .select('id, total_amount, status')
+      .select('id, total_amount, status, created_at')
       .eq('salesman_id', id)
       .gte('created_at', start)
       .lte('created_at', end);
@@ -24,7 +24,7 @@ const getSalesmanAnalytics = async (req, res) => {
     // Payments collected this month
     const { data: payments } = await supabaseAdmin
       .from('payments')
-      .select('amount, status')
+      .select('amount, status, created_at')
       .eq('salesman_id', id)
       .eq('status', 'approved')
       .gte('created_at', start)
@@ -33,10 +33,11 @@ const getSalesmanAnalytics = async (req, res) => {
     // Customer visits this month
     const { data: visits } = await supabaseAdmin
       .from('customer_visits')
-      .select('id')
+      .select('id, customer_id, notes, visited_at, users!customer_id(full_name)')
       .eq('salesman_id', id)
       .gte('visited_at', start)
-      .lte('visited_at', end);
+      .lte('visited_at', end)
+      .order('visited_at', { ascending: false });
 
     // Assigned customers count
     const { count: totalCustomers } = await supabaseAdmin
@@ -57,6 +58,7 @@ const getSalesmanAnalytics = async (req, res) => {
       totalCustomers:  totalCustomers || 0,
       orders,
       payments,
+      visits,
     });
   } catch (err) { return error(res, err.message); }
 };

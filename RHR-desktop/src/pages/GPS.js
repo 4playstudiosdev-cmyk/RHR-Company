@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { MapPin, Circle, Route, ShieldCheck, LocateFixed } from 'lucide-react';
+import { MapPin, Circle, Route, ShieldCheck, LocateFixed, WifiOff, Store, PauseCircle, Navigation } from 'lucide-react';
 import api from '../services/api';
 import AdminLocationService from '../services/adminLocationService';
 import PageHeader from '../components/PageHeader';
@@ -11,10 +11,23 @@ import { useToast } from '../components/Toast';
 const REFRESH_MS = 10000;
 const KARACHI = [24.8608, 67.0104];
 
+// A ping older than this with nothing newer behind it counts as "offline"
+// (signal lost) rather than just stale — matches the mobile app's own
+// GPS ping interval, which is well under this.
+const OFFLINE_AFTER_MS = 15 * 60 * 1000;
+
 const STATUS_COLORS = {
-  moving: '#2E75B6',
-  idle: '#E8841A',
-  at_customer: '#1A7A4A'
+  moving: '#059669',      // emerald — actively on the move
+  idle: '#da3610',        // orange (theme accent) — stationary, needs a look
+  at_customer: '#073c9f', // navy (theme primary) — informative, not alarming
+  offline: '#9ca3af'      // gray — signal lost
+};
+
+const STATUS_META = {
+  moving: { label: 'Moving', icon: Navigation },
+  idle: { label: 'Idle', icon: PauseCircle },
+  at_customer: { label: 'At Customer', icon: Store },
+  offline: { label: 'Offline', icon: WifiOff }
 };
 
 function timeAgo(iso) {
@@ -23,6 +36,22 @@ function timeAgo(iso) {
   if (diffSec < 60) return `${diffSec}s ago`;
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
   return `${Math.floor(diffSec / 3600)}h ago`;
+}
+
+function getInitials(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  const initials = parts.length > 1 ? parts[0][0] + parts[1][0] : parts[0].slice(0, 2);
+  return initials.toUpperCase();
+}
+
+// The backend only ever reports moving/idle/at_customer on a ping — it
+// never writes "offline" itself. We infer that client-side from staleness
+// (or a total absence of any location ever reported).
+function effectiveStatus(s) {
+  if (!s.location) return 'offline';
+  const age = Date.now() - new Date(s.location.recorded_at).getTime();
+  return age > OFFLINE_AFTER_MS ? 'offline' : s.location.status;
 }
 
 const todayStr = () => new Date().toISOString().split('T')[0];
@@ -84,8 +113,9 @@ export default function GPS() {
     data.forEach((s) => {
       if (!s.location) return;
       const pos = [s.location.latitude, s.location.longitude];
-      const color = STATUS_COLORS[s.location.status] || '#888888';
-      const popupHtml = `<div style="font-size:12px"><strong>${s.full_name}</strong><br/>Status: ${s.location.status}<br/>Last seen: ${new Date(
+      const status = effectiveStatus(s);
+      const color = STATUS_COLORS[status] || '#888888';
+      const popupHtml = `<div style="font-size:12px"><strong>${s.full_name}</strong><br/>Status: ${STATUS_META[status]?.label || status}<br/>Last seen: ${new Date(
         s.location.recorded_at
       ).toLocaleTimeString()}</div>`;
 
@@ -266,36 +296,70 @@ export default function GPS() {
     }
   };
 
+  // Clicking a sidebar card pans the map to that person's marker.
+  const focusOnSalesman = (s) => {
+    if (!s.location || !mapRef.current) return;
+    mapRef.current.setView([s.location.latitude, s.location.longitude], 15, { animate: true });
+    markersRef.current[s.id]?.openPopup();
+  };
+
+  const statusCounts = useMemo(() => {
+    const counts = { moving: 0, at_customer: 0, idle: 0, offline: 0 };
+    salesmen.forEach((s) => { counts[effectiveStatus(s)] = (counts[effectiveStatus(s)] || 0) + 1; });
+    return counts;
+  }, [salesmen]);
+
   return (
     <div className="p-6 flex flex-col h-full">
-      <PageHeader title="Live GPS" subtitle="Track salesman and admin locations, and replay any day's route" />
+      <PageHeader title="Live GPS Tracking" subtitle="Track salesman and admin locations, and replay any day's route" />
 
-      <div className="flex gap-2 mb-4">
-        <button
-          onClick={() => switchView('live')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-            view === 'live' ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-          }`}
-        >
-          <Circle size={10} className={view === 'live' ? 'fill-white text-white' : 'fill-red-500 text-red-500'} />
-          Live — refreshes every 10s
-        </button>
-        <button
-          onClick={() => switchView('route')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-            view === 'route' ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-          }`}
-        >
-          <Route size={14} /> Route Playback
-        </button>
-        <button
-          onClick={() => switchView('admin')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-            view === 'admin' ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-          }`}
-        >
-          <ShieldCheck size={14} /> Admin
-        </button>
+      <div className="flex justify-between items-center flex-wrap gap-3 mb-4">
+        <div className="flex gap-2">
+          <button
+            onClick={() => switchView('live')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+              view === 'live' ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            <Circle size={10} className={view === 'live' ? 'fill-white text-white' : 'fill-red-500 text-red-500'} />
+            Live — refreshes every 10s
+          </button>
+          <button
+            onClick={() => switchView('route')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+              view === 'route' ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            <Route size={14} /> Route Playback
+          </button>
+          <button
+            onClick={() => switchView('admin')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+              view === 'admin' ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            <ShieldCheck size={14} /> Admin
+          </button>
+        </div>
+
+        {view === 'live' && salesmen.length > 0 && (
+          <div className="flex gap-2">
+            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Active ({statusCounts.moving})
+            </span>
+            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-navy-chip text-navy">
+              <span className="w-1.5 h-1.5 rounded-full bg-navy" /> At Customer ({statusCounts.at_customer})
+            </span>
+            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-orange/10 text-orange">
+              <span className="w-1.5 h-1.5 rounded-full bg-orange" /> Idle ({statusCounts.idle})
+            </span>
+            {statusCounts.offline > 0 && (
+              <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-500">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-400" /> Offline ({statusCounts.offline})
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -306,7 +370,7 @@ export default function GPS() {
         {/* Sidebar */}
         <div className="w-72 flex-shrink-0 flex flex-col gap-3 overflow-y-auto">
           {view === 'route' && (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex flex-col gap-3">
+            <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-4 flex flex-col gap-3">
               <select
                 value={selectedUser}
                 onChange={(e) => setSelectedUser(e.target.value)}
@@ -358,65 +422,82 @@ export default function GPS() {
 
           {view === 'admin' ? (
             loading ? (
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 text-sm text-gray-400">
+              <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-6 text-sm text-gray-400">
                 Loading...
               </div>
             ) : adminLocations.length === 0 ? (
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+              <div className="bg-white rounded-2xl shadow-card border border-gray-100">
                 <EmptyState icon={ShieldCheck} title="No admins found" subtitle="Admin accounts will appear here" />
               </div>
             ) : (
               adminLocations.map((a) => (
-                <div key={a.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-                  <div className="flex items-start justify-between">
-                    <p className="font-semibold text-sm text-navy">{a.full_name}</p>
-                    {a.location && (
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: '#8E44AD' }}>
-                        online
-                      </span>
-                    )}
+                <div key={a.id} className="bg-white rounded-2xl shadow-card border border-gray-100 p-4 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 text-white" style={{ backgroundColor: '#8E44AD' }}>
+                    {getInitials(a.full_name)}
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">
-                    {a.location ? `Last seen ${timeAgo(a.location.recorded_at)}` : 'No location reported yet'}
-                  </p>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-sm text-navy truncate">{a.full_name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {a.location ? `Updated ${timeAgo(a.location.recorded_at)}` : 'No location reported yet'}
+                    </p>
+                  </div>
+                  {a.location && (
+                    <span className="text-[10px] font-bold uppercase px-2 py-1 rounded-full text-white flex-shrink-0" style={{ backgroundColor: '#8E44AD' }}>
+                      Online
+                    </span>
+                  )}
                 </div>
               ))
             )
           ) : loading && view === 'live' ? (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 text-sm text-gray-400">
+            <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-6 text-sm text-gray-400">
               Loading...
             </div>
           ) : salesmen.length === 0 ? (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+            <div className="bg-white rounded-2xl shadow-card border border-gray-100">
               <EmptyState icon={MapPin} title="No field staff found" subtitle="Salesman accounts will appear here" />
             </div>
           ) : (
-            salesmen.map((s) => (
-              <div key={s.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-                <div className="flex items-start justify-between">
-                  <p className="font-semibold text-sm text-navy">{s.full_name}</p>
-                  {s.location && (
-                    <span
-                      className="text-xs font-medium px-2 py-0.5 rounded-full"
-                      style={{
-                        color: STATUS_COLORS[s.location.status] || '#888',
-                        backgroundColor: `${STATUS_COLORS[s.location.status] || '#888'}1a`
-                      }}
-                    >
-                      {s.location.status}
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-gray-400 mt-1">
-                  {s.location ? `Last seen ${timeAgo(s.location.recorded_at)}` : 'No location reported yet'}
-                </p>
-              </div>
-            ))
+            salesmen.map((s) => {
+              const status = effectiveStatus(s);
+              const color = STATUS_COLORS[status];
+              const meta = STATUS_META[status];
+              const StatusIcon = meta.icon;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => focusOnSalesman(s)}
+                  disabled={!s.location}
+                  className={`text-left bg-white rounded-2xl shadow-card border border-gray-100 p-4 flex items-center gap-3 transition-shadow ${
+                    s.location ? 'hover:shadow-md cursor-pointer' : 'cursor-default'
+                  }`}
+                >
+                  <div
+                    className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0"
+                    style={{ backgroundColor: `${color}1a`, color }}
+                  >
+                    {getInitials(s.full_name)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-sm text-navy truncate">{s.full_name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {s.location ? `Updated ${timeAgo(s.location.recorded_at)}` : 'No location reported yet'}
+                    </p>
+                  </div>
+                  <span
+                    className="flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full flex-shrink-0"
+                    style={{ color, backgroundColor: `${color}1a` }}
+                  >
+                    <StatusIcon size={11} /> {meta.label}
+                  </span>
+                </button>
+              );
+            })
           )}
         </div>
 
-        {/* Map */}
-        <div className="flex-1 rounded-2xl overflow-hidden border border-gray-200 shadow-sm">
+        {/* Map — real Leaflet + OpenStreetMap, no API key required */}
+        <div className="flex-1 rounded-2xl overflow-hidden border border-gray-100 shadow-card">
           <div ref={mapContainerRef} className="w-full h-full min-h-[500px]" />
         </div>
       </div>

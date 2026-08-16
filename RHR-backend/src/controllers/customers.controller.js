@@ -28,7 +28,7 @@ const getPendingCustomers = async (req, res) => {
   try {
     const { data, error: dbError } = await supabaseAdmin
       .from('users')
-      .select('id, full_name, phone, created_at')
+      .select('id, full_name, phone, email, shop_name, created_at')
       .eq('role', 'customer')
       .eq('is_approved', false)
       .eq('is_active', true)

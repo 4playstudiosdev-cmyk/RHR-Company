@@ -19,14 +19,19 @@ const EMPTY_FORM = {
   image_url: ''
 };
 
+const PAGE_SIZE = 10;
+
 export default function Products() {
   const toast      = useToast();
   const fileInputRef = useRef(null);
 
   const [products, setProducts]     = useState([]);
+  const [total, setTotal]           = useState(0);
+  const [page, setPage]             = useState(1);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState('');
   const [search, setSearch]         = useState('');
+  const [activeCategory, setActiveCategory] = useState('');
   const [showModal, setShowModal]   = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [form, setForm]             = useState(EMPTY_FORM);
@@ -37,10 +42,14 @@ export default function Products() {
   const [categories, setCategories] = useState([]);
 
   useEffect(() => {
-    loadProducts();
     loadCategories();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    loadProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, activeCategory]);
 
   const loadCategories = async () => {
     try {
@@ -51,14 +60,20 @@ export default function Products() {
     }
   };
 
-  const loadProducts = async (searchTerm = '') => {
+  const loadProducts = async (searchTerm = search) => {
     setLoading(true);
     setError('');
     try {
       const res = await api.get('/products', {
-        params: { limit: 100, ...(searchTerm ? { search: searchTerm } : {}) }
+        params: {
+          page,
+          limit: PAGE_SIZE,
+          ...(searchTerm ? { search: searchTerm } : {}),
+          ...(activeCategory ? { category_id: activeCategory } : {})
+        }
       });
       setProducts(res.data.data.products || []);
+      setTotal(res.data.data.total || 0);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load products.');
     } finally {
@@ -68,8 +83,11 @@ export default function Products() {
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
+    setPage(1);
     loadProducts(search);
   };
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const openAddModal = () => {
     setEditingProduct(null);
@@ -211,7 +229,7 @@ export default function Products() {
         }
       />
 
-      <form onSubmit={handleSearchSubmit} className="mb-6 flex gap-2">
+      <form onSubmit={handleSearchSubmit} className="mb-4 flex gap-2">
         <div className="relative w-full max-w-sm">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
@@ -219,102 +237,173 @@ export default function Products() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search products by name..."
-            className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+            className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
           />
         </div>
         <Button type="submit" variant="primary">Search</Button>
       </form>
 
+      {categories.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-6">
+          <button
+            onClick={() => { setActiveCategory(''); setPage(1); }}
+            className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              !activeCategory ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            All Products
+          </button>
+          {categories.map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => { setActiveCategory(cat.id); setPage(1); }}
+              className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                activeCategory === cat.id ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {cat.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {error && (
-        <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
           {error}
         </div>
       )}
 
-      {loading ? (
-        <SkeletonTable rows={6} cols={6} />
-      ) : (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          {products.length === 0 ? (
-            <EmptyState
-              icon={Package}
-              title="No products found"
-              subtitle="Try a different search or add a new product"
-            />
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
-                  <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wide w-16">Image</th>
-                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Name</th>
-                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>
-                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Price</th>
-                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Stock</th>
-                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {products.map((product, i) => (
-                  <tr
-                    key={product.id}
-                    className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${
-                      i % 2 === 1 ? 'bg-gray-50/40' : ''
+      <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+        {loading ? (
+          <SkeletonTable rows={6} cols={6} />
+        ) : products.length === 0 ? (
+          <EmptyState
+            icon={Package}
+            title="No products found"
+            subtitle="Try a different search or add a new product"
+          />
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                    <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wide w-16">Image</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Product</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Price</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Stock</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {products.map((product, i) => (
+                    <tr
+                      key={product.id}
+                      className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${
+                        i % 2 === 1 ? 'bg-gray-50/40' : ''
+                      }`}
+                    >
+                      <td className="px-4 py-3">
+                        {product.image_url ? (
+                          <img
+                            src={product.image_url}
+                            alt={product.name}
+                            className="w-12 h-12 object-cover rounded-lg border border-gray-200"
+                            onError={(e) => {
+                              e.target.onerror = null;
+                              e.target.style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
+                            <Package size={18} className="text-gray-400" />
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-3.5">
+                        <p className="font-medium text-navy">{product.name}</p>
+                        {product.sku && <p className="text-xs text-gray-400">SKU: {product.sku}</p>}
+                      </td>
+                      <td className="px-6 py-3.5 text-gray-600">{product.categories?.name || '—'}</td>
+                      <td className="px-6 py-3.5 text-gray-600">
+                        PKR {Number(product.price).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-3.5 text-gray-600">
+                        {product.stock_quantity}
+                        {product.unit ? ` ${product.unit}` : ''}
+                      </td>
+                      <td className="px-6 py-3.5">
+                        {Number(product.stock_quantity) > 0 ? (
+                          <span className="inline-block px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-semibold">
+                            In Stock
+                          </span>
+                        ) : (
+                          <span className="inline-block px-2.5 py-1 rounded-full bg-red-50 text-red-600 text-[11px] font-semibold">
+                            Out of Stock
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-3.5">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openEditModal(product)}
+                            className="p-2 rounded-lg text-navy hover:bg-navy/10 transition-colors"
+                            title="Edit"
+                          >
+                            <Pencil size={15} />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(product)}
+                            className="p-2 rounded-lg text-red-600 hover:bg-red-50 transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center flex-wrap gap-3">
+              <span className="text-xs text-gray-400">
+                Showing {(page - 1) * PAGE_SIZE + 1} to {Math.min(page * PAGE_SIZE, total)} of {total} entries
+              </span>
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1.5 border border-gray-200 rounded-md text-gray-500 text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Prev
+                </button>
+                {Array.from({ length: totalPages }).map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setPage(i + 1)}
+                    className={`px-3 py-1.5 rounded-md text-sm border ${
+                      page === i + 1 ? 'bg-navy text-white border-navy' : 'border-gray-200 text-gray-500 hover:bg-gray-50'
                     }`}
                   >
-                    <td className="px-4 py-3">
-                      {product.image_url ? (
-                        <img
-                          src={product.image_url}
-                          alt={product.name}
-                          className="w-12 h-12 object-cover rounded-lg border border-gray-200"
-                          onError={(e) => {
-                            e.target.onerror = null;
-                            e.target.style.display = 'none';
-                          }}
-                        />
-                      ) : (
-                        <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
-                          <Package size={18} className="text-gray-400" />
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-3.5">
-                      <p className="font-medium text-navy">{product.name}</p>
-                      {product.sku && <p className="text-xs text-gray-400">SKU: {product.sku}</p>}
-                    </td>
-                    <td className="px-6 py-3.5 text-gray-600">{product.categories?.name || '—'}</td>
-                    <td className="px-6 py-3.5 text-gray-600">
-                      PKR {Number(product.price).toLocaleString()}
-                    </td>
-                    <td className="px-6 py-3.5 text-gray-600">
-                      {product.stock_quantity}
-                      {product.unit ? ` ${product.unit}` : ''}
-                    </td>
-                    <td className="px-6 py-3.5">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => openEditModal(product)}
-                          className="p-2 rounded-lg text-navy hover:bg-navy/10 transition-colors"
-                          title="Edit"
-                        >
-                          <Pencil size={15} />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(product)}
-                          className="p-2 rounded-lg text-red-600 hover:bg-red-50 transition-colors"
-                          title="Delete"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                    {i + 1}
+                  </button>
                 ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="px-3 py-1.5 border border-gray-200 rounded-md text-gray-500 text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       {showModal && (
         <Modal

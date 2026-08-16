@@ -12,12 +12,15 @@ router.post('/attendance/manual',     authenticate, isAdmin, ctrl.manualAttendan
 
 // Salary
 router.post('/salary/setup',          authenticate, isAdmin, ctrl.setupSalary);
+router.get('/payroll',                authenticate, isAdmin, ctrl.getPayroll);
 router.get('/salary/:userId',         authenticate, ctrl.getSalary);
 router.get('/payslip/:userId',        authenticate, ctrl.downloadPayslip);
 
 // Leave
 router.post('/leave/apply',           authenticate, ctrl.applyLeave);
+router.post('/leave/manual',          authenticate, isAdmin, ctrl.manualLeaveRequest);
 router.patch('/leave/:id/review',     authenticate, isAdmin, ctrl.reviewLeave);
+router.get('/leave',                  authenticate, isAdmin, ctrl.getAllLeaveRequests);
 router.get('/leave/:userId',          authenticate, ctrl.getLeaveHistory);
 
 module.exports = router;

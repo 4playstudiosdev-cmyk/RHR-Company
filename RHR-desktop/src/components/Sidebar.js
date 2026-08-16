@@ -65,7 +65,7 @@ export default function Sidebar({ page, setPage, user, onLogout }) {
               <div key={item.key}>
                 <button
                   onClick={() => setProductionOpen((prev) => !prev)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
                     groupActive
                       ? 'bg-white/10 text-white'
                       : 'text-blue-200/80 hover:bg-white/10 hover:text-white'
@@ -87,9 +87,9 @@ export default function Sidebar({ page, setPage, user, onLogout }) {
                         <button
                           key={child.key}
                           onClick={() => setPage(child.key)}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                          className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                             active
-                              ? 'bg-orange text-white shadow-sm'
+                              ? 'bg-navy-container text-white shadow-sm'
                               : 'text-blue-200/70 hover:bg-white/10 hover:text-white'
                           }`}
                         >
@@ -109,9 +109,9 @@ export default function Sidebar({ page, setPage, user, onLogout }) {
             <button
               key={item.key}
               onClick={() => setPage(item.key)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
                 active
-                  ? 'bg-orange text-white shadow-sm'
+                  ? 'bg-navy-container text-white shadow-sm'
                   : 'text-blue-200/80 hover:bg-white/10 hover:text-white'
               }`}
             >
@@ -134,14 +134,14 @@ export default function Sidebar({ page, setPage, user, onLogout }) {
         </div>
         <button
           onClick={() => setShowServerSettings(true)}
-          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-blue-200/80 hover:bg-white/10 hover:text-white transition-colors"
+          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-blue-200/80 hover:bg-white/10 hover:text-white transition-colors"
         >
           <Server size={18} strokeWidth={2} />
           <span>Server Settings</span>
         </button>
         <button
           onClick={onLogout}
-          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-blue-200/80 hover:bg-white/10 hover:text-white transition-colors"
+          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-blue-200/80 hover:bg-white/10 hover:text-white transition-colors"
         >
           <LogOut size={18} strokeWidth={2} />
           <span>Logout</span>

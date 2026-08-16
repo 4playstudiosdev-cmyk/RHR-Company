@@ -1,6 +1,40 @@
 const XLSX = require('xlsx');
 const { supabaseAdmin } = require('../config/supabase');
-const { error } = require('../utils/response');
+const { success, error } = require('../utils/response');
+
+// GET /api/v1/reports/outstanding — same per-customer "last ledger balance"
+// computation the Excel export below already does, just returned as JSON
+// so the Reports page can show it live instead of only as a download.
+const getOutstanding = async (req, res) => {
+  try {
+    const companyId = req.user.company_id;
+    const { data: customers } = await supabaseAdmin
+      .from('users')
+      .select('id, full_name, phone, shop_name')
+      .eq('company_id', companyId)
+      .eq('role', 'customer')
+      .eq('is_approved', true);
+
+    const rows = await Promise.all((customers || []).map(async (c) => {
+      const { data: last } = await supabaseAdmin
+        .from('ledger_entries')
+        .select('running_balance')
+        .eq('customer_id', c.id)
+        .order('created_at', { ascending: false })
+        .limit(1).single();
+      return {
+        customer_id: c.id,
+        full_name:   c.full_name,
+        shop_name:   c.shop_name || null,
+        phone:       c.phone,
+        outstanding: last?.running_balance || 0
+      };
+    }));
+
+    rows.sort((a, b) => b.outstanding - a.outstanding);
+    return success(res, rows);
+  } catch (err) { return error(res, err.message); }
+};
 
 const exportReport = async (req, res) => {
   try {
@@ -78,4 +112,4 @@ const exportReport = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { exportReport };
+module.exports = { exportReport, getOutstanding };

@@ -8,6 +8,18 @@ const authRoutes = require('./src/routes/auth.routes');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// The WhatsApp bot (whatsapp-web.js/puppeteer) runs as a background,
+// best-effort feature used only for OTP delivery. Bugs inside that library
+// (e.g. a Windows file-lock race when it cleans up a logged-out session —
+// EBUSY on session_data/session/*.db) must never be allowed to take down
+// the whole API — orders/payments/etc. have nothing to do with WhatsApp.
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ Uncaught exception (server kept alive):', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('⚠️ Unhandled rejection (server kept alive):', reason);
+});
+
 // Security middleware
 app.use(helmetMiddleware);
 app.use(corsMiddleware);
@@ -38,6 +50,7 @@ app.use('/api/v1/gps',           require('./src/routes/gps.routes'));
 app.use('/api/v1/notifications', require('./src/routes/notifications.routes'));
 app.use('/api/v1/analytics',     require('./src/routes/analytics.routes'));
 app.use('/api/v1/hrm',           require('./src/routes/hrm.routes'));
+app.use('/api/v1/employees',     require('./src/routes/employees.routes'));
 app.use('/api/v1/salesmen',      require('./src/routes/salesmen.routes'));
 app.use('/api/v1/visits',        require('./src/routes/visits.routes'));
 app.use('/api/v1/admin-location', require('./src/routes/admin-location.routes'));
