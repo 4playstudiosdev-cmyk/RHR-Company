@@ -2,12 +2,15 @@
 # download kept failing on Railway with missing shared libraries
 # (libglib-2.0.so.0, etc.) — chasing individual libs one by one is a
 # whack-a-mole. Instead: install Chromium via apt (apt resolves its full
-# dependency tree automatically) and skip Puppeteer's own download, pointing
-# it at the apt-installed binary instead (see PUPPETEER_EXECUTABLE_PATH below
-# and src/config/whatsapp.js).
+# dependency tree automatically) and point Puppeteer at that binary.
+#
+# IMPORTANT: nixpacks [variables] only apply at build time, NOT at
+# container runtime. PUPPETEER_EXECUTABLE_PATH (and, if you want to also
+# skip Puppeteer's own download attempt, PUPPETEER_SKIP_DOWNLOAD — note
+# this is the correct name for Puppeteer v24+; the older
+# PUPPETEER_SKIP_CHROMIUM_DOWNLOAD name no longer does anything) must be
+# set in Railway's dashboard: Service -> Variables tab.
+#   PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+#   PUPPETEER_SKIP_DOWNLOAD=true
 [phases.setup]
 aptPkgs = ["chromium", "ca-certificates", "fonts-liberation"]
-
-[variables]
-PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true"
-PUPPETEER_EXECUTABLE_PATH = "/usr/bin/chromium"
