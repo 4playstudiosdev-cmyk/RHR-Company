@@ -1,16 +1,17 @@
-# whatsapp-web.js needs a working Chromium. Puppeteer's own bundled Chrome
-# download kept failing on Railway with missing shared libraries
-# (libglib-2.0.so.0, etc.) — chasing individual libs one by one is a
-# whack-a-mole. Instead: install Chromium via apt (apt resolves its full
-# dependency tree automatically) and point Puppeteer at that binary.
+# whatsapp-web.js needs a working Chromium.
 #
-# IMPORTANT: nixpacks [variables] only apply at build time, NOT at
-# container runtime. PUPPETEER_EXECUTABLE_PATH (and, if you want to also
-# skip Puppeteer's own download attempt, PUPPETEER_SKIP_DOWNLOAD — note
-# this is the correct name for Puppeteer v24+; the older
-# PUPPETEER_SKIP_CHROMIUM_DOWNLOAD name no longer does anything) must be
-# set in Railway's dashboard: Service -> Variables tab.
-#   PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-#   PUPPETEER_SKIP_DOWNLOAD=true
+# Attempt 1 (Puppeteer's own bundled Chrome download) failed on Railway with
+# missing shared libraries (libglib-2.0.so.0, ...).
+# Attempt 2 (apt-get install chromium) failed too: on Ubuntu-based images
+# (which Railway's nixpacks images are), the "chromium" apt package is a
+# transitional stub that redirects to snap — there is no real binary at
+# /usr/bin/chromium in a container (no snapd available).
+#
+# Fix: install chromium via Nix instead (a genuine self-contained binary,
+# no snap involved), and resolve its actual path at container start time
+# rather than hardcoding a path that may not match the Nix store hash.
 [phases.setup]
-aptPkgs = ["chromium", "ca-certificates", "fonts-liberation"]
+nixPkgs = ["chromium"]
+
+[start]
+cmd = "PUPPETEER_EXECUTABLE_PATH=$(command -v chromium) node server.js"
