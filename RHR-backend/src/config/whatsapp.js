@@ -34,6 +34,10 @@ async function initWhatsApp() {
     authStrategy: new LocalAuth({ dataPath: sessionPath }),
     puppeteer: {
       headless: true,
+      // On Railway we install the OS's own Chromium via apt (see nixpacks.toml)
+      // and point Puppeteer at it — apt resolves its full shared-lib dependency
+      // tree automatically, unlike Puppeteer's own bundled Chrome download.
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
     }
   });

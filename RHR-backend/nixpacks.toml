@@ -1,39 +1,13 @@
-# Ensures Puppeteer/Chromium (used by whatsapp-web.js) has every shared
-# library it needs to actually launch on Railway's default Node image.
-# Without these, the bot process crashes on boot with "error while loading
-# shared libraries: ... No such file or directory" — works locally
-# (Windows/full Chrome) but not on Railway's minimal container.
-# List = Puppeteer's official Ubuntu/Debian troubleshooting dependency set:
-# https://pptr.dev/troubleshooting
+# whatsapp-web.js needs a working Chromium. Puppeteer's own bundled Chrome
+# download kept failing on Railway with missing shared libraries
+# (libglib-2.0.so.0, etc.) — chasing individual libs one by one is a
+# whack-a-mole. Instead: install Chromium via apt (apt resolves its full
+# dependency tree automatically) and skip Puppeteer's own download, pointing
+# it at the apt-installed binary instead (see PUPPETEER_EXECUTABLE_PATH below
+# and src/config/whatsapp.js).
 [phases.setup]
-aptPkgs = [
-  "ca-certificates",
-  "fonts-liberation",
-  "libasound2",
-  "libatk-bridge2.0-0",
-  "libatk1.0-0",
-  "libatspi2.0-0",
-  "libcairo2",
-  "libcups2",
-  "libdbus-1-3",
-  "libdrm2",
-  "libexpat1",
-  "libgbm1",
-  "libglib2.0-0",
-  "libnspr4",
-  "libnss3",
-  "libpango-1.0-0",
-  "libpangocairo-1.0-0",
-  "libx11-6",
-  "libx11-xcb1",
-  "libxcb1",
-  "libxcomposite1",
-  "libxdamage1",
-  "libxext6",
-  "libxfixes3",
-  "libxkbcommon0",
-  "libxrandr2",
-  "libxshmfence1",
-  "xdg-utils",
-  "wget"
-]
+aptPkgs = ["chromium", "ca-certificates", "fonts-liberation"]
+
+[variables]
+PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true"
+PUPPETEER_EXECUTABLE_PATH = "/usr/bin/chromium"
