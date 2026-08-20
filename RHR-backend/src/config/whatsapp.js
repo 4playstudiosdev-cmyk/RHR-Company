@@ -38,7 +38,16 @@ async function initWhatsApp() {
       // and point Puppeteer at it — apt resolves its full shared-lib dependency
       // tree automatically, unlike Puppeteer's own bundled Chrome download.
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu'
+      ]
     }
   });
 
