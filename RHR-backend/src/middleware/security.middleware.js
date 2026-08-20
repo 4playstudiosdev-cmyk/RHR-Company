@@ -14,11 +14,32 @@ const helmetMiddleware = helmet({
       fontSrc:    ["'self'"],
       objectSrc:  ["'none'"],
     }
-  }
+  },
+  // This is an API consumed cross-origin by the Vercel web app and the
+  // Flutter mobile app — Helmet's default 'same-origin' CORP silently
+  // blocks those responses in the browser even though our CORS middleware
+  // allows the origin (CORP is a separate, stricter check browsers apply
+  // on top of CORS).
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
 });
  
+// FRONTEND_URL can be a comma-separated list (e.g. the Vercel app +a
+// custom domain). Requests with no Origin header (mobile apps, curl,
+// server-to-server) are always allowed — CORS is a browser-only concept.
+// If FRONTEND_URL isn't set at all, fall back to allowing any origin so
+// this never becomes a silent outage from a missing env var.
+const allowedOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 const corsMiddleware = cors({
-  origin: '*',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
 });

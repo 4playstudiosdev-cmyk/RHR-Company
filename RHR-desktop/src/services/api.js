@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-export const DEFAULT_API_URL = 'https://rhr-company-production.up.railway.app/api/v1';
+export const DEFAULT_API_URL =
+  process.env.REACT_APP_API_URL || 'https://rhr-company-production.up.railway.app/api/v1';
 
 const api = axios.create({
   baseURL: DEFAULT_API_URL,
