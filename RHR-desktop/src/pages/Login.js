@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { Loader2, Server, Factory, Mail, Lock, Eye, EyeOff, ArrowRight, Network, ShoppingCart, Compass } from 'lucide-react';
+import { Loader2, Factory, Mail, Lock, Eye, EyeOff, ArrowRight, Network, ShoppingCart, Compass } from 'lucide-react';
 import api from '../services/api';
-import ServerSettingsModal from '../components/ServerSettingsModal';
 
 const FEATURES = [
   { icon: Network, title: 'Multi-Branch Control', text: 'Unified management across all locations.' },
@@ -15,7 +14,6 @@ export default function Login({ onLogin }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showServerSettings, setShowServerSettings] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -109,14 +107,6 @@ export default function Login({ onLogin }) {
               )}
             </button>
           </form>
-
-          <button
-            type="button"
-            onClick={() => setShowServerSettings(true)}
-            className="w-full flex items-center justify-center gap-1.5 text-xs text-gray-400 hover:text-navy mt-5 transition-colors"
-          >
-            <Server size={12} /> Server Settings
-          </button>
         </div>
       </div>
 
@@ -168,8 +158,6 @@ export default function Login({ onLogin }) {
           <p className="text-[11px] font-semibold text-navy-chip/70 tracking-widest uppercase">Powered by Dreambyte</p>
         </div>
       </div>
-
-      {showServerSettings && <ServerSettingsModal onClose={() => setShowServerSettings(false)} />}
     </div>
   );
 }

@@ -1,25 +1,13 @@
 import axios from 'axios';
 
 export const DEFAULT_API_URL = 'https://rhr-company-production.up.railway.app/api/v1';
-const STORAGE_KEY = 'rhr_api_url';
-
-// Reads the backend base URL from localStorage (set via the Server Settings
-// modal — see components/ServerSettingsModal.js), falling back to localhost.
-// This is what lets the packaged .exe point at a different machine's IP
-// on the LAN without a rebuild.
-export const getApiUrl = () => localStorage.getItem(STORAGE_KEY) || DEFAULT_API_URL;
-
-export const setApiUrl = (url) => localStorage.setItem(STORAGE_KEY, url);
 
 const api = axios.create({
-  baseURL: getApiUrl(),
+  baseURL: DEFAULT_API_URL,
   timeout: 30000
 });
 
 api.interceptors.request.use((config) => {
-  // Re-read on every request in case Server Settings changed it since the
-  // client was created.
-  config.baseURL = getApiUrl();
   const token = localStorage.getItem('rhr_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;

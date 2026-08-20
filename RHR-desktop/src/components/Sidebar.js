@@ -2,9 +2,8 @@ import React, { useState } from 'react';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, UserCog, Wallet, LogOut,
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory,
-  Gauge, Boxes, ClipboardList, Truck, FileBarChart2, ChevronDown, Server
+  Gauge, Boxes, ClipboardList, Truck, FileBarChart2, ChevronDown
 } from 'lucide-react';
-import ServerSettingsModal from './ServerSettingsModal';
 
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -46,7 +45,6 @@ function formatRole(role) {
 
 export default function Sidebar({ page, setPage, user, onLogout }) {
   const [productionOpen, setProductionOpen] = useState(page.startsWith('production-'));
-  const [showServerSettings, setShowServerSettings] = useState(false);
 
   return (
     <div className="w-64 bg-navy text-white flex flex-col h-screen flex-shrink-0 overflow-hidden">
@@ -133,13 +131,6 @@ export default function Sidebar({ page, setPage, user, onLogout }) {
           </div>
         </div>
         <button
-          onClick={() => setShowServerSettings(true)}
-          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-blue-200/80 hover:bg-white/10 hover:text-white transition-colors"
-        >
-          <Server size={18} strokeWidth={2} />
-          <span>Server Settings</span>
-        </button>
-        <button
           onClick={onLogout}
           className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-blue-200/80 hover:bg-white/10 hover:text-white transition-colors"
         >
@@ -147,8 +138,6 @@ export default function Sidebar({ page, setPage, user, onLogout }) {
           <span>Logout</span>
         </button>
       </div>
-
-      {showServerSettings && <ServerSettingsModal onClose={() => setShowServerSettings(false)} />}
     </div>
   );
 }
