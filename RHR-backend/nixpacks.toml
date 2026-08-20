@@ -6,12 +6,13 @@
 # (which Railway's nixpacks images are), the "chromium" apt package is a
 # transitional stub that redirects to snap — there is no real binary at
 # /usr/bin/chromium in a container (no snapd available).
+# Attempt 3 used [start] cmd here to export PUPPETEER_EXECUTABLE_PATH before
+# launching node — but Railway's "Custom Start Command" setting (npm start)
+# overrides this section entirely, so it never ran.
 #
-# Fix: install chromium via Nix instead (a genuine self-contained binary,
-# no snap involved), and resolve its actual path at container start time
-# rather than hardcoding a path that may not match the Nix store hash.
+# Fix: install chromium via Nix (a genuine self-contained binary, no snap
+# involved) here at build time, and resolve its actual path at *application*
+# runtime instead of relying on any start-command wrapper — see
+# resolveChromiumPath() in src/config/whatsapp.js.
 [phases.setup]
 nixPkgs = ["chromium"]
-
-[start]
-cmd = "PUPPETEER_EXECUTABLE_PATH=$(command -v chromium) node server.js"

@@ -3,6 +3,25 @@ const qrcode = require('qrcode-terminal');
 const QRCode = require('qrcode');
 const path = require('path');
 const fs = require('fs');
+const { execSync } = require('child_process');
+
+// Railway's Custom Start Command setting overrides nixpacks.toml's [start]
+// cmd, so we can't rely on infra config to export PUPPETEER_EXECUTABLE_PATH
+// before node starts — resolve the Nix-installed chromium binary ourselves.
+// On Windows (local dev) /bin/sh doesn't exist, execSync throws, we fall
+// back to undefined and Puppeteer uses its own bundled Chrome as before.
+function resolveChromiumPath() {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
+  try {
+    const resolved = execSync('command -v chromium || command -v chromium-browser || command -v google-chrome-stable', {
+      encoding: 'utf8',
+      shell: '/bin/sh'
+    }).trim();
+    return resolved || undefined;
+  } catch (_) {
+    return undefined;
+  }
+}
 
 let whatsappClient = null;
 let isReady = false;
@@ -37,7 +56,7 @@ async function initWhatsApp() {
       // On Railway we install the OS's own Chromium via apt (see nixpacks.toml)
       // and point Puppeteer at it — apt resolves its full shared-lib dependency
       // tree automatically, unlike Puppeteer's own bundled Chrome download.
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      executablePath: resolveChromiumPath(),
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
