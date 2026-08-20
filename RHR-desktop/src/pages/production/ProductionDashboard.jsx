@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ClipboardList, AlertTriangle, Truck, CheckCircle2, Download, FileSpreadsheet, Info, Inbox, PlusCircle } from 'lucide-react';
+import { ClipboardList, AlertTriangle, Truck, CheckCircle2, Download, FileSpreadsheet, Inbox, PlusCircle } from 'lucide-react';
 import api from '../../services/api';
 import EmptyState from '../../components/EmptyState';
 import { SkeletonStatCards, SkeletonTable } from '../../components/Skeleton';

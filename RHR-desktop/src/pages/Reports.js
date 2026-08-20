@@ -50,6 +50,7 @@ export default function Reports() {
   useEffect(() => {
     loadData();
     loadOutstanding();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadData = async () => {

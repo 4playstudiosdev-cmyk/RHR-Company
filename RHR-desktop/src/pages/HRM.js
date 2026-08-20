@@ -54,6 +54,7 @@ export default function HRM() {
   useEffect(() => {
     loadStaff();
     loadEmployees();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadStaff = async () => {
