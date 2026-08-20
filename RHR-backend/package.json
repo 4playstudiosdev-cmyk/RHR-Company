@@ -32,5 +32,10 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
+  },
+  "allowScripts": {
+    "puppeteer": true,
+    "@firebase/util": true,
+    "protobufjs": true
   }
 }
