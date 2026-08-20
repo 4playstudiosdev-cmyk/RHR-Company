@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-export const DEFAULT_API_URL = 'http://localhost:3000/api/v1';
+export const DEFAULT_API_URL = 'https://rhr-company-production.up.railway.app/api/v1';
 const STORAGE_KEY = 'rhr_api_url';
 
 // Reads the backend base URL from localStorage (set via the Server Settings

@@ -1,11 +1,13 @@
 class ApiEndpoints {
   // ── BACKEND CONNECTION ──
-  // 'localhost' only works when running on Chrome/Windows/desktop, or when
-  // the emulator/device port is manually adb-forwarded. Pick the line that
-  // matches how you're running the app and comment out the others:
+  // Production backend (Railway) — used by default so the app works for any
+  // real phone without needing the dev machine on the same network. For
+  // local backend testing, comment this out and uncomment one of the LAN
+  // lines below instead.
 
-  static const String baseUrl = 'http://localhost:3000'; // Web / Windows desktop
-  // static const String baseUrl = 'http://10.0.2.2:3000'; // Android emulator (maps to host's localhost)
+  static const String baseUrl = 'https://rhr-company-production.up.railway.app';
+  // static const String baseUrl = 'http://localhost:3000';        // Web / Windows desktop, local backend
+  // static const String baseUrl = 'http://10.0.2.2:3000';         // Android emulator (maps to host's localhost)
   // static const String baseUrl = 'http://192.168.0.95:3000';     // Physical device on same WiFi — update to your PC's LAN IP
 
   // AUTH
