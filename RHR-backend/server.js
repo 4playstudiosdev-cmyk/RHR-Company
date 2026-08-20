@@ -1,6 +1,5 @@
 require('dotenv').config();
 const express = require('express');
-const path = require('path');
 const { helmetMiddleware, corsMiddleware } = require('./src/middleware/security.middleware');
 const { initWhatsApp } = require('./src/config/whatsapp');
 const authRoutes = require('./src/routes/auth.routes');
@@ -25,9 +24,6 @@ app.use(helmetMiddleware);
 app.use(corsMiddleware);
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
-
-// Serve test UI
-app.use(express.static(path.join(__dirname, 'public')));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -75,7 +71,6 @@ function start() {
   app.listen(PORT, () => {
     console.log(`🚀 RHR Backend running on port ${PORT}`);
     console.log(`📡 Health check: http://localhost:${PORT}/health`);
-    console.log(`🖥️  Test UI: http://localhost:${PORT}`);
   });
 }
 
