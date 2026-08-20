@@ -110,40 +110,42 @@ export default function Dispatch() {
             {readyOrders.length === 0 ? (
               <EmptyState icon={Truck} title="Nothing ready to dispatch" subtitle="Production orders marked Ready will appear here" />
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
-                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Product</th>
-                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Qty</th>
-                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Production Order</th>
-                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Dispatch To</th>
-                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {readyOrders.map((o, i) => (
-                    <tr
-                      key={o.id}
-                      className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${
-                        i % 2 === 1 ? 'bg-gray-50/40' : ''
-                      }`}
-                    >
-                      <td className="px-6 py-3.5 font-medium text-navy">{o.product_name}</td>
-                      <td className="px-6 py-3.5 text-gray-600">{o.qty} {o.unit}</td>
-                      <td className="px-6 py-3.5 text-gray-500">{o.order_number}</td>
-                      <td className="px-6 py-3.5 text-gray-400">—</td>
-                      <td className="px-6 py-3.5">
-                        <button
-                          onClick={() => { setDispatchTarget(o); setForm(EMPTY_FORM); }}
-                          className="flex items-center gap-1.5 bg-orange hover:bg-orange/90 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
-                        >
-                          <Truck size={13} /> Dispatch Now
-                        </button>
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Product</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Qty</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Production Order</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Dispatch To</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {readyOrders.map((o, i) => (
+                      <tr
+                        key={o.id}
+                        className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${
+                          i % 2 === 1 ? 'bg-gray-50/40' : ''
+                        }`}
+                      >
+                        <td className="px-6 py-3.5 font-medium text-navy">{o.product_name}</td>
+                        <td className="px-6 py-3.5 text-gray-600">{o.qty} {o.unit}</td>
+                        <td className="px-6 py-3.5 text-gray-500">{o.order_number}</td>
+                        <td className="px-6 py-3.5 text-gray-400">—</td>
+                        <td className="px-6 py-3.5">
+                          <button
+                            onClick={() => { setDispatchTarget(o); setForm(EMPTY_FORM); }}
+                            className="flex items-center gap-1.5 bg-orange hover:bg-orange/90 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                          >
+                            <Truck size={13} /> Dispatch Now
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
 
@@ -154,6 +156,7 @@ export default function Dispatch() {
             {history.length === 0 ? (
               <EmptyState icon={PackageCheck} title="No dispatch records yet" />
             ) : (
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
@@ -203,6 +206,7 @@ export default function Dispatch() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         </>

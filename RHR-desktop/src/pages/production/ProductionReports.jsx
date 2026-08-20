@@ -129,26 +129,28 @@ function DailyProductionReport() {
         {recent.length === 0 ? (
           <EmptyState icon={BarChart3} title="No production orders yet" />
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Product</th>
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Qty Produced</th>
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Raw Material Used</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recent.map((r, i) => (
-                <tr key={i} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                  <td className="px-6 py-3 text-gray-500">{r.start_date}</td>
-                  <td className="px-6 py-3 text-gray-700">{r.product_name}</td>
-                  <td className="px-6 py-3 text-right text-navy font-medium">{r.qty} {r.unit}</td>
-                  <td className="px-6 py-3 text-gray-400">—</td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Product</th>
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Qty Produced</th>
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Raw Material Used</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {recent.map((r, i) => (
+                  <tr key={i} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                    <td className="px-6 py-3 text-gray-500">{r.start_date}</td>
+                    <td className="px-6 py-3 text-gray-700">{r.product_name}</td>
+                    <td className="px-6 py-3 text-right text-navy font-medium">{r.qty} {r.unit}</td>
+                    <td className="px-6 py-3 text-gray-400">—</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
@@ -200,24 +202,26 @@ function RawMaterialConsumptionReport() {
         {materials.length === 0 ? (
           <EmptyState icon={PackageSearch} title="No raw materials configured" />
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Material</th>
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Current Stock</th>
-              </tr>
-            </thead>
-            <tbody>
-              {materials.map((m, i) => (
-                <tr key={m.id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                  <td className="px-6 py-3 text-navy font-medium">{m.name}</td>
-                  <td className="px-6 py-3 text-gray-600">{m.category}</td>
-                  <td className="px-6 py-3 text-right text-gray-700">{Number(m.stock).toLocaleString()} {m.unit}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Material</th>
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Current Stock</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {materials.map((m, i) => (
+                  <tr key={m.id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                    <td className="px-6 py-3 text-navy font-medium">{m.name}</td>
+                    <td className="px-6 py-3 text-gray-600">{m.category}</td>
+                    <td className="px-6 py-3 text-right text-gray-700">{Number(m.stock).toLocaleString()} {m.unit}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
@@ -299,36 +303,38 @@ function StockStatusReport() {
         {materials.length === 0 ? (
           <EmptyState icon={PackageSearch} title="No raw materials configured" />
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Material</th>
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">In Stock</th>
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Min Level</th>
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {materials.map((m, i) => {
-                const level = stockLevel(m);
-                const style = LEVEL_STYLE[level];
-                return (
-                  <tr key={m.id} className={`border-b border-gray-50 last:border-0 ${style.row || (i % 2 === 1 ? 'bg-gray-50/40' : '')}`}>
-                    <td className="px-6 py-3.5 font-medium text-navy">{m.name}</td>
-                    <td className="px-6 py-3.5 text-gray-600">{m.category}</td>
-                    <td className="px-6 py-3.5 text-right text-gray-700">{Number(m.stock).toLocaleString()} {m.unit}</td>
-                    <td className="px-6 py-3.5 text-right text-gray-500">{Number(m.min_level).toLocaleString()} {m.unit}</td>
-                    <td className="px-6 py-3.5">
-                      <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${style.badge}`}>
-                        {style.label}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Material</th>
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">In Stock</th>
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Min Level</th>
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {materials.map((m, i) => {
+                  const level = stockLevel(m);
+                  const style = LEVEL_STYLE[level];
+                  return (
+                    <tr key={m.id} className={`border-b border-gray-50 last:border-0 ${style.row || (i % 2 === 1 ? 'bg-gray-50/40' : '')}`}>
+                      <td className="px-6 py-3.5 font-medium text-navy">{m.name}</td>
+                      <td className="px-6 py-3.5 text-gray-600">{m.category}</td>
+                      <td className="px-6 py-3.5 text-right text-gray-700">{Number(m.stock).toLocaleString()} {m.unit}</td>
+                      <td className="px-6 py-3.5 text-right text-gray-500">{Number(m.min_level).toLocaleString()} {m.unit}</td>
+                      <td className="px-6 py-3.5">
+                        <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${style.badge}`}>
+                          {style.label}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 

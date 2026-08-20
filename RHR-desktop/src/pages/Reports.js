@@ -403,24 +403,26 @@ export default function Reports() {
             <EmptyState icon={Receipt} title="No outstanding balances" subtitle="Every customer is settled up" />
           ) : (
             <>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
-                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
-                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Phone</th>
-                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Outstanding</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {outPageRows.map((o, i) => (
-                    <tr key={o.customer_id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                      <td className="px-6 py-3.5 font-medium text-navy">{o.full_name}{o.shop_name ? ` — ${o.shop_name}` : ''}</td>
-                      <td className="px-6 py-3.5 text-gray-500">{o.phone}</td>
-                      <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(o.outstanding).toLocaleString()}</td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Phone</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Outstanding</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {outPageRows.map((o, i) => (
+                      <tr key={o.customer_id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                        <td className="px-6 py-3.5 font-medium text-navy">{o.full_name}{o.shop_name ? ` — ${o.shop_name}` : ''}</td>
+                        <td className="px-6 py-3.5 text-gray-500">{o.phone}</td>
+                        <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(o.outstanding).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center flex-wrap gap-3">
                 <span className="text-xs text-gray-400">
                   Showing {(outPage - 1) * OUT_PAGE_SIZE + 1} to {Math.min(outPage * OUT_PAGE_SIZE, outstandingFiltered.length)} of {outstandingFiltered.length} entries

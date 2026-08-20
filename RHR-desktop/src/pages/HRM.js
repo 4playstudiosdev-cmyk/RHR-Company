@@ -558,33 +558,35 @@ function AttendanceTab({ userId, month, year, stepMonth, toast }) {
         ) : records.length === 0 ? (
           <EmptyState icon={Clock} title="No attendance records for this period" />
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Check In</th>
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Check Out</th>
-                <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {records.map((r, i) => (
-                <tr key={r.id || i} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                  <td className="px-6 py-3.5 text-gray-600">{r.date}</td>
-                  <td className="px-6 py-3.5 text-gray-600">{r.check_in ? new Date(r.check_in).toLocaleTimeString('en-GB') : '—'}</td>
-                  <td className="px-6 py-3.5 text-gray-600">{r.check_out ? new Date(r.check_out).toLocaleTimeString('en-GB') : '—'}</td>
-                  <td className="px-6 py-3.5">
-                    <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold capitalize ${
-                      r.status === 'present' ? 'bg-emerald-50 text-emerald-700' :
-                      r.status === 'absent' ? 'bg-red-50 text-red-700' : 'bg-navy-chip text-navy'
-                    }`}>
-                      {r.status}{r.is_late ? ' (late)' : ''}
-                    </span>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Check In</th>
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Check Out</th>
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {records.map((r, i) => (
+                  <tr key={r.id || i} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                    <td className="px-6 py-3.5 text-gray-600">{r.date}</td>
+                    <td className="px-6 py-3.5 text-gray-600">{r.check_in ? new Date(r.check_in).toLocaleTimeString('en-GB') : '—'}</td>
+                    <td className="px-6 py-3.5 text-gray-600">{r.check_out ? new Date(r.check_out).toLocaleTimeString('en-GB') : '—'}</td>
+                    <td className="px-6 py-3.5">
+                      <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold capitalize ${
+                        r.status === 'present' ? 'bg-emerald-50 text-emerald-700' :
+                        r.status === 'absent' ? 'bg-red-50 text-red-700' : 'bg-navy-chip text-navy'
+                      }`}>
+                        {r.status}{r.is_late ? ' (late)' : ''}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 

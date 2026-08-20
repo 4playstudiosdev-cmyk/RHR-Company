@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Menu } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import AdminLocationService from './services/adminLocationService';
 import { ToastProvider } from './components/Toast';
@@ -48,6 +49,14 @@ function AppShell() {
   const [page, setPage] = useState('dashboard');
   // Lets Customers.js jump straight to a specific customer's ledger
   const [ledgerCustomerId, setLedgerCustomerId] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Closes the mobile drawer whenever a nav item is picked, without
+  // affecting desktop where the sidebar is always static/visible anyway.
+  const navigate = (nextPage) => {
+    setPage(nextPage);
+    setSidebarOpen(false);
+  };
 
   const handleLogin = (newToken, newUser) => {
     localStorage.setItem('rhr_token', newToken);
@@ -88,16 +97,35 @@ function AppShell() {
   const PageComponent = PAGES[page] || Dashboard;
 
   return (
-    <div className="flex h-screen bg-cream">
-      <Sidebar page={page} setPage={setPage} user={user} onLogout={handleLogout} />
-      <main className="flex-1 overflow-y-auto">
-        <PageComponent
-          user={user}
-          setPage={setPage}
-          onViewLedger={goToLedger}
-          initialCustomerId={ledgerCustomerId}
-        />
-      </main>
+    <div className="flex h-screen bg-cream overflow-hidden">
+      <Sidebar
+        page={page}
+        setPage={navigate}
+        user={user}
+        onLogout={handleLogout}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-navy text-white flex-shrink-0">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-1 -ml-1 text-white"
+            aria-label="Open menu"
+          >
+            <Menu size={24} />
+          </button>
+          <h1 className="text-base font-bold tracking-wide">RHR & Company</h1>
+        </header>
+        <main className="flex-1 overflow-y-auto">
+          <PageComponent
+            user={user}
+            setPage={setPage}
+            onViewLedger={goToLedger}
+            initialCustomerId={ledgerCustomerId}
+          />
+        </main>
+      </div>
     </div>
   );
 }

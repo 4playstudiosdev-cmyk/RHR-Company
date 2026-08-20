@@ -137,6 +137,7 @@ export default function RawMaterials() {
           {filtered.length === 0 ? (
             <EmptyState icon={PackagePlus} title="No materials in this category" />
           ) : (
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
@@ -188,6 +189,7 @@ export default function RawMaterials() {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       )}

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, UserCog, Wallet, LogOut,
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory,
-  Gauge, Boxes, ClipboardList, Truck, FileBarChart2, ChevronDown
+  Gauge, Boxes, ClipboardList, Truck, FileBarChart2, ChevronDown, X
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -43,14 +43,37 @@ function formatRole(role) {
   return role.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export default function Sidebar({ page, setPage, user, onLogout }) {
+export default function Sidebar({ page, setPage, user, onLogout, open, onClose }) {
   const [productionOpen, setProductionOpen] = useState(page.startsWith('production-'));
 
   return (
-    <div className="w-64 bg-navy text-white flex flex-col h-screen flex-shrink-0 overflow-hidden">
-      <div className="px-6 py-6 border-b border-white/10 flex-shrink-0">
-        <h1 className="text-xl font-bold tracking-wide text-white">RHR & Company</h1>
-        <p className="text-xs text-blue-200/70 mt-1">Admin Desktop Panel</p>
+    <>
+      {/* Backdrop — mobile only, closes the drawer on outside tap */}
+      {open && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+      <div
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-navy text-white flex flex-col h-screen flex-shrink-0 overflow-hidden
+          transform transition-transform duration-200 ease-in-out
+          ${open ? 'translate-x-0' : '-translate-x-full'}
+          md:static md:translate-x-0 md:z-auto`}
+      >
+      <div className="px-6 py-6 border-b border-white/10 flex-shrink-0 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold tracking-wide text-white">RHR & Company</h1>
+          <p className="text-xs text-blue-200/70 mt-1">Admin Desktop Panel</p>
+        </div>
+        <button
+          onClick={onClose}
+          className="md:hidden text-blue-200/70 hover:text-white p-1 -mr-1"
+          aria-label="Close menu"
+        >
+          <X size={20} />
+        </button>
       </div>
 
       <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-5 space-y-1.5">
@@ -138,6 +161,7 @@ export default function Sidebar({ page, setPage, user, onLogout }) {
           <span>Logout</span>
         </button>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

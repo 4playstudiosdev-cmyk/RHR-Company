@@ -149,6 +149,7 @@ export default function ProductionOrders() {
           {filtered.length === 0 ? (
             <EmptyState icon={ClipboardList} title="No production orders" subtitle="Create one to get started" />
           ) : (
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
@@ -202,6 +203,7 @@ export default function ProductionOrders() {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       )}

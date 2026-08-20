@@ -186,42 +186,44 @@ export default function Salesmen({ onViewLedger }) {
           {pending.length === 0 ? (
             <EmptyState icon={UserCheck} title="No salesmen awaiting approval" subtitle="Self-registered salesmen will show up here" />
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
-                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Name</th>
-                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Phone</th>
-                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Registered</th>
-                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pending.map((s, i) => (
-                  <tr
-                    key={s.id}
-                    className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${
-                      i % 2 === 1 ? 'bg-gray-50/40' : ''
-                    }`}
-                  >
-                    <td className="px-6 py-3.5 font-medium text-navy">{s.full_name}</td>
-                    <td className="px-6 py-3.5 text-gray-600">{s.phone}</td>
-                    <td className="px-6 py-3.5 text-gray-500">
-                      {new Date(s.created_at).toLocaleDateString('en-GB')}
-                    </td>
-                    <td className="px-6 py-3.5">
-                      <Button
-                        variant="accent"
-                        className="text-xs px-3 py-1.5"
-                        onClick={() => handleApprove(s)}
-                        disabled={approvingId === s.id}
-                      >
-                        {approvingId === s.id ? 'Approving...' : 'Approve'}
-                      </Button>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Name</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Phone</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Registered</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {pending.map((s, i) => (
+                    <tr
+                      key={s.id}
+                      className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${
+                        i % 2 === 1 ? 'bg-gray-50/40' : ''
+                      }`}
+                    >
+                      <td className="px-6 py-3.5 font-medium text-navy">{s.full_name}</td>
+                      <td className="px-6 py-3.5 text-gray-600">{s.phone}</td>
+                      <td className="px-6 py-3.5 text-gray-500">
+                        {new Date(s.created_at).toLocaleDateString('en-GB')}
+                      </td>
+                      <td className="px-6 py-3.5">
+                        <Button
+                          variant="accent"
+                          className="text-xs px-3 py-1.5"
+                          onClick={() => handleApprove(s)}
+                          disabled={approvingId === s.id}
+                        >
+                          {approvingId === s.id ? 'Approving...' : 'Approve'}
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       ) : (
@@ -229,6 +231,7 @@ export default function Salesmen({ onViewLedger }) {
           {salesmen.length === 0 ? (
             <EmptyState icon={UserCog} title="No salesmen found" subtitle="Add a salesman account to get started" />
           ) : (
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
@@ -290,6 +293,7 @@ export default function Salesmen({ onViewLedger }) {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       )}
