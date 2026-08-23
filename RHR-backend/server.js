@@ -39,6 +39,7 @@ app.get('/health', (req, res) => {
 
 // Routes
 app.use('/api/v1/auth',      authRoutes);
+app.use('/api/v1/admins',    require('./src/routes/admins.routes'));
 app.use('/api/v1/customers', require('./src/routes/customers.routes'));
 app.use('/api/v1/companies', require('./src/routes/companies.routes'));
 app.use('/api/v1/products',    require('./src/routes/products.routes'));

@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Menu } from 'lucide-react';
 import Sidebar from './components/Sidebar';
+import ProtectedRoute from './components/ProtectedRoute';
+import SessionWarning from './components/SessionWarning';
 import AdminLocationService from './services/adminLocationService';
 import { ToastProvider } from './components/Toast';
 import Login from './pages/Login';
@@ -15,6 +17,7 @@ import Reports from './pages/Reports';
 import GPS from './pages/GPS';
 import Notifications from './pages/Notifications';
 import HRM from './pages/HRM';
+import AdminManagement from './pages/AdminManagement';
 import ProductionDashboard from './pages/production/ProductionDashboard';
 import RawMaterials from './pages/production/RawMaterials';
 import ProductionOrders from './pages/production/ProductionOrders';
@@ -37,12 +40,46 @@ const PAGES = {
   'production-orders': ProductionOrders,
   'production-dispatch': Dispatch,
   'production-reports': ProductionReports,
-  hrm: HRM
+  hrm: HRM,
+  admins: AdminManagement
 };
 
+// Every production-* page requires super_admin — listed individually so
+// Sidebar and this map stay obviously in sync rather than pattern-matching
+// on the key prefix.
+const PAGE_ACCESS = {
+  payments: { requiredPermission: 'can_view_payments' },
+  reports: { requiredPermission: 'can_export_reports' },
+  gps: { requiredPermission: 'can_view_gps' },
+  hrm: { requiredRole: 'super_admin' },
+  admins: { requiredRole: 'super_admin' },
+  'production-dashboard': { requiredRole: 'super_admin' },
+  'production-materials': { requiredRole: 'super_admin' },
+  'production-orders': { requiredRole: 'super_admin' },
+  'production-dispatch': { requiredRole: 'super_admin' },
+  'production-reports': { requiredRole: 'super_admin' }
+};
+
+const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 hours
+
+function isSessionExpired() {
+  const loginTime = localStorage.getItem('rhr_login_time');
+  if (!loginTime) return false; // pre-existing sessions with no timestamp aren't force-logged-out
+  return Date.now() - parseInt(loginTime, 10) > SESSION_MAX_AGE_MS;
+}
+
 function AppShell() {
-  const [token, setToken] = useState(localStorage.getItem('rhr_token'));
+  const [token, setToken] = useState(() => {
+    if (isSessionExpired()) {
+      localStorage.removeItem('rhr_token');
+      localStorage.removeItem('rhr_user');
+      localStorage.removeItem('rhr_login_time');
+      return null;
+    }
+    return localStorage.getItem('rhr_token');
+  });
   const [user, setUser] = useState(() => {
+    if (isSessionExpired()) return null;
     const stored = localStorage.getItem('rhr_user');
     return stored ? JSON.parse(stored) : null;
   });
@@ -61,6 +98,7 @@ function AppShell() {
   const handleLogin = (newToken, newUser) => {
     localStorage.setItem('rhr_token', newToken);
     localStorage.setItem('rhr_user', JSON.stringify(newUser));
+    localStorage.setItem('rhr_login_time', Date.now().toString());
     setToken(newToken);
     setUser(newUser);
   };
@@ -68,6 +106,7 @@ function AppShell() {
   const handleLogout = () => {
     localStorage.removeItem('rhr_token');
     localStorage.removeItem('rhr_user');
+    localStorage.removeItem('rhr_login_time');
     setToken(null);
     setUser(null);
     setPage('dashboard');
@@ -95,6 +134,7 @@ function AppShell() {
   }
 
   const PageComponent = PAGES[page] || Dashboard;
+  const access = PAGE_ACCESS[page];
 
   return (
     <div className="flex h-screen bg-cream overflow-hidden">
@@ -118,14 +158,21 @@ function AppShell() {
           <h1 className="text-base font-bold tracking-wide">RHR & Company</h1>
         </header>
         <main className="flex-1 overflow-y-auto">
-          <PageComponent
+          <ProtectedRoute
             user={user}
-            setPage={setPage}
-            onViewLedger={goToLedger}
-            initialCustomerId={ledgerCustomerId}
-          />
+            requiredRole={access?.requiredRole}
+            requiredPermission={access?.requiredPermission}
+          >
+            <PageComponent
+              user={user}
+              setPage={setPage}
+              onViewLedger={goToLedger}
+              initialCustomerId={ledgerCustomerId}
+            />
+          </ProtectedRoute>
         </main>
       </div>
+      <SessionWarning />
     </div>
   );
 }

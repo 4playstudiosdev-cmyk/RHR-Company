@@ -109,11 +109,16 @@ async function loginWithCredentials({ email, password }) {
   return {
     token,
     user: {
-      id:        user.id,
-      fullName:  user.full_name,
-      role:      user.role,
-      companyId: user.company_id,
-      phone:     user.phone
+      id:          user.id,
+      fullName:    user.full_name,
+      role:        user.role,
+      companyId:   user.company_id,
+      phone:       user.phone,
+      // Present regardless of whether the phase10 migration (adding the
+      // permissions column) has been run yet — select('*') above just
+      // omits the key entirely if the column doesn't exist, so this
+      // never throws either way.
+      permissions: user.permissions || {}
     }
   };
 }

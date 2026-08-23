@@ -23,11 +23,38 @@ api.interceptors.response.use(
     if (err.response && err.response.status === 401) {
       localStorage.removeItem('rhr_token');
       localStorage.removeItem('rhr_user');
+      localStorage.removeItem('rhr_login_time');
+      // This app has no client-side router — reload() re-runs AppShell,
+      // which already renders <Login/> whenever there's no token.
       window.location.reload();
     }
     return Promise.reject(err);
   }
 );
+
+export const getCurrentUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem('rhr_user') || 'null');
+  } catch {
+    return null;
+  }
+};
+
+// perms[permission] === false is the only way a feature gets disabled —
+// everything is allowed by default (including before the `permissions`
+// column/admin-management feature existed), so a missing/empty
+// permissions object never accidentally locks anyone out.
+export const hasPermission = (permission, user = getCurrentUser()) => {
+  if (!user) return false;
+  if (user.role === 'super_admin') return true;
+  const perms = user.permissions || {};
+  return perms[permission] !== false;
+};
+
+export const isRole = (...roles) => {
+  const user = getCurrentUser();
+  return user ? roles.includes(user.role) : false;
+};
 
 export default api;
 

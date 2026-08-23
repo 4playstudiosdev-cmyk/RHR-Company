@@ -1,25 +1,31 @@
 import React, { useState } from 'react';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, UserCog, Wallet, LogOut,
-  BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory,
+  BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
   Gauge, Boxes, ClipboardList, Truck, FileBarChart2, ChevronDown, X
 } from 'lucide-react';
+import { hasPermission } from '../services/api';
 
+// requiredRole/requiredPermission here must match PAGE_ACCESS in App.js —
+// that's what actually enforces access if someone bypasses the sidebar
+// (e.g. an old bookmarked page state); this just keeps the menu itself
+// from showing links a user can't use.
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'products', label: 'Products', icon: Package },
   { key: 'orders', label: 'Orders', icon: ShoppingCart },
   { key: 'customers', label: 'Customers', icon: Users },
   { key: 'salesmen', label: 'Salesmen', icon: UserCog },
-  { key: 'payments', label: 'Payments', icon: Wallet },
+  { key: 'payments', label: 'Payments', icon: Wallet, requiredPermission: 'can_view_payments' },
   { key: 'ledger', label: 'Ledger', icon: BookOpen },
-  { key: 'reports', label: 'Reports', icon: FileSpreadsheet },
-  { key: 'gps', label: 'Live GPS', icon: MapPin },
+  { key: 'reports', label: 'Reports', icon: FileSpreadsheet, requiredPermission: 'can_export_reports' },
+  { key: 'gps', label: 'Live GPS', icon: MapPin, requiredPermission: 'can_view_gps' },
   { key: 'notifications', label: 'Notifications', icon: Bell },
   {
     key: 'production',
     label: 'Production',
     icon: Factory,
+    requiredRole: 'super_admin',
     children: [
       { key: 'production-dashboard', label: 'Production Dashboard', icon: Gauge },
       { key: 'production-materials', label: 'Raw Materials', icon: Boxes },
@@ -28,8 +34,15 @@ const NAV_ITEMS = [
       { key: 'production-reports', label: 'Production Reports', icon: FileBarChart2 }
     ]
   },
-  { key: 'hrm', label: 'HRM', icon: Briefcase }
+  { key: 'hrm', label: 'HRM', icon: Briefcase, requiredRole: 'super_admin' },
+  { key: 'admins', label: 'Admin Roles', icon: KeyRound, requiredRole: 'super_admin' }
 ];
+
+function canAccess(item, user) {
+  if (item.requiredRole && user?.role !== item.requiredRole) return false;
+  if (item.requiredPermission && !hasPermission(item.requiredPermission, user)) return false;
+  return true;
+}
 
 function getInitials(name) {
   if (!name) return '?';
@@ -77,7 +90,7 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose }
       </div>
 
       <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-5 space-y-1.5">
-        {NAV_ITEMS.map((item) => {
+        {NAV_ITEMS.filter((item) => canAccess(item, user)).map((item) => {
           const Icon = item.icon;
 
           if (item.children) {
