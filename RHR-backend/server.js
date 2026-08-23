@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const { helmetMiddleware, corsMiddleware } = require('./src/middleware/security.middleware');
+const { helmetMiddleware, corsMiddleware, generalLimiter } = require('./src/middleware/security.middleware');
 const { initWhatsApp } = require('./src/config/whatsapp');
 const authRoutes = require('./src/routes/auth.routes');
 
@@ -25,10 +25,16 @@ app.use(helmetMiddleware);
 app.use(corsMiddleware);
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
+app.use(generalLimiter);
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ success: true, message: 'RHR Backend is running', timestamp: new Date() });
+  res.json({
+    success: true,
+    message: 'RHR Backend is running',
+    environment: process.env.NODE_ENV,
+    timestamp: new Date()
+  });
 });
 
 // Routes
@@ -55,11 +61,14 @@ app.use('/api/v1/production',    require('./src/routes/production.routes'));
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ success: false, message: 'Route not found' });
+  res.status(404).json({ success: false, message: `Route not found: ${req.method} ${req.path}` });
 });
 
 // Global error handler
 app.use((err, req, res, next) => {
+  if (err.message && err.message.startsWith('CORS blocked')) {
+    return res.status(403).json({ success: false, message: 'Access denied — origin not allowed' });
+  }
   console.error('Unhandled error:', err);
   res.status(500).json({ success: false, message: 'Internal server error' });
 });
