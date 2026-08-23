@@ -11,7 +11,12 @@ const helmetMiddleware = helmet({
   // blocks those responses in the browser even though our CORS middleware
   // allows the origin (CORP is a separate, stricter check browsers apply
   // on top of CORS).
-  crossOriginResourcePolicy: { policy: 'cross-origin' }
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  xFrameOptions: { action: 'deny' },
+  xContentTypeOptions: true,
+  xXssProtection: true
 });
 
 // FRONTEND_URL can be a comma-separated list (e.g. the Vercel app + a

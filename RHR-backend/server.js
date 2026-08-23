@@ -1,6 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const { helmetMiddleware, corsMiddleware, generalLimiter } = require('./src/middleware/security.middleware');
+const { removeFingerprint, sanitizeRequest } = require('./src/middleware/api-security.middleware');
+const { logger, isProd } = require('./src/utils/logger');
 const { initWhatsApp } = require('./src/config/whatsapp');
 const authRoutes = require('./src/routes/auth.routes');
 
@@ -23,8 +25,14 @@ process.on('unhandledRejection', (reason) => {
 // Security middleware
 app.use(helmetMiddleware);
 app.use(corsMiddleware);
-app.use(express.json({ limit: '20mb' }));
-app.use(express.urlencoded({ extended: true, limit: '20mb' }));
+app.use(removeFingerprint);
+// 10mb, not the 5mb a generic checklist suggests — uploads (product
+// images, payment-proof photos, invoices — see storage.controller.js)
+// are sent as base64 JSON, which inflates ~33% over the original file
+// size, so 5mb would start rejecting real phone-camera photos.
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(sanitizeRequest);
 app.use(generalLimiter);
 
 // Health check
@@ -70,8 +78,17 @@ app.use((err, req, res, next) => {
   if (err.message && err.message.startsWith('CORS blocked')) {
     return res.status(403).json({ success: false, message: 'Access denied — origin not allowed' });
   }
-  console.error('Unhandled error:', err);
-  res.status(500).json({ success: false, message: 'Internal server error' });
+  // A body over the express.json() limit above lands here as a
+  // PayloadTooLargeError, not a route handler — surface it as 413
+  // instead of a generic 500.
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ success: false, message: 'Request payload too large' });
+  }
+  logger.error('Unhandled error:', err);
+  res.status(500).json({
+    success: false,
+    message: isProd ? 'Internal server error' : err.message
+  });
 });
 
 // Start server immediately, WhatsApp connects in background
