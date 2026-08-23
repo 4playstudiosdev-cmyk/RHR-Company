@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../core/network/dio_client.dart';
+import '../core/storage/secure_storage.dart';
 
 /// Sends a GPS ping every [_interval] while tracking is active, and queues
 /// pings in Hive when offline or when a send fails — flushing the whole
@@ -29,6 +30,17 @@ class GPSService {
 
   Future<bool> startTracking() async {
     if (_isTracking) return true;
+
+    // Defense in depth — every current call site already checks role
+    // before calling this, but that means the guard only exists at the
+    // edges; anyone adding a new call site later gets it for free by
+    // enforcing it here too. Customers and admins are never tracked.
+    final role = await SecureStorage.getRole();
+    if (role != 'salesman' && role != 'delivery') {
+      debugPrint('GPS tracking skipped — role: $role');
+      return false;
+    }
+
     await initialize();
 
     LocationPermission permission = await Geolocator.checkPermission();
@@ -42,7 +54,15 @@ class GPSService {
 
     _isTracking = true;
     unawaited(_captureAndSend());
-    _timer = Timer.periodic(_interval, (_) => _captureAndSend());
+    _timer = Timer.periodic(_interval, (_) async {
+      // Stop pinging the moment the session goes away instead of quietly
+      // hitting /gps/ping with a stale/cleared token every 2 minutes.
+      if (!await SecureStorage.isLoggedIn()) {
+        await stopTracking();
+        return;
+      }
+      await _captureAndSend();
+    });
     return true;
   }
 

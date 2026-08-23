@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/storage/secure_storage.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/widgets/tap_scale.dart';
 import '../../../shared/widgets/shimmer_box.dart';
@@ -29,10 +30,21 @@ class _CustomersListScreenState extends State<CustomersListScreen> {
     try {
       final response = await DioClient.instance.get(ApiEndpoints.customers);
       if (response.data['success'] == true) {
-        setState(() {
-          _customers = List<Map<String, dynamic>>.from(
-              response.data['data'] ?? []);
-        });
+        var customers = List<Map<String, dynamic>>.from(
+            response.data['data'] ?? []);
+
+        // Defense in depth — the backend already scopes this list to the
+        // authenticated salesman's own customers; this is just a
+        // belt-and-suspenders filter in case that scoping ever regresses.
+        final role = await SecureStorage.getRole();
+        if (role == 'salesman') {
+          final myId = await SecureStorage.getUserId();
+          if (myId != null) {
+            customers = customers.where((c) => c['salesman_id'] == myId).toList();
+          }
+        }
+
+        setState(() => _customers = customers);
       }
     } catch (e) {
       debugPrint('Customers error: $e');

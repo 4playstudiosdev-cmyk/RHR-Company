@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/utils/phone_normalizer.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/rhr_input_field.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
@@ -65,14 +66,6 @@ class _SignupScreenState extends State<SignupScreen> {
     super.dispose();
   }
 
-  String _normalizePhone(String raw) {
-    raw = raw.replaceAll(' ', '').trim();
-    if (raw.startsWith('+92')) raw = '0${raw.substring(3)}';
-    if (raw.startsWith('92')) raw = '0${raw.substring(2)}';
-    if (!raw.startsWith('0')) raw = '0$raw';
-    return raw;
-  }
-
   Future<void> _proceed() async {
     if (_phoneController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -85,7 +78,7 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
 
-    final phone = _normalizePhone(_phoneController.text);
+    final phone = PhoneNormalizer.normalize(_phoneController.text);
 
     // If we didn't arrive here with an already-OTP'd phone (e.g. user tapped
     // "Register here" directly instead of going through the login screen),

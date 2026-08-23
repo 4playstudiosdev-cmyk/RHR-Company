@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/constants/api_endpoints.dart';
+import '../../../core/utils/phone_normalizer.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/rhr_input_field.dart';
 
@@ -54,19 +55,11 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     super.dispose();
   }
 
-  String _normalizePhone(String raw) {
-    raw = raw.replaceAll(' ', '').trim();
-    if (raw.startsWith('+92')) raw = '0${raw.substring(3)}';
-    if (raw.startsWith('92')) raw = '0${raw.substring(2)}';
-    if (!raw.startsWith('0')) raw = '0$raw';
-    return raw; // → 03272155131
-  }
-
   void _sendOtp() async {
     if (_phoneController.text.isEmpty) return;
     setState(() => _isLoading = true);
 
-    final phone = _normalizePhone(_phoneController.text);
+    final phone = PhoneNormalizer.normalize(_phoneController.text);
 
     try {
       final response = await DioClient.instance.post(

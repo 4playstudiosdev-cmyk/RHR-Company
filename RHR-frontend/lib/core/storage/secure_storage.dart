@@ -1,17 +1,35 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class SecureStorage {
-  static const _storage = FlutterSecureStorage();
-  static const _tokenKey    = 'jwt_token';
-  static const _roleKey     = 'user_role';
-  static const _fullNameKey = 'user_full_name';
-  static const _userIdKey   = 'user_id';
-  static const _phoneKey    = 'user_phone';
-  static const _positionKey = 'user_position';
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true, // backed by Android Keystore
+    ),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock,
+    ),
+  );
+  static const _tokenKey     = 'jwt_token';
+  static const _roleKey      = 'user_role';
+  static const _fullNameKey  = 'user_full_name';
+  static const _userIdKey    = 'user_id';
+  static const _phoneKey     = 'user_phone';
+  static const _positionKey  = 'user_position';
+  static const _loginTimeKey = 'login_time';
 
-  // Save token after login
+  // Session lifetime — a stored token older than this is treated as
+  // expired even if the backend JWT itself hasn't expired yet, and forces
+  // a fresh login instead of silently trusting an old device.
+  static const _sessionMaxAge = Duration(days: 7);
+
+  // Save token after login — also stamps the login time for session-expiry
+  // checks (see isSessionExpired/isLoggedIn below).
   static Future<void> saveToken(String token) async {
     await _storage.write(key: _tokenKey, value: token);
+    await _storage.write(
+      key: _loginTimeKey,
+      value: DateTime.now().millisecondsSinceEpoch.toString(),
+    );
   }
 
   // Read token for API calls
@@ -66,5 +84,29 @@ class SecureStorage {
   // Clear everything on logout
   static Future<void> clearToken() async {
     await _storage.deleteAll();
+  }
+
+  // Alias — same as clearToken, named to match logout/401 call sites that
+  // read more clearly as "clear everything" than "clear token".
+  static Future<void> clearAll() => clearToken();
+
+  static Future<bool> isSessionExpired() async {
+    final loginTime = await _storage.read(key: _loginTimeKey);
+    if (loginTime == null) return true;
+    final elapsed = DateTime.now().millisecondsSinceEpoch - int.parse(loginTime);
+    return elapsed > _sessionMaxAge.inMilliseconds;
+  }
+
+  // True only if a token exists AND the 7-day session window hasn't
+  // lapsed. Clears storage as a side effect when expired, so callers can
+  // treat a false result as "safe to show the login screen".
+  static Future<bool> isLoggedIn() async {
+    final token = await getToken();
+    if (token == null) return false;
+    if (await isSessionExpired()) {
+      await clearAll();
+      return false;
+    }
+    return true;
   }
 }

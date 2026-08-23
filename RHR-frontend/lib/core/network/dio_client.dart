@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../constants/api_endpoints.dart';
 import '../storage/secure_storage.dart';
 import '../../services/gps_service.dart';
+import '../../shared/router/app_router.dart';
 
 class DioClient {
   static Dio? _instance;
@@ -30,8 +31,18 @@ class DioClient {
         debugPrint('REQUEST: ${options.method} ${options.path}');
         return handler.next(options);
       },
-      onResponse: (response, handler) {
+      onResponse: (response, handler) async {
         debugPrint('RESPONSE: ${response.statusCode} ${response.requestOptions.path}');
+        // validateStatus below treats 401 as a normal (non-thrown) response,
+        // so this — not onError — is where an expired/invalid session
+        // actually needs to be caught and force a fresh login.
+        if (response.statusCode == 401) {
+          await GPSService().stopTracking();
+          await SecureStorage.clearAll();
+          if (appRouter.state.matchedLocation != '/login') {
+            appRouter.go('/login');
+          }
+        }
         return handler.next(response);
       },
       onError: (error, handler) async {

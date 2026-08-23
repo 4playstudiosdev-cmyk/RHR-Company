@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/storage/secure_storage.dart';
-import '../../../services/gps_service.dart';
+import '../../../services/auth_service.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 
@@ -121,11 +121,7 @@ class _SalesmanProfileScreenState extends State<SalesmanProfileScreen> {
               child: StaggeredFadeIn(index: 2, child: RHRButton(
                 text: 'Logout',
                 isSecondary: true,
-                onPressed: () async {
-                  await GPSService().stopTracking();
-                  await SecureStorage.clearToken();
-                  if (context.mounted) context.go('/login');
-                },
+                onPressed: () => AuthService.logout(context),
               )),
             ),
             const SizedBox(height: 32),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'app_transitions.dart';
+import '../../core/storage/secure_storage.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/otp_screen.dart';
 import '../../features/auth/screens/signup_screen.dart';
@@ -32,6 +33,18 @@ import '../../features/hrm/screens/payslip_screen.dart';
 
 final appRouter = GoRouter(
   initialLocation: '/login',
+  // Only guards the login screen itself: if a still-valid session exists
+  // on cold start (e.g. app relaunch), skip straight past login instead of
+  // making an already-authenticated user re-enter their phone/OTP. This
+  // deliberately does NOT protect every other route — none of them were
+  // protected before this change either, so this only adds behavior, it
+  // doesn't remove any.
+  redirect: (context, state) async {
+    if (state.matchedLocation != '/login') return null;
+    if (!await SecureStorage.isLoggedIn()) return null;
+    final role = await SecureStorage.getRole();
+    return role == 'salesman' ? '/salesman-dashboard' : '/home';
+  },
   routes: [
     GoRoute(path: '/login',            pageBuilder: (c, s) => slidePage(s, const LoginScreen())),
     GoRoute(path: '/otp',              pageBuilder: (c, s) => slidePage(s, OtpScreen(extra: s.extra))),

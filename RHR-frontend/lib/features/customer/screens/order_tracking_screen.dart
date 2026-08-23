@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/storage/secure_storage.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/pdf/pdf_generator.dart';
 
@@ -32,7 +33,27 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         '${ApiEndpoints.orders}/${widget.orderId}',
       );
       if (response.data['success'] == true) {
-        setState(() => _order = response.data['data']);
+        final order = response.data['data'];
+
+        // Defense in depth — the backend already scopes this endpoint to
+        // the authenticated customer's own orders; this just makes sure a
+        // stray/forged order id in the route never renders someone else's
+        // order data on screen even if a backend scoping bug ever slipped
+        // through.
+        final role = await SecureStorage.getRole();
+        if (role == 'customer') {
+          final myId = await SecureStorage.getUserId();
+          if (myId != null && order?['customer_id'] != null && order['customer_id'] != myId) {
+            if (mounted) {
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(const SnackBar(content: Text('Access denied')));
+              context.pop();
+            }
+            return;
+          }
+        }
+
+        setState(() => _order = order);
       }
     } catch (e) {
       debugPrint('Order tracking error: $e');

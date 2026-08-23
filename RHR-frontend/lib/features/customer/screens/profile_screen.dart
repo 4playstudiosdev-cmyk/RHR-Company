@@ -5,6 +5,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../core/location/location_service.dart';
+import '../../../services/auth_service.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 
@@ -306,10 +307,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: StaggeredFadeIn(index: 4, child: RHRButton(
                 text: 'Logout',
-                onPressed: () async {
-                  await SecureStorage.clearToken();
-                  if (context.mounted) context.go('/login');
-                },
+                onPressed: () => AuthService.logout(context),
                 isSecondary: true,
               )),
             ),

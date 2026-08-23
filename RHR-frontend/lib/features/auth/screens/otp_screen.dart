@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
+import '../../../core/utils/phone_normalizer.dart';
 import '../../../services/gps_service.dart';
 import '../../../shared/widgets/rhr_button.dart';
 
@@ -59,14 +60,6 @@ class _OtpScreenState extends State<OtpScreen> {
     return null;
   }
 
-  String _normalizePhone(String raw) {
-    raw = raw.replaceAll(' ', '').trim();
-    if (raw.startsWith('+92')) raw = '0${raw.substring(3)}';
-    if (raw.startsWith('92') && raw.length == 12) raw = '0${raw.substring(2)}';
-    if (!raw.startsWith('0')) raw = '0$raw';
-    return raw;
-  }
-
   void _onChanged(String value, int index) {
     if (value.isNotEmpty) {
       setState(() => _boxScales[index] = 1.25);
@@ -86,7 +79,7 @@ class _OtpScreenState extends State<OtpScreen> {
       return;
     }
     setState(() => _isLoading = true);
-    final phone = _normalizePhone(_phone);
+    final phone = PhoneNormalizer.normalize(_phone);
     final Map<String, dynamic> body = {
       'phone':     phone,
       'otp':       otp,

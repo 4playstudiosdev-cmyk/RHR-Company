@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Replaces the old blanket usesCleartextTraffic="true" flag with per-domain
+  control: HTTPS-only against the real backend, cleartext allowed only for
+  local dev backends (emulator/LAN IP), which api_endpoints.dart already
+  has commented-out URLs for.
+-->
+<network-security-config>
+  <domain-config cleartextTrafficPermitted="false">
+    <domain includeSubdomains="true">railway.app</domain>
+  </domain-config>
+
+  <!-- Cleartext allowed for local development only -->
+  <domain-config cleartextTrafficPermitted="true">
+    <domain includeSubdomains="false">localhost</domain>
+    <domain includeSubdomains="false">10.0.2.2</domain>
+    <!-- LAN dev IP range (192.168.0.0/16) — network-security-config only
+         accepts exact domains/IPs, not CIDR ranges, so if your dev
+         machine's LAN IP changes, add the new literal IP here too. -->
+    <domain includeSubdomains="false">192.168.0.95</domain>
+  </domain-config>
+</network-security-config>
