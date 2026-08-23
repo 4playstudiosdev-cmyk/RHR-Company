@@ -5,6 +5,7 @@ const { initWhatsApp } = require('./src/config/whatsapp');
 const authRoutes = require('./src/routes/auth.routes');
 
 const app = express();
+app.set('trust proxy', 1); // Trust Railway's reverse proxy so rate-limiter sees the real client IP
 const PORT = process.env.PORT || 3000;
 
 // The WhatsApp bot (whatsapp-web.js/puppeteer) runs as a background,
