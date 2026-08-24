@@ -10,6 +10,26 @@ function generateToken(user) {
   );
 }
 
+// Login was intermittently failing with "Invalid email or password" for
+// otherwise-correct credentials — traced to transient network blips between
+// Railway and Supabase (confirmed: the exact same call against the exact
+// same account succeeds reliably run locally, and via Railway sometimes
+// succeeds and sometimes doesn't, with no consistent per-account pattern).
+// One retry after a short delay papers over that class of blip without
+// masking a real, persistent auth failure (which will still fail twice).
+async function withRetry(fn, attempts = 2, delayMs = 400) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
 function normalizePhone(phone) {
   // Strip non-digits: 03001234567 → 03001234567, +923001234567 → 923001234567
   let digits = phone.replace(/\D/g, '');
@@ -91,18 +111,27 @@ async function registerCustomer({ phone, fullName, companyId, shopName, shopAddr
 async function loginWithCredentials({ email, password }) {
   // Salesmen log in via phone + OTP now (see findSalesmanByPhone /
   // registerSalesman) — only admin/delivery roles still use email+password.
-  const { data: user, error } = await supabaseAdmin
-    .from('users')
-    .select('*')
-    .eq('email', email)
-    .in('role', ['super_admin', 'branch_admin', 'delivery'])
-    .single();
+  const user = await withRetry(async () => {
+    const { data, error } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .in('role', ['super_admin', 'branch_admin', 'delivery'])
+      .single();
+    if (error || !data) throw new Error('lookup failed');
+    return data;
+  }).catch(() => null);
 
-  if (error || !user) throw new Error('Invalid email or password');
+  if (!user) throw new Error('Invalid email or password');
   if (!user.is_active) throw new Error('Account has been deactivated');
 
-  const { error: signInError } = await supabaseAdmin.auth.signInWithPassword({ email, password });
-  if (signInError) throw new Error('Invalid email or password');
+  const signInOk = await withRetry(async () => {
+    const { error: signInError } = await supabaseAdmin.auth.signInWithPassword({ email, password });
+    if (signInError) throw new Error(signInError.message);
+    return true;
+  }).catch(() => false);
+
+  if (!signInOk) throw new Error('Invalid email or password');
 
   const token = generateToken(user);
 
