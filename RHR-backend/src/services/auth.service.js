@@ -102,13 +102,7 @@ async function loginWithCredentials({ email, password }) {
   if (!user.is_active) throw new Error('Account has been deactivated');
 
   const { error: signInError } = await supabaseAdmin.auth.signInWithPassword({ email, password });
-  if (signInError) {
-    // TEMP DIAGNOSTIC — remove once the admin-login investigation is done
-    console.error('[DIAG] signInWithPassword failed for', email, JSON.stringify({
-      message: signInError.message, status: signInError.status, code: signInError.code, name: signInError.name
-    }));
-    throw new Error('Invalid email or password');
-  }
+  if (signInError) throw new Error('Invalid email or password');
 
   const token = generateToken(user);
 
