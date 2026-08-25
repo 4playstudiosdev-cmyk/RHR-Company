@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/cart_store.dart';
-import '../../../shared/widgets/staggered_fade_in.dart';
-import '../../../shared/widgets/tap_scale.dart';
 import '../../../shared/widgets/rhr_bottom_nav.dart';
 import '../../../shared/widgets/shimmer_box.dart';
 
@@ -66,229 +65,196 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
       builder: (context, _) {
         final cartCount = CartStore.instance.itemCount;
         return Scaffold(
-      backgroundColor: AppColors.warmGrey,
-      appBar: AppBar(
-        backgroundColor: AppColors.navy,
-        title: const Text('Products', style: TextStyle(
-            color: AppColors.white, fontWeight: FontWeight.bold)),
-        actions: [
-          Stack(children: [
-            IconButton(
-              icon: const Icon(Icons.shopping_cart_outlined, color: AppColors.white),
-              onPressed: () => context.go('/cart'),
-            ),
-            if (cartCount > 0)
-              Positioned(
-                right: 6, top: 6,
-                child: Container(
-                  width: 18, height: 18,
-                  decoration: const BoxDecoration(
-                      color: AppColors.orange, shape: BoxShape.circle),
-                  child: Center(
-                    child: Text('$cartCount', style: const TextStyle(
-                        color: Colors.white, fontSize: 10,
-                        fontWeight: FontWeight.bold)),
-                  ),
-                ),
-              ),
-          ]),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(56),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: TextField(
-              onChanged: (v) { _search = v; _filterProducts(); },
-              decoration: InputDecoration(
-                hintText: 'Search products...',
-                hintStyle: const TextStyle(color: Colors.white54),
-                prefixIcon: const Icon(Icons.search, color: Colors.white54),
-                filled: true,
-                fillColor: Colors.white.withValues(alpha: 0.15),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none),
-                contentPadding: const EdgeInsets.symmetric(vertical: 0),
-              ),
-              style: const TextStyle(color: Colors.white),
-            ),
-          ),
-        ),
-      ),
-      body: _isLoading
-          ? GridView.builder(
-              padding: const EdgeInsets.all(16),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2, childAspectRatio: 0.72,
-                  crossAxisSpacing: 12, mainAxisSpacing: 12),
-              itemCount: 6,
-              itemBuilder: (_, i) => const ShimmerProductCard(),
-            )
-          : _filtered.isEmpty
-              ? Center(
+          backgroundColor: AppColors.background,
+          body: SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                // Header
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.marginMobile, AppSpacing.base, AppSpacing.marginMobile, AppSpacing.lg),
+                  decoration: const BoxDecoration(color: AppColors.onPrimaryFixed),
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.inventory_2_outlined,
-                          size: 64, color: AppColors.disabled),
-                      const SizedBox(height: 16),
-                      const Text('No products found', style: TextStyle(
-                          color: AppColors.steelBlue, fontSize: 16)),
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: _loadProducts,
-                        child: const Text('Retry',
-                            style: TextStyle(color: AppColors.orange)),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('RHR & Company', style: AppTextStyles.headlineMd.copyWith(color: Colors.white)),
+                          Stack(clipBehavior: Clip.none, children: [
+                            IconButton(
+                              onPressed: () => context.go('/cart'),
+                              icon: const Icon(Icons.shopping_cart, color: Colors.white),
+                            ),
+                            if (cartCount > 0)
+                              Positioned(
+                                right: 2, top: 2,
+                                child: Container(
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: const BoxDecoration(color: AppColors.error, shape: BoxShape.circle),
+                                  constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                                  child: Text('$cartCount', textAlign: TextAlign.center,
+                                      style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                                ),
+                              ),
+                          ]),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.base),
+                      TextField(
+                        onChanged: (v) { _search = v; _filterProducts(); },
+                        style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurface),
+                        decoration: InputDecoration(
+                          hintText: 'Search products...',
+                          hintStyle: AppTextStyles.bodyMd.copyWith(color: AppColors.outline),
+                          prefixIcon: const Icon(Icons.search, color: AppColors.outline),
+                          filled: true,
+                          fillColor: AppColors.surface,
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(AppRadius.base), borderSide: BorderSide(color: AppColors.outlineVariant)),
+                          contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                        ),
                       ),
                     ],
                   ),
-                )
-              : GridView.builder(
-                  padding: const EdgeInsets.all(16),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2, childAspectRatio: 0.72,
-                      crossAxisSpacing: 12, mainAxisSpacing: 12),
-                  itemCount: _filtered.length,
-                  itemBuilder: (_, i) {
-                    final p      = _filtered[i];
-                    final pid    = p['id'] ?? '';
-                    final qty    = _qtyFor(pid);
-                    final price  = (p['price'] ?? 0).toDouble();
-                    final unit   = (p['unit'] ?? '') as String;
-
-                    return StaggeredFadeIn(
-                      index: i,
-                      scale: true,
-                      child: Container(
-                      decoration: BoxDecoration(
-                          color: AppColors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: qty > 0
-                              ? Border.all(color: AppColors.orange, width: 2)
-                              : null,
-                          boxShadow: [BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.06),
-                              blurRadius: 10, offset: const Offset(0, 3))]),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          TapScale(
-                            onTap: () => context.go('/product-detail', extra: p),
-                            child: Container(
-                              height: 110,
-                              decoration: BoxDecoration(
-                                  color: AppColors.warmGrey,
-                                  borderRadius: const BorderRadius.vertical(
-                                      top: Radius.circular(16))),
-                              child: p['image_url'] != null
-                                  ? ClipRRect(
-                                      borderRadius: const BorderRadius.vertical(
-                                          top: Radius.circular(16)),
-                                      child: Image.network(
-                                        p['image_url'],
-                                        fit: BoxFit.cover,
-                                        width: double.infinity,
-                                        errorBuilder: (c, e, s) => const Icon(
-                                            Icons.inventory_2_outlined,
-                                            size: 50, color: AppColors.steelBlue),
-                                      ),
-                                    )
-                                  : const Center(child: Icon(
-                                      Icons.inventory_2_outlined,
-                                      size: 50, color: AppColors.steelBlue)),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.all(10),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(p['name'] ?? 'Product',
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.navy, fontSize: 13),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis),
-                                Text(unit.isEmpty ? 'pcs' : unit,
-                                    style: const TextStyle(
-                                        color: AppColors.steelBlue, fontSize: 11)),
-                                const SizedBox(height: 4),
-                                Text('PKR ${price.toStringAsFixed(0)}',
-                                    style: const TextStyle(
-                                        color: AppColors.orange,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 14)),
-                                const SizedBox(height: 6),
-                                qty == 0
-                                    ? SizedBox(
-                                        width: double.infinity,
-                                        height: 32,
-                                        child: ElevatedButton(
-                                          onPressed: () => CartStore.instance.add(
-                                              id: pid, name: p['name'] ?? 'Product',
-                                              price: price, unit: unit, qty: 1),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: AppColors.navy,
-                                            shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(8)),
-                                          ),
-                                          child: const Text('Add to Cart',
-                                              style: TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.bold)),
-                                        ),
-                                      )
-                                    : Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          GestureDetector(
-                                            onTap: () => CartStore.instance
-                                                .updateQty(pid, qty - 1),
-                                            child: Container(
-                                              width: 28, height: 28,
-                                              decoration: BoxDecoration(
-                                                  color: AppColors.warmGrey,
-                                                  borderRadius:
-                                                      BorderRadius.circular(6)),
-                                              child: const Icon(Icons.remove,
-                                                  size: 14,
-                                                  color: AppColors.navy),
-                                            ),
-                                          ),
-                                          Text('$qty',
-                                              style: const TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  color: AppColors.navy,
-                                                  fontSize: 15)),
-                                          GestureDetector(
-                                            onTap: () => CartStore.instance
-                                                .updateQty(pid, qty + 1),
-                                            child: Container(
-                                              width: 28, height: 28,
-                                              decoration: BoxDecoration(
-                                                  color: AppColors.orange,
-                                                  borderRadius:
-                                                      BorderRadius.circular(6)),
-                                              child: const Icon(Icons.add,
-                                                  size: 14,
-                                                  color: Colors.white),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      ),
-                    );
-                  },
                 ),
-      bottomNavigationBar: const RHRBottomNav(currentIndex: 1),
+
+                Expanded(
+                  child: _isLoading
+                      ? GridView.builder(
+                          padding: const EdgeInsets.all(AppSpacing.marginMobile),
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2, childAspectRatio: 0.72,
+                              crossAxisSpacing: 12, mainAxisSpacing: 12),
+                          itemCount: 6,
+                          itemBuilder: (_, i) => const ShimmerProductCard(),
+                        )
+                      : _filtered.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.inventory_2_outlined, size: 64, color: AppColors.outlineVariant),
+                                  const SizedBox(height: AppSpacing.base),
+                                  Text('No products found', style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant)),
+                                  const SizedBox(height: AppSpacing.xs),
+                                  TextButton(
+                                    onPressed: _loadProducts,
+                                    child: Text('Retry', style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : GridView.builder(
+                              padding: const EdgeInsets.all(AppSpacing.marginMobile),
+                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 2, childAspectRatio: 0.68,
+                                  crossAxisSpacing: 12, mainAxisSpacing: 12),
+                              itemCount: _filtered.length,
+                              itemBuilder: (_, i) {
+                                final p      = _filtered[i];
+                                final pid    = p['id'] ?? '';
+                                final qty    = _qtyFor(pid);
+                                final price  = (p['price'] ?? 0).toDouble();
+                                final unit   = (p['unit'] ?? '') as String;
+
+                                return Container(
+                                  decoration: BoxDecoration(
+                                      color: AppColors.surfaceContainerLowest,
+                                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                                      border: Border.all(
+                                          color: qty > 0 ? AppColors.primary : AppColors.outlineVariant,
+                                          width: qty > 0 ? 2 : 1)),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      GestureDetector(
+                                        onTap: () => context.go('/product-detail', extra: p),
+                                        child: Container(
+                                          height: 110,
+                                          decoration: const BoxDecoration(
+                                              color: AppColors.surfaceContainerLow,
+                                              borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg))),
+                                          child: p['image_url'] != null
+                                              ? ClipRRect(
+                                                  borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+                                                  child: Image.network(
+                                                    p['image_url'],
+                                                    fit: BoxFit.cover,
+                                                    width: double.infinity,
+                                                    errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, size: 50, color: AppColors.secondary),
+                                                  ),
+                                                )
+                                              : const Center(child: Icon(Icons.inventory_2_outlined, size: 50, color: AppColors.secondary)),
+                                        ),
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.all(10),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(p['name'] ?? 'Product',
+                                                style: AppTextStyles.bodyMd.copyWith(fontWeight: FontWeight.w600, color: AppColors.onSurface, fontSize: 13),
+                                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                                            Text(unit.isEmpty ? 'pcs' : unit,
+                                                style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurfaceVariant, fontSize: 11)),
+                                            const SizedBox(height: 4),
+                                            Text('PKR ${price.toStringAsFixed(0)}',
+                                                style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary, fontSize: 14)),
+                                            const SizedBox(height: 6),
+                                            qty == 0
+                                                ? SizedBox(
+                                                    width: double.infinity,
+                                                    height: 32,
+                                                    child: OutlinedButton(
+                                                      onPressed: () => CartStore.instance.add(
+                                                          id: pid, name: p['name'] ?? 'Product',
+                                                          price: price, unit: unit, qty: 1),
+                                                      style: OutlinedButton.styleFrom(
+                                                        foregroundColor: AppColors.primary,
+                                                        side: const BorderSide(color: AppColors.primary),
+                                                        padding: EdgeInsets.zero,
+                                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                                      ),
+                                                      child: const Text('Add', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                                    ),
+                                                  )
+                                                : Row(
+                                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                    children: [
+                                                      GestureDetector(
+                                                        onTap: () => CartStore.instance.updateQty(pid, qty - 1),
+                                                        child: Container(
+                                                          width: 28, height: 28,
+                                                          decoration: BoxDecoration(color: AppColors.surfaceContainerLow, borderRadius: BorderRadius.circular(6)),
+                                                          child: const Icon(Icons.remove, size: 14, color: AppColors.primary),
+                                                        ),
+                                                      ),
+                                                      Text('$qty', style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary, fontSize: 15)),
+                                                      GestureDetector(
+                                                        onTap: () => CartStore.instance.updateQty(pid, qty + 1),
+                                                        child: Container(
+                                                          width: 28, height: 28,
+                                                          decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(6)),
+                                                          child: const Icon(Icons.add, size: 14, color: Colors.white),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                ),
+              ],
+            ),
+          ),
+          bottomNavigationBar: const RHRBottomNav(currentIndex: 1),
         );
       },
     );

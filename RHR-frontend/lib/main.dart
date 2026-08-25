@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'core/constants/app_colors.dart';
 import 'core/storage/hive_service.dart';
 import 'core/storage/secure_storage.dart';
 import 'services/gps_service.dart';
@@ -33,9 +35,8 @@ class RHRApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       routerConfig: appRouter,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1B2E6B),
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primary),
+        textTheme: GoogleFonts.interTextTheme(),
         useMaterial3: true,
       ),
     );

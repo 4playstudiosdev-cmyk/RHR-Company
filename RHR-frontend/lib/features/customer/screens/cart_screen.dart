@@ -1,65 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/api_endpoints.dart';
-import '../../../core/network/dio_client.dart';
+import '../../../core/constants/app_text_styles.dart';
 import '../../../shared/cart_store.dart';
-import '../../../shared/widgets/rhr_button.dart';
-import '../../../shared/widgets/staggered_fade_in.dart';
-import '../../../shared/widgets/success_check.dart';
-import '../../../shared/widgets/tap_scale.dart';
 
-class CartScreen extends StatefulWidget {
+class CartScreen extends StatelessWidget {
   const CartScreen({super.key});
-
-  @override
-  State<CartScreen> createState() => _CartScreenState();
-}
-
-class _CartScreenState extends State<CartScreen> {
-  bool _isLoading = false;
-
-  Future<void> _placeOrder() async {
-    final items = CartStore.instance.items;
-    if (items.isEmpty) return;
-    setState(() => _isLoading = true);
-    try {
-      final orderItems = items.map((p) => {
-        'product_id': p['id'],
-        'quantity':   p['qty'],
-      }).toList();
-      final response = await DioClient.instance.post(
-        ApiEndpoints.orders,
-        data: {
-          'items':            orderItems,
-          'notes':            'Mobile app order',
-          'delivery_address': 'Karachi',
-        },
-      );
-      debugPrint('Place order: ${response.statusCode} | ${response.data}');
-      if (response.data['success'] == true) {
-        CartStore.instance.clear();
-        if (mounted) {
-          await showSuccessCheck(context, message: 'Order Placed!');
-          if (mounted) context.go('/orders');
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(
-                  response.data['message'] ?? 'Order failed')));
-        }
-      }
-    } catch (e) {
-      debugPrint('Order error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e')));
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,147 +15,127 @@ class _CartScreenState extends State<CartScreen> {
         final cartItems = CartStore.instance.items;
         final total = CartStore.instance.total;
         return Scaffold(
-      backgroundColor: AppColors.warmGrey,
-      appBar: AppBar(
-        backgroundColor: AppColors.navy,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => context.go('/catalogue'),
-        ),
-        title: const Text('My Cart', style: TextStyle(
-            color: Colors.white, fontWeight: FontWeight.bold)),
-      ),
-      body: cartItems.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.shopping_cart_outlined,
-                      size: 64, color: AppColors.disabled),
-                  const SizedBox(height: 16),
-                  const Text('Cart is empty', style: TextStyle(
-                      color: AppColors.steelBlue, fontSize: 16)),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: () => context.go('/catalogue'),
-                    child: const Text('Browse Products',
-                        style: TextStyle(color: AppColors.orange)),
-                  ),
-                ],
-              ),
-            )
-          : Column(children: [
-              Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: cartItems.length,
-                  itemBuilder: (_, i) {
-                    final p     = cartItems[i];
-                    final pid   = p['id'] as String;
-                    final qty   = p['qty'] as int;
-                    final price = (p['price'] ?? 0).toDouble();
-                    return StaggeredFadeIn(
-                      index: i,
-                      child: Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                          color: AppColors.white,
-                          borderRadius: BorderRadius.circular(14),
-                          boxShadow: [BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.05),
-                              blurRadius: 8, offset: const Offset(0, 2))]),
-                      child: Row(children: [
-                        Container(
-                          width: 60, height: 60,
-                          decoration: BoxDecoration(
-                              color: AppColors.warmGrey,
-                              borderRadius: BorderRadius.circular(10)),
-                          child: p['image_url'] != null
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(10),
-                                  child: Image.network(p['image_url'],
-                                      fit: BoxFit.cover))
-                              : const Icon(Icons.inventory_2_outlined,
-                                  color: AppColors.steelBlue),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(p['name'] ?? '',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: AppColors.navy, fontSize: 14)),
-                              Text('PKR ${price.toStringAsFixed(0)}',
-                                  style: const TextStyle(
-                                      color: AppColors.orange,
-                                      fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        ),
-                        Row(children: [
-                          TapScale(
-                            onTap: () => CartStore.instance.updateQty(pid, qty - 1),
-                            child: Container(
-                              width: 30, height: 30,
-                              decoration: BoxDecoration(
-                                  color: AppColors.warmGrey,
-                                  borderRadius: BorderRadius.circular(6)),
-                              child: const Icon(Icons.remove,
-                                  size: 16, color: AppColors.navy),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            child: Text('$qty', style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.navy, fontSize: 16)),
-                          ),
-                          TapScale(
-                            onTap: () => CartStore.instance.updateQty(pid, qty + 1),
-                            child: Container(
-                              width: 30, height: 30,
-                              decoration: BoxDecoration(
-                                  color: AppColors.orange,
-                                  borderRadius: BorderRadius.circular(6)),
-                              child: const Icon(Icons.add,
-                                  size: 16, color: Colors.white),
-                            ),
-                          ),
-                        ]),
-                      ]),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: const BoxDecoration(
-                    color: AppColors.white,
-                    borderRadius:
-                        BorderRadius.vertical(top: Radius.circular(24))),
-                child: Column(children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          backgroundColor: AppColors.background,
+          appBar: AppBar(
+            backgroundColor: AppColors.primary,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: () => context.go('/catalogue'),
+            ),
+            title: Text('My Cart', style: AppTextStyles.headlineSm.copyWith(color: Colors.white)),
+          ),
+          body: cartItems.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text('Total', style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.navy, fontSize: 18)),
-                      Text('PKR ${total.toStringAsFixed(0)}',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.orange, fontSize: 22)),
+                      const Icon(Icons.shopping_cart_outlined, size: 64, color: AppColors.outlineVariant),
+                      const SizedBox(height: AppSpacing.base),
+                      Text('Cart is empty', style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant)),
+                      const SizedBox(height: AppSpacing.xs),
+                      TextButton(
+                        onPressed: () => context.go('/catalogue'),
+                        child: Text('Browse Products', style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  RHRButton(text: 'Place Order',
-                      onPressed: _placeOrder, isLoading: _isLoading),
+                )
+              : Column(children: [
+                  Expanded(
+                    child: ListView.builder(
+                      padding: const EdgeInsets.all(AppSpacing.marginMobile),
+                      itemCount: cartItems.length,
+                      itemBuilder: (_, i) {
+                        final p     = cartItems[i];
+                        final pid   = p['id'] as String;
+                        final qty   = p['qty'] as int;
+                        final price = (p['price'] ?? 0).toDouble();
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: AppSpacing.base),
+                          padding: const EdgeInsets.all(AppSpacing.sm),
+                          decoration: BoxDecoration(
+                              color: AppColors.surfaceContainerLowest,
+                              borderRadius: BorderRadius.circular(AppRadius.base),
+                              border: Border.all(color: AppColors.outlineVariant),
+                              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6, offset: const Offset(0, 2))]),
+                          child: Row(children: [
+                            Container(
+                              width: 72, height: 72,
+                              decoration: BoxDecoration(color: AppColors.surfaceVariant, borderRadius: BorderRadius.circular(AppRadius.base)),
+                              child: p['image_url'] != null
+                                  ? ClipRRect(borderRadius: BorderRadius.circular(AppRadius.base), child: Image.network(p['image_url'], fit: BoxFit.cover))
+                                  : const Icon(Icons.inventory_2_outlined, color: AppColors.outline),
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(p['name'] ?? '', style: AppTextStyles.bodyMd.copyWith(fontWeight: FontWeight.w600, color: AppColors.onSurface)),
+                                  const SizedBox(height: 2),
+                                  Text('PKR ${price.toStringAsFixed(0)}', style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              decoration: BoxDecoration(
+                                  color: AppColors.surfaceContainerLow,
+                                  borderRadius: BorderRadius.circular(AppRadius.base),
+                                  border: Border.all(color: AppColors.outlineVariant.withValues(alpha: 0.5))),
+                              child: Row(children: [
+                                IconButton(
+                                  onPressed: () => CartStore.instance.updateQty(pid, qty - 1),
+                                  icon: const Icon(Icons.remove, size: 16),
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                Text('$qty', style: AppTextStyles.bodySm),
+                                IconButton(
+                                  onPressed: () => CartStore.instance.updateQty(pid, qty + 1),
+                                  icon: const Icon(Icons.add, size: 16),
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ]),
+                            ),
+                          ]),
+                        );
+                      },
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    decoration: const BoxDecoration(
+                        color: AppColors.surfaceContainerLowest,
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
+                    child: SafeArea(
+                      top: false,
+                      child: Column(children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Total', style: AppTextStyles.headlineSm.copyWith(color: AppColors.onSurface)),
+                            Text('PKR ${total.toStringAsFixed(0)}', style: AppTextStyles.headlineMd.copyWith(color: AppColors.primary)),
+                          ],
+                        ),
+                        const SizedBox(height: AppSpacing.base),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: () => context.go('/place-order', extra: cartItems),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.base)),
+                            ),
+                            child: Text('Proceed to Checkout', style: AppTextStyles.labelMd.copyWith(color: Colors.white)),
+                          ),
+                        ),
+                      ]),
+                    ),
+                  ),
                 ]),
-              ),
-            ]),
         );
       },
     );

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
-import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/pdf/pdf_generator.dart';
 
 class OrderTrackingScreen extends StatefulWidget {
@@ -20,6 +20,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   bool _isLoading = true;
 
   static const _steps = ['confirmed', 'preparing', 'dispatched', 'delivered'];
+  static const _stepLabels = ['Order Placed', 'Preparing', 'Dispatched', 'Delivered'];
 
   @override
   void initState() {
@@ -35,11 +36,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       if (response.data['success'] == true) {
         final order = response.data['data'];
 
-        // Defense in depth — the backend already scopes this endpoint to
-        // the authenticated customer's own orders; this just makes sure a
-        // stray/forged order id in the route never renders someone else's
-        // order data on screen even if a backend scoping bug ever slipped
-        // through.
         final role = await SecureStorage.getRole();
         if (role == 'customer') {
           final myId = await SecureStorage.getUserId();
@@ -71,29 +67,24 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   @override
   Widget build(BuildContext context) {
     final orderId  = _order?['id']?.toString() ?? widget.orderId ?? '';
-    final shortId  = orderId.length >= 8
-        ? 'ORD-${orderId.substring(0, 8).toUpperCase()}'
-        : orderId;
+    final shortId  = orderId.length >= 8 ? orderId.substring(0, 8).toUpperCase() : orderId;
     final status   = _order?['status'] ?? '—';
     final amount   = _order?['total_amount'] ?? _order?['total'] ?? 0;
     final date     = _order?['created_at']?.toString() ?? '—';
-    // GET /orders/:id nests items under 'order_items', not 'items'
     final items    = (_order?['order_items'] as List?) ?? [];
 
     return Scaffold(
-      backgroundColor: AppColors.warmGrey,
+      backgroundColor: AppColors.surfaceContainerLowest,
       appBar: AppBar(
-        backgroundColor: AppColors.navy,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => context.go('/orders'),
-        ),
-        title: Text(shortId,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        backgroundColor: AppColors.surfaceContainerLowest,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: AppColors.onPrimaryFixed),
+        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.go('/orders')),
+        title: Text('Order Tracking', style: AppTextStyles.headlineLgMobile.copyWith(color: AppColors.onPrimaryFixed, fontSize: 20)),
         actions: [
           if (_order != null)
             IconButton(
-              icon: const Icon(Icons.picture_as_pdf_outlined, color: Colors.white),
+              icon: const Icon(Icons.download),
               onPressed: () => generateOrderPdf(
                 orderId: shortId,
                 date: date.length > 10 ? date.substring(0, 10) : date,
@@ -105,190 +96,141 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.orange))
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
           : _order == null
-              ? const Center(
-                  child: Text('Order not found.',
-                      style: TextStyle(color: AppColors.steelBlue)))
+              ? Center(child: Text('Order not found.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant)))
               : SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(AppSpacing.marginMobile),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Status header card
-                      StaggeredFadeIn(index: 0, child: Container(
+                      // Info card
+                      Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: AppColors.navy,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Order Status',
-                                style: TextStyle(color: Colors.white70, fontSize: 13)),
-                            const SizedBox(height: 4),
-                            Text(status.toUpperCase(),
-                                style: const TextStyle(
-                                    color: AppColors.orange,
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 12),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(date.length > 10 ? date.substring(0, 10) : date,
-                                    style: const TextStyle(
-                                        color: Colors.white54, fontSize: 12)),
-                                Text('PKR $amount',
-                                    style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16)),
-                              ],
-                            ),
-                          ],
-                        ),
-                      )),
-                      const SizedBox(height: 24),
-
-                      // Progress tracker
-                      if (status != 'cancelled') ...[
-                        const Text('Tracking',
-                            style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.navy)),
-                        const SizedBox(height: 16),
-                        StaggeredFadeIn(index: 1, child: Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: AppColors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.05),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2))
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        decoration: BoxDecoration(color: AppColors.onPrimaryFixed, borderRadius: BorderRadius.circular(AppRadius.lg)),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text('ORDER ID', style: AppTextStyles.labelMd.copyWith(color: Colors.white70, fontSize: 11)),
+                                Text('#ORD-$shortId', style: AppTextStyles.headlineSm.copyWith(color: Colors.white)),
+                              ]),
+                              Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                                Text('TOTAL AMOUNT', style: AppTextStyles.labelMd.copyWith(color: Colors.white70, fontSize: 11)),
+                                Text('PKR $amount', style: AppTextStyles.headlineSm.copyWith(color: Colors.white)),
+                              ]),
                             ],
                           ),
-                          child: Column(
-                            children: List.generate(_steps.length, (i) {
-                              final done    = i <= _currentStep;
-                              final current = i == _currentStep;
-                              final isLast  = i == _steps.length - 1;
-                              return Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Column(
+                          const Padding(padding: EdgeInsets.symmetric(vertical: AppSpacing.sm), child: Divider(color: Colors.white24, height: 1)),
+                          Row(children: [
+                            const Icon(Icons.calendar_today, size: 14, color: Colors.white70),
+                            const SizedBox(width: 6),
+                            Text(date.length > 10 ? 'Placed: ${date.substring(0, 10)}' : date,
+                                style: AppTextStyles.bodySm.copyWith(color: Colors.white)),
+                          ]),
+                        ]),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+
+                      // Tracking stepper
+                      if (status != 'cancelled') ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(AppSpacing.md),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(AppRadius.lg),
+                            border: Border.all(color: AppColors.outlineVariant),
+                          ),
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: AppSpacing.base),
+                              child: Text('Tracking Status', style: AppTextStyles.headlineSm.copyWith(color: AppColors.onPrimaryFixed)),
+                            ),
+                            const Divider(color: AppColors.outlineVariant, height: 1),
+                            const SizedBox(height: AppSpacing.base),
+                            Column(
+                              children: List.generate(_steps.length, (i) {
+                                final done    = i <= _currentStep;
+                                final current = i == _currentStep;
+                                final isLast  = i == _steps.length - 1;
+                                return IntrinsicHeight(
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
                                     children: [
-                                      Container(
-                                        width: 28,
-                                        height: 28,
-                                        decoration: BoxDecoration(
-                                          color: done ? AppColors.orange : AppColors.warmGrey,
-                                          shape: BoxShape.circle,
-                                          border: current
-                                              ? Border.all(color: AppColors.orange, width: 2)
-                                              : null,
+                                      Column(children: [
+                                        Container(
+                                          width: 16, height: 16,
+                                          decoration: BoxDecoration(
+                                            color: current ? AppColors.primary : (done ? AppColors.success : AppColors.surfaceVariant),
+                                            shape: BoxShape.circle,
+                                            border: Border.all(color: Colors.white, width: 2),
+                                          ),
                                         ),
-                                        child: Icon(
-                                          done ? Icons.check : Icons.circle_outlined,
-                                          size: 16,
-                                          color: done ? Colors.white : AppColors.disabled,
+                                        if (!isLast)
+                                          Expanded(child: Container(width: 2, color: done && !current ? AppColors.success : AppColors.outlineVariant)),
+                                      ]),
+                                      const SizedBox(width: AppSpacing.sm),
+                                      Expanded(
+                                        child: Padding(
+                                          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                            Text(_stepLabels[i], style: AppTextStyles.headlineSm.copyWith(
+                                                color: done ? AppColors.onSurface : AppColors.outline, fontSize: 15)),
+                                            if (current)
+                                              Text('Your order is on the way!', style: AppTextStyles.bodySm.copyWith(color: AppColors.primary, fontWeight: FontWeight.w600)),
+                                          ]),
                                         ),
                                       ),
-                                      if (!isLast)
-                                        Container(
-                                          width: 2,
-                                          height: 36,
-                                          color: done ? AppColors.orange : AppColors.warmGrey,
-                                        ),
                                     ],
                                   ),
-                                  const SizedBox(width: 16),
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Text(
-                                      _steps[i][0].toUpperCase() + _steps[i].substring(1),
-                                      style: TextStyle(
-                                        color: done ? AppColors.navy : AppColors.disabled,
-                                        fontWeight: current
-                                            ? FontWeight.bold
-                                            : FontWeight.normal,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              );
-                            }),
-                          ),
-                        )),
-                        const SizedBox(height: 24),
+                                );
+                              }),
+                            ),
+                          ]),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
                       ],
 
-                      // Items list
-                      const Text('Order Items',
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.navy)),
-                      const SizedBox(height: 12),
-                      if (items.isEmpty)
-                        const Text('No items.',
-                            style: TextStyle(color: AppColors.steelBlue))
-                      else
-                        ...items.asMap().entries.map((entry) {
-                          final item  = entry.value;
-                          final name  = item['product_name'] ?? item['name'] ?? 'Item';
-                          final qty   = item['quantity'] ?? item['qty'] ?? 1;
-                          final price = item['unit_price'] ?? item['price'] ?? 0;
-                          return StaggeredFadeIn(
-                            index: entry.key,
-                            child: Container(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: AppColors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.04),
-                                    blurRadius: 6,
-                                    offset: const Offset(0, 2))
-                              ],
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(name,
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              color: AppColors.navy,
-                                              fontSize: 13)),
-                                      Text('Qty: $qty',
-                                          style: const TextStyle(
-                                              color: AppColors.steelBlue,
-                                              fontSize: 12)),
-                                    ],
+                      // Items card
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(AppRadius.lg),
+                          border: Border.all(color: AppColors.outlineVariant),
+                        ),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text('Order Items (${items.length})', style: AppTextStyles.headlineSm.copyWith(color: AppColors.onPrimaryFixed)),
+                          const Padding(padding: EdgeInsets.symmetric(vertical: AppSpacing.base), child: Divider(color: AppColors.outlineVariant, height: 1)),
+                          if (items.isEmpty)
+                            Text('No items.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant))
+                          else
+                            ...items.map((item) {
+                              final name  = item['product_name'] ?? item['name'] ?? 'Item';
+                              final qty   = item['quantity'] ?? item['qty'] ?? 1;
+                              final price = item['unit_price'] ?? item['price'] ?? 0;
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                child: Row(children: [
+                                  Container(
+                                    width: 44, height: 44,
+                                    decoration: BoxDecoration(color: AppColors.surfaceVariant, borderRadius: BorderRadius.circular(AppRadius.sm)),
+                                    child: const Icon(Icons.inventory_2_outlined, color: AppColors.outline, size: 20),
                                   ),
-                                ),
-                                Text('PKR $price',
-                                    style: const TextStyle(
-                                        color: AppColors.orange,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13)),
-                              ],
-                            ),
-                          ),
-                          );
-                        }),
+                                  const SizedBox(width: AppSpacing.sm),
+                                  Expanded(
+                                    child: Text('$name x $qty', style: AppTextStyles.bodyMd.copyWith(fontWeight: FontWeight.w600, color: AppColors.onSurface)),
+                                  ),
+                                  Text('PKR $price', style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
+                                ]),
+                              );
+                            }),
+                        ]),
+                      ),
                     ],
                   ),
                 ),

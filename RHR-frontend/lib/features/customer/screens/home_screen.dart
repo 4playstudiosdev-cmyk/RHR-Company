@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
-import '../../../shared/widgets/staggered_fade_in.dart';
-import '../../../shared/widgets/tap_scale.dart';
 import '../../../shared/widgets/rhr_bottom_nav.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -19,6 +18,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> _recentOrders = [];
   String _balance  = 'PKR 0';
   String _userName = 'Customer';
+  int _totalOrders = 0;
   bool _isLoading  = true;
 
   @override
@@ -39,9 +39,10 @@ class _HomeScreenState extends State<HomeScreen> {
         queryParameters: {'limit': 5},
       );
       if (ordersRes.data['success'] == true) {
+        final orders = List<Map<String, dynamic>>.from(ordersRes.data['data'] ?? []);
         setState(() {
-          _recentOrders = List<Map<String, dynamic>>.from(
-            ordersRes.data['data'] ?? []);
+          _recentOrders = orders;
+          _totalOrders = orders.length;
         });
       }
 
@@ -66,313 +67,198 @@ class _HomeScreenState extends State<HomeScreen> {
     final screenHeight = MediaQuery.of(context).size.height;
     final maxOrders = screenHeight < 700 ? 3 : 5;
     final visibleOrders = _recentOrders.take(maxOrders).toList();
+
     return Scaffold(
-      backgroundColor: AppColors.warmGrey,
+      backgroundColor: AppColors.background,
       body: SafeArea(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 300),
-          child: _isLoading
-              ? const Center(
-                  key: ValueKey('loading'),
-                  child: CircularProgressIndicator(color: AppColors.orange))
-              : SingleChildScrollView(
-                key: const ValueKey('content'),
+        bottom: false,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+            : SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Header
+                    // Wave header
                     Container(
-                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
-                      decoration: const BoxDecoration(
-                        color: AppColors.navy,
-                        borderRadius: BorderRadius.only(
-                          bottomLeft: Radius.circular(28),
-                          bottomRight: Radius.circular(28),
-                        ),
-                      ),
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.marginMobile, AppSpacing.md, AppSpacing.marginMobile, 56),
+                      decoration: const BoxDecoration(color: AppColors.primary),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text('Good Morning!',
-                                      style: TextStyle(color: Colors.white70, fontSize: 13)),
-                                  Text(_userName,
-                                      style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 20,
-                                          fontWeight: FontWeight.bold)),
-                                ],
+                              Text('RHR & Company',
+                                  style: AppTextStyles.headlineMd.copyWith(color: Colors.white)),
+                              Row(children: [
+                                GestureDetector(
+                                  onTap: () => context.go('/notifications'),
+                                  child: const Icon(Icons.notifications, color: Colors.white, size: 26),
+                                ),
+                                const SizedBox(width: 14),
+                                GestureDetector(
+                                  onTap: () => context.go('/profile'),
+                                  child: const CircleAvatar(
+                                    radius: 16,
+                                    backgroundColor: AppColors.tertiaryFixedDim,
+                                    child: Icon(Icons.person, color: Colors.white, size: 18),
+                                  ),
+                                ),
+                              ]),
+                            ],
+                          ),
+                          const SizedBox(height: AppSpacing.base),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(AppRadius.full),
+                              border: Border.all(color: Colors.white24),
+                            ),
+                            child: Text('My Account',
+                                style: AppTextStyles.labelMd.copyWith(color: Colors.white)),
+                          ),
+                          const SizedBox(height: AppSpacing.base),
+                          Text('Welcome back, $_userName 👋',
+                              style: AppTextStyles.headlineLgMobile.copyWith(color: Colors.white)),
+                        ],
+                      ),
+                    ),
+
+                    // Stats row (overlapping the wave)
+                    Transform.translate(
+                      offset: const Offset(0, -36),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.marginMobile),
+                        child: Column(children: [
+                          Row(children: [
+                            Expanded(child: _StatCard(label: 'Outstanding', value: _balance, color: AppColors.error)),
+                            const SizedBox(width: AppSpacing.base),
+                            Expanded(child: _StatCard(label: 'Total Orders', value: '$_totalOrders', color: AppColors.primary)),
+                          ]),
+                          const SizedBox(height: AppSpacing.base),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: () => context.go('/catalogue'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.secondaryContainer,
+                                foregroundColor: AppColors.onSecondaryContainer,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                                elevation: 0,
                               ),
-                              Row(
-                                children: [
-                                  GestureDetector(
-                                    onTap: () => context.go('/notifications'),
-                                    child: Container(
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(alpha: 0.1),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(Icons.notifications_outlined, color: Colors.white),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  GestureDetector(
-                                    onTap: () => context.go('/profile'),
-                                    child: const CircleAvatar(
-                                      backgroundColor: AppColors.orange,
-                                      child: Icon(Icons.person, color: Colors.white),
-                                    ),
-                                  ),
-                                ],
+                              icon: const Icon(Icons.shopping_bag),
+                              label: Text('Browse Products', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSecondaryContainer)),
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('My Recent Orders', style: AppTextStyles.headlineSm.copyWith(color: AppColors.onBackground)),
+                              GestureDetector(
+                                onTap: () => context.go('/orders'),
+                                child: Text('View All', style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 20),
-                          // Balance Card
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: Colors.white24),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('Outstanding Balance',
-                                        style: TextStyle(color: Colors.white70, fontSize: 12)),
-                                    Text(_balance,
-                                        style: const TextStyle(
-                                            color: AppColors.orange,
-                                            fontSize: 42,
-                                            fontWeight: FontWeight.bold)),
-                                  ],
-                                ),
-                                GestureDetector(
-                                  onTap: () => context.go('/ledger'),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                    decoration: BoxDecoration(
-                                        color: AppColors.orange,
-                                        borderRadius: BorderRadius.circular(8)),
-                                    child: const Text('View Ledger',
-                                        style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold)),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
+                          const Divider(color: AppColors.outlineVariant),
+                          const SizedBox(height: AppSpacing.base),
 
-                    // Quick Actions
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 20),
-                      child: Text('Quick Actions',
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.navy)),
-                    ),
-                    const SizedBox(height: 12),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Row(
-                        children: [
-                          _actionCard(context, Icons.shopping_bag_outlined, 'Browse Products', '/catalogue', AppColors.orange, 0),
-                          const SizedBox(width: 12),
-                          _actionCard(context, Icons.receipt_long_outlined, 'My Orders', '/orders', AppColors.navy, 1),
-                          const SizedBox(width: 12),
-                          _actionCard(context, Icons.account_balance_wallet_outlined, 'Ledger', '/ledger', AppColors.steelBlue, 2),
-                        ],
+                          if (_recentOrders.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              child: Text('No orders yet.', style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurfaceVariant)),
+                            )
+                          else
+                            ...visibleOrders.map((order) {
+                              final id = order['id']?.toString().substring(0, 8).toUpperCase() ?? '—';
+                              final amount = order['total_amount'] ?? order['total'] ?? 0;
+                              final status = (order['status'] ?? 'pending').toString();
+                              return _OrderRow(id: 'ORD-$id', amount: 'PKR $amount', status: status,
+                                  onTap: () => context.go('/order-tracking', extra: order['id']?.toString()));
+                            }),
+                          const SizedBox(height: AppSpacing.lg),
+                        ]),
                       ),
                     ),
-                    const SizedBox(height: 24),
-
-                    // Recent Orders
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 20),
-                      child: Text('Recent Orders',
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.navy)),
-                    ),
-                    const SizedBox(height: 12),
-                    if (_recentOrders.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                        child: Text('No orders yet.',
-                            style: TextStyle(color: AppColors.steelBlue, fontSize: 13)),
-                      )
-                    else ...[
-                      ...visibleOrders.asMap().entries.map((entry) {
-                        final order    = entry.value;
-                        final id       = order['id']?.toString().substring(0, 8).toUpperCase() ?? '—';
-                        final items    = order['order_items'];
-                        final label    = items is List && items.isNotEmpty
-                            ? '${items[0]['product_name'] ?? 'Item'} × ${items[0]['quantity'] ?? 1}'
-                            : 'Order #$id';
-                        final amount = order['total_amount'] ?? order['total'] ?? 0;
-                        final status = order['status'] ?? 'Pending';
-                        return _orderCard(
-                          'ORD-$id',
-                          label,
-                          'PKR ${amount.toString()}',
-                          status,
-                          entry.key,
-                        );
-                      }),
-                      const SizedBox(height: 8),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: TapScale(
-                          onTap: () => context.go('/orders'),
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: AppColors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppColors.orange),
-                            ),
-                            child: const Text('View All Orders →',
-                                style: TextStyle(
-                                    color: AppColors.orange,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13)),
-                          ),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 24),
                   ],
                 ),
               ),
-        ),
       ),
       bottomNavigationBar: const RHRBottomNav(currentIndex: 0),
     );
   }
+}
 
-  Widget _actionCard(BuildContext context, IconData icon, String label, String route, Color color, int index) {
-    return Expanded(
-      child: StaggeredFadeIn(
-        index: index,
-        baseDelay: const Duration(milliseconds: 100),
-        child: TapScale(
-        onTap: () => context.go(route),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          decoration: BoxDecoration(
-            color: AppColors.white,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3))
-            ],
-          ),
-          child: Column(
-            children: [
-              Icon(icon, color: color, size: 28),
-              const SizedBox(height: 8),
-              Text(label,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.navy,
-                      fontWeight: FontWeight.w600)),
-            ],
-          ),
-        ),
-        ),
+class _StatCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  const _StatCard({required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.outlineVariant),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6, offset: const Offset(0, 2))],
       ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurfaceVariant)),
+        const SizedBox(height: 4),
+        Text(value, style: AppTextStyles.headlineSm.copyWith(color: color)),
+      ]),
     );
   }
+}
 
-  Widget _orderCard(String id, String items, String amount, String status, int index) {
-    Color statusColor = status == 'delivered'  ? AppColors.success
-        : status == 'dispatched' ? AppColors.steelBlue
-        : AppColors.orange;
+class _OrderRow extends StatelessWidget {
+  final String id;
+  final String amount;
+  final String status;
+  final VoidCallback onTap;
+  const _OrderRow({required this.id, required this.amount, required this.status, required this.onTap});
 
-    return StaggeredFadeIn(
-      index: index,
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = status == 'delivered'
+        ? AppColors.success
+        : status == 'dispatched'
+            ? AppColors.onPrimaryFixedVariant
+            : AppColors.onSecondaryFixedVariant;
+    return GestureDetector(
+      onTap: onTap,
       child: Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 8,
-              offset: const Offset(0, 2))
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-              width: 4,
-              height: 48,
-              decoration: BoxDecoration(
-                  color: statusColor, borderRadius: BorderRadius.circular(2))),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(id,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.navy,
-                        fontSize: 13)),
-                Text(items,
-                    style: const TextStyle(
-                        color: AppColors.steelBlue, fontSize: 12)),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(amount,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.orange,
-                      fontSize: 13)),
+        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(color: AppColors.outlineVariant),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(id, style: AppTextStyles.labelMd.copyWith(color: AppColors.onBackground)),
+            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text(amount, style: AppTextStyles.bodyMd.copyWith(fontWeight: FontWeight.w600, color: AppColors.onBackground)),
+              const SizedBox(height: 4),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(6)),
-                child: Text(status,
-                    style: TextStyle(
-                        color: statusColor,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600)),
+                decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(AppRadius.full)),
+                child: Text(status.toUpperCase(), style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
               ),
-            ],
-          ),
-        ],
-      ),
+            ]),
+          ],
+        ),
       ),
     );
   }

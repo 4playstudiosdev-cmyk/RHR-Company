@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
-import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/cart_store.dart';
 
@@ -17,11 +17,20 @@ class OrderPlacementScreen extends StatefulWidget {
 
 class _OrderPlacementScreenState extends State<OrderPlacementScreen> {
   bool _isLoading = false;
+  final _addressController = TextEditingController(text: 'Shop 12, Saddar Market, Karachi');
+  final _notesController = TextEditingController();
 
   List<Map<String, dynamic>> get _displayItems => widget.cartItems ?? [];
 
   num get _total => _displayItems.fold<num>(
       0, (sum, i) => sum + (i['price'] as num) * (i['qty'] as num));
+
+  @override
+  void dispose() {
+    _addressController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
 
   Future<void> _placeOrder() async {
     if (_displayItems.isEmpty) {
@@ -40,8 +49,8 @@ class _OrderPlacementScreenState extends State<OrderPlacementScreen> {
         ApiEndpoints.orders,
         data: {
           'items':            items,
-          'notes':            'Mobile app order',
-          'delivery_address': 'Karachi',
+          'notes':            _notesController.text.trim().isEmpty ? 'Mobile app order' : _notesController.text.trim(),
+          'delivery_address': _addressController.text.trim().isEmpty ? 'Karachi' : _addressController.text.trim(),
         },
       );
 
@@ -52,7 +61,11 @@ class _OrderPlacementScreenState extends State<OrderPlacementScreen> {
         CartStore.instance.clear();
         if (mounted) {
           await showSuccessCheck(context, message: 'Order Placed!');
-          if (mounted) context.go('/order-tracking', extra: orderId);
+          if (mounted) context.go('/order-success', extra: {
+            'orderId': orderId,
+            'itemCount': _displayItems.length,
+            'total': _total,
+          });
         }
       } else {
         if (mounted) {
@@ -74,148 +87,135 @@ class _OrderPlacementScreenState extends State<OrderPlacementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.warmGrey,
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: AppColors.navy,
+        backgroundColor: AppColors.primary,
+        elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => context.go('/cart'),
         ),
-        title: const Text('Confirm Order',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: Text('Checkout', style: AppTextStyles.headlineLgMobile.copyWith(color: Colors.white, fontSize: 22)),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(AppSpacing.marginMobile),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Order Summary',
-                style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.navy)),
-            const SizedBox(height: 12),
-            Container(
-              decoration: BoxDecoration(
-                color: AppColors.white,
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)
-                ],
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppColors.orange,
-                      borderRadius:
-                          const BorderRadius.vertical(top: Radius.circular(14)),
-                    ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('My Cart', style: AppTextStyles.headlineMd.copyWith(color: AppColors.onSurface)),
+                Text('(${_displayItems.length} items)', style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurfaceVariant)),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.base),
+            ..._displayItems.map((item) => Container(
+                  margin: const EdgeInsets.only(bottom: AppSpacing.base),
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceContainerLowest,
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                    border: Border.all(color: AppColors.outlineVariant),
                   ),
-                  ..._displayItems.map((item) => Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 12),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(item['name'] ?? '',
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.navy)),
-                                Text(
-                                    '${item['variant'] ?? item['unit'] ?? ''} x${item['qty']}',
-                                    style: const TextStyle(
-                                        color: AppColors.steelBlue,
-                                        fontSize: 13)),
-                              ],
-                            ),
-                            Text(
-                              'PKR ${(item['price'] as num) * (item['qty'] as num)}',
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.orange),
-                            ),
-                          ],
-                        ),
-                      )),
-                  const Divider(),
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Total',
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.navy,
-                                fontSize: 16)),
-                        Text('PKR $_total',
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.orange,
-                                fontSize: 20)),
-                      ],
+                  child: Row(children: [
+                    Container(
+                      width: 56, height: 56,
+                      decoration: BoxDecoration(color: AppColors.surfaceVariant, borderRadius: BorderRadius.circular(AppRadius.sm)),
+                      child: const Icon(Icons.inventory_2_outlined, color: AppColors.outline),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(item['name'] ?? '', style: AppTextStyles.bodyMd.copyWith(fontWeight: FontWeight.w600, color: AppColors.onSurface)),
+                          Text('x${item['qty']}', style: AppTextStyles.bodySm.copyWith(color: AppColors.outline)),
+                        ],
+                      ),
+                    ),
+                    Text('PKR ${(item['price'] as num) * (item['qty'] as num)}',
+                        style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
+                  ]),
+                )),
+            const SizedBox(height: AppSpacing.sm),
+
+            Text('Fulfillment Details', style: AppTextStyles.headlineSm.copyWith(color: AppColors.onSurface)),
+            const SizedBox(height: AppSpacing.base),
+            Text('Delivery Address', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant)),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _addressController,
+              style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurface),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.location_on, color: AppColors.outline),
+                filled: true,
+                fillColor: AppColors.surfaceContainerLowest,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.base), borderSide: BorderSide(color: AppColors.outlineVariant)),
               ),
             ),
-            const SizedBox(height: 20),
-            const Text('Delivery Address',
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.navy)),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.orange, width: 1.5),
+            const SizedBox(height: AppSpacing.sm),
+            Text('Order Notes (Optional)', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant)),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _notesController,
+              maxLines: 2,
+              style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurface),
+              decoration: InputDecoration(
+                hintText: 'E.g., Deliver to side entrance...',
+                filled: true,
+                fillColor: AppColors.surfaceContainerLowest,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.base), borderSide: BorderSide(color: AppColors.outlineVariant)),
               ),
-              child: const Row(children: [
-                Icon(Icons.location_on, color: AppColors.orange),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text('Shop 12, Saddar Market, Karachi',
-                      style: TextStyle(
-                          color: AppColors.navy, fontWeight: FontWeight.w500)),
+            ),
+            const SizedBox(height: AppSpacing.md),
+
+            // Order summary
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(AppRadius.lg)),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Order Summary', style: AppTextStyles.headlineSm.copyWith(color: Colors.white)),
+                const Divider(color: Colors.white24),
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  Text('Subtotal', style: AppTextStyles.bodyMd.copyWith(color: Colors.white70)),
+                  Text('PKR $_total', style: AppTextStyles.bodyMd.copyWith(color: Colors.white)),
+                ]),
+                const SizedBox(height: AppSpacing.xs),
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.xs),
+                  child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    Text('Total Amount', style: AppTextStyles.headlineSm.copyWith(color: Colors.white)),
+                    Text('PKR $_total', style: AppTextStyles.headlineSm.copyWith(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ]),
                 ),
               ]),
             ),
-            const SizedBox(height: 20),
-            const Text('Payment Method',
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.navy)),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.navy, width: 1.5),
+            const SizedBox(height: AppSpacing.md),
+
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _placeOrder,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.base)),
+                ),
+                child: _isLoading
+                    ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text('Place Order', style: AppTextStyles.headlineSm.copyWith(color: Colors.white)),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.arrow_forward, color: Colors.white),
+                        ],
+                      ),
               ),
-              child: const Row(children: [
-                Icon(Icons.account_balance_wallet, color: AppColors.navy),
-                SizedBox(width: 12),
-                Text('Credit Account',
-                    style: TextStyle(
-                        color: AppColors.navy, fontWeight: FontWeight.w600)),
-              ]),
-            ),
-            const SizedBox(height: 32),
-            RHRButton(
-              text: 'Place Order — PKR $_total',
-              onPressed: _placeOrder,
-              isLoading: _isLoading,
             ),
           ],
         ),

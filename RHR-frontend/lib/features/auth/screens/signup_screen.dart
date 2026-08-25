@@ -3,13 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/utils/phone_normalizer.dart';
-import '../../../shared/widgets/rhr_button.dart';
-import '../../../shared/widgets/rhr_input_field.dart';
-import '../../../shared/widgets/staggered_fade_in.dart';
-import '../../../shared/widgets/tap_scale.dart';
+import '../../../shared/widgets/wave_header.dart';
 
 class SignupScreen extends StatefulWidget {
   final String? phone;
@@ -48,8 +46,6 @@ class _SignupScreenState extends State<SignupScreen> {
   @override
   void initState() {
     super.initState();
-    // Pre-fill if we arrived from the login screen's phone/OTP step; the
-    // login screen always hands off a leading-zero-normalized number.
     final incoming = widget.phone;
     if (incoming != null && incoming.isNotEmpty) {
       _phoneController.text = incoming.startsWith('0') ? incoming.substring(1) : incoming;
@@ -80,9 +76,6 @@ class _SignupScreenState extends State<SignupScreen> {
 
     final phone = PhoneNormalizer.normalize(_phoneController.text);
 
-    // If we didn't arrive here with an already-OTP'd phone (e.g. user tapped
-    // "Register here" directly instead of going through the login screen),
-    // no OTP has been sent yet — send it now before moving on.
     if (widget.phone == null || widget.phone!.isEmpty) {
       setState(() => _isLoading = true);
       try {
@@ -123,183 +116,255 @@ class _SignupScreenState extends State<SignupScreen> {
     });
   }
 
+  static const _fieldBorder = Color(0xFFCED4DA);
+
+  Widget _field({
+    required String label,
+    required IconData icon,
+    required TextEditingController controller,
+    String? hint,
+    TextInputType? keyboardType,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant)),
+        const SizedBox(height: 6),
+        TextField(
+          controller: controller,
+          keyboardType: keyboardType,
+          style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurface),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: AppTextStyles.bodyMd.copyWith(color: AppColors.outline.withValues(alpha: 0.7)),
+            prefixIcon: Icon(icon, color: AppColors.outline),
+            filled: true,
+            fillColor: AppColors.surfaceContainerLowest,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.base),
+              borderSide: const BorderSide(color: _fieldBorder),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.base),
+              borderSide: const BorderSide(color: _fieldBorder),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.base),
+              borderSide: const BorderSide(color: Color(0xFF073C9F), width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(vertical: 14),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.warmGrey,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent, elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.navy),
-          onPressed: () => context.go('/login'),
-        ),
-      ),
+      backgroundColor: AppColors.surface,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Create Account', style: TextStyle(
-                fontSize: 28, fontWeight: FontWeight.bold, color: AppColors.navy)),
-            const SizedBox(height: 4),
-            const Text('Fill in your details to register',
-                style: TextStyle(fontSize: 13, color: AppColors.steelBlue)),
-            const SizedBox(height: 8),
-            Container(width: 60, height: 3, decoration: BoxDecoration(
-                color: AppColors.orange, borderRadius: BorderRadius.circular(2))),
-            const SizedBox(height: 24),
+        top: false,
+        child: Column(
+          children: [
+            WaveHeader(title: 'Create Account', onBack: () => context.go('/login')),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.marginMobile, AppSpacing.md, AppSpacing.marginMobile, AppSpacing.lg),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  // Info banner
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.sm),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryFixed,
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      border: Border.all(color: AppColors.primaryFixedDim),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.info, color: AppColors.primary, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Your account needs admin approval before you can start ordering.',
+                            style: AppTextStyles.bodySm.copyWith(color: AppColors.onPrimaryFixed),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
 
-            // Phone
-            StaggeredFadeIn(index: 0, child: RHRInputField(
-              label: 'Phone Number',
-              hint: '3XX XXXXXXX',
-              controller: _phoneController,
-              keyboardType: TextInputType.phone,
-              prefixText: '+92 ',
-            )),
-            const SizedBox(height: 20),
-
-            // Role Selection
-            const Text('I am a:', style: TextStyle(
-                fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 15)),
-            const SizedBox(height: 10),
-            StaggeredFadeIn(index: 1, child: Row(children: [
-              Expanded(child: TapScale(
-                onTap: () => setState(() => _selectedRole = 'customer'),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                      color: _selectedRole == 'customer' ? AppColors.navy : AppColors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.navy)),
-                  child: Column(children: [
-                    Icon(Icons.person_outline,
-                        color: _selectedRole == 'customer' ? Colors.white : AppColors.navy,
-                        size: 28),
-                    const SizedBox(height: 6),
-                    Text('Customer', style: TextStyle(
-                        color: _selectedRole == 'customer' ? Colors.white : AppColors.navy,
-                        fontWeight: FontWeight.bold)),
+                  // Role selector
+                  Text('I am a:', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurface)),
+                  const SizedBox(height: AppSpacing.base),
+                  Row(children: [
+                    Expanded(child: _RoleCard(
+                      label: 'Customer', icon: Icons.storefront,
+                      selected: _selectedRole == 'customer',
+                      onTap: () => setState(() => _selectedRole = 'customer'),
+                    )),
+                    const SizedBox(width: AppSpacing.base),
+                    Expanded(child: _RoleCard(
+                      label: 'Salesman', icon: Icons.handshake_outlined,
+                      selected: _selectedRole == 'salesman',
+                      onTap: () => setState(() => _selectedRole = 'salesman'),
+                    )),
                   ]),
-                ),
-              )),
-              const SizedBox(width: 12),
-              Expanded(child: TapScale(
-                onTap: () => setState(() => _selectedRole = 'salesman'),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                      color: _selectedRole == 'salesman' ? AppColors.orange : AppColors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.orange)),
-                  child: Column(children: [
-                    Icon(Icons.handshake_outlined,
-                        color: _selectedRole == 'salesman' ? Colors.white : AppColors.orange,
-                        size: 28),
-                    const SizedBox(height: 6),
-                    Text('Salesman', style: TextStyle(
-                        color: _selectedRole == 'salesman' ? Colors.white : AppColors.orange,
-                        fontWeight: FontWeight.bold)),
-                  ]),
-                ),
-              )),
-            ])),
-            const SizedBox(height: 20),
+                  const SizedBox(height: AppSpacing.md),
 
-            // City Selection
-            const Text('Select City/Branch:', style: TextStyle(
-                fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 15)),
-            const SizedBox(height: 10),
-            StaggeredFadeIn(index: 2, child: Column(children: _cities.map((city) => TapScale(
-              onTap: () => setState(() => _selectedCity = city['id']!),
-              child: Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                    color: _selectedCity == city['id']
-                        ? AppColors.navy.withValues(alpha: 0.1) : AppColors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                        color: _selectedCity == city['id'] ? AppColors.navy : AppColors.disabled,
-                        width: _selectedCity == city['id'] ? 2 : 1)),
-                child: Row(children: [
-                  Icon(Icons.location_city,
-                      color: _selectedCity == city['id'] ? AppColors.navy : AppColors.steelBlue),
-                  const SizedBox(width: 12),
-                  Text(city['name']!, style: TextStyle(
-                      fontWeight: _selectedCity == city['id']
-                          ? FontWeight.bold : FontWeight.normal,
-                      color: _selectedCity == city['id']
-                          ? AppColors.navy : AppColors.steelBlue)),
-                  const Spacer(),
-                  if (_selectedCity == city['id'])
-                    const Icon(Icons.check_circle, color: AppColors.navy, size: 20),
+                  // Form card
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceContainerLowest,
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                      border: Border.all(color: AppColors.outlineVariant),
+                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                        child: Text('Personal Details',
+                            style: AppTextStyles.headlineSm.copyWith(color: AppColors.onSurface)),
+                      ),
+                      const Divider(color: AppColors.outlineVariant, height: 1),
+                      const SizedBox(height: AppSpacing.md),
+
+                      Center(
+                        child: Stack(children: [
+                          CircleAvatar(
+                            radius: 44,
+                            backgroundColor: AppColors.surfaceContainerLow,
+                            backgroundImage: _profileImage != null ? FileImage(_profileImage!) : null,
+                            child: _profileImage == null
+                                ? const Icon(Icons.person, size: 44, color: AppColors.secondary)
+                                : null,
+                          ),
+                          Positioned(bottom: 0, right: 0,
+                              child: GestureDetector(
+                                onTap: _pickImage,
+                                child: Container(
+                                    width: 30, height: 30,
+                                    decoration: BoxDecoration(
+                                        color: AppColors.primary,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white, width: 2)),
+                                    child: const Icon(Icons.camera_alt, color: Colors.white, size: 15)),
+                              )),
+                        ]),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+
+                      _field(label: 'Full Name', icon: Icons.person, controller: _nameController, hint: 'Enter your full name'),
+                      const SizedBox(height: AppSpacing.sm),
+                      _field(label: 'Phone Number', icon: Icons.phone_iphone, controller: _phoneController,
+                          hint: '3XX XXXXXXX', keyboardType: TextInputType.phone),
+                      const SizedBox(height: AppSpacing.sm),
+
+                      if (_selectedRole == 'salesman')
+                        _field(label: 'Position', icon: Icons.badge_outlined, controller: _positionController,
+                            hint: 'e.g. Sales Executive, Area Manager')
+                      else ...[
+                        _field(label: 'Business Name', icon: Icons.store_outlined, controller: _businessController,
+                            hint: 'Shop or company name'),
+                        const SizedBox(height: AppSpacing.sm),
+                        _field(label: 'Address', icon: Icons.location_on, controller: _addressController,
+                            hint: 'Shop address, area'),
+                      ],
+                      const SizedBox(height: AppSpacing.sm),
+
+                      // City
+                      Text('City', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant)),
+                      const SizedBox(height: 6),
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: _fieldBorder),
+                          borderRadius: BorderRadius.circular(AppRadius.base),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _selectedCity,
+                            isExpanded: true,
+                            icon: const Icon(Icons.arrow_drop_down, color: AppColors.outline),
+                            style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurface),
+                            items: _cities.map((c) => DropdownMenuItem(
+                              value: c['id'],
+                              child: Row(children: [
+                                const Icon(Icons.location_on, color: AppColors.outline, size: 18),
+                                const SizedBox(width: 8),
+                                Text(c['name']!),
+                              ]),
+                            )).toList(),
+                            onChanged: (v) => setState(() => _selectedCity = v!),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _isLoading ? null : _proceed,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.base)),
+                          ),
+                          child: _isLoading
+                              ? const SizedBox(width: 22, height: 22,
+                                  child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
+                              : Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text('Register Account', style: AppTextStyles.labelMd.copyWith(color: Colors.white)),
+                                    const SizedBox(width: 8),
+                                    const Icon(Icons.arrow_forward, size: 18, color: Colors.white),
+                                  ],
+                                ),
+                        ),
+                      ),
+                    ]),
+                  ),
                 ]),
               ),
-            )).toList())),
-            const SizedBox(height: 20),
-
-            // Form
-            StaggeredFadeIn(index: 3, child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                  color: AppColors.white, borderRadius: BorderRadius.circular(20),
-                  boxShadow: [BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.06),
-                      blurRadius: 16, offset: const Offset(0, 4))]),
-              child: Column(children: [
-                Container(height: 4, margin: const EdgeInsets.only(bottom: 20),
-                    decoration: BoxDecoration(color: AppColors.orange,
-                        borderRadius: BorderRadius.circular(2))),
-                Center(
-                  child: Stack(children: [
-                    CircleAvatar(
-                      radius: 48,
-                      backgroundColor: AppColors.warmGrey,
-                      backgroundImage: _profileImage != null
-                          ? FileImage(_profileImage!)
-                          : null,
-                      child: _profileImage == null
-                          ? const Icon(Icons.person,
-                              size: 48, color: AppColors.steelBlue)
-                          : null,
-                    ),
-                    Positioned(bottom: 0, right: 0,
-                        child: GestureDetector(
-                          onTap: _pickImage,
-                          child: Container(
-                              width: 32, height: 32,
-                              decoration: BoxDecoration(
-                                  color: AppColors.orange,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                      color: Colors.white, width: 2)),
-                              child: const Icon(Icons.camera_alt,
-                                  color: Colors.white, size: 16)),
-                        )),
-                  ]),
-                ),
-                const SizedBox(height: 20),
-                RHRInputField(label: 'Full Name *', hint: 'Ahmed Khan',
-                    controller: _nameController),
-                const SizedBox(height: 16),
-                if (_selectedRole == 'salesman')
-                  RHRInputField(label: 'Position', hint: 'e.g. Sales Executive, Area Manager',
-                      controller: _positionController)
-                else ...[
-                  RHRInputField(label: 'Business Name', hint: 'Shop or company name',
-                      controller: _businessController),
-                  const SizedBox(height: 16),
-                  RHRInputField(label: 'Address', hint: 'Shop address, area',
-                      controller: _addressController),
-                ],
-                const SizedBox(height: 28),
-                RHRButton(text: 'Continue to OTP Verification',
-                    onPressed: _proceed, isLoading: _isLoading),
-              ]),
-            )),
-            const SizedBox(height: 32),
-          ]),
+            ),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+class _RoleCard extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+  const _RoleCard({required this.label, required this.icon, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primary : AppColors.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(color: selected ? AppColors.primary : AppColors.outlineVariant),
+        ),
+        child: Column(children: [
+          Icon(icon, color: selected ? Colors.white : AppColors.primary, size: 26),
+          const SizedBox(height: 6),
+          Text(label, style: AppTextStyles.labelMd.copyWith(
+              color: selected ? Colors.white : AppColors.onSurface)),
+        ]),
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'app_transitions.dart';
 import '../../core/storage/secure_storage.dart';
+import '../../features/auth/screens/splash_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/otp_screen.dart';
 import '../../features/auth/screens/signup_screen.dart';
@@ -11,6 +12,7 @@ import '../../features/customer/screens/catalogue_screen.dart';
 import '../../features/customer/screens/product_detail_screen.dart';
 import '../../features/customer/screens/cart_screen.dart';
 import '../../features/customer/screens/order_placement_screen.dart';
+import '../../features/customer/screens/order_success_screen.dart';
 import '../../features/customer/screens/orders_screen.dart';
 import '../../features/customer/screens/order_tracking_screen.dart';
 import '../../features/customer/screens/profile_screen.dart';
@@ -32,13 +34,15 @@ import '../../features/hrm/screens/leave_screen.dart';
 import '../../features/hrm/screens/payslip_screen.dart';
 
 final appRouter = GoRouter(
-  initialLocation: '/login',
+  initialLocation: '/splash',
   // Only guards the login screen itself: if a still-valid session exists
   // on cold start (e.g. app relaunch), skip straight past login instead of
   // making an already-authenticated user re-enter their phone/OTP. This
   // deliberately does NOT protect every other route — none of them were
   // protected before this change either, so this only adds behavior, it
-  // doesn't remove any.
+  // doesn't remove any. /splash is deliberately excluded — SplashScreen
+  // does its own session check after a brief branded delay, so it needs
+  // to actually render instead of being redirected away instantly.
   redirect: (context, state) async {
     if (state.matchedLocation != '/login') return null;
     if (!await SecureStorage.isLoggedIn()) return null;
@@ -46,6 +50,7 @@ final appRouter = GoRouter(
     return role == 'salesman' ? '/salesman-dashboard' : '/home';
   },
   routes: [
+    GoRoute(path: '/splash',           pageBuilder: (c, s) => slidePage(s, const SplashScreen())),
     GoRoute(path: '/login',            pageBuilder: (c, s) => slidePage(s, const LoginScreen())),
     GoRoute(path: '/otp',              pageBuilder: (c, s) => slidePage(s, OtpScreen(extra: s.extra))),
     GoRoute(path: '/signup',           pageBuilder: (c, s) => slidePage(s, SignupScreen(phone: s.extra as String?))),
@@ -71,6 +76,7 @@ final appRouter = GoRouter(
     GoRoute(path: '/place-order',        pageBuilder: (c, s) => slidePage(s, OrderPlacementScreen(
                                              cartItems: s.extra as List<Map<String, dynamic>>?))),
     GoRoute(path: '/orders',             pageBuilder: (c, s) => slidePage(s, const OrdersScreen())),
+    GoRoute(path: '/order-success',      pageBuilder: (c, s) => slidePage(s, OrderSuccessScreen(extra: s.extra))),
     GoRoute(path: '/order-tracking',     pageBuilder: (c, s) => slidePage(s, OrderTrackingScreen(orderId: s.extra as String?))),
     GoRoute(path: '/profile',            pageBuilder: (c, s) => slidePage(s, const ProfileScreen())),
     GoRoute(path: '/ledger',             pageBuilder: (c, s) => slidePage(s, const LedgerScreen())),

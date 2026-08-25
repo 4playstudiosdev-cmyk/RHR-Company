@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/cart_store.dart';
-import '../../../shared/widgets/rhr_button.dart';
-import '../../../shared/widgets/staggered_fade_in.dart';
-import '../../../shared/widgets/tap_scale.dart';
 
 class ProductDetailScreen extends StatefulWidget {
   final String? productId;
@@ -45,7 +43,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final name       = _product?['name']           ?? 'Product';
-    // Backend nests category as categories: { name } via a join — not a flat 'category' string
     final category   = (_product?['categories']?['name'] as String?) ?? '';
     final unit       = _product?['unit']            ?? '';
     final price      = (_product?['price'] ?? 0) as num;
@@ -56,293 +53,195 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     final totalPrice = price * _quantity;
 
     return Scaffold(
-      backgroundColor: AppColors.warmGrey,
+      backgroundColor: AppColors.surfaceContainerLowest,
       appBar: AppBar(
-        backgroundColor: AppColors.navy,
+        backgroundColor: AppColors.surfaceContainerLowest,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: AppColors.primaryContainer),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: const Icon(Icons.arrow_back),
           onPressed: () => context.go('/catalogue'),
         ),
-        title: const Text('Product Detail',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: Text('Product Details', style: AppTextStyles.headlineSm.copyWith(color: AppColors.primaryContainer)),
         actions: [
           ListenableBuilder(
             listenable: CartStore.instance,
             builder: (context, _) {
               final count = CartStore.instance.itemCount;
-              return Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.shopping_cart_outlined, color: Colors.white),
-                    onPressed: () => context.go('/cart'),
-                  ),
-                  if (count > 0)
-                    Positioned(
-                      right: 6,
-                      top: 6,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                          color: AppColors.orange,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Text(
-                          '$count',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
+              return Stack(clipBehavior: Clip.none, children: [
+                IconButton(
+                  icon: const Icon(Icons.shopping_cart),
+                  onPressed: () => context.go('/cart'),
+                ),
+                if (count > 0)
+                  Positioned(
+                    right: 4, top: 4,
+                    child: Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: const BoxDecoration(color: AppColors.error, shape: BoxShape.circle),
+                      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                      child: Text('$count', textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
                     ),
-                ],
-              );
+                  ),
+              ]);
             },
           ),
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.orange))
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
           : _product == null
-              ? const Center(
-                  child: Text('Product not found.',
-                      style: TextStyle(color: AppColors.steelBlue)))
+              ? Center(child: Text('Product not found.', style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant)))
               : SingleChildScrollView(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Product Image
-                      Container(
-                        width: double.infinity,
-                        height: 280,
-                        color: AppColors.white,
-                        child: Stack(
-                          children: [
-                            Center(
-                              child: imageUrl != null && imageUrl.isNotEmpty
-                                  ? Image.network(
-                                      imageUrl,
-                                      fit: BoxFit.contain,
-                                      height: 240,
-                                      errorBuilder: (_, __, ___) => const Icon(
-                                          Icons.inventory_2_outlined,
-                                          size: 120,
-                                          color: AppColors.steelBlue),
-                                    )
-                                  : const Icon(Icons.inventory_2_outlined,
-                                      size: 120, color: AppColors.steelBlue),
-                            ),
-                            Positioned(
-                              top: 16,
-                              right: 16,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 6),
-                                decoration: BoxDecoration(
-                                    color: AppColors.orange,
-                                    borderRadius: BorderRadius.circular(20)),
-                                child: Text(
-                                  category.isNotEmpty ? category : 'RHR Quality',
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12),
-                                ),
-                              ),
-                            ),
-                          ],
+                      // Image
+                      Stack(children: [
+                        AspectRatio(
+                          aspectRatio: 1,
+                          child: Container(
+                            color: AppColors.surfaceVariant.withValues(alpha: 0.5),
+                            child: imageUrl != null && imageUrl.isNotEmpty
+                                ? Image.network(imageUrl, fit: BoxFit.contain,
+                                    errorBuilder: (_, __, ___) => const Icon(Icons.inventory_2_outlined, size: 120, color: AppColors.secondary))
+                                : const Icon(Icons.inventory_2_outlined, size: 120, color: AppColors.secondary),
+                          ),
                         ),
-                      ),
-
-                      // Orange stripe
-                      Container(height: 4, color: AppColors.orange),
+                        Positioned(
+                          top: 16, left: 16,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(AppRadius.full)),
+                            child: Text(category.isNotEmpty ? category : 'RHR Quality',
+                                style: AppTextStyles.labelMd.copyWith(color: Colors.white)),
+                          ),
+                        ),
+                      ]),
 
                       Padding(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(AppSpacing.marginMobile),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(name,
-                                          style: const TextStyle(
-                                              fontSize: 24,
-                                              fontWeight: FontWeight.bold,
-                                              color: AppColors.navy)),
-                                      if (unit.isNotEmpty)
-                                        Text(unit,
-                                            style: const TextStyle(
-                                                fontSize: 14,
-                                                color: AppColors.steelBlue)),
-                                    ],
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 5),
-                                  decoration: BoxDecoration(
-                                    color: inStock
-                                        ? AppColors.success.withValues(alpha: 0.1)
-                                        : AppColors.error.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    inStock ? 'In Stock' : 'Out of Stock',
-                                    style: TextStyle(
-                                        color: inStock
-                                            ? AppColors.success
-                                            : AppColors.error,
-                                        fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Text('PKR $price',
-                                style: const TextStyle(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.orange)),
-                            if (unit.isNotEmpty)
-                              Text('per $unit',
-                                  style: const TextStyle(
-                                      fontSize: 12, color: AppColors.steelBlue)),
-                            const SizedBox(height: 20),
-
-                            // Description card
-                            if (desc.isNotEmpty)
-                              StaggeredFadeIn(index: 0, child: Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.all(16),
-                                margin: const EdgeInsets.only(bottom: 20),
-                                decoration: BoxDecoration(
-                                  color: AppColors.white,
-                                  borderRadius: BorderRadius.circular(14),
-                                  boxShadow: [
-                                    BoxShadow(
-                                        color: Colors.black.withValues(alpha: 0.05),
-                                        blurRadius: 8,
-                                        offset: const Offset(0, 2))
-                                  ],
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('Description',
-                                        style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: AppColors.navy,
-                                            fontSize: 16)),
-                                    const SizedBox(height: 8),
-                                    Text(desc,
-                                        style: const TextStyle(
-                                            color: AppColors.steelBlue,
-                                            fontSize: 14,
-                                            height: 1.5)),
-                                  ],
-                                ),
-                              )),
-
-                            // Quantity selector
-                            StaggeredFadeIn(index: 1, child: Container(
-                              padding: const EdgeInsets.all(16),
+                            // Info card
+                            Container(
+                              padding: const EdgeInsets.all(AppSpacing.md),
                               decoration: BoxDecoration(
-                                color: AppColors.white,
-                                borderRadius: BorderRadius.circular(14),
-                                boxShadow: [
-                                  BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.05),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 2))
-                                ],
+                                color: AppColors.surfaceContainerLowest,
+                                borderRadius: BorderRadius.circular(AppRadius.lg),
+                                border: Border.all(color: AppColors.outlineVariant.withValues(alpha: 0.5)),
                               ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text('Quantity',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: AppColors.navy,
-                                          fontSize: 16)),
-                                  Row(
-                                    children: [
-                                      TapScale(
-                                        onTap: () {
-                                          if (_quantity > 1) setState(() => _quantity--);
-                                        },
-                                        child: Container(
-                                          width: 36,
-                                          height: 36,
-                                          decoration: BoxDecoration(
-                                              color: AppColors.warmGrey,
-                                              borderRadius: BorderRadius.circular(8)),
-                                          child: const Icon(Icons.remove,
-                                              color: AppColors.navy),
+                              width: double.infinity,
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text(name, style: AppTextStyles.headlineLgMobile.copyWith(color: AppColors.primaryContainer)),
+                                const SizedBox(height: AppSpacing.base),
+                                Text.rich(TextSpan(children: [
+                                  TextSpan(text: 'PKR $price ', style: AppTextStyles.headlineMd.copyWith(color: AppColors.secondary, fontWeight: FontWeight.bold)),
+                                  TextSpan(text: unit.isNotEmpty ? '/ $unit' : '', style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant)),
+                                ])),
+                                const SizedBox(height: AppSpacing.md),
+                                Row(children: [
+                                  Icon(inStock ? Icons.check_circle : Icons.cancel, color: inStock ? AppColors.success : AppColors.error, size: 20),
+                                  const SizedBox(width: 8),
+                                  Text(inStock ? '$stock ${unit.isEmpty ? "units" : unit} available' : 'Out of stock',
+                                      style: AppTextStyles.bodySm.copyWith(color: inStock ? AppColors.success : AppColors.error, fontWeight: FontWeight.w600)),
+                                ]),
+                                const SizedBox(height: AppSpacing.md),
+                                const Divider(color: AppColors.outlineVariant),
+                                const SizedBox(height: AppSpacing.base),
+                                Text('Quantity', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant)),
+                                const SizedBox(height: AppSpacing.base),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Container(
+                                      decoration: BoxDecoration(border: Border.all(color: AppColors.outlineVariant), borderRadius: BorderRadius.circular(AppRadius.base)),
+                                      child: Row(children: [
+                                        IconButton(
+                                          onPressed: () { if (_quantity > 1) setState(() => _quantity--); },
+                                          icon: const Icon(Icons.remove, color: AppColors.primaryContainer),
                                         ),
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 20),
-                                        child: Text('$_quantity',
-                                            style: const TextStyle(
-                                                fontSize: 20,
-                                                fontWeight: FontWeight.bold,
-                                                color: AppColors.navy)),
-                                      ),
-                                      TapScale(
-                                        onTap: () => setState(() => _quantity++),
-                                        child: Container(
-                                          width: 36,
-                                          height: 36,
-                                          decoration: BoxDecoration(
-                                              color: AppColors.orange,
-                                              borderRadius: BorderRadius.circular(8)),
-                                          child: const Icon(Icons.add,
-                                              color: Colors.white),
+                                        Container(
+                                          width: 44,
+                                          alignment: Alignment.center,
+                                          decoration: const BoxDecoration(
+                                              border: Border.symmetric(vertical: BorderSide(color: AppColors.outlineVariant))),
+                                          child: Text('$_quantity', style: AppTextStyles.bodyMd.copyWith(fontWeight: FontWeight.w600, color: AppColors.primaryContainer)),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            )),
-                            const SizedBox(height: 24),
+                                        IconButton(
+                                          onPressed: () => setState(() => _quantity++),
+                                          icon: const Icon(Icons.add, color: AppColors.primaryContainer),
+                                        ),
+                                      ]),
+                                    ),
+                                    Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                                      Text('Total Price', style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurfaceVariant)),
+                                      Text('PKR $totalPrice', style: AppTextStyles.headlineSm.copyWith(color: AppColors.primaryContainer)),
+                                    ]),
+                                  ],
+                                ),
+                              ]),
+                            ),
+                            const SizedBox(height: AppSpacing.md),
 
-                            RHRButton(
-                              text: 'Add to Cart — PKR $totalPrice',
-                              onPressed: () {
-                                CartStore.instance.add(
-                                  id: widget.productId ?? '',
-                                  name: name,
-                                  price: price,
-                                  unit: unit,
-                                  qty: _quantity,
-                                );
-                                context.go('/cart');
-                              },
-                            ),
-                            const SizedBox(height: 12),
-                            RHRButton(
-                              text: 'Buy Now',
-                              onPressed: () {
-                                CartStore.instance.add(
-                                  id: widget.productId ?? '',
-                                  name: name,
-                                  price: price,
-                                  unit: unit,
-                                  qty: _quantity,
-                                );
-                                context.go('/place-order', extra: CartStore.instance.items);
-                              },
-                              isSecondary: true,
-                            ),
+                            if (desc.isNotEmpty)
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(AppSpacing.md),
+                                decoration: BoxDecoration(
+                                  color: AppColors.surfaceContainerLowest,
+                                  border: Border(
+                                    left: const BorderSide(color: AppColors.primaryContainer, width: 4),
+                                    top: BorderSide(color: AppColors.outlineVariant.withValues(alpha: 0.3)),
+                                    right: BorderSide(color: AppColors.outlineVariant.withValues(alpha: 0.3)),
+                                    bottom: BorderSide(color: AppColors.outlineVariant.withValues(alpha: 0.3)),
+                                  ),
+                                  borderRadius: const BorderRadius.horizontal(right: Radius.circular(AppRadius.lg)),
+                                ),
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Text('Product Description', style: AppTextStyles.headlineSm.copyWith(color: AppColors.primaryContainer, fontSize: 16)),
+                                  const SizedBox(height: 8),
+                                  Text(desc, style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant)),
+                                ]),
+                              ),
+                            const SizedBox(height: AppSpacing.md),
+
+                            Row(children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () {
+                                    CartStore.instance.add(id: widget.productId ?? '', name: name, price: price, unit: unit, qty: _quantity);
+                                    context.go('/cart');
+                                  },
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.primaryContainer,
+                                    side: const BorderSide(color: AppColors.primaryContainer, width: 2),
+                                    padding: const EdgeInsets.symmetric(vertical: 14),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.base)),
+                                  ),
+                                  icon: const Icon(Icons.add_shopping_cart, size: 20),
+                                  label: Text('Add to Cart', style: AppTextStyles.labelMd.copyWith(color: AppColors.primaryContainer)),
+                                ),
+                              ),
+                              const SizedBox(width: AppSpacing.base),
+                              Expanded(
+                                child: ElevatedButton(
+                                  onPressed: () {
+                                    CartStore.instance.add(id: widget.productId ?? '', name: name, price: price, unit: unit, qty: _quantity);
+                                    context.go('/place-order', extra: CartStore.instance.items);
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.primaryContainer,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 14),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.base)),
+                                  ),
+                                  child: Text('Buy Now', style: AppTextStyles.labelMd.copyWith(color: Colors.white)),
+                                ),
+                              ),
+                            ]),
                           ],
                         ),
                       ),

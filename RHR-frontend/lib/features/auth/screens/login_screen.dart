@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_text_styles.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/utils/phone_normalizer.dart';
-import '../../../shared/widgets/rhr_button.dart';
-import '../../../shared/widgets/rhr_input_field.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -14,44 +13,13 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin {
+class _LoginScreenState extends State<LoginScreen> {
   final _phoneController = TextEditingController();
   bool _isLoading = false;
-
-  late final AnimationController _entryController;
-  late final Animation<double> _logoFade;
-  late final Animation<Offset> _logoSlide;
-  late final Animation<double> _cardFade;
-  late final Animation<Offset> _cardSlide;
-
-  late final AnimationController _pulseController;
-  late final Animation<double> _pulse;
-
-  @override
-  void initState() {
-    super.initState();
-    _entryController = AnimationController(vsync: this, duration: const Duration(milliseconds: 700))
-      ..forward();
-    _logoFade = CurvedAnimation(
-        parent: _entryController, curve: const Interval(0.0, 0.6, curve: Curves.easeOut));
-    _logoSlide = Tween<Offset>(begin: const Offset(0, -0.25), end: Offset.zero).animate(
-        CurvedAnimation(parent: _entryController, curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic)));
-    _cardFade = CurvedAnimation(
-        parent: _entryController, curve: const Interval(0.3, 1.0, curve: Curves.easeOut));
-    _cardSlide = Tween<Offset>(begin: const Offset(0, 0.25), end: Offset.zero).animate(
-        CurvedAnimation(parent: _entryController, curve: const Interval(0.3, 1.0, curve: Curves.easeOutCubic)));
-
-    _pulseController = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))
-      ..repeat(reverse: true);
-    _pulse = Tween<double>(begin: 1.0, end: 1.03)
-        .animate(CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut));
-  }
 
   @override
   void dispose() {
     _phoneController.dispose();
-    _entryController.dispose();
-    _pulseController.dispose();
     super.dispose();
   }
 
@@ -96,159 +64,152 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     }
   }
 
+  static const _darkNavy = Color(0xFF00174B);
+  static const _buttonBlue = Color(0xFF073C9F);
+  static const _borderGrey = Color(0xFFCED4DA);
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.warmGrey,
+      backgroundColor: AppColors.surface,
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              children: [
-                const SizedBox(height: 60),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.marginMobile),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 24),
+                          child: Column(
+                            children: [
+                              Image.asset(
+                                'assets/images/rhr-logo.jpeg',
+                                width: 140,
+                                height: 140,
+                                fit: BoxFit.contain,
+                              ),
+                              const SizedBox(height: AppSpacing.md),
+                              Text(
+                                'Welcome Back',
+                                textAlign: TextAlign.center,
+                                style: AppTextStyles.headlineLgMobile.copyWith(color: _darkNavy),
+                              ),
+                              const SizedBox(height: AppSpacing.base),
+                              Text(
+                                'Enter phone number to continue',
+                                textAlign: TextAlign.center,
+                                style: AppTextStyles.bodyMd.copyWith(color: _darkNavy),
+                              ),
+                              const SizedBox(height: AppSpacing.md),
 
-                // Logo
-                SlideTransition(
-                  position: _logoSlide,
-                  child: FadeTransition(
-                    opacity: _logoFade,
-                    child: Column(children: [
-                      Image.asset(
-                        'assets/images/rhr-logo.jpeg',
-                        width: 110,
-                        height: 110,
-                        fit: BoxFit.contain,
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      const Text(
-                        'RHR & Company',
-                        style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold, color: AppColors.navy),
-                      ),
-
-                      const SizedBox(height: 6),
-
-                      const Text(
-                        'Premium Tile Bond & Grout Manufacturer',
-                        style: TextStyle(fontSize: 13, color: AppColors.steelBlue),
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      Container(
-                        width: 60,
-                        height: 3,
-                        decoration: BoxDecoration(
-                          color: AppColors.orange,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ]),
-                  ),
-                ),
-
-                const SizedBox(height: 48),
-
-                // Login Card
-                SlideTransition(
-                  position: _cardSlide,
-                  child: FadeTransition(
-                    opacity: _cardFade,
-                    child: Container(
-                  padding: const EdgeInsets.all(28),
-                  decoration: BoxDecoration(
-                    color: AppColors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.08),
-                        blurRadius: 24,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        height: 4,
-                        margin: const EdgeInsets.only(bottom: 24),
-                        decoration: BoxDecoration(
-                          color: AppColors.orange,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-
-                      const Text(
-                        'Welcome',
-                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.navy),
-                      ),
-
-                      const SizedBox(height: 4),
-
-                      const Text(
-                        'Enter your phone number to continue — for customers and salesmen',
-                        style: TextStyle(fontSize: 13, color: AppColors.steelBlue),
-                      ),
-
-                      const SizedBox(height: 28),
-
-                      RHRInputField(
-                        label: 'Phone Number',
-                        hint: '3XX XXXXXXX',
-                        controller: _phoneController,
-                        keyboardType: TextInputType.phone,
-                        prefixText: '+92 ',
-                      ),
-
-                      const SizedBox(height: 32),
-
-                      ScaleTransition(
-                        scale: _isLoading ? const AlwaysStoppedAnimation(1.0) : _pulse,
-                        child: RHRButton(
-                          text: 'Send OTP',
-                          onPressed: _sendOtp,
-                          isLoading: _isLoading,
-                        ),
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      Center(
-                        child: GestureDetector(
-                          onTap: () => context.go('/signup'),
-                          child: const Text.rich(
-                            TextSpan(
-                              text: 'New here? ',
-                              style: TextStyle(color: AppColors.steelBlue, fontSize: 13),
-                              children: [
-                                TextSpan(
-                                  text: 'Register here',
-                                  style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.bold),
+                              // Phone input
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  border: Border.all(color: _borderGrey),
+                                  borderRadius: BorderRadius.circular(AppRadius.base),
                                 ),
-                              ],
-                            ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                                      decoration: const BoxDecoration(
+                                        border: Border(right: BorderSide(color: _borderGrey)),
+                                      ),
+                                      child: Text('🇵🇰  +92', style: AppTextStyles.bodyMd.copyWith(color: _darkNavy)),
+                                    ),
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _phoneController,
+                                        keyboardType: TextInputType.phone,
+                                        style: AppTextStyles.bodyMd.copyWith(color: _darkNavy),
+                                        decoration: InputDecoration(
+                                          hintText: '300 1234567',
+                                          hintStyle: AppTextStyles.bodyMd.copyWith(color: AppColors.outline),
+                                          border: InputBorder.none,
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: AppSpacing.md),
+
+                              // Send OTP button
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton(
+                                  onPressed: _isLoading ? null : _sendOtp,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: _buttonBlue,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 14),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.base)),
+                                    elevation: 1,
+                                  ),
+                                  child: _isLoading
+                                      ? const SizedBox(
+                                          width: 22, height: 22,
+                                          child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                                        )
+                                      : Text('Send OTP', style: AppTextStyles.headlineSm.copyWith(color: Colors.white)),
+                                ),
+                              ),
+                              const SizedBox(height: AppSpacing.md),
+
+                              // Divider
+                              Row(
+                                children: [
+                                  const Expanded(child: Divider(color: AppColors.outlineVariant)),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                                    child: Text('OR', style: AppTextStyles.bodySm.copyWith(color: _darkNavy, letterSpacing: 1.2)),
+                                  ),
+                                  const Expanded(child: Divider(color: AppColors.outlineVariant)),
+                                ],
+                              ),
+                              const SizedBox(height: AppSpacing.md),
+
+                              GestureDetector(
+                                onTap: () => context.go('/signup'),
+                                child: Text.rich(
+                                  TextSpan(
+                                    text: 'New Customer? ',
+                                    style: AppTextStyles.bodyMd.copyWith(color: _darkNavy, fontWeight: FontWeight.w600),
+                                    children: [
+                                      TextSpan(
+                                        text: 'Register here',
+                                        style: AppTextStyles.bodyMd.copyWith(color: _buttonBlue, fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                    ],
+                        const Spacer(),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 24),
+                          child: Text(
+                            'Karachi · Hyderabad · Sukkur',
+                            style: AppTextStyles.bodySm.copyWith(color: AppColors.outline, letterSpacing: 1.2),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                const Text(
-                  'Karachi · Hyderabad · Sukkur',
-                  style: TextStyle(fontSize: 12, color: AppColors.steelBlue, letterSpacing: 1.5),
-                ),
-
-                const SizedBox(height: 24),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
       ),
     );

@@ -43,6 +43,9 @@ dependencies:
   # SVG Support
   flutter_svg: ^2.0.10+1
 
+  # Google Fonts (Work Sans for headings, Inter for body — new design system)
+  google_fonts: ^6.2.1
+
   # Charts
   fl_chart: ^0.68.0
 
