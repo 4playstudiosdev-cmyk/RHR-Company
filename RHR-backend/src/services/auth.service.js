@@ -236,19 +236,30 @@ async function approveCustomer(customerId, adminUser) {
   return data;
 }
 
+// These phone lookups sit directly on the OTP login path — a transient
+// Railway↔Supabase blip here silently reads as "no such account", which
+// sends an existing, approved user down the registration branch instead
+// (surfacing as a confusing "fullName is required" error). Same class of
+// flakiness withRetry already papers over in loginWithCredentials above.
 async function findCustomerByPhone(phone) {
   const canonical = normalizePhone(phone);          // +923001234567
   const bare      = canonical.replace('+', '');    // 923001234567
 
   // Match either storage format — whatever was used at registration time
-  const { data: user, error } = await supabaseAdmin
-    .from('users')
-    .select('*')
-    .or(`phone.eq.${canonical},phone.eq.${bare}`)
-    .eq('role', 'customer')
-    .maybeSingle();
+  const user = await withRetry(async () => {
+    const { data, error } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .or(`phone.eq.${canonical},phone.eq.${bare}`)
+      .eq('role', 'customer')
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data;
+  }).catch((err) => {
+    console.error('findCustomerByPhone error:', err.message);
+    return null;
+  });
 
-  if (error) console.error('findCustomerByPhone error:', error.message);
   return user || null;
 }
 
@@ -256,13 +267,19 @@ async function findSalesmanByPhone(phone) {
   const canonical = normalizePhone(phone);
   const bare      = canonical.replace('+', '');
 
-  const { data: salesman, error } = await supabaseAdmin
-    .from('salesmen')
-    .select('*')
-    .or(`phone.eq.${canonical},phone.eq.${bare}`)
-    .maybeSingle();
+  const salesman = await withRetry(async () => {
+    const { data, error } = await supabaseAdmin
+      .from('salesmen')
+      .select('*')
+      .or(`phone.eq.${canonical},phone.eq.${bare}`)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data;
+  }).catch((err) => {
+    console.error('findSalesmanByPhone error:', err.message);
+    return null;
+  });
 
-  if (error) console.error('findSalesmanByPhone error:', error.message);
   if (!salesman) return null;
   // salesmen has no `role` column (the table itself is the discriminator) —
   // callers (sendOTPHandler/verifyOTPHandler/generateToken) expect one.
@@ -286,13 +303,19 @@ async function findDriverByPhone(phone) {
   const canonical = normalizePhone(phone);
   const bare      = canonical.replace('+', '');
 
-  const { data: driver, error } = await supabaseAdmin
-    .from('drivers')
-    .select('*')
-    .or(`phone.eq.${canonical},phone.eq.${bare}`)
-    .maybeSingle();
+  const driver = await withRetry(async () => {
+    const { data, error } = await supabaseAdmin
+      .from('drivers')
+      .select('*')
+      .or(`phone.eq.${canonical},phone.eq.${bare}`)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data;
+  }).catch((err) => {
+    console.error('findDriverByPhone error:', err.message);
+    return null;
+  });
 
-  if (error) console.error('findDriverByPhone error:', error.message);
   if (!driver) return null;
   // drivers has no `role` column — the table itself is the discriminator
   return { ...driver, role: 'driver' };
