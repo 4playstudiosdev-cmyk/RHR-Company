@@ -6,6 +6,14 @@ function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+// ⚠️ TEMP — GUEST TESTING BYPASS. Remove this block (and the matching
+// users-table row for +923000000000) before the real production launch —
+// it exists only so testers can open the full app without waiting on a
+// real WhatsApp OTP. Scoped to exactly one fixed phone+code pair; every
+// other number still goes through the real bcrypt-checked OTP record.
+const GUEST_PHONE = '923000000000';
+const GUEST_OTP = '999999';
+
 // Normalize phone to always store without + and with 92 prefix
 function normalizePhone(phone) {
   let cleaned = phone.replace(/[\s\-]/g, '');
@@ -62,6 +70,11 @@ async function sendOTP(phoneNumber) {
 
 async function verifyOTP(phoneNumber, submittedOTP) {
   const phone = normalizePhone(phoneNumber);
+
+  // ⚠️ TEMP guest bypass — see GUEST_PHONE/GUEST_OTP comment above.
+  if (phone === GUEST_PHONE && submittedOTP.toString() === GUEST_OTP) {
+    return { valid: true };
+  }
 
   console.log('=== OTP VERIFY DEBUG ===');
   console.log('Raw phone:', phoneNumber);
