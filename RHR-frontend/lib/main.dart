@@ -11,16 +11,17 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await HiveService.init();
   await GPSService().initialize();
-  await _resumeGpsIfSalesman();
+  await _resumeGpsIfFieldStaff();
   runApp(const ProviderScope(child: RHRApp()));
 }
 
-/// If the app was killed and relaunched while a salesman was still logged
-/// in, resume GPS tracking automatically instead of waiting for a fresh login.
-Future<void> _resumeGpsIfSalesman() async {
+/// If the app was killed and relaunched while a salesman/driver was still
+/// logged in, resume GPS tracking automatically instead of waiting for a
+/// fresh login.
+Future<void> _resumeGpsIfFieldStaff() async {
   final token = await SecureStorage.getToken();
   final role = await SecureStorage.getRole();
-  if (token != null && role == 'salesman') {
+  if (token != null && (role == 'salesman' || role == 'driver')) {
     await GPSService().startTracking();
   }
 }

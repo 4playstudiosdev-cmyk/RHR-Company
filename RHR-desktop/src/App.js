@@ -11,6 +11,7 @@ import Products from './pages/Products';
 import Orders from './pages/Orders';
 import Customers from './pages/Customers';
 import Salesmen from './pages/Salesmen';
+import Drivers from './pages/Drivers';
 import Payments from './pages/Payments';
 import Ledger from './pages/Ledger';
 import Reports from './pages/Reports';
@@ -30,6 +31,7 @@ const PAGES = {
   orders: Orders,
   customers: Customers,
   salesmen: Salesmen,
+  drivers: Drivers,
   payments: Payments,
   ledger: Ledger,
   reports: Reports,

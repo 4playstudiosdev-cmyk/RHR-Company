@@ -69,9 +69,9 @@ const getLiveLocations = async (req, res) => {
       ? req.query.company_id || req.user.company_id
       : req.user.company_id;
 
-    // Get all field staff in company — salesmen live in their own table now,
-    // delivery staff are still plain `users` rows.
-    const [{ data: salesmen }, { data: delivery }] = await Promise.all([
+    // Get all field staff in company — salesmen and drivers live in their
+    // own tables now, delivery staff are still plain `users` rows.
+    const [{ data: salesmen }, { data: delivery }, { data: drivers }] = await Promise.all([
       supabaseAdmin
         .from('salesmen')
         .select('id, full_name, phone')
@@ -83,9 +83,19 @@ const getLiveLocations = async (req, res) => {
         .select('id, full_name, phone')
         .eq('company_id', companyId)
         .eq('role', 'delivery')
+        .eq('is_active', true),
+      supabaseAdmin
+        .from('drivers')
+        .select('id, full_name, phone, car_number')
+        .eq('company_id', companyId)
         .eq('is_active', true)
+        .eq('is_approved', true)
     ]);
-    const fieldStaff = [...(salesmen || []), ...(delivery || [])];
+    const fieldStaff = [
+      ...(salesmen || []).map(s => ({ ...s, staffType: 'salesman' })),
+      ...(delivery || []).map(s => ({ ...s, staffType: 'delivery' })),
+      ...(drivers  || []).map(s => ({ ...s, staffType: 'driver' }))
+    ];
 
     // Get latest ping for each field staff member
     const liveData = await Promise.all(fieldStaff.map(async (s) => {

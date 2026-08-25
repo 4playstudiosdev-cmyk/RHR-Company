@@ -187,6 +187,41 @@ async function registerSalesman({ phone, fullName, companyId, position }) {
   return newSalesman;
 }
 
+async function registerDriver({ phone, fullName, companyId, carNumber }) {
+  const canonical = normalizePhone(phone);
+  const bare      = canonical.replace('+', '');
+
+  const { data: existing } = await supabaseAdmin
+    .from('drivers')
+    .select('id, is_approved')
+    .or(`phone.eq.${canonical},phone.eq.${bare}`)
+    .maybeSingle();
+
+  if (existing) {
+    if (existing.is_approved) throw new Error('Phone number already registered and approved');
+    throw new Error('Account already exists. Pending admin approval.');
+  }
+
+  const authUserId = await getOrCreateAuthUser({ canonical, bare, fullName, role: 'driver' });
+
+  const { data: newDriver, error: driverError } = await supabaseAdmin
+    .from('drivers')
+    .insert({
+      id:          authUserId,
+      company_id:  companyId,
+      full_name:   fullName,
+      phone:       canonical,
+      car_number:  carNumber || null,
+      is_approved: false
+    })
+    .select()
+    .single();
+
+  if (driverError) throw new Error(driverError.message);
+
+  return newDriver;
+}
+
 async function approveCustomer(customerId, adminUser) {
   const { data, error } = await supabaseAdmin
     .from('users')
@@ -247,10 +282,39 @@ async function approveSalesman(salesmanId, adminUser) {
   return data;
 }
 
+async function findDriverByPhone(phone) {
+  const canonical = normalizePhone(phone);
+  const bare      = canonical.replace('+', '');
+
+  const { data: driver, error } = await supabaseAdmin
+    .from('drivers')
+    .select('*')
+    .or(`phone.eq.${canonical},phone.eq.${bare}`)
+    .maybeSingle();
+
+  if (error) console.error('findDriverByPhone error:', error.message);
+  if (!driver) return null;
+  // drivers has no `role` column — the table itself is the discriminator
+  return { ...driver, role: 'driver' };
+}
+
+async function approveDriver(driverId, adminUser) {
+  const { data, error } = await supabaseAdmin
+    .from('drivers')
+    .update({ is_approved: true })
+    .eq('id', driverId)
+    .eq('company_id', adminUser.company_id)
+    .select()
+    .single();
+
+  if (error) throw new Error('Driver not found or access denied');
+  return data;
+}
+
 module.exports = {
-  registerCustomer, registerSalesman,
+  registerCustomer, registerSalesman, registerDriver,
   loginWithCredentials,
-  approveCustomer, approveSalesman,
+  approveCustomer, approveSalesman, approveDriver,
   generateToken,
-  findCustomerByPhone, findSalesmanByPhone
+  findCustomerByPhone, findSalesmanByPhone, findDriverByPhone
 };

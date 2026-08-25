@@ -15,6 +15,7 @@ class SecureStorage {
   static const _userIdKey    = 'user_id';
   static const _phoneKey     = 'user_phone';
   static const _positionKey  = 'user_position';
+  static const _carNumberKey = 'user_car_number';
   static const _loginTimeKey = 'login_time';
 
   // Session lifetime — a stored token older than this is treated as
@@ -79,6 +80,14 @@ class SecureStorage {
 
   static Future<String?> getPosition() async {
     return await _storage.read(key: _positionKey);
+  }
+
+  static Future<void> saveCarNumber(String carNumber) async {
+    await _storage.write(key: _carNumberKey, value: carNumber);
+  }
+
+  static Future<String?> getCarNumber() async {
+    return await _storage.read(key: _carNumberKey);
   }
 
   // Clear everything on logout

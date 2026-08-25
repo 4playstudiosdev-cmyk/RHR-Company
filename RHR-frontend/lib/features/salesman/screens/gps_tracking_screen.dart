@@ -7,7 +7,8 @@ import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 
 class GpsTrackingScreen extends StatefulWidget {
-  const GpsTrackingScreen({super.key});
+  final String backRoute;
+  const GpsTrackingScreen({super.key, this.backRoute = '/salesman-dashboard'});
 
   @override
   State<GpsTrackingScreen> createState() => _GpsTrackingScreenState();
@@ -60,7 +61,7 @@ class _GpsTrackingScreenState extends State<GpsTrackingScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.navy,
         leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => context.go('/salesman-dashboard')),
+            onPressed: () => context.go(widget.backRoute)),
         title: const Text('GPS Tracking',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       ),

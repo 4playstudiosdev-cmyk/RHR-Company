@@ -66,35 +66,47 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // ⚠️ TEMP — GUEST TESTING LOGIN. Remove this whole method + its button
-  // before the real production launch. Logs in as a fixed demo customer
-  // account via a matching fixed-phone/fixed-OTP bypass on the backend
-  // (see RHR-backend/src/services/otp.service.js) — goes through the
-  // real /verify-otp endpoint and gets a real token, so the rest of the
-  // app behaves exactly like a normal logged-in customer.
-  bool _guestLoading = false;
+  // ⚠️ TEMP — GUEST TESTING LOGIN. Remove this whole block + its buttons
+  // before the real production launch. Logs in as a fixed demo account
+  // (one per role) via a matching fixed-phone/fixed-OTP bypass on the
+  // backend (see RHR-backend/src/services/otp.service.js's GUEST_ACCOUNTS
+  // map) — goes through the real /verify-otp endpoint and gets a real
+  // token, so the rest of the app behaves exactly like a normal login.
+  String? _guestLoadingRole;
 
-  void _continueAsGuest() async {
-    setState(() => _guestLoading = true);
+  static const _guestCredentials = {
+    'customer': {'phone': '03000000000', 'otp': '999999'},
+    'salesman': {'phone': '03000000001', 'otp': '999998'},
+    'driver':   {'phone': '03000000002', 'otp': '999997'},
+  };
+
+  void _continueAsGuest(String role) async {
+    setState(() => _guestLoadingRole = role);
     try {
+      final creds = _guestCredentials[role]!;
       final response = await DioClient.instance.post(ApiEndpoints.verifyOtp, data: {
-        'phone': '03000000000',
-        'otp': '999999',
+        'phone': creds['phone'],
+        'otp': creds['otp'],
         'companyId': ApiEndpoints.khiId,
       });
       if (response.data['success'] == true) {
         final data = response.data['data'];
         if (data != null && data['token'] != null) {
           await SecureStorage.saveToken(data['token']);
-          final role = data['user']?['role'] ?? 'customer';
-          await SecureStorage.saveRole(role);
-          await SecureStorage.savePhone('03000000000');
+          final loggedInRole = data['user']?['role'] ?? 'customer';
+          await SecureStorage.saveRole(loggedInRole);
+          await SecureStorage.savePhone(creds['phone']!);
           final name = data['user']?['fullName'] as String?;
           if (name != null && name.isNotEmpty) await SecureStorage.saveFullName(name);
           if (data['user']?['id'] != null) await SecureStorage.saveUserId(data['user']['id'] as String);
-          if (role == 'salesman') {
+          final carNumber = data['user']?['carNumber'] as String?;
+          if (carNumber != null && carNumber.isNotEmpty) await SecureStorage.saveCarNumber(carNumber);
+          if (loggedInRole == 'salesman') {
             await GPSService().startTracking();
             if (mounted) context.go('/salesman-dashboard');
+          } else if (loggedInRole == 'driver') {
+            await GPSService().startTracking();
+            if (mounted) context.go('/driver-dashboard');
           } else {
             if (mounted) context.go('/home');
           }
@@ -110,8 +122,28 @@ class _LoginScreenState extends State<LoginScreen> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Guest login error: $e')));
       }
     } finally {
-      if (mounted) setState(() => _guestLoading = false);
+      if (mounted) setState(() => _guestLoadingRole = null);
     }
+  }
+
+  Widget _guestButton(String role, String label, IconData icon) {
+    final isLoading = _guestLoadingRole == role;
+    return OutlinedButton(
+      onPressed: _guestLoadingRole != null ? null : () => _continueAsGuest(role),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppColors.tertiaryContainer,
+        side: BorderSide(color: AppColors.tertiaryContainer.withValues(alpha: 0.6)),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.base)),
+      ),
+      child: isLoading
+          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+          : Column(mainAxisSize: MainAxisSize.min, children: [
+              Icon(icon, size: 16),
+              const SizedBox(height: 2),
+              Text(label, style: AppTextStyles.bodySm.copyWith(color: AppColors.tertiaryContainer, fontSize: 11)),
+            ]),
+    );
   }
 
   static const _darkNavy = Color(0xFF00174B);
@@ -246,23 +278,16 @@ class _LoginScreenState extends State<LoginScreen> {
                               // ⚠️ TEMP — remove before production launch (see
                               // _continueAsGuest above for why this is safe/removable).
                               const SizedBox(height: AppSpacing.md),
-                              SizedBox(
-                                width: double.infinity,
-                                child: OutlinedButton.icon(
-                                  onPressed: _guestLoading ? null : _continueAsGuest,
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: AppColors.tertiaryContainer,
-                                    side: BorderSide(color: AppColors.tertiaryContainer.withValues(alpha: 0.6)),
-                                    padding: const EdgeInsets.symmetric(vertical: 12),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.base)),
-                                  ),
-                                  icon: _guestLoading
-                                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                                      : const Icon(Icons.visibility_outlined, size: 18),
-                                  label: Text('Continue as Guest (testing only)',
-                                      style: AppTextStyles.labelMd.copyWith(color: AppColors.tertiaryContainer)),
-                                ),
-                              ),
+                              Text('Guest login (testing only)',
+                                  style: AppTextStyles.bodySm.copyWith(color: AppColors.outline, letterSpacing: 0.5)),
+                              const SizedBox(height: AppSpacing.sm),
+                              Row(children: [
+                                Expanded(child: _guestButton('customer', 'Customer', Icons.storefront_outlined)),
+                                const SizedBox(width: 8),
+                                Expanded(child: _guestButton('salesman', 'Salesman', Icons.handshake_outlined)),
+                                const SizedBox(width: 8),
+                                Expanded(child: _guestButton('driver', 'Driver', Icons.local_shipping_outlined)),
+                              ]),
                             ],
                           ),
                         ),

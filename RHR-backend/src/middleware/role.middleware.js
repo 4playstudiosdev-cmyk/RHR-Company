@@ -40,7 +40,8 @@ const isSuperAdmin = requireRole('super_admin');
 const isAdmin = requireRole('super_admin', 'branch_admin');
 const isSalesman = requireRole('salesman');
 const isCustomer = requireRole('customer');
-const isFieldStaff = requireRole('salesman', 'delivery');
+const isDriver = requireRole('driver');
+const isFieldStaff = requireRole('salesman', 'delivery', 'driver');
 
 module.exports = {
   requireRole,
@@ -49,5 +50,6 @@ module.exports = {
   isAdmin,
   isSalesman,
   isCustomer,
+  isDriver,
   isFieldStaff
 };

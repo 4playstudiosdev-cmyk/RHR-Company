@@ -1,9 +1,9 @@
 const { sendOTP, verifyOTP } = require('../services/otp.service');
 const {
-  registerCustomer, registerSalesman,
+  registerCustomer, registerSalesman, registerDriver,
   loginWithCredentials,
-  approveCustomer, approveSalesman,
-  findCustomerByPhone, findSalesmanByPhone,
+  approveCustomer, approveSalesman, approveDriver,
+  findCustomerByPhone, findSalesmanByPhone, findDriverByPhone,
   generateToken
 } = require('../services/auth.service');
 const { getWhatsAppStatus, getWhatsAppQR } = require('../config/whatsapp');
@@ -14,8 +14,10 @@ const sendOTPHandler = async (req, res) => {
     const { phone } = req.body;
     if (!phone) return error(res, 'Phone number is required', 400);
 
-    // Check registration status before sending OTP — could be either role
-    const existingUser = (await findCustomerByPhone(phone)) || (await findSalesmanByPhone(phone));
+    // Check registration status before sending OTP — could be any role
+    const existingUser = (await findCustomerByPhone(phone))
+      || (await findSalesmanByPhone(phone))
+      || (await findDriverByPhone(phone));
 
     if (!existingUser) {
       // New user — send OTP now so it arrives while they fill the signup form
@@ -38,7 +40,7 @@ const sendOTPHandler = async (req, res) => {
 
 const verifyOTPHandler = async (req, res) => {
   try {
-    const { phone, otp, fullName, companyId, shopName, shopAddress, role, position } = req.body;
+    const { phone, otp, fullName, companyId, shopName, shopAddress, role, position, carNumber } = req.body;
     if (!phone || !otp || !companyId) {
       return error(res, 'phone, otp, companyId are required', 400);
     }
@@ -46,8 +48,10 @@ const verifyOTPHandler = async (req, res) => {
     const otpResult = await verifyOTP(phone, otp);
     if (!otpResult.valid) return error(res, otpResult.message, 400);
 
-    // Check if user already exists (login) or is new (registration) — could be either role
-    const existingUser = (await findCustomerByPhone(phone)) || (await findSalesmanByPhone(phone));
+    // Check if user already exists (login) or is new (registration) — could be any role
+    const existingUser = (await findCustomerByPhone(phone))
+      || (await findSalesmanByPhone(phone))
+      || (await findDriverByPhone(phone));
 
     if (existingUser) {
       if (!existingUser.is_approved) {
@@ -58,9 +62,10 @@ const verifyOTPHandler = async (req, res) => {
       return success(res, {
         token,
         user: {
-          id:       existingUser.id,
-          fullName: existingUser.full_name,
-          role:     existingUser.role,
+          id:        existingUser.id,
+          fullName:  existingUser.full_name,
+          role:      existingUser.role,
+          carNumber: existingUser.car_number,
         },
       }, 'Login successful');
     }
@@ -70,6 +75,8 @@ const verifyOTPHandler = async (req, res) => {
 
     if (role === 'salesman') {
       await registerSalesman({ phone, fullName, companyId, position });
+    } else if (role === 'driver') {
+      await registerDriver({ phone, fullName, companyId, carNumber });
     } else {
       await registerCustomer({ phone, fullName, companyId, shopName, shopAddress });
     }
@@ -116,6 +123,16 @@ const approveSalesmanHandler = async (req, res) => {
   }
 };
 
+const approveDriverHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const approvedDriver = await approveDriver(id, req.user);
+    return success(res, approvedDriver, 'Driver approved successfully');
+  } catch (err) {
+    return error(res, err.message, 400);
+  }
+};
+
 const whatsappStatusHandler = (req, res) => {
   return success(res, getWhatsAppStatus(), 'WhatsApp status');
 };
@@ -134,6 +151,7 @@ module.exports = {
   loginHandler,
   approveCustomerHandler,
   approveSalesmanHandler,
+  approveDriverHandler,
   whatsappStatusHandler,
   whatsappQRHandler,
 };

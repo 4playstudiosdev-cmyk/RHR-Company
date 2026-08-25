@@ -28,7 +28,13 @@ class _SplashScreenState extends State<SplashScreen> {
     if (await SecureStorage.isLoggedIn()) {
       final role = await SecureStorage.getRole();
       if (!mounted) return;
-      context.go(role == 'salesman' ? '/salesman-dashboard' : '/home');
+      if (role == 'salesman') {
+        context.go('/salesman-dashboard');
+      } else if (role == 'driver') {
+        context.go('/driver-dashboard');
+      } else {
+        context.go('/home');
+      }
     } else {
       if (!mounted) return;
       context.go('/login');

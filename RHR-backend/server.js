@@ -64,6 +64,7 @@ app.use('/api/v1/analytics',     require('./src/routes/analytics.routes'));
 app.use('/api/v1/hrm',           require('./src/routes/hrm.routes'));
 app.use('/api/v1/employees',     require('./src/routes/employees.routes'));
 app.use('/api/v1/salesmen',      require('./src/routes/salesmen.routes'));
+app.use('/api/v1/drivers',       require('./src/routes/drivers.routes'));
 app.use('/api/v1/visits',        require('./src/routes/visits.routes'));
 app.use('/api/v1/admin-location', require('./src/routes/admin-location.routes'));
 app.use('/api/v1/production',    require('./src/routes/production.routes'));

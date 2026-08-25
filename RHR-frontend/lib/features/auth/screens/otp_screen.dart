@@ -95,6 +95,11 @@ class _OtpScreenState extends State<OtpScreen> {
     return null;
   }
 
+  String? get _carNumber {
+    if (widget.extra is Map) return (widget.extra as Map)['carNumber'] as String?;
+    return null;
+  }
+
   void _onChanged(String value, int index) {
     if (value.isNotEmpty && index < 5) _focusNodes[index + 1].requestFocus();
     if (value.isEmpty && index > 0) _focusNodes[index - 1].requestFocus();
@@ -138,6 +143,7 @@ class _OtpScreenState extends State<OtpScreen> {
     if (_address != null && _address!.isNotEmpty) body['shopAddress'] = _address;
     if (_role != null) body['role'] = _role!;
     if (_position != null && _position!.isNotEmpty) body['position'] = _position!;
+    if (_carNumber != null && _carNumber!.isNotEmpty) body['carNumber'] = _carNumber!;
     debugPrint('Verify OTP body: $body');
     try {
       final response = await DioClient.instance.post(
@@ -166,9 +172,16 @@ class _OtpScreenState extends State<OtpScreen> {
           if (data['user']?['id'] != null) {
             await SecureStorage.saveUserId(data['user']['id'] as String);
           }
+          final loggedInCarNumber = data['user']?['carNumber'] as String?;
+          if (loggedInCarNumber != null && loggedInCarNumber.isNotEmpty) {
+            await SecureStorage.saveCarNumber(loggedInCarNumber);
+          }
           if (role == 'salesman') {
             await GPSService().startTracking();
             if (mounted) context.go('/salesman-dashboard');
+          } else if (role == 'driver') {
+            await GPSService().startTracking();
+            if (mounted) context.go('/driver-dashboard');
           } else {
             if (mounted) context.go('/home');
           }

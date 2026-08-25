@@ -35,6 +35,12 @@ dependencies:
   # Connectivity check (for offline GPS queuing)
   connectivity_plus: ^6.0.0
 
+  # Keeps GPS pinging alive as an Android foreground service while the app
+  # is backgrounded/screen-locked — a plain Timer.periodic gets suspended
+  # by Doze/App Standby the moment the app leaves the foreground, which was
+  # why the desktop live-location map went stale after a few minutes.
+  flutter_background_service: ^5.1.0
+
   # Maps — OpenStreetMap tiles, no API key needed (same reasoning as the
   # desktop app's Leaflet choice: no Google Maps key configured anywhere)
   flutter_map: ^7.0.2

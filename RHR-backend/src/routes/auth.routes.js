@@ -6,6 +6,7 @@ const {
   loginHandler,
   approveCustomerHandler,
   approveSalesmanHandler,
+  approveDriverHandler,
   whatsappStatusHandler,
   whatsappQRHandler
 } = require('../controllers/auth.controller');
@@ -23,5 +24,6 @@ router.get('/whatsapp-qr',               whatsappQRHandler);
 // Protected routes
 router.patch('/approve-customer/:id', authenticate, isAdmin, approveCustomerHandler);
 router.patch('/approve-salesman/:id', authenticate, isAdmin, approveSalesmanHandler);
+router.patch('/approve-driver/:id',   authenticate, isAdmin, approveDriverHandler);
 
 module.exports = router;

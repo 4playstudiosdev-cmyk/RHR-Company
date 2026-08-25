@@ -115,7 +115,8 @@ export default function GPS() {
       const pos = [s.location.latitude, s.location.longitude];
       const status = effectiveStatus(s);
       const color = STATUS_COLORS[status] || '#888888';
-      const popupHtml = `<div style="font-size:12px"><strong>${s.full_name}</strong><br/>Status: ${STATUS_META[status]?.label || status}<br/>Last seen: ${new Date(
+      const roleLabel = s.staffType === 'driver' ? `Driver${s.car_number ? ` — ${s.car_number}` : ''}` : s.staffType === 'delivery' ? 'Delivery' : 'Salesman';
+      const popupHtml = `<div style="font-size:12px"><strong>${s.full_name}</strong><br/>${roleLabel}<br/>Status: ${STATUS_META[status]?.label || status}<br/>Last seen: ${new Date(
         s.location.recorded_at
       ).toLocaleTimeString()}</div>`;
 
@@ -311,7 +312,7 @@ export default function GPS() {
 
   return (
     <div className="p-6 flex flex-col h-full">
-      <PageHeader title="Live GPS Tracking" subtitle="Track salesman and admin locations, and replay any day's route" />
+      <PageHeader title="Live GPS Tracking" subtitle="Track salesman, driver and admin locations, and replay any day's route" />
 
       <div className="flex justify-between items-center flex-wrap gap-3 mb-4">
         <div className="flex gap-2">
@@ -376,7 +377,7 @@ export default function GPS() {
                 onChange={(e) => setSelectedUser(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
               >
-                <option value="">— Select salesman —</option>
+                <option value="">— Select field staff —</option>
                 {salesmen.map((s) => (
                   <option key={s.id} value={s.id}>{s.full_name}</option>
                 ))}
@@ -455,7 +456,7 @@ export default function GPS() {
             </div>
           ) : salesmen.length === 0 ? (
             <div className="bg-white rounded-2xl shadow-card border border-gray-100">
-              <EmptyState icon={MapPin} title="No field staff found" subtitle="Salesman accounts will appear here" />
+              <EmptyState icon={MapPin} title="No field staff found" subtitle="Salesman and driver accounts will appear here" />
             </div>
           ) : (
             salesmen.map((s) => {
@@ -463,6 +464,7 @@ export default function GPS() {
               const color = STATUS_COLORS[status];
               const meta = STATUS_META[status];
               const StatusIcon = meta.icon;
+              const roleLabel = s.staffType === 'driver' ? 'Driver' : s.staffType === 'delivery' ? 'Delivery' : 'Salesman';
               return (
                 <button
                   key={s.id}
@@ -480,6 +482,9 @@ export default function GPS() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-sm text-navy truncate">{s.full_name}</p>
+                    <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">
+                      {roleLabel}{s.staffType === 'driver' && s.car_number ? ` · ${s.car_number}` : ''}
+                    </p>
                     <p className="text-xs text-gray-400 mt-0.5">
                       {s.location ? `Updated ${timeAgo(s.location.recorded_at)}` : 'No location reported yet'}
                     </p>

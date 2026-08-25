@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, UserCog, Wallet, LogOut,
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
-  Gauge, Boxes, ClipboardList, Truck, FileBarChart2, ChevronDown, X
+  Gauge, Boxes, ClipboardList, Truck, FileBarChart2, ChevronDown, X, CarFront
 } from 'lucide-react';
 import { hasPermission } from '../services/api';
 
@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { key: 'orders', label: 'Orders', icon: ShoppingCart },
   { key: 'customers', label: 'Customers', icon: Users },
   { key: 'salesmen', label: 'Salesmen', icon: UserCog },
+  { key: 'drivers', label: 'Drivers', icon: CarFront },
   { key: 'payments', label: 'Payments', icon: Wallet, requiredPermission: 'can_view_payments' },
   { key: 'ledger', label: 'Ledger', icon: BookOpen },
   { key: 'reports', label: 'Reports', icon: FileSpreadsheet, requiredPermission: 'can_export_reports' },

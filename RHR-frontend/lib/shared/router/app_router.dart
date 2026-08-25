@@ -28,6 +28,8 @@ import '../../features/salesman/screens/record_payment_screen.dart';
 import '../../features/salesman/screens/salesman_profile_screen.dart';
 import '../../features/salesman/screens/gps_tracking_screen.dart';
 import '../../features/salesman/screens/performance_screen.dart';
+import '../../features/driver/screens/driver_dashboard_screen.dart';
+import '../../features/driver/screens/driver_profile_screen.dart';
 import '../../features/shared/screens/notifications_screen.dart';
 import '../../features/hrm/screens/attendance_screen.dart';
 import '../../features/hrm/screens/leave_screen.dart';
@@ -47,7 +49,9 @@ final appRouter = GoRouter(
     if (state.matchedLocation != '/login') return null;
     if (!await SecureStorage.isLoggedIn()) return null;
     final role = await SecureStorage.getRole();
-    return role == 'salesman' ? '/salesman-dashboard' : '/home';
+    if (role == 'salesman') return '/salesman-dashboard';
+    if (role == 'driver') return '/driver-dashboard';
+    return '/home';
   },
   routes: [
     GoRoute(path: '/splash',           pageBuilder: (c, s) => slidePage(s, const SplashScreen())),
@@ -91,6 +95,9 @@ final appRouter = GoRouter(
     GoRoute(path: '/record-payment',     pageBuilder: (c, s) => slidePage(s, RecordPaymentScreen(customerId: s.extra as String?))),
     GoRoute(path: '/gps-tracking',       pageBuilder: (c, s) => slidePage(s, const GpsTrackingScreen())),
     GoRoute(path: '/performance',        pageBuilder: (c, s) => slidePage(s, const PerformanceScreen())),
+    GoRoute(path: '/driver-dashboard',   pageBuilder: (c, s) => slidePage(s, const DriverDashboardScreen())),
+    GoRoute(path: '/driver-profile',     pageBuilder: (c, s) => slidePage(s, const DriverProfileScreen())),
+    GoRoute(path: '/driver-gps-tracking', pageBuilder: (c, s) => slidePage(s, const GpsTrackingScreen(backRoute: '/driver-dashboard'))),
     GoRoute(path: '/notifications',      pageBuilder: (c, s) => slidePage(s, const NotificationsScreen())),
     GoRoute(path: '/attendance',         pageBuilder: (c, s) => slidePage(s, const AttendanceScreen())),
     GoRoute(path: '/leave',              pageBuilder: (c, s) => slidePage(s, const LeaveScreen())),

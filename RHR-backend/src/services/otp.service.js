@@ -7,12 +7,16 @@ function generateOTP() {
 }
 
 // ⚠️ TEMP — GUEST TESTING BYPASS. Remove this block (and the matching
-// users-table row for +923000000000) before the real production launch —
-// it exists only so testers can open the full app without waiting on a
-// real WhatsApp OTP. Scoped to exactly one fixed phone+code pair; every
-// other number still goes through the real bcrypt-checked OTP record.
-const GUEST_PHONE = '923000000000';
-const GUEST_OTP = '999999';
+// customer/salesmen/drivers rows for the three phones below) before the
+// real production launch — it exists only so testers can open the full
+// app, in any of the three roles, without waiting on a real WhatsApp OTP.
+// Scoped to exactly these fixed phone+code pairs; every other number
+// still goes through the real bcrypt-checked OTP record.
+const GUEST_ACCOUNTS = {
+  '923000000000': '999999', // customer
+  '923000000001': '999998', // salesman
+  '923000000002': '999997', // driver
+};
 
 // Normalize phone to always store without + and with 92 prefix
 function normalizePhone(phone) {
@@ -71,8 +75,8 @@ async function sendOTP(phoneNumber) {
 async function verifyOTP(phoneNumber, submittedOTP) {
   const phone = normalizePhone(phoneNumber);
 
-  // ⚠️ TEMP guest bypass — see GUEST_PHONE/GUEST_OTP comment above.
-  if (phone === GUEST_PHONE && submittedOTP.toString() === GUEST_OTP) {
+  // ⚠️ TEMP guest bypass — see GUEST_ACCOUNTS comment above.
+  if (GUEST_ACCOUNTS[phone] && submittedOTP.toString() === GUEST_ACCOUNTS[phone]) {
     return { valid: true };
   }
 

@@ -23,6 +23,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _businessController = TextEditingController();
   final _addressController  = TextEditingController();
   final _positionController = TextEditingController();
+  final _carNumberController = TextEditingController();
   String _selectedRole = 'customer';
   String _selectedCity = ApiEndpoints.khiId;
   bool _isLoading = false;
@@ -59,6 +60,7 @@ class _SignupScreenState extends State<SignupScreen> {
     _businessController.dispose();
     _addressController.dispose();
     _positionController.dispose();
+    _carNumberController.dispose();
     super.dispose();
   }
 
@@ -107,12 +109,14 @@ class _SignupScreenState extends State<SignupScreen> {
       'fullName':  _nameController.text.trim(),
       'companyId': _selectedCity,
       'role':      _selectedRole,
-      ..._selectedRole == 'salesman'
-          ? {'position': _positionController.text.trim()}
-          : {
-              'businessName': _businessController.text.trim(),
-              'address':      _addressController.text.trim(),
-            },
+      if (_selectedRole == 'salesman')
+        'position': _positionController.text.trim()
+      else if (_selectedRole == 'driver')
+        'carNumber': _carNumberController.text.trim()
+      else ...{
+        'businessName': _businessController.text.trim(),
+        'address':      _addressController.text.trim(),
+      },
     });
   }
 
@@ -212,6 +216,12 @@ class _SignupScreenState extends State<SignupScreen> {
                       selected: _selectedRole == 'salesman',
                       onTap: () => setState(() => _selectedRole = 'salesman'),
                     )),
+                    const SizedBox(width: AppSpacing.base),
+                    Expanded(child: _RoleCard(
+                      label: 'Driver', icon: Icons.local_shipping_outlined,
+                      selected: _selectedRole == 'driver',
+                      onTap: () => setState(() => _selectedRole = 'driver'),
+                    )),
                   ]),
                   const SizedBox(height: AppSpacing.md),
 
@@ -266,6 +276,9 @@ class _SignupScreenState extends State<SignupScreen> {
                       if (_selectedRole == 'salesman')
                         _field(label: 'Position', icon: Icons.badge_outlined, controller: _positionController,
                             hint: 'e.g. Sales Executive, Area Manager')
+                      else if (_selectedRole == 'driver')
+                        _field(label: 'Car Number', icon: Icons.directions_car_outlined, controller: _carNumberController,
+                            hint: 'e.g. KHI-1234')
                       else ...[
                         _field(label: 'Business Name', icon: Icons.store_outlined, controller: _businessController,
                             hint: 'Shop or company name'),
