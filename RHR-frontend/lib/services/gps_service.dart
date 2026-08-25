@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:ui';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../core/network/dio_client.dart';
@@ -11,12 +9,6 @@ import '../core/storage/secure_storage.dart';
 /// Sends a GPS ping every [_interval] while tracking is active, and queues
 /// pings in Hive when offline or when a send fails — flushing the whole
 /// queue via POST /gps/batch-ping the next time a ping succeeds.
-///
-/// The actual ping loop runs inside an Android foreground service (see
-/// [_onServiceStart] below), not a plain Timer on the UI isolate — a plain
-/// Timer gets suspended by Doze/App Standby the moment the app is
-/// backgrounded or the screen locks, which was why field-staff location
-/// silently went stale on the desktop live map after a few minutes.
 class GPSService {
   static final GPSService _instance = GPSService._internal();
   factory GPSService() => _instance;
@@ -25,6 +17,7 @@ class GPSService {
   static const String _boxName = 'gps_offline';
   static const Duration _interval = Duration(minutes: 2);
 
+  Timer? _timer;
   Box? _offlineBox;
   bool _isTracking = false;
 
@@ -59,28 +52,23 @@ class GPSService {
       return false;
     }
 
-    final service = FlutterBackgroundService();
-    await service.configure(
-      androidConfiguration: AndroidConfiguration(
-        onStart: _onServiceStart,
-        autoStart: false,
-        isForegroundMode: true,
-        notificationChannelId: 'rhr_gps_tracking',
-        initialNotificationTitle: 'RHR & Company',
-        initialNotificationContent: 'Sharing your location…',
-        foregroundServiceNotificationId: 9002,
-        foregroundServiceTypes: [AndroidForegroundType.location],
-      ),
-      iosConfiguration: IosConfiguration(),
-    );
-    await service.startService();
-
     _isTracking = true;
+    unawaited(_captureAndSend());
+    _timer = Timer.periodic(_interval, (_) async {
+      // Stop pinging the moment the session goes away instead of quietly
+      // hitting /gps/ping with a stale/cleared token every 2 minutes.
+      if (!await SecureStorage.isLoggedIn()) {
+        await stopTracking();
+        return;
+      }
+      await _captureAndSend();
+    });
     return true;
   }
 
   Future<void> stopTracking() async {
-    FlutterBackgroundService().invoke('stopService');
+    _timer?.cancel();
+    _timer = null;
     _isTracking = false;
     await _syncOfflinePoints();
   }
@@ -152,42 +140,4 @@ class GPSService {
       debugPrint('GPS batch sync failed: $e');
     }
   }
-}
-
-/// Runs in its own background isolate (spawned by the Android foreground
-/// service, not the app's UI isolate) — needs its own plugin registration
-/// and its own Hive.initFlutter() before any of GPSService's Hive/Dio/
-/// secure-storage calls will work.
-@pragma('vm:entry-point')
-void _onServiceStart(ServiceInstance service) async {
-  DartPluginRegistrant.ensureInitialized();
-  await Hive.initFlutter();
-
-  if (service is AndroidServiceInstance) {
-    service.setForegroundNotificationInfo(
-      title: 'RHR & Company',
-      content: 'Sharing your location…',
-    );
-  }
-
-  final gps = GPSService();
-  await gps.initialize();
-
-  Timer? timer;
-  Future<void> tick() async {
-    if (!await SecureStorage.isLoggedIn()) {
-      timer?.cancel();
-      service.stopSelf();
-      return;
-    }
-    await gps._captureAndSend();
-  }
-
-  await tick();
-  timer = Timer.periodic(GPSService._interval, (_) => tick());
-
-  service.on('stopService').listen((event) {
-    timer?.cancel();
-    service.stopSelf();
-  });
 }
