@@ -4,7 +4,9 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/constants/api_endpoints.dart';
+import '../../../core/storage/secure_storage.dart';
 import '../../../core/utils/phone_normalizer.dart';
+import '../../../services/gps_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -61,6 +63,54 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // ⚠️ TEMP — GUEST TESTING LOGIN. Remove this whole method + its button
+  // before the real production launch. Logs in as a fixed demo customer
+  // account via a matching fixed-phone/fixed-OTP bypass on the backend
+  // (see RHR-backend/src/services/otp.service.js) — goes through the
+  // real /verify-otp endpoint and gets a real token, so the rest of the
+  // app behaves exactly like a normal logged-in customer.
+  bool _guestLoading = false;
+
+  void _continueAsGuest() async {
+    setState(() => _guestLoading = true);
+    try {
+      final response = await DioClient.instance.post(ApiEndpoints.verifyOtp, data: {
+        'phone': '03000000000',
+        'otp': '999999',
+        'companyId': ApiEndpoints.khiId,
+      });
+      if (response.data['success'] == true) {
+        final data = response.data['data'];
+        if (data != null && data['token'] != null) {
+          await SecureStorage.saveToken(data['token']);
+          final role = data['user']?['role'] ?? 'customer';
+          await SecureStorage.saveRole(role);
+          await SecureStorage.savePhone('03000000000');
+          final name = data['user']?['fullName'] as String?;
+          if (name != null && name.isNotEmpty) await SecureStorage.saveFullName(name);
+          if (data['user']?['id'] != null) await SecureStorage.saveUserId(data['user']['id'] as String);
+          if (role == 'salesman') {
+            await GPSService().startTracking();
+            if (mounted) context.go('/salesman-dashboard');
+          } else {
+            if (mounted) context.go('/home');
+          }
+          return;
+        }
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(response.data['message'] ?? 'Guest login failed')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Guest login error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _guestLoading = false);
     }
   }
 
@@ -190,6 +240,27 @@ class _LoginScreenState extends State<LoginScreen> {
                                       ),
                                     ],
                                   ),
+                                ),
+                              ),
+
+                              // ⚠️ TEMP — remove before production launch (see
+                              // _continueAsGuest above for why this is safe/removable).
+                              const SizedBox(height: AppSpacing.md),
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  onPressed: _guestLoading ? null : _continueAsGuest,
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.tertiaryContainer,
+                                    side: BorderSide(color: AppColors.tertiaryContainer.withValues(alpha: 0.6)),
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.base)),
+                                  ),
+                                  icon: _guestLoading
+                                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                      : const Icon(Icons.visibility_outlined, size: 18),
+                                  label: Text('Continue as Guest (testing only)',
+                                      style: AppTextStyles.labelMd.copyWith(color: AppColors.tertiaryContainer)),
                                 ),
                               ),
                             ],
