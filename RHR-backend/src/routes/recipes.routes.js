@@ -14,10 +14,10 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       .select(`
         *,
         recipe_ingredients(
-          id, qty_required, unit,
-          raw_materials(id, name, unit, stock_quantity)
+          id, quantity, unit, raw_material_id,
+          raw_materials(id, name, unit, stock)
         ),
-        products!finished_item_id(id, name, unit, stock_quantity)
+        products!product_id(id, name, unit, stock_quantity)
       `)
       .eq('company_id', req.user.company_id)
       .eq('is_active', true)
@@ -34,7 +34,7 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
   try {
     const {
       recipe_name,
-      finished_item_id,
+      finished_item_id, // maps to production_recipes.product_id
       batch_size,
       batch_unit,
       notes,
@@ -48,8 +48,8 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
     const { data: recipe, error: rErr } = await supabaseAdmin
       .from('production_recipes')
       .insert({
-        company_id:       req.user.company_id,
-        finished_item_id,
+        company_id:  req.user.company_id,
+        product_id:  finished_item_id,
         recipe_name,
         batch_size:  batch_size  || 1,
         batch_unit:  batch_unit  || 'bag',
@@ -60,11 +60,22 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
 
     if (rErr) throw new Error(rErr.message);
 
+    // Look up names for the denormalized ingredient_name column (kept
+    // alongside raw_material_id — some older reporting queries may still
+    // read it, and it's a harmless free display copy).
+    const materialIds = ingredients.map(i => i.raw_material_id).filter(Boolean);
+    const { data: materials } = await supabaseAdmin
+      .from('raw_materials')
+      .select('id, name')
+      .in('id', materialIds);
+    const nameById = Object.fromEntries((materials || []).map(m => [m.id, m.name]));
+
     // Insert ingredients
     const rows = ingredients.map(i => ({
       recipe_id:       recipe.id,
       raw_material_id: i.raw_material_id,
-      qty_required:    Number(i.qty_required),
+      ingredient_name: nameById[i.raw_material_id] || null,
+      quantity:        Number(i.qty_required),
       unit:            i.unit,
     }));
 
@@ -115,7 +126,7 @@ router.get('/raw-materials', authenticate, isAdmin, async (req, res) => {
   try {
     const { data, error: dbErr } = await supabaseAdmin
       .from('raw_materials')
-      .select('id, name, unit, stock_quantity')
+      .select('id, name, unit, stock')
       .eq('company_id', req.user.company_id)
       .order('name');
 

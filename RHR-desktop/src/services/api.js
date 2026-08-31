@@ -65,6 +65,11 @@ export const deleteRecipe          = (id) => api.delete(`/recipes/${id}`);
 export const getFinishedProducts   = () => api.get('/recipes/finished-products');
 export const getRecipeRawMaterials = () => api.get('/recipes/raw-materials');
 
+// PRODUCTION LOG (recipe-driven batches, auto stock deduction)
+export const getProductionHistory = () => api.get('/production/history');
+export const logProduction        = (data) => api.post('/production/produce', data);
+export const revertProduction     = (id) => api.delete(`/production/runs/${id}`);
+
 // ========= PRODUCTION MODULE — live, all admin-only =========
 // GET   /api/v1/production/demand                 — demand computed live from order_items on
 //                                                    orders not yet dispatched (pending/confirmed/preparing)
