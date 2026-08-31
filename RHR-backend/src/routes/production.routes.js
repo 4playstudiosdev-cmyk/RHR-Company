@@ -4,6 +4,7 @@ const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin }      = require('../middleware/role.middleware');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { retryIfEmpty } = require('../utils/withRetry');
 
 const production = require('../controllers/production.controller');
 const materials   = require('../controllers/rawMaterials.controller');
@@ -33,21 +34,26 @@ router.get('/reports/stock',       authenticate, isAdmin, reports.getStockReport
 // ─────────────────────────────────────
 router.get('/history', authenticate, isAdmin, async (req, res) => {
   try {
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('productions')
-      .select(`
-        *,
-        production_lines(
-          id, qty_used, unit,
-          raw_materials(id, name, unit)
-        ),
-        products!finished_item_id(id, name, unit),
-        production_recipes(id, recipe_name, batch_size, batch_unit)
-      `)
-      .eq('company_id', req.user.company_id)
-      .order('created_at', { ascending: false });
+    // Same embedded-resource-join flakiness as GET /recipes — see the
+    // comment there and in utils/withRetry.js.
+    const data = await retryIfEmpty(async () => {
+      const { data, error: dbErr } = await supabaseAdmin
+        .from('productions')
+        .select(`
+          *,
+          production_lines(
+            id, qty_used, unit,
+            raw_materials(id, name, unit)
+          ),
+          products!finished_item_id(id, name, unit),
+          production_recipes(id, recipe_name, batch_size, batch_unit)
+        `)
+        .eq('company_id', req.user.company_id)
+        .order('created_at', { ascending: false });
+      if (dbErr) throw new Error(dbErr.message);
+      return data;
+    });
 
-    if (dbErr) throw new Error(dbErr.message);
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 });

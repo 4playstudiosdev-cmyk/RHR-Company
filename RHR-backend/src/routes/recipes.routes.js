@@ -4,26 +4,35 @@ const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin }      = require('../middleware/role.middleware');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { retryIfEmpty } = require('../utils/withRetry');
 
 // GET /api/v1/recipes
 // Returns all recipes with ingredients for this company
 router.get('/', authenticate, isAdmin, async (req, res) => {
   try {
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('production_recipes')
-      .select(`
-        *,
-        recipe_ingredients(
-          id, quantity, unit, raw_material_id,
-          raw_materials(id, name, unit, stock)
-        ),
-        products!product_id(id, name, unit, stock_quantity)
-      `)
-      .eq('company_id', req.user.company_id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false });
+    // This embedded-resource query (long select= string, two nested
+    // joins) is the one most exposed to a Railway<->Supabase blip that
+    // comes back as a *successful but wrongly-empty* result rather than
+    // a thrown error — retryIfEmpty re-runs it once rather than trusting
+    // a first empty response outright.
+    const data = await retryIfEmpty(async () => {
+      const { data, error: dbErr } = await supabaseAdmin
+        .from('production_recipes')
+        .select(`
+          *,
+          recipe_ingredients(
+            id, quantity, unit, raw_material_id,
+            raw_materials(id, name, unit, stock)
+          ),
+          products!product_id(id, name, unit, stock_quantity)
+        `)
+        .eq('company_id', req.user.company_id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+      if (dbErr) throw new Error(dbErr.message);
+      return data;
+    });
 
-    if (dbErr) throw new Error(dbErr.message);
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 });

@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { supabaseAdmin } = require('../config/supabase');
+const { withRetry } = require('../utils/withRetry');
 
 function generateToken(user) {
   return jwt.sign(
@@ -8,26 +9,6 @@ function generateToken(user) {
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN }
   );
-}
-
-// Login was intermittently failing with "Invalid email or password" for
-// otherwise-correct credentials — traced to transient network blips between
-// Railway and Supabase (confirmed: the exact same call against the exact
-// same account succeeds reliably run locally, and via Railway sometimes
-// succeeds and sometimes doesn't, with no consistent per-account pattern).
-// One retry after a short delay papers over that class of blip without
-// masking a real, persistent auth failure (which will still fail twice).
-async function withRetry(fn, attempts = 2, delayMs = 400) {
-  let lastErr;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
-    }
-  }
-  throw lastErr;
 }
 
 function normalizePhone(phone) {
