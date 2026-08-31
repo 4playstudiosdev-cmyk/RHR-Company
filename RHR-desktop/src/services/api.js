@@ -58,6 +58,13 @@ export const isRole = (...roles) => {
 
 export default api;
 
+// RECIPES
+export const getRecipes            = () => api.get('/recipes');
+export const createRecipe          = (data) => api.post('/recipes', data);
+export const deleteRecipe          = (id) => api.delete(`/recipes/${id}`);
+export const getFinishedProducts   = () => api.get('/recipes/finished-products');
+export const getRecipeRawMaterials = () => api.get('/recipes/raw-materials');
+
 // ========= PRODUCTION MODULE — live, all admin-only =========
 // GET   /api/v1/production/demand                 — demand computed live from order_items on
 //                                                    orders not yet dispatched (pending/confirmed/preparing)
