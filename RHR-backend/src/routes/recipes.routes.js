@@ -31,7 +31,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         .order('created_at', { ascending: false });
       if (dbErr) throw new Error(dbErr.message);
       return data;
-    });
+    }, 4, 350);
 
     return success(res, data);
   } catch (err) { return error(res, err.message); }
