@@ -35,7 +35,8 @@ const NAV_ITEMS = [
       { key: 'production-orders', label: 'Production Orders', icon: ClipboardList },
       { key: 'production-log', label: 'Production Log', icon: PackageCheck },
       { key: 'production-dispatch', label: 'Dispatch', icon: Truck },
-      { key: 'production-reports', label: 'Production Reports', icon: FileBarChart2 }
+      { key: 'production-reports', label: 'Production Reports', icon: FileBarChart2 },
+      { key: 'production-recipes', label: 'Recipes', icon: ClipboardList }
     ]
   },
   { key: 'hrm', label: 'HRM', icon: Briefcase, requiredRole: 'super_admin' },

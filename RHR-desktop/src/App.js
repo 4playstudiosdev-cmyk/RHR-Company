@@ -26,6 +26,7 @@ import ProductionOrders from './pages/production/ProductionOrders';
 import ProductionLog from './pages/production/ProductionLog';
 import Dispatch from './pages/production/Dispatch';
 import ProductionReports from './pages/production/ProductionReports';
+import RecipesPage from './pages/production/RecipesPage';
 
 const PAGES = {
   dashboard: Dashboard,
@@ -46,6 +47,7 @@ const PAGES = {
   'production-log': ProductionLog,
   'production-dispatch': Dispatch,
   'production-reports': ProductionReports,
+  'production-recipes': RecipesPage,
   hrm: HRM,
   admins: AdminManagement
 };
@@ -65,7 +67,8 @@ const PAGE_ACCESS = {
   'production-orders': { requiredRole: 'super_admin' },
   'production-log': { requiredRole: 'super_admin' },
   'production-dispatch': { requiredRole: 'super_admin' },
-  'production-reports': { requiredRole: 'super_admin' }
+  'production-reports': { requiredRole: 'super_admin' },
+  'production-recipes': { requiredRole: 'super_admin' }
 };
 
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 hours

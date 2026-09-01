@@ -20,6 +20,91 @@ router.get('/materials',           authenticate, isAdmin, materials.getMaterials
 router.post('/materials',          authenticate, isAdmin, materials.createMaterial);
 router.patch('/materials/:id/stock', authenticate, isAdmin, materials.addStock);
 
+// ─────────────────────────────────────
+// Production section's own BOM list (production_bom/production_bom_items
+// — see sql/phase13_production_bom.sql). Deliberately separate from
+// /api/v1/recipes (production_recipes/recipe_ingredients, used by the
+// top-level Recipes page) — this one is keyed by a free-text product
+// name instead of a real products.id, and is a reference BOM only, not
+// wired into /production/produce's stock-deduction flow.
+// ─────────────────────────────────────
+
+// GET /api/v1/production/recipes
+router.get('/recipes', authenticate, isAdmin, async (req, res) => {
+  try {
+    const data = await retryIfEmpty(async () => {
+      const { data, error: dbErr } = await supabaseAdmin
+        .from('production_bom')
+        .select(`
+          *,
+          recipe_ingredients:production_bom_items(
+            id, qty_required, unit,
+            raw_materials(id, name, unit)
+          )
+        `)
+        .eq('company_id', req.user.company_id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+      if (dbErr) throw new Error(dbErr.message);
+      return data;
+    }, 4, 350);
+
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
+});
+
+// POST /api/v1/production/recipes
+router.post('/recipes', authenticate, isAdmin, async (req, res) => {
+  try {
+    const { recipe_name, product_name, batch_size, batch_unit, ingredients } = req.body;
+    const name = (product_name || recipe_name || '').trim();
+
+    if (!name || !ingredients?.length)
+      return error(res, 'product_name and ingredients are required', 400);
+    if (ingredients.some(i => !i.raw_material_id || !i.qty_required))
+      return error(res, 'Every ingredient needs a raw material and quantity', 400);
+
+    const { data: bom, error: bErr } = await supabaseAdmin
+      .from('production_bom')
+      .insert({
+        company_id:   req.user.company_id,
+        product_name: name,
+        batch_size:   batch_size || 1,
+        batch_unit:   batch_unit || 'bag',
+      })
+      .select()
+      .single();
+
+    if (bErr) throw new Error(bErr.message);
+
+    const rows = ingredients.map(i => ({
+      bom_id:           bom.id,
+      raw_material_id:  i.raw_material_id,
+      qty_required:     Number(i.qty_required),
+      unit:             i.unit,
+    }));
+
+    const { error: iErr } = await supabaseAdmin.from('production_bom_items').insert(rows);
+    if (iErr) throw new Error(iErr.message);
+
+    return success(res, bom, 'Recipe saved', 201);
+  } catch (err) { return error(res, err.message); }
+});
+
+// DELETE /api/v1/production/recipes/:id
+router.delete('/recipes/:id', authenticate, isAdmin, async (req, res) => {
+  try {
+    const { error: dbErr } = await supabaseAdmin
+      .from('production_bom')
+      .update({ is_active: false })
+      .eq('id', req.params.id)
+      .eq('company_id', req.user.company_id);
+
+    if (dbErr) throw new Error(dbErr.message);
+    return success(res, { deleted: true }, 'Recipe deleted');
+  } catch (err) { return error(res, err.message); }
+});
+
 router.get('/dispatch',            authenticate, isAdmin, dispatch.getDispatches);
 router.post('/dispatch',           authenticate, isAdmin, dispatch.createDispatch);
 router.patch('/dispatch/:id/deliver', authenticate, isAdmin, dispatch.markDelivered);
