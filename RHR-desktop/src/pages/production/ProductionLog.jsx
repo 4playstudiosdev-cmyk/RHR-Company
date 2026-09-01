@@ -56,20 +56,32 @@ export default function ProductionLog() {
       return;
     }
     const qty = Number(qtyProduced);
-    const items = (selectedRecipe.recipe_ingredients || []).map((ing) => {
-      const needed = Number(ing.quantity) * qty;
-      const available = Number(ing.raw_materials?.stock || 0);
-      return {
-        name: ing.raw_materials?.name,
-        unit: ing.unit,
-        needed,
-        available,
-        canProduce: available >= needed,
-        shortage: Math.max(0, needed - available),
-      };
-    });
+    // Cost-only lines (Labor, FBR Tax, Wastage, ...) never touch stock —
+    // only material lines (a real raw_material_id) belong in this
+    // availability preview.
+    const items = (selectedRecipe.recipe_ingredients || [])
+      .filter((ing) => ing.raw_material_id)
+      .map((ing) => {
+        const needed = Number(ing.quantity) * qty;
+        const available = Number(ing.raw_materials?.stock || 0);
+        return {
+          name: ing.raw_materials?.name,
+          unit: ing.unit,
+          needed,
+          available,
+          canProduce: available >= needed,
+          shortage: Math.max(0, needed - available),
+        };
+      });
     setPreview(items);
   }, [selectedRecipe, qtyProduced]);
+
+  const estimatedCost = selectedRecipe && qtyProduced
+    ? (selectedRecipe.recipe_ingredients || []).reduce(
+        (sum, ing) => sum + Number(ing.rate_per_unit || 0) * Number(ing.quantity) * Number(qtyProduced),
+        0
+      )
+    : 0;
 
   const handleRecipeChange = (e) => {
     const id = e.target.value;
@@ -239,6 +251,13 @@ export default function ProductionLog() {
                     Insufficient raw materials — cannot produce
                   </div>
                 )}
+
+                <div className="mt-2 bg-navy-chip/40 border border-navy-chip rounded-lg px-3.5 py-2.5 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-navy">Estimated Cost (incl. labor/other)</span>
+                  <span className="text-base font-bold text-navy">
+                    PKR {estimatedCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </span>
+                </div>
               </div>
             )}
 
@@ -271,7 +290,7 @@ export default function ProductionLog() {
 
           <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
             {loadingHistory ? (
-              <SkeletonTable rows={6} cols={6} />
+              <SkeletonTable rows={6} cols={7} />
             ) : history.length === 0 ? (
               <EmptyState icon={Factory} title="No production records found" subtitle="Logged batches will show up here" />
             ) : (
@@ -283,6 +302,7 @@ export default function ProductionLog() {
                       <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wide">Recipe</th>
                       <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wide">Finished Product</th>
                       <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wide">Qty Produced</th>
+                      <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wide text-right">Total Cost</th>
                       <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wide">Remarks</th>
                       <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wide">Action</th>
                     </tr>
@@ -294,6 +314,9 @@ export default function ProductionLog() {
                         <td className="px-4 py-3 text-gray-600">{h.production_recipes?.recipe_name || '—'}</td>
                         <td className="px-4 py-3 font-medium text-navy">{h.products?.name || '—'}</td>
                         <td className="px-4 py-3 text-gray-600">{h.qty_produced} {h.products?.unit}</td>
+                        <td className="px-4 py-3 text-gray-700 font-medium text-right">
+                          PKR {Number(h.total_cost || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </td>
                         <td className="px-4 py-3 text-gray-500">{h.remarks || '—'}</td>
                         <td className="px-4 py-3">
                           <button

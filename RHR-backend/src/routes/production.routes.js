@@ -69,14 +69,16 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
     if (!recipe_id || !qty_produced)
       return error(res, 'recipe_id and qty_produced are required', 400);
 
-    // Step 1 — Get recipe with ingredients (raw_material_id links each
-    // ingredient to a real raw_materials row — see phase12 migration).
+    // Step 1 — Get recipe with ingredients (raw_material_id links a
+    // material line to a real raw_materials row — see phase12 migration.
+    // A NULL raw_material_id is a cost-only line — Labor, FBR Tax,
+    // Wastage, etc. — it contributes to cost but never touches stock).
     const { data: recipe, error: rErr } = await supabaseAdmin
       .from('production_recipes')
       .select(`
         *,
         recipe_ingredients(
-          id, quantity, unit, raw_material_id,
+          id, quantity, unit, raw_material_id, ingredient_name, rate_per_unit,
           raw_materials(id, name, stock, unit)
         )
       `)
@@ -86,14 +88,13 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
 
     if (rErr || !recipe) return error(res, 'Recipe not found', 404);
 
-    const ingredients = recipe.recipe_ingredients || [];
-    if (ingredients.some(ing => !ing.raw_material_id)) {
-      return error(res, 'This recipe has ingredients not linked to a raw material — re-save it from the Recipes page.', 400);
-    }
+    const allIngredients = recipe.recipe_ingredients || [];
+    const materialIngredients = allIngredients.filter(ing => ing.raw_material_id);
+    const costOnlyIngredients = allIngredients.filter(ing => !ing.raw_material_id);
 
-    // Step 2 — Calculate qty needed per ingredient
+    // Step 2 — Calculate qty needed per material ingredient
     // Formula: qty_needed = quantity (per 1 unit of recipe) * qty_produced
-    const materialNeeds = ingredients.map(ing => {
+    const materialNeeds = materialIngredients.map(ing => {
       const needed = Number(ing.quantity) * Number(qty_produced);
       const available = Number(ing.raw_materials?.stock || 0);
       return {
@@ -116,7 +117,14 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
       );
     }
 
-    // Step 4 — Create production record
+    // Step 4 — Create production record. total_cost scales every line
+    // (materials and cost-only alike) by qty_produced, same as the
+    // material-needed calculation above.
+    const totalCost = allIngredients.reduce(
+      (sum, ing) => sum + Number(ing.rate_per_unit || 0) * Number(ing.quantity) * Number(qty_produced),
+      0
+    );
+
     const { data: newProduction, error: pErr } = await supabaseAdmin
       .from('productions')
       .insert({
@@ -127,6 +135,7 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
         qty_produced:     Number(qty_produced),
         remarks:          remarks || null,
         created_by:       req.user.id,
+        total_cost:       Number(totalCost.toFixed(2)),
       })
       .select()
       .single();
@@ -191,10 +200,15 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
       production_id:  newProduction.id,
       recipe_name:    recipe.recipe_name,
       qty_produced:   Number(qty_produced),
+      total_cost:     Number(totalCost.toFixed(2)),
       materials_used: materialNeeds.map(m => ({
         name:     m.name,
         qty_used: m.needed,
         unit:     m.unit
+      })),
+      other_costs: costOnlyIngredients.map(c => ({
+        name: c.ingredient_name,
+        amount: Number((Number(c.rate_per_unit || 0) * Number(c.quantity) * Number(qty_produced)).toFixed(2))
       }))
     }, `Production logged — ${qty_produced} ${recipe.batch_unit} produced, raw materials deducted`, 201);
 

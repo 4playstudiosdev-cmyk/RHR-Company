@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, X, Save, Trash2, ClipboardList, FlaskConical } from 'lucide-react';
+import { Plus, X, Save, Trash2, ClipboardList, FlaskConical, Package, Receipt } from 'lucide-react';
 import {
   getRecipes, createRecipe, deleteRecipe, getFinishedProducts, getRecipeRawMaterials
 } from '../services/api';
@@ -9,7 +9,16 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonCards } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 
-const EMPTY_INGREDIENT = { raw_material_id: '', qty_required: '', unit: '' };
+// Two kinds of ingredient row:
+//  - 'material': a real raw_materials row — deducts stock when produced
+//  - 'cost': a free-text cost line (Labor, FBR Tax, Wastage, ...) — only
+//    contributes to the recipe's total cost, never touches stock
+const EMPTY_INGREDIENT = {
+  type: 'material', raw_material_id: '', ingredient_name: '',
+  qty_required: '', unit: '', rate_per_unit: ''
+};
+
+const money = (n) => `PKR ${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
 export default function Recipes() {
   const toast = useToast();
@@ -75,8 +84,18 @@ export default function Recipes() {
       const mat = rawMaterials.find((m) => m.id === value);
       if (mat) updated[index].unit = mat.unit;
     }
+    if (field === 'type') {
+      // Switching type clears the fields specific to the other type, so a
+      // half-filled material row can't get submitted as a cost row or vice versa.
+      updated[index].raw_material_id = '';
+      updated[index].ingredient_name = '';
+      updated[index].unit = '';
+    }
     setIngredients(updated);
   };
+
+  const rowTotal = (ing) => (Number(ing.qty_required) || 0) * (Number(ing.rate_per_unit) || 0);
+  const formTotalCost = ingredients.reduce((sum, ing) => sum + rowTotal(ing), 0);
 
   const handleClear = () => {
     setRecipeName('');
@@ -90,8 +109,12 @@ export default function Recipes() {
   const handleSave = async () => {
     if (!recipeName) { toast.error('Recipe name is required.'); return; }
     if (!finishedItemId) { toast.error('Select a finished product.'); return; }
-    if (ingredients.some((i) => !i.raw_material_id || !i.qty_required)) {
-      toast.error('All ingredient rows must be complete.');
+    if (ingredients.some((i) => i.type === 'material' && (!i.raw_material_id || !i.qty_required))) {
+      toast.error('Every material row needs a material and quantity.');
+      return;
+    }
+    if (ingredients.some((i) => i.type === 'cost' && (!i.ingredient_name || !i.qty_required))) {
+      toast.error('Every cost row needs a label and quantity.');
       return;
     }
 
@@ -104,9 +127,11 @@ export default function Recipes() {
         batch_unit: batchUnit,
         notes,
         ingredients: ingredients.map((i) => ({
-          raw_material_id: i.raw_material_id,
+          raw_material_id: i.type === 'material' ? i.raw_material_id : null,
+          ingredient_name: i.type === 'cost' ? i.ingredient_name : undefined,
           qty_required: Number(i.qty_required),
-          unit: i.unit
+          unit: i.unit || 'pcs',
+          rate_per_unit: Number(i.rate_per_unit) || 0
         }))
       });
       toast.success('Recipe saved successfully.');
@@ -134,7 +159,7 @@ export default function Recipes() {
     <div className="p-6">
       <PageHeader
         title="Recipes"
-        subtitle="Define the raw-material bill of materials (BOM) behind each finished product"
+        subtitle="Define the raw materials and other costs (labor, tax, wastage...) behind each finished product"
       />
 
       <div className="flex flex-col lg:flex-row gap-6 items-start">
@@ -206,46 +231,96 @@ export default function Recipes() {
             </div>
 
             <div className="pt-2 border-t border-gray-100">
-              <h3 className="text-sm font-bold text-navy mt-4 mb-3">Raw Materials / Ingredients</h3>
+              <h3 className="text-sm font-bold text-navy mt-4 mb-3">Ingredients &amp; Costs</h3>
 
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 {ingredients.map((ing, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <select
-                      value={ing.raw_material_id}
-                      onChange={(e) => updateIngredient(index, 'raw_material_id', e.target.value)}
-                      className="flex-[2] min-w-0 border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow bg-white"
-                    >
-                      <option value="">— Material —</option>
-                      {rawMaterials.map((m) => (
-                        <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>
-                      ))}
-                    </select>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={ing.qty_required}
-                      onChange={(e) => updateIngredient(index, 'qty_required', e.target.value)}
-                      placeholder="Qty"
-                      className="flex-1 min-w-0 border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-                    />
-                    <input
-                      type="text"
-                      value={ing.unit}
-                      onChange={(e) => updateIngredient(index, 'unit', e.target.value)}
-                      placeholder="Unit"
-                      className="flex-1 min-w-0 border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeIngredientRow(index)}
-                      disabled={ingredients.length === 1}
-                      className="p-2 rounded-lg text-red-600 hover:bg-red-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
-                      title="Remove"
-                    >
-                      <X size={16} />
-                    </button>
+                  <div key={index} className="border border-gray-200 rounded-lg p-2.5 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex rounded-md overflow-hidden border border-gray-300 text-xs font-medium">
+                        <button
+                          type="button"
+                          onClick={() => updateIngredient(index, 'type', 'material')}
+                          className={`px-2.5 py-1 flex items-center gap-1 transition-colors ${
+                            ing.type === 'material' ? 'bg-navy text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+                          }`}
+                        >
+                          <Package size={12} /> Material
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateIngredient(index, 'type', 'cost')}
+                          className={`px-2.5 py-1 flex items-center gap-1 transition-colors border-l border-gray-300 ${
+                            ing.type === 'cost' ? 'bg-orange text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+                          }`}
+                        >
+                          <Receipt size={12} /> Other Cost
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeIngredientRow(index)}
+                        disabled={ingredients.length === 1}
+                        className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
+                        title="Remove"
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+
+                    {ing.type === 'material' ? (
+                      <select
+                        value={ing.raw_material_id}
+                        onChange={(e) => updateIngredient(index, 'raw_material_id', e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow bg-white"
+                      >
+                        <option value="">— Select material —</option>
+                        {rawMaterials.map((m) => (
+                          <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={ing.ingredient_name}
+                        onChange={(e) => updateIngredient(index, 'ingredient_name', e.target.value)}
+                        placeholder="e.g. Labor, FBR Tax, Wastage, Conveyance"
+                        className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange focus:border-orange transition-shadow"
+                      />
+                    )}
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={ing.qty_required}
+                        onChange={(e) => updateIngredient(index, 'qty_required', e.target.value)}
+                        placeholder="Qty"
+                        className="min-w-0 border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                      />
+                      <input
+                        type="text"
+                        value={ing.unit}
+                        onChange={(e) => updateIngredient(index, 'unit', e.target.value)}
+                        placeholder={ing.type === 'material' ? 'Unit' : 'pcs'}
+                        className="min-w-0 border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={ing.rate_per_unit}
+                        onChange={(e) => updateIngredient(index, 'rate_per_unit', e.target.value)}
+                        placeholder="Rate"
+                        className="min-w-0 border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                      />
+                    </div>
+                    {(ing.qty_required || ing.rate_per_unit) && (
+                      <p className="text-right text-xs font-semibold text-gray-500">
+                        Row total: {money(rowTotal(ing))}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -255,8 +330,13 @@ export default function Recipes() {
                 onClick={addIngredientRow}
                 className="mt-3 flex items-center gap-1.5 text-sm font-medium text-orange hover:underline"
               >
-                <Plus size={15} /> Add Material
+                <Plus size={15} /> Add Row
               </button>
+
+              <div className="mt-3 bg-navy-chip/40 border border-navy-chip rounded-lg px-3.5 py-2.5 flex items-center justify-between">
+                <span className="text-sm font-semibold text-navy">Total Recipe Cost</span>
+                <span className="text-base font-bold text-navy">{money(formTotalCost)}</span>
+              </div>
             </div>
 
             <div className="flex gap-3 pt-2">
@@ -298,12 +378,16 @@ export default function Recipes() {
                         Batch Size: {recipe.batch_size} {recipe.batch_unit}
                       </p>
                     </div>
-                    <button
-                      onClick={() => handleDelete(recipe)}
-                      className="flex items-center gap-1.5 text-xs font-semibold text-red-200 hover:text-white hover:bg-red-500/30 px-2.5 py-1.5 rounded-lg transition-colors flex-shrink-0"
-                    >
-                      <Trash2 size={13} /> Delete
-                    </button>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-[10px] uppercase tracking-wide text-blue-200/70 font-semibold">Total Cost</p>
+                      <p className="text-lg font-bold text-white">{money(recipe.recipe_total_cost)}</p>
+                      <button
+                        onClick={() => handleDelete(recipe)}
+                        className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-red-200 hover:text-white hover:bg-red-500/30 px-2.5 py-1.5 rounded-lg transition-colors ml-auto"
+                      >
+                        <Trash2 size={13} /> Delete
+                      </button>
+                    </div>
                   </div>
 
                   <div className="overflow-x-auto">
@@ -311,9 +395,11 @@ export default function Recipes() {
                       <thead>
                         <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
                           <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide w-12">S.No</th>
-                          <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Raw Material</th>
-                          <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Qty Required</th>
+                          <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Item</th>
+                          <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Qty</th>
                           <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Unit</th>
+                          <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide text-right">Rate</th>
+                          <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide text-right">Total</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -323,9 +409,18 @@ export default function Recipes() {
                             className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'}`}
                           >
                             <td className="px-4 py-2.5 text-gray-500">{i + 1}</td>
-                            <td className="px-4 py-2.5 font-medium text-navy">{ing.raw_materials?.name || '—'}</td>
-                            <td className="px-4 py-2.5 text-gray-600">{ing.qty_required}</td>
+                            <td className="px-4 py-2.5 font-medium text-navy">
+                              <span className="flex items-center gap-1.5">
+                                {ing.raw_material_id
+                                  ? <Package size={12} className="text-gray-400 flex-shrink-0" />
+                                  : <Receipt size={12} className="text-gray-400 flex-shrink-0" />}
+                                {ing.raw_materials?.name || ing.ingredient_name || '—'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-gray-600">{ing.quantity}</td>
                             <td className="px-4 py-2.5 text-gray-600">{ing.unit}</td>
+                            <td className="px-4 py-2.5 text-gray-600 text-right">{money(ing.rate_per_unit)}</td>
+                            <td className="px-4 py-2.5 text-gray-700 font-medium text-right">{money(ing.total_cost)}</td>
                           </tr>
                         ))}
                       </tbody>

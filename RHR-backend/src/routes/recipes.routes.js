@@ -21,7 +21,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         .select(`
           *,
           recipe_ingredients(
-            id, quantity, unit, raw_material_id,
+            id, quantity, unit, raw_material_id, ingredient_name, rate_per_unit, total_cost,
             raw_materials(id, name, unit, stock)
           ),
           products!product_id(id, name, unit, stock_quantity)
@@ -33,7 +33,15 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       return data;
     }, 4, 350);
 
-    return success(res, data);
+    // total_cost per recipe isn't stored (it'd need to stay in sync with
+    // every ingredient edit) — just sum the line items on the way out.
+    const withTotals = (data || []).map(r => ({
+      ...r,
+      recipe_total_cost: (r.recipe_ingredients || [])
+        .reduce((sum, i) => sum + Number(i.total_cost || 0), 0)
+    }));
+
+    return success(res, withTotals);
   } catch (err) { return error(res, err.message); }
 });
 
@@ -47,11 +55,22 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
       batch_size,
       batch_unit,
       notes,
-      ingredients // array: [{ raw_material_id, qty_required, unit }]
+      // array of two kinds of line, told apart by whether raw_material_id
+      // is set:
+      //   material line: { raw_material_id, qty_required, unit, rate_per_unit? }
+      //     — deducts raw_materials stock when produced
+      //   cost-only line: { raw_material_id: null, ingredient_name, qty_required, unit, rate_per_unit }
+      //     — e.g. Labor, FBR Tax, Wastage — contributes to recipe cost
+      //     only, never touches stock
+      ingredients
     } = req.body;
 
     if (!recipe_name || !finished_item_id || !ingredients?.length)
       return error(res, 'recipe_name, finished_item_id, ingredients are required', 400);
+
+    if (ingredients.some(i => !i.raw_material_id && !i.ingredient_name)) {
+      return error(res, 'Every ingredient needs either a raw material or a cost label', 400);
+    }
 
     // Create recipe
     const { data: recipe, error: rErr } = await supabaseAdmin
@@ -69,24 +88,31 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
 
     if (rErr) throw new Error(rErr.message);
 
-    // Look up names for the denormalized ingredient_name column (kept
-    // alongside raw_material_id — some older reporting queries may still
-    // read it, and it's a harmless free display copy).
+    // Look up names for the denormalized ingredient_name column on
+    // material lines (kept alongside raw_material_id — some older
+    // reporting queries may still read it, and it's a harmless free
+    // display copy). Cost-only lines already carry their own label.
     const materialIds = ingredients.map(i => i.raw_material_id).filter(Boolean);
     const { data: materials } = await supabaseAdmin
       .from('raw_materials')
       .select('id, name')
-      .in('id', materialIds);
+      .in('id', materialIds.length ? materialIds : ['00000000-0000-0000-0000-000000000000']);
     const nameById = Object.fromEntries((materials || []).map(m => [m.id, m.name]));
 
     // Insert ingredients
-    const rows = ingredients.map(i => ({
-      recipe_id:       recipe.id,
-      raw_material_id: i.raw_material_id,
-      ingredient_name: nameById[i.raw_material_id] || null,
-      quantity:        Number(i.qty_required),
-      unit:            i.unit,
-    }));
+    const rows = ingredients.map(i => {
+      const qty  = Number(i.qty_required) || 0;
+      const rate = Number(i.rate_per_unit) || 0;
+      return {
+        recipe_id:       recipe.id,
+        raw_material_id: i.raw_material_id || null,
+        ingredient_name: i.raw_material_id ? (nameById[i.raw_material_id] || null) : i.ingredient_name,
+        quantity:        qty,
+        unit:            i.unit,
+        rate_per_unit:   rate,
+        total_cost:      Number((qty * rate).toFixed(2)),
+      };
+    });
 
     const { error: iErr } = await supabaseAdmin
       .from('recipe_ingredients')
