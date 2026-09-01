@@ -99,20 +99,18 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
       .in('id', materialIds.length ? materialIds : ['00000000-0000-0000-0000-000000000000']);
     const nameById = Object.fromEntries((materials || []).map(m => [m.id, m.name]));
 
-    // Insert ingredients
-    const rows = ingredients.map(i => {
-      const qty  = Number(i.qty_required) || 0;
-      const rate = Number(i.rate_per_unit) || 0;
-      return {
-        recipe_id:       recipe.id,
-        raw_material_id: i.raw_material_id || null,
-        ingredient_name: i.raw_material_id ? (nameById[i.raw_material_id] || null) : i.ingredient_name,
-        quantity:        qty,
-        unit:            i.unit,
-        rate_per_unit:   rate,
-        total_cost:      Number((qty * rate).toFixed(2)),
-      };
-    });
+    // Insert ingredients. total_cost is a generated column (quantity *
+    // rate_per_unit, computed by Postgres) — inserting a value for it
+    // directly is rejected ("cannot insert a non-DEFAULT value"), so it's
+    // deliberately left out here.
+    const rows = ingredients.map(i => ({
+      recipe_id:       recipe.id,
+      raw_material_id: i.raw_material_id || null,
+      ingredient_name: i.raw_material_id ? (nameById[i.raw_material_id] || null) : i.ingredient_name,
+      quantity:        Number(i.qty_required) || 0,
+      unit:            i.unit,
+      rate_per_unit:   Number(i.rate_per_unit) || 0,
+    }));
 
     const { error: iErr } = await supabaseAdmin
       .from('recipe_ingredients')
