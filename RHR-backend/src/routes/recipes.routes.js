@@ -31,7 +31,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         .order('created_at', { ascending: false });
       if (dbErr) throw new Error(dbErr.message);
       return data;
-    }, 4, 350);
+    }, 6, 600);
 
     // total_cost per recipe isn't stored (it'd need to stay in sync with
     // every ingredient edit) — just sum the line items on the way out.
@@ -157,13 +157,16 @@ router.get('/finished-products', authenticate, isAdmin, async (req, res) => {
 // Get all raw materials for ingredient dropdown
 router.get('/raw-materials', authenticate, isAdmin, async (req, res) => {
   try {
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('raw_materials')
-      .select('id, name, unit, stock')
-      .eq('company_id', req.user.company_id)
-      .order('name');
+    const data = await retryIfEmpty(async () => {
+      const { data, error: dbErr } = await supabaseAdmin
+        .from('raw_materials')
+        .select('id, name, unit, stock')
+        .eq('company_id', req.user.company_id)
+        .order('name');
+      if (dbErr) throw new Error(dbErr.message);
+      return data;
+    }, 6, 600);
 
-    if (dbErr) throw new Error(dbErr.message);
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 });

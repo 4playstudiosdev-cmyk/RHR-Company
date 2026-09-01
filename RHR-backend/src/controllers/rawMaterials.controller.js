@@ -7,7 +7,12 @@ const getMaterials = async (req, res) => {
   try {
     // raw_materials is the table most exposed to the Railway<->Supabase
     // blip this project keeps hitting — a successful-but-wrongly-empty
-    // read. See src/utils/withRetry.js.
+    // read. See src/utils/withRetry.js. Bumped past the default budget
+    // (was 4x350ms=1.4s) — live testing showed this table's bad windows
+    // can run 1-2 minutes, well past what a couple of quick retries can
+    // paper over; 6x600ms buys more coverage without stalling the page
+    // load into feeling broken. Still not a full guarantee against a
+    // very long window — see the withRetry.js header comment.
     const data = await retryIfEmpty(async () => {
       const { data, error: dbErr } = await supabaseAdmin
         .from('raw_materials')
@@ -16,7 +21,7 @@ const getMaterials = async (req, res) => {
         .order('name');
       if (dbErr) throw new Error(dbErr.message);
       return data;
-    }, 4, 350);
+    }, 6, 600);
 
     return success(res, data);
   } catch (err) { return error(res, err.message); }

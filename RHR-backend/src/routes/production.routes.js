@@ -47,7 +47,7 @@ router.get('/recipes', authenticate, isAdmin, async (req, res) => {
         .order('created_at', { ascending: false });
       if (dbErr) throw new Error(dbErr.message);
       return data;
-    }, 4, 350);
+    }, 6, 600);
 
     return success(res, data);
   } catch (err) { return error(res, err.message); }
@@ -137,7 +137,7 @@ router.get('/history', authenticate, isAdmin, async (req, res) => {
         .order('created_at', { ascending: false });
       if (dbErr) throw new Error(dbErr.message);
       return data;
-    }, 4, 350);
+    }, 6, 600);
 
     return success(res, data);
   } catch (err) { return error(res, err.message); }
