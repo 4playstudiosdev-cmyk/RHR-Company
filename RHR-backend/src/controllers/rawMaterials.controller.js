@@ -1,15 +1,23 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { retryIfEmpty } = require('../utils/withRetry');
 
 // GET /api/v1/production/materials
 const getMaterials = async (req, res) => {
   try {
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('raw_materials')
-      .select('*')
-      .eq('company_id', req.user.company_id)
-      .order('name');
-    if (dbErr) throw new Error(dbErr.message);
+    // raw_materials is the table most exposed to the Railway<->Supabase
+    // blip this project keeps hitting — a successful-but-wrongly-empty
+    // read. See src/utils/withRetry.js.
+    const data = await retryIfEmpty(async () => {
+      const { data, error: dbErr } = await supabaseAdmin
+        .from('raw_materials')
+        .select('*')
+        .eq('company_id', req.user.company_id)
+        .order('name');
+      if (dbErr) throw new Error(dbErr.message);
+      return data;
+    }, 4, 350);
+
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 };
