@@ -175,187 +175,20 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
     if (!recipe_id || !qty_produced)
       return error(res, 'recipe_id and qty_produced are required', 400);
 
-    // Step 1 — Get the recipe with ingredients. production_bom is the
-    // one and only recipe source now (the top-level "Recipes" page /
-    // production_recipes was retired — see git history). Every line
-    // always has a raw_material_id (no cost-only concept here), and
-    // there's no product FK — just a free-text product_name — so the
-    // finished product to credit is resolved by matching that name
-    // against the real products catalog.
-    const { data: bomRecipe } = await supabaseAdmin
-      .from('production_bom')
-      .select(`
-        *,
-        production_bom_items(
-          id, qty_required, unit, raw_material_id,
-          raw_materials(id, name, stock, unit)
-        )
-      `)
-      .eq('id', recipe_id)
-      .eq('company_id', req.user.company_id)
-      .maybeSingle();
-
-    if (!bomRecipe) {
-      return error(res,
-        'No recipe configured for this product. Create a recipe first under Production → Recipes before logging production.',
-        404
-      );
-    }
-
-    const { data: matchedProduct } = await supabaseAdmin
-      .from('products')
-      .select('id')
-      .eq('company_id', req.user.company_id)
-      .ilike('name', bomRecipe.product_name)
-      .maybeSingle();
-
-    if (!matchedProduct) {
-      return error(res,
-        `No product named "${bomRecipe.product_name}" found in the catalog — add it under Products first (name must match exactly) so production can credit its stock.`,
-        400
-      );
-    }
-
-    // Normalized to a flat shape (quantity, not qty_required) so the rest
-    // of this handler doesn't need to know the source table's column names.
-    const allIngredients = (bomRecipe.production_bom_items || []).map(i => ({
-      quantity: i.qty_required,
-      unit: i.unit,
-      raw_material_id: i.raw_material_id,
-      rate_per_unit: 0,
-      raw_materials: i.raw_materials,
-    }));
-    const finishedProductId = matchedProduct.id;
-    const recipeLabel = bomRecipe.product_name;
-    const batchUnit = bomRecipe.batch_unit;
-
-    // Every production_bom_items row always has a raw_material_id, so
-    // this is really just `allIngredients`, but kept named/filtered the
-    // same way in case that ever changes.
-    const materialIngredients = allIngredients.filter(ing => ing.raw_material_id);
-    const costOnlyIngredients = [];
-
-    // Step 2 — Calculate qty needed per material ingredient
-    // Formula: qty_needed = quantity (per 1 unit of recipe) * qty_produced
-    const materialNeeds = materialIngredients.map(ing => {
-      const needed = Number(ing.quantity) * Number(qty_produced);
-      const available = Number(ing.raw_materials?.stock || 0);
-      return {
-        raw_material_id: ing.raw_material_id,
-        name:            ing.raw_materials?.name,
-        unit:            ing.unit,
-        needed,
-        available,
-        shortage:        Math.max(0, needed - available),
-        canProduce:      available >= needed,
-      };
+    // Shared with the production-order "Start Production" step — see
+    // production.controller.js#runProduction.
+    const result = await production.runProduction({
+      companyId:   req.user.company_id,
+      userId:      req.user.id,
+      recipeId:    recipe_id,
+      qtyProduced: qty_produced,
+      date,
+      remarks,
     });
 
-    // Step 3 — Check if all materials available
-    const insufficient = materialNeeds.filter(m => !m.canProduce);
-    if (insufficient.length > 0) {
-      return error(res, 'Insufficient raw materials: ' +
-        insufficient.map(m => `${m.name} (need ${m.needed} ${m.unit}, have ${m.available})`).join(', '),
-        400
-      );
-    }
-
-    // Step 4 — Create production record. total_cost scales every line
-    // (materials and cost-only alike) by qty_produced, same as the
-    // material-needed calculation above.
-    const totalCost = allIngredients.reduce(
-      (sum, ing) => sum + Number(ing.rate_per_unit || 0) * Number(ing.quantity) * Number(qty_produced),
-      0
-    );
-
-    const { data: newProduction, error: pErr } = await supabaseAdmin
-      .from('productions')
-      .insert({
-        company_id:       req.user.company_id,
-        recipe_id,
-        finished_item_id: finishedProductId,
-        date:             date || new Date().toISOString().split('T')[0],
-        qty_produced:     Number(qty_produced),
-        remarks:          remarks || null,
-        created_by:       req.user.id,
-        total_cost:       Number(totalCost.toFixed(2)),
-      })
-      .select()
-      .single();
-
-    if (pErr) throw new Error(pErr.message);
-
-    // Step 5 — Insert production lines + deduct raw material stock
-    for (const mat of materialNeeds) {
-      // Insert production line (log what was used)
-      await supabaseAdmin
-        .from('production_lines')
-        .insert({
-          production_id:   newProduction.id,
-          raw_material_id: mat.raw_material_id,
-          qty_used:        mat.needed,
-          unit:            mat.unit,
-        });
-
-      // Deduct from raw_materials stock
-      const { data: current } = await supabaseAdmin
-        .from('raw_materials')
-        .select('stock')
-        .eq('id', mat.raw_material_id)
-        .single();
-
-      await supabaseAdmin
-        .from('raw_materials')
-        .update({
-          stock: Number(current.stock) - mat.needed
-        })
-        .eq('id', mat.raw_material_id);
-
-      // Log stock movement (no dedicated movement_type/reference columns
-      // on this table — folded into the note text instead)
-      await supabaseAdmin
-        .from('raw_material_stock_logs')
-        .insert({
-          material_id: mat.raw_material_id,
-          company_id:  req.user.company_id,
-          quantity:    -mat.needed,
-          logged_date: date || new Date().toISOString().split('T')[0],
-          created_by:  req.user.id,
-          note: `Used in production: ${recipeLabel} — ${qty_produced} ${batchUnit} (production ${newProduction.id})`,
-        });
-    }
-
-    // Step 6 — Add finished product to products stock
-    const { data: finishedProduct } = await supabaseAdmin
-      .from('products')
-      .select('stock_quantity')
-      .eq('id', finishedProductId)
-      .single();
-
-    await supabaseAdmin
-      .from('products')
-      .update({
-        stock_quantity: Number(finishedProduct.stock_quantity) + Number(qty_produced)
-      })
-      .eq('id', finishedProductId);
-
-    return success(res, {
-      production_id:  newProduction.id,
-      recipe_name:    recipeLabel,
-      qty_produced:   Number(qty_produced),
-      total_cost:     Number(totalCost.toFixed(2)),
-      materials_used: materialNeeds.map(m => ({
-        name:     m.name,
-        qty_used: m.needed,
-        unit:     m.unit
-      })),
-      other_costs: costOnlyIngredients.map(c => ({
-        name: c.ingredient_name,
-        amount: Number((Number(c.rate_per_unit || 0) * Number(c.quantity) * Number(qty_produced)).toFixed(2))
-      }))
-    }, `Production logged — ${qty_produced} ${batchUnit} produced, raw materials deducted`, 201);
-
-  } catch (err) { return error(res, err.message); }
+    return success(res, result,
+      `Production logged — ${qty_produced} ${result.batch_unit} produced, raw materials deducted`, 201);
+  } catch (err) { return error(res, err.message, err.statusCode || 500); }
 });
 
 // ─────────────────────────────────────

@@ -105,6 +105,152 @@ const createProductionOrder = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+// Shared by POST /produce and the production-order "Start Production" step
+// below — logs one production run: deducts raw materials per the matched
+// recipe (production_bom), credits the finished product, records the run.
+// Throws Error with .statusCode set for expected failures (no recipe,
+// insufficient stock) so callers can map them to the right HTTP status.
+const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, remarks }) => {
+  const { data: bomRecipe } = await supabaseAdmin
+    .from('production_bom')
+    .select(`
+      *,
+      production_bom_items(
+        id, qty_required, unit, raw_material_id,
+        raw_materials(id, name, stock, unit)
+      )
+    `)
+    .eq('id', recipeId)
+    .eq('company_id', companyId)
+    .maybeSingle();
+
+  if (!bomRecipe) {
+    throw Object.assign(new Error(
+      'No recipe configured for this product. Create a recipe first under Production → Recipes before logging production.'
+    ), { statusCode: 404 });
+  }
+
+  const { data: matchedProduct } = await supabaseAdmin
+    .from('products')
+    .select('id')
+    .eq('company_id', companyId)
+    .ilike('name', bomRecipe.product_name)
+    .maybeSingle();
+
+  if (!matchedProduct) {
+    throw Object.assign(new Error(
+      `No product named "${bomRecipe.product_name}" found in the catalog — add it under Products first (name must match exactly) so production can credit its stock.`
+    ), { statusCode: 400 });
+  }
+
+  const allIngredients = (bomRecipe.production_bom_items || []).map(i => ({
+    quantity: i.qty_required,
+    unit: i.unit,
+    raw_material_id: i.raw_material_id,
+    rate_per_unit: 0,
+    raw_materials: i.raw_materials,
+  }));
+  const finishedProductId = matchedProduct.id;
+  const recipeLabel = bomRecipe.product_name;
+  const batchUnit = bomRecipe.batch_unit;
+
+  const materialNeeds = allIngredients.map(ing => {
+    const needed = Number(ing.quantity) * Number(qtyProduced);
+    const available = Number(ing.raw_materials?.stock || 0);
+    return {
+      raw_material_id: ing.raw_material_id,
+      name:            ing.raw_materials?.name,
+      unit:            ing.unit,
+      needed,
+      available,
+      shortage:        Math.max(0, needed - available),
+      canProduce:      available >= needed,
+    };
+  });
+
+  const insufficient = materialNeeds.filter(m => !m.canProduce);
+  if (insufficient.length > 0) {
+    throw Object.assign(new Error('Insufficient raw materials: ' +
+      insufficient.map(m => `${m.name} (need ${m.needed} ${m.unit}, have ${m.available})`).join(', ')
+    ), { statusCode: 400 });
+  }
+
+  const totalCost = allIngredients.reduce(
+    (sum, ing) => sum + Number(ing.rate_per_unit || 0) * Number(ing.quantity) * Number(qtyProduced),
+    0
+  );
+
+  const { data: newProduction, error: pErr } = await supabaseAdmin
+    .from('productions')
+    .insert({
+      company_id:       companyId,
+      recipe_id:        recipeId,
+      finished_item_id: finishedProductId,
+      date:             date || new Date().toISOString().split('T')[0],
+      qty_produced:     Number(qtyProduced),
+      remarks:          remarks || null,
+      created_by:       userId,
+      total_cost:       Number(totalCost.toFixed(2)),
+    })
+    .select()
+    .single();
+
+  if (pErr) throw new Error(pErr.message);
+
+  for (const mat of materialNeeds) {
+    await supabaseAdmin
+      .from('production_lines')
+      .insert({
+        production_id:   newProduction.id,
+        raw_material_id: mat.raw_material_id,
+        qty_used:        mat.needed,
+        unit:            mat.unit,
+      });
+
+    const { data: current } = await supabaseAdmin
+      .from('raw_materials')
+      .select('stock')
+      .eq('id', mat.raw_material_id)
+      .single();
+
+    await supabaseAdmin
+      .from('raw_materials')
+      .update({ stock: Number(current.stock) - mat.needed })
+      .eq('id', mat.raw_material_id);
+
+    await supabaseAdmin
+      .from('raw_material_stock_logs')
+      .insert({
+        material_id: mat.raw_material_id,
+        company_id:  companyId,
+        quantity:    -mat.needed,
+        logged_date: date || new Date().toISOString().split('T')[0],
+        created_by:  userId,
+        note: `Used in production: ${recipeLabel} — ${qtyProduced} ${batchUnit} (production ${newProduction.id})`,
+      });
+  }
+
+  const { data: finishedProduct } = await supabaseAdmin
+    .from('products')
+    .select('stock_quantity')
+    .eq('id', finishedProductId)
+    .single();
+
+  await supabaseAdmin
+    .from('products')
+    .update({ stock_quantity: Number(finishedProduct.stock_quantity) + Number(qtyProduced) })
+    .eq('id', finishedProductId);
+
+  return {
+    production_id:  newProduction.id,
+    recipe_name:    recipeLabel,
+    qty_produced:   Number(qtyProduced),
+    batch_unit:     batchUnit,
+    total_cost:     Number(totalCost.toFixed(2)),
+    materials_used: materialNeeds.map(m => ({ name: m.name, qty_used: m.needed, unit: m.unit })),
+  };
+};
+
 // PATCH /api/v1/production/orders/:id/status
 const updateProductionOrderStatus = async (req, res) => {
   try {
@@ -112,6 +258,49 @@ const updateProductionOrderStatus = async (req, res) => {
     const valid = ['pending', 'in_production', 'ready', 'dispatched'];
     if (!valid.includes(status))
       return error(res, `status must be one of: ${valid.join(', ')}`, 400);
+
+    const { data: order, error: findErr } = await supabaseAdmin
+      .from('production_orders')
+      .select('*')
+      .eq('id', req.params.id)
+      .eq('company_id', req.user.company_id)
+      .single();
+    if (findErr || !order) return error(res, 'Production order not found', 404);
+
+    let productionResult = null;
+
+    // Starting production is the point materials actually get consumed —
+    // match the order's product to a Production → Recipes entry and run
+    // the same stock-deduction logic /produce uses, scaled to order.qty.
+    if (status === 'in_production' && order.status === 'pending') {
+      const { data: recipe } = await supabaseAdmin
+        .from('production_bom')
+        .select('id')
+        .eq('company_id', req.user.company_id)
+        .eq('is_active', true)
+        .ilike('product_name', order.product_name)
+        .maybeSingle();
+
+      if (!recipe) {
+        return error(res,
+          `No recipe configured for "${order.product_name}" — create one under Production → Recipes before starting this order.`,
+          400
+        );
+      }
+
+      try {
+        productionResult = await runProduction({
+          companyId:   req.user.company_id,
+          userId:      req.user.id,
+          recipeId:    recipe.id,
+          qtyProduced: order.qty,
+          date:        new Date().toISOString().split('T')[0],
+          remarks:     `Auto-logged from production order ${order.order_number}`,
+        });
+      } catch (prodErr) {
+        return error(res, prodErr.message, prodErr.statusCode || 500);
+      }
+    }
 
     const { data, error: dbErr } = await supabaseAdmin
       .from('production_orders')
@@ -122,8 +311,8 @@ const updateProductionOrderStatus = async (req, res) => {
       .single();
 
     if (dbErr) throw new Error(dbErr.message);
-    return success(res, data, `Order marked ${status}`);
+    return success(res, { ...data, production: productionResult }, `Order marked ${status}`);
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getProductionDemand, getProductionOrders, createProductionOrder, updateProductionOrderStatus };
+module.exports = { getProductionDemand, getProductionOrders, createProductionOrder, updateProductionOrderStatus, runProduction };
