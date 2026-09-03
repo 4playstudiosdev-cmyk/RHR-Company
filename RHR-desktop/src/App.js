@@ -19,7 +19,6 @@ import GPS from './pages/GPS';
 import Notifications from './pages/Notifications';
 import HRM from './pages/HRM';
 import AdminManagement from './pages/AdminManagement';
-import Recipes from './pages/Recipes';
 import ProductionDashboard from './pages/production/ProductionDashboard';
 import RawMaterials from './pages/production/RawMaterials';
 import ProductionOrders from './pages/production/ProductionOrders';
@@ -40,7 +39,6 @@ const PAGES = {
   reports: Reports,
   gps: GPS,
   notifications: Notifications,
-  recipes: Recipes,
   'production-dashboard': ProductionDashboard,
   'production-materials': RawMaterials,
   'production-orders': ProductionOrders,
@@ -61,7 +59,6 @@ const PAGE_ACCESS = {
   gps: { requiredPermission: 'can_view_gps' },
   hrm: { requiredRole: 'super_admin' },
   admins: { requiredRole: 'super_admin' },
-  recipes: { requiredRole: 'super_admin' },
   'production-dashboard': { requiredRole: 'super_admin' },
   'production-materials': { requiredRole: 'super_admin' },
   'production-orders': { requiredRole: 'super_admin' },

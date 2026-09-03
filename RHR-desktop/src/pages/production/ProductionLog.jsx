@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Factory, RotateCcw, CheckCircle2, XCircle } from 'lucide-react';
-import api, { getRecipes, logProduction, revertProduction, getProductionHistory } from '../../services/api';
+import api, { logProduction, revertProduction, getProductionHistory } from '../../services/api';
 import Button from '../../components/Button';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
@@ -28,23 +28,14 @@ export default function ProductionLog() {
     loadHistory();
   }, []);
 
-  // Two independent recipe systems can be logged against — the top-level
-  // "Recipes" page (production_recipes, cost-line capable) and the
-  // Production section's own "Recipes" page (production_bom, real-world
-  // usage like "Patlo Sealer" lives here) — merge both into one dropdown,
-  // normalized to the same shape (recipe_ingredients[].quantity, not
-  // production_bom's qty_required) so the rest of this page doesn't need
-  // to care which table a given recipe came from.
+  // production_bom (Production → Recipes) is the one recipe source now —
+  // normalized to the same shape the rest of this page already expects
+  // (recipe_ingredients[].quantity, not production_bom's qty_required).
   const loadRecipes = async () => {
     try {
-      const [oldRes, bomRes] = await Promise.all([
-        getRecipes(),
-        api.get('/production/recipes'),
-      ]);
-      const oldRecipes = (oldRes.data.data || []).map(r => ({ ...r, source: 'production_recipes' }));
-      const bomRecipes = (bomRes.data.data || []).map(r => ({
+      const res = await api.get('/production/recipes');
+      const normalized = (res.data.data || []).map(r => ({
         id: r.id,
-        source: 'production_bom',
         recipe_name: r.product_name,
         batch_size: r.batch_size,
         batch_unit: r.batch_unit,
@@ -57,7 +48,7 @@ export default function ProductionLog() {
           raw_materials: i.raw_materials,
         })),
       }));
-      setRecipes([...oldRecipes, ...bomRecipes]);
+      setRecipes(normalized);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load recipes.');
     }

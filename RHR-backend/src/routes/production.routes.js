@@ -138,19 +138,20 @@ router.get('/history', authenticate, isAdmin, async (req, res) => {
       return data;
     }, 6, 600);
 
-    // recipe_id can point at either production_recipes or production_bom
-    // (see phase14 — the FK that let PostgREST auto-embed production_recipes
-    // above was dropped on purpose so both are legal), so it's resolved
-    // here by hand instead of a single embed. Small dataset, N+1-shaped
-    // but fine at this scale — same tradeoff already made for gps_locations.
+    // recipe_id points at production_bom (see phase14 — the FK that let
+    // PostgREST auto-embed this above was dropped so it's resolved here
+    // by hand instead of a single embed). Small dataset, N+1-shaped but
+    // fine at this scale — same tradeoff already made for gps_locations.
+    // (production_recipes is no longer a valid source going forward —
+    // the top-level "Recipes" page was retired in favor of this one, see
+    // git history if old runs still reference it.)
     const recipeIds = [...new Set((data || []).map(p => p.recipe_id).filter(Boolean))];
     let recipeById = {};
     if (recipeIds.length) {
-      const [{ data: oldRecipes }, { data: bomRecipes }] = await Promise.all([
-        supabaseAdmin.from('production_recipes').select('id, recipe_name, batch_size, batch_unit').in('id', recipeIds),
-        supabaseAdmin.from('production_bom').select('id, product_name, batch_size, batch_unit').in('id', recipeIds),
-      ]);
-      (oldRecipes || []).forEach(r => { recipeById[r.id] = { recipe_name: r.recipe_name, batch_size: r.batch_size, batch_unit: r.batch_unit }; });
+      const { data: bomRecipes } = await supabaseAdmin
+        .from('production_bom')
+        .select('id, product_name, batch_size, batch_unit')
+        .in('id', recipeIds);
       (bomRecipes || []).forEach(r => { recipeById[r.id] = { recipe_name: r.product_name, batch_size: r.batch_size, batch_unit: r.batch_unit }; });
     }
 
@@ -174,29 +175,19 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
     if (!recipe_id || !qty_produced)
       return error(res, 'recipe_id and qty_produced are required', 400);
 
-    // Step 1 — Get recipe with ingredients. Two independent recipe
-    // systems can supply recipe_id now (see phase14 migration, which
-    // dropped productions.recipe_id's FK to production_recipes so this
-    // wouldn't be rejected outright):
-    //   production_recipes (top-level "Recipes" page) — raw_material_id
-    //     links a material line to a real raw_materials row; a NULL
-    //     raw_material_id is a cost-only line (Labor, FBR Tax, ...) that
-    //     contributes to cost but never touches stock.
-    //   production_bom (Production section's own "Recipes" page) — every
-    //     line always has a raw_material_id, no cost-only concept, and
-    //     no product FK — just a free-text product_name, so the finished
-    //     product to credit has to be resolved by matching that name
-    //     against the real products catalog.
-    // Tried in this order because production_recipes is where cost-line
-    // recipes (which production_bom can't represent) live.
-    let recipe, allIngredients, finishedProductId, recipeLabel, batchUnit;
-
-    const { data: oldRecipe } = await supabaseAdmin
-      .from('production_recipes')
+    // Step 1 — Get the recipe with ingredients. production_bom is the
+    // one and only recipe source now (the top-level "Recipes" page /
+    // production_recipes was retired — see git history). Every line
+    // always has a raw_material_id (no cost-only concept here), and
+    // there's no product FK — just a free-text product_name — so the
+    // finished product to credit is resolved by matching that name
+    // against the real products catalog.
+    const { data: bomRecipe } = await supabaseAdmin
+      .from('production_bom')
       .select(`
         *,
-        recipe_ingredients(
-          id, quantity, unit, raw_material_id, ingredient_name, rate_per_unit,
+        production_bom_items(
+          id, qty_required, unit, raw_material_id,
           raw_materials(id, name, stock, unit)
         )
       `)
@@ -204,65 +195,45 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
       .eq('company_id', req.user.company_id)
       .maybeSingle();
 
-    if (oldRecipe) {
-      recipe = oldRecipe;
-      allIngredients = oldRecipe.recipe_ingredients || [];
-      finishedProductId = oldRecipe.product_id;
-      recipeLabel = oldRecipe.recipe_name;
-      batchUnit = oldRecipe.batch_unit;
-    } else {
-      const { data: bomRecipe } = await supabaseAdmin
-        .from('production_bom')
-        .select(`
-          *,
-          production_bom_items(
-            id, qty_required, unit, raw_material_id,
-            raw_materials(id, name, stock, unit)
-          )
-        `)
-        .eq('id', recipe_id)
-        .eq('company_id', req.user.company_id)
-        .maybeSingle();
-
-      if (!bomRecipe) {
-        return error(res,
-          'No recipe configured for this product. Create a recipe first (Recipes page or Production → Recipes) before logging production.',
-          404
-        );
-      }
-
-      const { data: matchedProduct } = await supabaseAdmin
-        .from('products')
-        .select('id')
-        .eq('company_id', req.user.company_id)
-        .ilike('name', bomRecipe.product_name)
-        .maybeSingle();
-
-      if (!matchedProduct) {
-        return error(res,
-          `No product named "${bomRecipe.product_name}" found in the catalog — add it under Products first (name must match exactly) so production can credit its stock.`,
-          400
-        );
-      }
-
-      recipe = bomRecipe;
-      // Normalize production_bom_items into the same shape as
-      // recipe_ingredients (quantity, no cost-only lines possible).
-      allIngredients = (bomRecipe.production_bom_items || []).map(i => ({
-        quantity: i.qty_required,
-        unit: i.unit,
-        raw_material_id: i.raw_material_id,
-        ingredient_name: null,
-        rate_per_unit: 0,
-        raw_materials: i.raw_materials,
-      }));
-      finishedProductId = matchedProduct.id;
-      recipeLabel = bomRecipe.product_name;
-      batchUnit = bomRecipe.batch_unit;
+    if (!bomRecipe) {
+      return error(res,
+        'No recipe configured for this product. Create a recipe first under Production → Recipes before logging production.',
+        404
+      );
     }
 
+    const { data: matchedProduct } = await supabaseAdmin
+      .from('products')
+      .select('id')
+      .eq('company_id', req.user.company_id)
+      .ilike('name', bomRecipe.product_name)
+      .maybeSingle();
+
+    if (!matchedProduct) {
+      return error(res,
+        `No product named "${bomRecipe.product_name}" found in the catalog — add it under Products first (name must match exactly) so production can credit its stock.`,
+        400
+      );
+    }
+
+    // Normalized to a flat shape (quantity, not qty_required) so the rest
+    // of this handler doesn't need to know the source table's column names.
+    const allIngredients = (bomRecipe.production_bom_items || []).map(i => ({
+      quantity: i.qty_required,
+      unit: i.unit,
+      raw_material_id: i.raw_material_id,
+      rate_per_unit: 0,
+      raw_materials: i.raw_materials,
+    }));
+    const finishedProductId = matchedProduct.id;
+    const recipeLabel = bomRecipe.product_name;
+    const batchUnit = bomRecipe.batch_unit;
+
+    // Every production_bom_items row always has a raw_material_id, so
+    // this is really just `allIngredients`, but kept named/filtered the
+    // same way in case that ever changes.
     const materialIngredients = allIngredients.filter(ing => ing.raw_material_id);
-    const costOnlyIngredients = allIngredients.filter(ing => !ing.raw_material_id);
+    const costOnlyIngredients = [];
 
     // Step 2 — Calculate qty needed per material ingredient
     // Formula: qty_needed = quantity (per 1 unit of recipe) * qty_produced

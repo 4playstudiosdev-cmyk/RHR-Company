@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Package, ShoppingCart, Users, UserCog, Wallet, LogOut,
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
   Gauge, Boxes, ClipboardList, Truck, FileBarChart2, ChevronDown, X, CarFront,
-  FlaskConical, PackageCheck
+  PackageCheck
 } from 'lucide-react';
 import { hasPermission } from '../services/api';
 
@@ -23,7 +23,6 @@ const NAV_ITEMS = [
   { key: 'reports', label: 'Reports', icon: FileSpreadsheet, requiredPermission: 'can_export_reports' },
   { key: 'gps', label: 'Live GPS', icon: MapPin, requiredPermission: 'can_view_gps' },
   { key: 'notifications', label: 'Notifications', icon: Bell },
-  { key: 'recipes', label: 'Recipes', icon: FlaskConical, requiredRole: 'super_admin' },
   {
     key: 'production',
     label: 'Production',
