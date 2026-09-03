@@ -130,8 +130,7 @@ router.get('/history', authenticate, isAdmin, async (req, res) => {
             id, qty_used, unit,
             raw_materials(id, name, unit)
           ),
-          products!finished_item_id(id, name, unit),
-          production_recipes(id, recipe_name, batch_size, batch_unit)
+          products!finished_item_id(id, name, unit)
         `)
         .eq('company_id', req.user.company_id)
         .order('created_at', { ascending: false });
@@ -139,7 +138,28 @@ router.get('/history', authenticate, isAdmin, async (req, res) => {
       return data;
     }, 6, 600);
 
-    return success(res, data);
+    // recipe_id can point at either production_recipes or production_bom
+    // (see phase14 — the FK that let PostgREST auto-embed production_recipes
+    // above was dropped on purpose so both are legal), so it's resolved
+    // here by hand instead of a single embed. Small dataset, N+1-shaped
+    // but fine at this scale — same tradeoff already made for gps_locations.
+    const recipeIds = [...new Set((data || []).map(p => p.recipe_id).filter(Boolean))];
+    let recipeById = {};
+    if (recipeIds.length) {
+      const [{ data: oldRecipes }, { data: bomRecipes }] = await Promise.all([
+        supabaseAdmin.from('production_recipes').select('id, recipe_name, batch_size, batch_unit').in('id', recipeIds),
+        supabaseAdmin.from('production_bom').select('id, product_name, batch_size, batch_unit').in('id', recipeIds),
+      ]);
+      (oldRecipes || []).forEach(r => { recipeById[r.id] = { recipe_name: r.recipe_name, batch_size: r.batch_size, batch_unit: r.batch_unit }; });
+      (bomRecipes || []).forEach(r => { recipeById[r.id] = { recipe_name: r.product_name, batch_size: r.batch_size, batch_unit: r.batch_unit }; });
+    }
+
+    const withRecipes = (data || []).map(p => ({
+      ...p,
+      production_recipes: recipeById[p.recipe_id] || null,
+    }));
+
+    return success(res, withRecipes);
   } catch (err) { return error(res, err.message); }
 });
 
@@ -154,11 +174,24 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
     if (!recipe_id || !qty_produced)
       return error(res, 'recipe_id and qty_produced are required', 400);
 
-    // Step 1 — Get recipe with ingredients (raw_material_id links a
-    // material line to a real raw_materials row — see phase12 migration.
-    // A NULL raw_material_id is a cost-only line — Labor, FBR Tax,
-    // Wastage, etc. — it contributes to cost but never touches stock).
-    const { data: recipe, error: rErr } = await supabaseAdmin
+    // Step 1 — Get recipe with ingredients. Two independent recipe
+    // systems can supply recipe_id now (see phase14 migration, which
+    // dropped productions.recipe_id's FK to production_recipes so this
+    // wouldn't be rejected outright):
+    //   production_recipes (top-level "Recipes" page) — raw_material_id
+    //     links a material line to a real raw_materials row; a NULL
+    //     raw_material_id is a cost-only line (Labor, FBR Tax, ...) that
+    //     contributes to cost but never touches stock.
+    //   production_bom (Production section's own "Recipes" page) — every
+    //     line always has a raw_material_id, no cost-only concept, and
+    //     no product FK — just a free-text product_name, so the finished
+    //     product to credit has to be resolved by matching that name
+    //     against the real products catalog.
+    // Tried in this order because production_recipes is where cost-line
+    // recipes (which production_bom can't represent) live.
+    let recipe, allIngredients, finishedProductId, recipeLabel, batchUnit;
+
+    const { data: oldRecipe } = await supabaseAdmin
       .from('production_recipes')
       .select(`
         *,
@@ -169,11 +202,60 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
       `)
       .eq('id', recipe_id)
       .eq('company_id', req.user.company_id)
-      .single();
+      .maybeSingle();
 
-    if (rErr || !recipe) return error(res, 'Recipe not found', 404);
+    if (oldRecipe) {
+      recipe = oldRecipe;
+      allIngredients = oldRecipe.recipe_ingredients || [];
+      finishedProductId = oldRecipe.product_id;
+      recipeLabel = oldRecipe.recipe_name;
+      batchUnit = oldRecipe.batch_unit;
+    } else {
+      const { data: bomRecipe } = await supabaseAdmin
+        .from('production_bom')
+        .select(`
+          *,
+          production_bom_items(
+            id, qty_required, unit, raw_material_id,
+            raw_materials(id, name, stock, unit)
+          )
+        `)
+        .eq('id', recipe_id)
+        .eq('company_id', req.user.company_id)
+        .maybeSingle();
 
-    const allIngredients = recipe.recipe_ingredients || [];
+      if (!bomRecipe) return error(res, 'Recipe not found', 404);
+
+      const { data: matchedProduct } = await supabaseAdmin
+        .from('products')
+        .select('id')
+        .eq('company_id', req.user.company_id)
+        .ilike('name', bomRecipe.product_name)
+        .maybeSingle();
+
+      if (!matchedProduct) {
+        return error(res,
+          `No product named "${bomRecipe.product_name}" found in the catalog — add it under Products first (name must match exactly) so production can credit its stock.`,
+          400
+        );
+      }
+
+      recipe = bomRecipe;
+      // Normalize production_bom_items into the same shape as
+      // recipe_ingredients (quantity, no cost-only lines possible).
+      allIngredients = (bomRecipe.production_bom_items || []).map(i => ({
+        quantity: i.qty_required,
+        unit: i.unit,
+        raw_material_id: i.raw_material_id,
+        ingredient_name: null,
+        rate_per_unit: 0,
+        raw_materials: i.raw_materials,
+      }));
+      finishedProductId = matchedProduct.id;
+      recipeLabel = bomRecipe.product_name;
+      batchUnit = bomRecipe.batch_unit;
+    }
+
     const materialIngredients = allIngredients.filter(ing => ing.raw_material_id);
     const costOnlyIngredients = allIngredients.filter(ing => !ing.raw_material_id);
 
@@ -215,7 +297,7 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
       .insert({
         company_id:       req.user.company_id,
         recipe_id,
-        finished_item_id: recipe.product_id,
+        finished_item_id: finishedProductId,
         date:             date || new Date().toISOString().split('T')[0],
         qty_produced:     Number(qty_produced),
         remarks:          remarks || null,
@@ -263,7 +345,7 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
           quantity:    -mat.needed,
           logged_date: date || new Date().toISOString().split('T')[0],
           created_by:  req.user.id,
-          note: `Used in production: ${recipe.recipe_name} — ${qty_produced} ${recipe.batch_unit} (production ${newProduction.id})`,
+          note: `Used in production: ${recipeLabel} — ${qty_produced} ${batchUnit} (production ${newProduction.id})`,
         });
     }
 
@@ -271,7 +353,7 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
     const { data: finishedProduct } = await supabaseAdmin
       .from('products')
       .select('stock_quantity')
-      .eq('id', recipe.product_id)
+      .eq('id', finishedProductId)
       .single();
 
     await supabaseAdmin
@@ -279,11 +361,11 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
       .update({
         stock_quantity: Number(finishedProduct.stock_quantity) + Number(qty_produced)
       })
-      .eq('id', recipe.product_id);
+      .eq('id', finishedProductId);
 
     return success(res, {
       production_id:  newProduction.id,
-      recipe_name:    recipe.recipe_name,
+      recipe_name:    recipeLabel,
       qty_produced:   Number(qty_produced),
       total_cost:     Number(totalCost.toFixed(2)),
       materials_used: materialNeeds.map(m => ({
@@ -295,7 +377,7 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
         name: c.ingredient_name,
         amount: Number((Number(c.rate_per_unit || 0) * Number(c.quantity) * Number(qty_produced)).toFixed(2))
       }))
-    }, `Production logged — ${qty_produced} ${recipe.batch_unit} produced, raw materials deducted`, 201);
+    }, `Production logged — ${qty_produced} ${batchUnit} produced, raw materials deducted`, 201);
 
   } catch (err) { return error(res, err.message); }
 });
