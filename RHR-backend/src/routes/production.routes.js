@@ -224,7 +224,12 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
         .eq('company_id', req.user.company_id)
         .maybeSingle();
 
-      if (!bomRecipe) return error(res, 'Recipe not found', 404);
+      if (!bomRecipe) {
+        return error(res,
+          'No recipe configured for this product. Create a recipe first (Recipes page or Production → Recipes) before logging production.',
+          404
+        );
+      }
 
       const { data: matchedProduct } = await supabaseAdmin
         .from('products')
