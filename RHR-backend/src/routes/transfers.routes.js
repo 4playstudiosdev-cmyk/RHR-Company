@@ -163,40 +163,23 @@ router.patch('/:id/receive', authenticate, isAdmin, async (req, res) => {
 
     // Products are per-branch rows with their own ids — transfer.product_id
     // points at the SOURCE branch's row, so the destination product has to
-    // be resolved by name instead. If this branch has never stocked it
-    // before, create it here (copied from the source) rather than forcing
-    // every receiving branch to pre-create every SKU by hand first.
+    // be resolved by name instead. The destination branch must already
+    // carry this product in its own catalog; if it doesn't, that's the
+    // receiving admin's call to make (add it under Products first), not
+    // something this endpoint decides on its own.
     const sourceInfo = transfer.products;
-    let destProduct;
-    const { data: existing } = await supabaseAdmin
+    const { data: destProduct } = await supabaseAdmin
       .from('products')
       .select('id, stock_quantity')
       .eq('company_id', transfer.to_company_id)
       .ilike('name', sourceInfo?.name || '')
       .maybeSingle();
 
-    if (existing) {
-      destProduct = existing;
-    } else {
-      if (!sourceInfo?.name)
-        return error(res, 'Source product no longer exists — cannot resolve destination product', 400);
-
-      const { data: created, error: createErr } = await supabaseAdmin
-        .from('products')
-        .insert({
-          company_id:  transfer.to_company_id,
-          name:        sourceInfo.name,
-          description: sourceInfo.description,
-          unit:        sourceInfo.unit,
-          price:       sourceInfo.price,
-          stock_quantity: 0,
-        })
-        .select('id, stock_quantity')
-        .single();
-
-      if (createErr) throw new Error(createErr.message);
-      destProduct = created;
-    }
+    if (!destProduct)
+      return error(res,
+        `"${sourceInfo?.name || 'This product'}" doesn't exist in your branch's catalog yet — add it under Products first, then receive this transfer.`,
+        404
+      );
 
     // Add to destination branch stock
     await supabaseAdmin
