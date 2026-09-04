@@ -32,7 +32,7 @@ const NAV_ITEMS = [
       { key: 'production-dashboard', label: 'Production Dashboard', icon: Gauge },
       { key: 'production-materials', label: 'Raw Materials', icon: Boxes },
       { key: 'production-orders', label: 'Production Orders', icon: ClipboardList },
-      { key: 'production-log', label: 'Production Log', icon: PackageCheck },
+      { key: 'production-log', label: 'Production History', icon: PackageCheck },
       { key: 'production-dispatch', label: 'Dispatch', icon: Truck },
       { key: 'production-reports', label: 'Production Reports', icon: FileBarChart2 },
       { key: 'production-recipes', label: 'Recipes', icon: ClipboardList }

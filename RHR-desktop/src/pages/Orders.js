@@ -1,17 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { ShoppingCart, FileDown, Search } from 'lucide-react';
+import { ShoppingCart, FileDown, Search, Plus, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
+import Modal from '../components/Modal';
+import Button from '../components/Button';
 
 // Matches the backend's validStatuses in orders.service.js
 const STATUS_OPTIONS = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered', 'cancelled'];
 const TABS = ['all', ...STATUS_OPTIONS];
 const PAGE_SIZE = 10;
+const EMPTY_ORDER_FORM = { customer_id: '', items: [{ product_id: '', quantity: 1 }], delivery_address: '', notes: '' };
 
 export default function Orders() {
   const toast = useToast();
@@ -24,9 +27,71 @@ export default function Orders() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
 
+  const [showCreateOrder, setShowCreateOrder] = useState(false);
+  const [customers, setCustomers] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [orderForm, setOrderForm] = useState(EMPTY_ORDER_FORM);
+  const [creating, setCreating] = useState(false);
+
   useEffect(() => {
     loadOrders();
   }, []);
+
+  const openCreateOrder = async () => {
+    setShowCreateOrder(true);
+    try {
+      const [customersRes, productsRes] = await Promise.all([
+        api.get('/customers'),
+        api.get('/products', { params: { limit: 500 } })
+      ]);
+      setCustomers(customersRes.data.data || []);
+      setProducts(productsRes.data.data?.products || []);
+    } catch (err) {
+      toast.error('Failed to load customers/products.');
+    }
+  };
+
+  const updateItem = (index, field, value) => {
+    setOrderForm((prev) => ({
+      ...prev,
+      items: prev.items.map((it, i) => (i === index ? { ...it, [field]: value } : it))
+    }));
+  };
+
+  const addItemRow = () => {
+    setOrderForm((prev) => ({ ...prev, items: [...prev.items, { product_id: '', quantity: 1 }] }));
+  };
+
+  const removeItemRow = (index) => {
+    setOrderForm((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }));
+  };
+
+  const handleCreateOrder = async (e) => {
+    e.preventDefault();
+    if (!orderForm.customer_id) { toast.error('Select a customer.'); return; }
+    const items = orderForm.items
+      .filter((it) => it.product_id && Number(it.quantity) > 0)
+      .map((it) => ({ product_id: it.product_id, quantity: Number(it.quantity) }));
+    if (items.length === 0) { toast.error('Add at least one product.'); return; }
+
+    setCreating(true);
+    try {
+      await api.post('/orders', {
+        customer_id: orderForm.customer_id,
+        items,
+        delivery_address: orderForm.delivery_address,
+        notes: orderForm.notes
+      });
+      toast.success('Order created.');
+      setShowCreateOrder(false);
+      setOrderForm(EMPTY_ORDER_FORM);
+      loadOrders();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create order.');
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const loadOrders = async () => {
     setLoading(true);
@@ -171,15 +236,20 @@ export default function Orders() {
     <div className="p-6">
       <div className="flex justify-between items-center flex-wrap gap-3 mb-6">
         <h1 className="text-2xl font-bold text-navy">Orders</h1>
-        <div className="relative w-full sm:w-72">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            placeholder="Search order # or customer..."
-            className="w-full bg-white border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-all shadow-sm"
-          />
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="relative w-full sm:w-72">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              placeholder="Search order # or customer..."
+              className="w-full bg-white border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-all shadow-sm"
+            />
+          </div>
+          <Button variant="accent" onClick={openCreateOrder} className="flex items-center gap-2">
+            <Plus size={16} /> Create Order
+          </Button>
         </div>
       </div>
 
@@ -315,6 +385,93 @@ export default function Orders() {
           </>
         )}
       </div>
+
+      {showCreateOrder && (
+        <Modal title="Create Order" onClose={() => setShowCreateOrder(false)}>
+          <form onSubmit={handleCreateOrder} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Customer *</label>
+              <select
+                value={orderForm.customer_id}
+                onChange={(e) => setOrderForm({ ...orderForm, customer_id: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+              >
+                <option value="">Select customer...</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>{c.full_name}{c.shop_name ? ` — ${c.shop_name}` : ''}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Products *</label>
+              <div className="space-y-2">
+                {orderForm.items.map((item, i) => (
+                  <div key={i} className="flex gap-2">
+                    <select
+                      value={item.product_id}
+                      onChange={(e) => updateItem(i, 'product_id', e.target.value)}
+                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                    >
+                      <option value="">Select product...</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      min="1"
+                      value={item.quantity}
+                      onChange={(e) => updateItem(i, 'quantity', e.target.value)}
+                      className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeItemRow(i)}
+                      disabled={orderForm.items.length === 1}
+                      className="text-gray-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed px-2"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={addItemRow}
+                className="mt-2 text-sm text-navy font-medium hover:underline flex items-center gap-1"
+              >
+                <Plus size={14} /> Add another product
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Delivery Address</label>
+              <textarea
+                rows={2}
+                value={orderForm.delivery_address}
+                onChange={(e) => setOrderForm({ ...orderForm, delivery_address: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Notes</label>
+              <textarea
+                rows={2}
+                value={orderForm.notes}
+                onChange={(e) => setOrderForm({ ...orderForm, notes: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setShowCreateOrder(false)}>Cancel</Button>
+              <Button type="submit" variant="accent" disabled={creating}>{creating ? 'Creating...' : 'Create Order'}</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }
