@@ -8,6 +8,11 @@ import { useToast } from '../../components/Toast';
 
 const EMPTY_ROW = () => ({ raw_material_id: '', material_name: '', quantity: '', unit: '', isNew: false });
 
+const UNITS = [
+  'Kg', 'Gm', 'Pcs', 'bag', 'pouch', 'bottle',
+  'kg', 'liter', 'ml', 'ton', 'meter', 'box'
+];
+
 export default function RecipesPage() {
   const toast = useToast();
 
@@ -260,25 +265,7 @@ export default function RecipesPage() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-gray-700">Raw Materials *</label>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => addIngredientRow('select')}
-                    className="text-xs font-semibold text-navy hover:underline flex items-center gap-1"
-                  >
-                    <ListPlus size={13} /> Select Material
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => addIngredientRow('input')}
-                    className="text-xs font-semibold text-orange hover:underline flex items-center gap-1"
-                  >
-                    <PencilLine size={13} /> Add New Material
-                  </button>
-                </div>
-              </div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Raw Materials *</label>
 
               <div className="space-y-2">
                 {ingredients.map((ing, index) => (
@@ -300,13 +287,16 @@ export default function RecipesPage() {
                           onChange={(e) => updateRow(index, 'quantity', e.target.value)}
                           className="border border-gray-300 rounded-md px-2 py-1.5 text-sm w-full"
                         />
-                        <input
-                          type="text"
-                          placeholder="Unit"
+                        <select
                           value={ing.unit}
                           onChange={(e) => updateRow(index, 'unit', e.target.value)}
-                          className="border border-gray-300 rounded-md px-2 py-1.5 text-sm w-full"
-                        />
+                          className="border border-gray-300 rounded-md px-2 py-1.5 text-sm w-full bg-white"
+                        >
+                          <option value="">Unit</option>
+                          {UNITS.map((u) => (
+                            <option key={u} value={u}>{u}</option>
+                          ))}
+                        </select>
                         <button
                           onClick={() => removeRow(index)}
                           disabled={ingredients.length === 1}
