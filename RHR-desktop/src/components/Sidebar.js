@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, UserCog, Wallet, LogOut,
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
   Gauge, Boxes, ClipboardList, Truck, FileBarChart2, ChevronDown, X, CarFront,
-  PackageCheck
+  PackageCheck, ArrowLeftRight
 } from 'lucide-react';
-import { hasPermission } from '../services/api';
+import api, { hasPermission } from '../services/api';
 
 // requiredRole/requiredPermission here must match PAGE_ACCESS in App.js —
 // that's what actually enforces access if someone bypasses the sidebar
@@ -38,6 +38,7 @@ const NAV_ITEMS = [
       { key: 'production-recipes', label: 'Recipes', icon: ClipboardList }
     ]
   },
+  { key: 'stock-transfers', label: 'Stock Transfers', icon: ArrowLeftRight },
   { key: 'hrm', label: 'HRM', icon: Briefcase, requiredRole: 'super_admin' },
   { key: 'admins', label: 'Admin Roles', icon: KeyRound, requiredRole: 'super_admin' }
 ];
@@ -62,6 +63,13 @@ function formatRole(role) {
 
 export default function Sidebar({ page, setPage, user, onLogout, open, onClose }) {
   const [productionOpen, setProductionOpen] = useState(page.startsWith('production-'));
+  const [pendingTransfers, setPendingTransfers] = useState(0);
+
+  useEffect(() => {
+    api.get('/transfers/pending')
+      .then((r) => { if (r.data.success) setPendingTransfers((r.data.data || []).length); })
+      .catch(() => {});
+  }, []);
 
   return (
     <>
@@ -154,7 +162,12 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose }
               }`}
             >
               <Icon size={18} strokeWidth={2} />
-              <span>{item.label}</span>
+              <span className="flex-1 text-left">{item.label}</span>
+              {item.key === 'stock-transfers' && pendingTransfers > 0 && (
+                <span className="text-[11px] font-bold bg-orange text-white px-1.5 py-0.5 rounded-full">
+                  {pendingTransfers}
+                </span>
+              )}
             </button>
           );
         })}

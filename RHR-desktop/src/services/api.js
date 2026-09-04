@@ -70,6 +70,12 @@ export const getProductionHistory = () => api.get('/production/history');
 export const logProduction        = (data) => api.post('/production/produce', data);
 export const revertProduction     = (id) => api.delete(`/production/runs/${id}`);
 
+// STOCK TRANSFERS
+export const getTransfers        = () => api.get('/transfers');
+export const getPendingTransfers = () => api.get('/transfers/pending');
+export const createTransfer      = (data) => api.post('/transfers', data);
+export const receiveTransfer     = (id) => api.patch(`/transfers/${id}/receive`);
+
 // ========= PRODUCTION MODULE — live, all admin-only =========
 // GET   /api/v1/production/demand                 — demand computed live from order_items on
 //                                                    orders not yet dispatched (pending/confirmed/preparing)

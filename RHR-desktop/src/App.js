@@ -26,6 +26,7 @@ import ProductionLog from './pages/production/ProductionLog';
 import Dispatch from './pages/production/Dispatch';
 import ProductionReports from './pages/production/ProductionReports';
 import RecipesPage from './pages/production/RecipesPage';
+import StockTransfers from './pages/StockTransfers';
 
 const PAGES = {
   dashboard: Dashboard,
@@ -46,6 +47,7 @@ const PAGES = {
   'production-dispatch': Dispatch,
   'production-reports': ProductionReports,
   'production-recipes': RecipesPage,
+  'stock-transfers': StockTransfers,
   hrm: HRM,
   admins: AdminManagement
 };
