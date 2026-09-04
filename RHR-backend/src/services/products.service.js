@@ -4,10 +4,10 @@ async function getProducts({ companyId, categoryId, search, page=1, limit=20 }) 
   let query = supabaseAdmin
     .from('products')
     .select('*, categories(name)', { count: 'exact' })
-    .eq('company_id', companyId)
     .or('is_active.eq.true,is_active.is.null')
     .order('name');
 
+  if (companyId)  query = query.eq('company_id', companyId);
   if (categoryId) query = query.eq('category_id', categoryId);
   if (search)     query = query.ilike('name', `%${search}%`);
 
@@ -22,13 +22,13 @@ async function getProducts({ companyId, categoryId, search, page=1, limit=20 }) 
 }
 
 async function getProductById(id, companyId) {
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('products')
     .select('*, categories(name)')
     .eq('id', id)
-    .eq('company_id', companyId)
-    .or('is_active.eq.true,is_active.is.null')
-    .single();
+    .or('is_active.eq.true,is_active.is.null');
+  if (companyId) query = query.eq('company_id', companyId);
+  const { data, error } = await query.single();
   if (error) throw new Error('Product not found');
   return data;
 }
@@ -44,35 +44,25 @@ async function createProduct(productData) {
 }
 
 async function updateProduct(id, companyId, updates) {
-  const { data, error } = await supabaseAdmin
-    .from('products')
-    .update(updates)
-    .eq('id', id)
-    .eq('company_id', companyId)
-    .select()
-    .single();
+  let query = supabaseAdmin.from('products').update(updates).eq('id', id);
+  if (companyId) query = query.eq('company_id', companyId);
+  const { data, error } = await query.select().single();
   if (error) throw new Error('Product not found or access denied');
   return data;
 }
 
 async function updateStock(id, companyId, quantity) {
-  const { data, error } = await supabaseAdmin
-    .from('products')
-    .update({ stock_quantity: quantity })
-    .eq('id', id)
-    .eq('company_id', companyId)
-    .select()
-    .single();
+  let query = supabaseAdmin.from('products').update({ stock_quantity: quantity }).eq('id', id);
+  if (companyId) query = query.eq('company_id', companyId);
+  const { data, error } = await query.select().single();
   if (error) throw new Error('Product not found');
   return data;
 }
 
 async function deleteProduct(id, companyId) {
-  const { error } = await supabaseAdmin
-    .from('products')
-    .update({ is_active: false })
-    .eq('id', id)
-    .eq('company_id', companyId);
+  let query = supabaseAdmin.from('products').update({ is_active: false }).eq('id', id);
+  if (companyId) query = query.eq('company_id', companyId);
+  const { error } = await query;
   if (error) throw new Error('Product not found');
   return { deleted: true };
 }
