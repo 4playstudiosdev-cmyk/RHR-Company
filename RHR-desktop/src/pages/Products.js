@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Plus, Search, Package, Pencil, Trash2, Upload, X, Image } from 'lucide-react';
-import api from '../services/api';
+import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
 import Button from '../components/Button';
 import PageHeader from '../components/PageHeader';
@@ -24,6 +24,8 @@ const PAGE_SIZE = 10;
 export default function Products() {
   const toast      = useToast();
   const fileInputRef = useRef(null);
+  const user = getCurrentUser();
+  const isSuperAdmin = user?.role === 'super_admin';
 
   const [products, setProducts]     = useState([]);
   const [total, setTotal]           = useState(0);
@@ -40,20 +42,39 @@ export default function Products() {
   const [imagePreview, setImagePreview] = useState('');
   const [uploading, setUploading]   = useState(false);
   const [categories, setCategories] = useState([]);
+  const [branches, setBranches]     = useState([]);
+  const [activeBranch, setActiveBranch] = useState(user?.companyId || '');
 
   useEffect(() => {
-    loadCategories();
+    if (isSuperAdmin) loadBranches();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    loadCategories();
+    setActiveCategory('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBranch]);
+
+  useEffect(() => {
     loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, activeCategory]);
+  }, [page, activeCategory, activeBranch]);
+
+  const loadBranches = async () => {
+    try {
+      const res = await api.get('/companies');
+      setBranches(res.data.data || []);
+    } catch {
+      // non-fatal — branch switcher just won't show options
+    }
+  };
 
   const loadCategories = async () => {
     try {
-      const res = await api.get('/categories');
+      const res = await api.get('/categories', {
+        params: isSuperAdmin && activeBranch ? { company_id: activeBranch } : {}
+      });
       setCategories(res.data.data || []);
     } catch {
       // non-fatal — form still works without category list
@@ -69,7 +90,8 @@ export default function Products() {
           page,
           limit: PAGE_SIZE,
           ...(searchTerm ? { search: searchTerm } : {}),
-          ...(activeCategory ? { category_id: activeCategory } : {})
+          ...(activeCategory ? { category_id: activeCategory } : {}),
+          ...(isSuperAdmin && activeBranch ? { company_id: activeBranch } : {})
         }
       });
       setProducts(res.data.data.products || []);
@@ -186,7 +208,10 @@ export default function Products() {
       stock_quantity: Number(form.stock_quantity) || 0,
       unit:           form.unit,
       ...(form.category_id ? { category_id: form.category_id } : {}),
-      ...(imageUrl ? { image_url: imageUrl } : {})
+      ...(imageUrl ? { image_url: imageUrl } : {}),
+      // Only relevant on create — sends the new product to whichever
+      // branch is currently selected instead of always super_admin's own.
+      ...(!editingProduct && isSuperAdmin && activeBranch ? { company_id: activeBranch } : {})
     };
 
     try {
@@ -228,6 +253,21 @@ export default function Products() {
           </Button>
         }
       />
+
+      {isSuperAdmin && branches.length > 0 && (
+        <div className="mb-4 flex items-center gap-2">
+          <label className="text-sm font-medium text-gray-600">Branch:</label>
+          <select
+            value={activeBranch}
+            onChange={(e) => { setActiveBranch(e.target.value); setPage(1); }}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy bg-white"
+          >
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>{b.name} ({b.city})</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <form onSubmit={handleSearchSubmit} className="mb-4 flex gap-2">
         <div className="relative w-full max-w-sm">
@@ -411,6 +451,12 @@ export default function Products() {
           onClose={() => setShowModal(false)}
         >
           <form onSubmit={handleSave} className="space-y-4">
+
+            {!editingProduct && isSuperAdmin && activeBranch && (
+              <div className="bg-navy-chip/40 border border-navy-chip rounded-lg px-3.5 py-2 text-xs text-navy">
+                Adding to: <strong>{branches.find((b) => b.id === activeBranch)?.name || 'selected branch'}</strong>
+              </div>
+            )}
 
             {/* ── IMAGE UPLOAD ── */}
             <div>
