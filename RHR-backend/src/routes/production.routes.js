@@ -91,6 +91,48 @@ router.post('/recipes', authenticate, isAdmin, async (req, res) => {
   } catch (err) { return error(res, err.message); }
 });
 
+// PUT /api/v1/production/recipes/:id
+router.put('/recipes/:id', authenticate, isAdmin, async (req, res) => {
+  try {
+    const { product_name, recipe_name, batch_size, batch_unit, ingredients } = req.body;
+    const name = (product_name || recipe_name || '').trim();
+
+    if (!name || !ingredients?.length)
+      return error(res, 'product_name and ingredients are required', 400);
+    if (ingredients.some(i => !i.raw_material_id || !i.qty_required))
+      return error(res, 'Every ingredient needs a raw material and quantity', 400);
+
+    const { data: updatedBom, error: bErr } = await supabaseAdmin
+      .from('production_bom')
+      .update({
+        product_name: name,
+        batch_size:   batch_size || 1,
+        batch_unit:   batch_unit || 'bag',
+      })
+      .eq('id', req.params.id)
+      .eq('company_id', req.user.company_id)
+      .select()
+      .single();
+
+    if (bErr || !updatedBom) return error(res, 'Recipe not found', 404);
+
+    // Replace ingredient lines wholesale — simpler and safer than diffing
+    // adds/edits/removes against whatever the client sent.
+    await supabaseAdmin.from('production_bom_items').delete().eq('bom_id', req.params.id);
+
+    const rows = ingredients.map(i => ({
+      bom_id:           req.params.id,
+      raw_material_id:  i.raw_material_id,
+      qty_required:     Number(i.qty_required),
+      unit:             i.unit,
+    }));
+    const { error: iErr } = await supabaseAdmin.from('production_bom_items').insert(rows);
+    if (iErr) throw new Error(iErr.message);
+
+    return success(res, updatedBom, 'Recipe updated');
+  } catch (err) { return error(res, err.message); }
+});
+
 // DELETE /api/v1/production/recipes/:id
 router.delete('/recipes/:id', authenticate, isAdmin, async (req, res) => {
   try {
