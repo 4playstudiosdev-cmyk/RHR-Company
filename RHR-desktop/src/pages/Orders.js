@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { ShoppingCart, FileDown, Search, Plus, Trash2 } from 'lucide-react';
+import { ShoppingCart, FileDown, Search, Plus, Trash2, Wallet } from 'lucide-react';
 import api from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
@@ -15,6 +15,11 @@ const STATUS_OPTIONS = ['pending', 'confirmed', 'preparing', 'dispatched', 'deli
 const TABS = ['all', ...STATUS_OPTIONS];
 const PAGE_SIZE = 10;
 const EMPTY_ORDER_FORM = { customer_id: '', items: [{ product_id: '', quantity: 1 }], delivery_address: '', notes: '' };
+const PAYMENT_METHODS = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'bank_transfer', label: 'Bank Transfer' },
+  { value: 'credit_account', label: 'Credit Account' }
+];
 
 export default function Orders() {
   const toast = useToast();
@@ -32,6 +37,11 @@ export default function Orders() {
   const [products, setProducts] = useState([]);
   const [orderForm, setOrderForm] = useState(EMPTY_ORDER_FORM);
   const [creating, setCreating] = useState(false);
+
+  const [payingOrder, setPayingOrder] = useState(null);
+  const [salesmen, setSalesmen] = useState([]);
+  const [paymentForm, setPaymentForm] = useState({ amount: '', method: 'cash', salesman_id: '', photoFile: null });
+  const [recordingPayment, setRecordingPayment] = useState(false);
 
   useEffect(() => {
     loadOrders();
@@ -65,6 +75,12 @@ export default function Orders() {
   const removeItemRow = (index) => {
     setOrderForm((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }));
   };
+
+  const orderFormTotal = orderForm.items.reduce((sum, it) => {
+    const product = products.find((p) => p.id === it.product_id);
+    if (!product) return sum;
+    return sum + Number(product.price || 0) * Number(it.quantity || 0);
+  }, 0);
 
   const handleCreateOrder = async (e) => {
     e.preventDefault();
@@ -212,6 +228,66 @@ export default function Orders() {
     doc.save(`Invoice-${order.order_number}.pdf`);
   };
 
+  const openRecordPayment = async (order) => {
+    const due = Number(order.total_amount) - Number(order.paid_amount || 0);
+    setPaymentForm({
+      amount: due > 0 ? due : '',
+      method: 'cash',
+      salesman_id: order.users?.salesman_id || '',
+      photoFile: null
+    });
+    setPayingOrder(order);
+    if (salesmen.length === 0) {
+      try {
+        const res = await api.get('/salesmen');
+        setSalesmen(res.data.data || []);
+      } catch (err) {
+        toast.error('Failed to load salesmen list.');
+      }
+    }
+  };
+
+  const handleRecordPayment = async (e) => {
+    e.preventDefault();
+    if (!Number(paymentForm.amount) || Number(paymentForm.amount) <= 0) { toast.error('Enter a valid amount.'); return; }
+    if (!paymentForm.salesman_id) { toast.error('Select a salesman to credit this payment to.'); return; }
+    if (!paymentForm.photoFile) { toast.error('Attach a photo of the payment proof.'); return; }
+
+    setRecordingPayment(true);
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(paymentForm.photoFile);
+      });
+      const uploadRes = await api.post('/storage/upload', {
+        bucket: 'payment-proofs',
+        fileName: paymentForm.photoFile.name,
+        fileBase64: base64,
+        mimeType: paymentForm.photoFile.type
+      });
+      const photoUrl = uploadRes.data.data.url;
+
+      await api.post('/payments', {
+        customer_id: payingOrder.customer_id,
+        order_id: payingOrder.id,
+        amount: Number(paymentForm.amount),
+        method: paymentForm.method,
+        salesman_id: paymentForm.salesman_id,
+        photo_url: photoUrl
+      });
+
+      toast.success('Payment recorded.');
+      setPayingOrder(null);
+      loadOrders();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to record payment.');
+    } finally {
+      setRecordingPayment(false);
+    }
+  };
+
   const counts = useMemo(() => {
     const c = { all: orders.length };
     STATUS_OPTIONS.forEach((s) => { c[s] = orders.filter((o) => o.status === s).length; });
@@ -281,7 +357,7 @@ export default function Orders() {
         </div>
 
         {loading ? (
-          <SkeletonTable rows={6} cols={6} />
+          <SkeletonTable rows={6} cols={11} />
         ) : filtered.length === 0 ? (
           <EmptyState icon={ShoppingCart} title="No orders here" subtitle={search ? 'Try a different search' : 'Orders placed by customers will appear here'} />
         ) : (
@@ -294,9 +370,12 @@ export default function Orders() {
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Items</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Total</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Paid</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Due</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Update</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Payment</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Invoice</th>
                   </tr>
                 </thead>
@@ -313,6 +392,19 @@ export default function Orders() {
                       <td className="px-6 py-3.5 text-gray-500">{order.order_items?.length || 0} item{(order.order_items?.length || 0) !== 1 ? 's' : ''}</td>
                       <td className="px-6 py-3.5 text-gray-600 font-medium">
                         PKR {Number(order.total_amount).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-3.5 text-emerald-700 font-medium">
+                        PKR {Number(order.paid_amount || 0).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-3.5 font-medium">
+                        {(() => {
+                          const due = Number(order.total_amount) - Number(order.paid_amount || 0);
+                          return (
+                            <span className={due > 0 ? 'text-red-600' : 'text-gray-400'}>
+                              PKR {due.toLocaleString()}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">
                         {new Date(order.created_at).toLocaleDateString('en-GB')}
@@ -333,6 +425,14 @@ export default function Orders() {
                             </option>
                           ))}
                         </select>
+                      </td>
+                      <td className="px-6 py-3.5">
+                        <button
+                          onClick={() => openRecordPayment(order)}
+                          className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                        >
+                          <Wallet size={14} /> Record
+                        </button>
                       </td>
                       <td className="px-6 py-3.5">
                         <button
@@ -415,7 +515,9 @@ export default function Orders() {
                     >
                       <option value="">Select product...</option>
                       {products.map((p) => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
+                        <option key={p.id} value={p.id}>
+                          {p.name} — PKR {Number(p.price).toLocaleString()} (Stock: {p.stock_quantity} {p.unit})
+                        </option>
                       ))}
                     </select>
                     <input
@@ -443,6 +545,12 @@ export default function Orders() {
               >
                 <Plus size={14} /> Add another product
               </button>
+              {orderFormTotal > 0 && (
+                <div className="mt-3 bg-navy-chip/40 border border-navy-chip rounded-lg px-3.5 py-2.5 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-navy">Order Total</span>
+                  <span className="text-base font-bold text-navy">PKR {orderFormTotal.toLocaleString()}</span>
+                </div>
+              )}
             </div>
 
             <div>
@@ -468,6 +576,71 @@ export default function Orders() {
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={() => setShowCreateOrder(false)}>Cancel</Button>
               <Button type="submit" variant="accent" disabled={creating}>{creating ? 'Creating...' : 'Create Order'}</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {payingOrder && (
+        <Modal title={`Record Payment — ${payingOrder.order_number}`} onClose={() => setPayingOrder(null)}>
+          <form onSubmit={handleRecordPayment} className="space-y-4">
+            <div className="bg-gray-50 border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm text-gray-600">
+              <p>Customer: <strong className="text-navy">{payingOrder.users?.full_name}</strong></p>
+              <p>Total: PKR {Number(payingOrder.total_amount).toLocaleString()} · Already Paid: PKR {Number(payingOrder.paid_amount || 0).toLocaleString()}</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Amount *</label>
+              <input
+                type="number"
+                min="1"
+                step="0.01"
+                value={paymentForm.amount}
+                onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Method</label>
+              <select
+                value={paymentForm.method}
+                onChange={(e) => setPaymentForm({ ...paymentForm, method: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+              >
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Salesman (credited) *</label>
+              <select
+                value={paymentForm.salesman_id}
+                onChange={(e) => setPaymentForm({ ...paymentForm, salesman_id: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+              >
+                <option value="">Select salesman...</option>
+                {salesmen.map((s) => (
+                  <option key={s.id} value={s.id}>{s.full_name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Payment Proof (photo) *</label>
+              <input
+                type="file"
+                accept="image/jpeg,image/png"
+                onChange={(e) => setPaymentForm({ ...paymentForm, photoFile: e.target.files?.[0] || null })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setPayingOrder(null)}>Cancel</Button>
+              <Button type="submit" variant="accent" disabled={recordingPayment}>{recordingPayment ? 'Recording...' : 'Record Payment'}</Button>
             </div>
           </form>
         </Modal>

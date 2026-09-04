@@ -77,7 +77,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
 async function getOrders(user) {
   let query = supabaseAdmin
     .from('orders')
-    .select('*, order_items(product_name, quantity, unit_price, subtotal), users!customer_id(full_name, phone)')
+    .select('*, order_items(product_name, quantity, unit_price, subtotal), users!customer_id(full_name, phone, salesman_id)')
     .order('created_at', { ascending: false });
 
   if (user.role === 'customer') {
@@ -91,7 +91,25 @@ async function getOrders(user) {
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return data;
+
+  // Paid total per order (approved payments only). payments.order_id
+  // isn't set up for a PostgREST embed, so resolved by hand — same
+  // small-dataset-N+1 tradeoff already made for recipe labels in
+  // production.routes.js.
+  const orderIds = (data || []).map((o) => o.id);
+  let paidByOrder = {};
+  if (orderIds.length) {
+    const { data: payments } = await supabaseAdmin
+      .from('payments')
+      .select('order_id, amount')
+      .in('order_id', orderIds)
+      .eq('status', 'approved');
+    (payments || []).forEach((p) => {
+      paidByOrder[p.order_id] = (paidByOrder[p.order_id] || 0) + Number(p.amount);
+    });
+  }
+
+  return (data || []).map((o) => ({ ...o, paid_amount: paidByOrder[o.id] || 0 }));
 }
 
 async function getOrderById(id, user) {
