@@ -14,6 +14,7 @@ import api, { hasPermission } from '../services/api';
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'products', label: 'Products', icon: Package },
+  { key: 'production-materials', label: 'Raw Materials', icon: Boxes, requiredRole: 'super_admin' },
   { key: 'orders', label: 'Orders', icon: ShoppingCart },
   { key: 'customers', label: 'Customers', icon: Users },
   { key: 'salesmen', label: 'Salesmen', icon: UserCog },
@@ -30,7 +31,6 @@ const NAV_ITEMS = [
     requiredRole: 'super_admin',
     children: [
       { key: 'production-dashboard', label: 'Production Dashboard', icon: Gauge },
-      { key: 'production-materials', label: 'Raw Materials', icon: Boxes },
       { key: 'production-orders', label: 'Production Orders', icon: ClipboardList },
       { key: 'production-log', label: 'Production History', icon: PackageCheck },
       { key: 'production-dispatch', label: 'Dispatch', icon: Truck },
