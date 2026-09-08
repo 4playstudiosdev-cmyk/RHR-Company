@@ -92,6 +92,12 @@ async function registerCustomer({ phone, fullName, companyId, shopName, shopAddr
 async function loginWithCredentials({ email, password }) {
   // Salesmen log in via phone + OTP now (see findSalesmanByPhone /
   // registerSalesman) — only admin/delivery roles still use email+password.
+  // Same Railway<->Supabase blip documented in utils/withRetry.js — the
+  // default 2x400ms budget was too thin to survive it (login was failing
+  // consistently right after the Supabase project migration, while the
+  // exact same calls run locally succeeded every time). Matched to the
+  // 6x600ms budget already used for the other endpoints hit hardest by
+  // this (raw_materials, production_bom).
   const user = await withRetry(async () => {
     const { data, error } = await supabaseAdmin
       .from('users')
@@ -101,7 +107,7 @@ async function loginWithCredentials({ email, password }) {
       .single();
     if (error || !data) throw new Error('lookup failed');
     return data;
-  }).catch(() => null);
+  }, 6, 600).catch(() => null);
 
   if (!user) throw new Error('Invalid email or password');
   if (!user.is_active) throw new Error('Account has been deactivated');
@@ -110,7 +116,7 @@ async function loginWithCredentials({ email, password }) {
     const { error: signInError } = await supabaseAdmin.auth.signInWithPassword({ email, password });
     if (signInError) throw new Error(signInError.message);
     return true;
-  }).catch(() => false);
+  }, 6, 600).catch(() => false);
 
   if (!signInOk) throw new Error('Invalid email or password');
 
