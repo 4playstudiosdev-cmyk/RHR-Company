@@ -105,18 +105,18 @@ async function loginWithCredentials({ email, password }) {
       .eq('email', email)
       .in('role', ['super_admin', 'branch_admin', 'delivery'])
       .single();
-    if (error || !data) throw new Error('lookup failed');
+    if (error || !data) throw new Error(error ? `users lookup: ${error.code || ''} ${error.message}` : 'users lookup: no data');
     return data;
-  }, 6, 600).catch(() => null);
+  }, 6, 600).catch((e) => { console.error('[login] users lookup failed:', e.message); return null; });
 
   if (!user) throw new Error('Invalid email or password');
   if (!user.is_active) throw new Error('Account has been deactivated');
 
   const signInOk = await withRetry(async () => {
     const { error: signInError } = await supabaseAdmin.auth.signInWithPassword({ email, password });
-    if (signInError) throw new Error(signInError.message);
+    if (signInError) throw new Error(`signIn: ${signInError.status || ''} ${signInError.code || ''} ${signInError.message}`);
     return true;
-  }, 6, 600).catch(() => false);
+  }, 6, 600).catch((e) => { console.error('[login] signInWithPassword failed:', e.message); return false; });
 
   if (!signInOk) throw new Error('Invalid email or password');
 
