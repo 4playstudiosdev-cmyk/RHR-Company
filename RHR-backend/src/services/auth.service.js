@@ -98,15 +98,21 @@ async function loginWithCredentials({ email, password }) {
   // exact same calls run locally succeeded every time). Matched to the
   // 6x600ms budget already used for the other endpoints hit hardest by
   // this (raw_materials, production_bom).
+  // .single() throws PGRST116 (its all-or-nothing coercion error) on
+  // anything but exactly one row back — that turned out to be exactly
+  // what the Railway<->Supabase blip was hitting here: a plain array
+  // fetch against this same row succeeds locally every time, so this
+  // avoids .single()'s strict content-negotiation path instead of
+  // relying on retries alone to outlast the blip.
   const user = await withRetry(async () => {
     const { data, error } = await supabaseAdmin
       .from('users')
       .select('*')
       .eq('email', email)
-      .in('role', ['super_admin', 'branch_admin', 'delivery'])
-      .single();
-    if (error || !data) throw new Error(error ? `users lookup: ${error.code || ''} ${error.message}` : 'users lookup: no data');
-    return data;
+      .in('role', ['super_admin', 'branch_admin', 'delivery']);
+    if (error) throw new Error(`users lookup: ${error.code || ''} ${error.message}`);
+    if (!data || data.length === 0) throw new Error('users lookup: no match');
+    return data[0];
   }, 6, 600).catch((e) => { console.error('[login] users lookup failed:', e.message); return null; });
 
   if (!user) throw new Error('Invalid email or password');
