@@ -92,18 +92,14 @@ async function registerCustomer({ phone, fullName, companyId, shopName, shopAddr
 async function loginWithCredentials({ email, password }) {
   // Salesmen log in via phone + OTP now (see findSalesmanByPhone /
   // registerSalesman) — only admin/delivery roles still use email+password.
-  // Same Railway<->Supabase blip documented in utils/withRetry.js — the
-  // default 2x400ms budget was too thin to survive it (login was failing
-  // consistently right after the Supabase project migration, while the
-  // exact same calls run locally succeeded every time). Matched to the
-  // 6x600ms budget already used for the other endpoints hit hardest by
-  // this (raw_materials, production_bom).
-  // .single() throws PGRST116 (its all-or-nothing coercion error) on
-  // anything but exactly one row back — that turned out to be exactly
-  // what the Railway<->Supabase blip was hitting here: a plain array
-  // fetch against this same row succeeds locally every time, so this
-  // avoids .single()'s strict content-negotiation path instead of
-  // relying on retries alone to outlast the blip.
+  // Same Railway<->Supabase blip documented in utils/withRetry.js —
+  // confirmed via server-side logging that Railway's connection gets a
+  // successful-but-empty response most of the time here (not an error,
+  // not a duplicate row — the identical query run locally returns exactly
+  // one row every single time). This path is hitting the blip far harder
+  // than raw_materials/production_bom ever needed to route around, and a
+  // failed login is fully blocking (unlike a slow list), so the budget
+  // here is deliberately much larger than those.
   const user = await withRetry(async () => {
     const { data, error } = await supabaseAdmin
       .from('users')
@@ -113,7 +109,7 @@ async function loginWithCredentials({ email, password }) {
     if (error) throw new Error(`users lookup: ${error.code || ''} ${error.message}`);
     if (!data || data.length === 0) throw new Error('users lookup: no match');
     return data[0];
-  }, 6, 600).catch((e) => { console.error('[login] users lookup failed:', e.message); return null; });
+  }, 20, 700).catch((e) => { console.error('[login] users lookup failed:', e.message); return null; });
 
   if (!user) throw new Error('Invalid email or password');
   if (!user.is_active) throw new Error('Account has been deactivated');
@@ -122,7 +118,7 @@ async function loginWithCredentials({ email, password }) {
     const { error: signInError } = await supabaseAdmin.auth.signInWithPassword({ email, password });
     if (signInError) throw new Error(`signIn: ${signInError.status || ''} ${signInError.code || ''} ${signInError.message}`);
     return true;
-  }, 6, 600).catch((e) => { console.error('[login] signInWithPassword failed:', e.message); return false; });
+  }, 20, 700).catch((e) => { console.error('[login] signInWithPassword failed:', e.message); return false; });
 
   if (!signInOk) throw new Error('Invalid email or password');
 
