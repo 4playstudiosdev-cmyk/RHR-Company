@@ -1,3 +1,4 @@
+const https = require('https');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { retryIfEmpty } = require('../utils/withRetry');
@@ -5,9 +6,32 @@ const { getCached, setCached, invalidate } = require('../utils/simpleCache');
 
 const CACHE_TTL_MS = 60000;
 
+// TEMP diagnostic — raw https, zero supabase-js involvement, to rule out
+// any SDK/runtime-level difference between local and Railway.
+function rawHttpsProbe(companyId) {
+  return new Promise((resolve) => {
+    const url = `${process.env.SUPABASE_URL}/rest/v1/raw_materials?select=id,name&company_id=eq.${companyId}&order=name.asc`;
+    const req = https.get(url, {
+      headers: {
+        apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => resolve({ statusCode: res.statusCode, headers: res.headers, body }));
+    });
+    req.on('error', (err) => resolve({ error: err.message }));
+    req.setTimeout(8000, () => { req.destroy(); resolve({ error: 'timeout' }); });
+  });
+}
+
 // GET /api/v1/production/materials
 const getMaterials = async (req, res) => {
   try {
+    const probe = await rawHttpsProbe(req.user.company_id);
+    console.log('[materials] RAW HTTPS PROBE:', JSON.stringify(probe));
+
     const cacheKey = `materials:${req.user.company_id}`;
     const cached = getCached(cacheKey);
     if (cached) return success(res, cached);
