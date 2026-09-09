@@ -26,7 +26,7 @@ const getMaterials = async (req, res) => {
     const data = await retryIfEmpty(async () => {
       attemptNum++;
       const { data, error: dbErr, status, statusText, count } = await supabaseAdmin
-        .rpc('get_raw_materials', { p_company_id: req.user.company_id });
+        .rpc('get_raw_materials', { p_company_id: req.user.company_id, p_nonce: `${Date.now()}-${Math.random()}` });
       console.log(`[materials] attempt ${attemptNum}: status=${status} statusText=${statusText} count=${count} isArray=${Array.isArray(data)} len=${data?.length} dbErr=${dbErr ? JSON.stringify(dbErr) : 'null'} company_id=${req.user.company_id}`);
       if (dbErr) throw new Error(dbErr.message);
       return data;
