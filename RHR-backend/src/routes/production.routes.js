@@ -5,6 +5,9 @@ const { isAdmin }      = require('../middleware/role.middleware');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { retryIfEmpty } = require('../utils/withRetry');
+const { getCached, setCached, invalidate } = require('../utils/simpleCache');
+
+const CACHE_TTL_MS = 60000;
 
 const production = require('../controllers/production.controller');
 const materials   = require('../controllers/rawMaterials.controller');
@@ -32,6 +35,13 @@ router.patch('/materials/:id/stock', authenticate, isAdmin, materials.addStock);
 // GET /api/v1/production/recipes
 router.get('/recipes', authenticate, isAdmin, async (req, res) => {
   try {
+    const cacheKey = `recipes:${req.user.company_id}`;
+    const cached = getCached(cacheKey);
+    if (cached) return success(res, cached);
+
+    // Same Railway<->Supabase blip as materials (see rawMaterials.controller.js)
+    // — caching a successful result means only the first load after a
+    // write/restart ever has to survive the retry budget below.
     const data = await retryIfEmpty(async () => {
       const { data, error: dbErr } = await supabaseAdmin
         .from('production_bom')
@@ -49,6 +59,7 @@ router.get('/recipes', authenticate, isAdmin, async (req, res) => {
       return data;
     }, 6, 600);
 
+    if (data && data.length > 0) setCached(cacheKey, data, CACHE_TTL_MS);
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 });
@@ -87,6 +98,7 @@ router.post('/recipes', authenticate, isAdmin, async (req, res) => {
     const { error: iErr } = await supabaseAdmin.from('production_bom_items').insert(rows);
     if (iErr) throw new Error(iErr.message);
 
+    invalidate(`recipes:${req.user.company_id}`);
     return success(res, bom, 'Recipe saved', 201);
   } catch (err) { return error(res, err.message); }
 });
@@ -129,6 +141,7 @@ router.put('/recipes/:id', authenticate, isAdmin, async (req, res) => {
     const { error: iErr } = await supabaseAdmin.from('production_bom_items').insert(rows);
     if (iErr) throw new Error(iErr.message);
 
+    invalidate(`recipes:${req.user.company_id}`);
     return success(res, updatedBom, 'Recipe updated');
   } catch (err) { return error(res, err.message); }
 });
@@ -143,6 +156,7 @@ router.delete('/recipes/:id', authenticate, isAdmin, async (req, res) => {
       .eq('company_id', req.user.company_id);
 
     if (dbErr) throw new Error(dbErr.message);
+    invalidate(`recipes:${req.user.company_id}`);
     return success(res, { deleted: true }, 'Recipe deleted');
   } catch (err) { return error(res, err.message); }
 });
@@ -310,6 +324,8 @@ router.delete('/runs/:id', authenticate, isAdmin, async (req, res) => {
       .from('productions')
       .delete()
       .eq('id', id);
+
+    invalidate(`materials:${req.user.company_id}`);
 
     return success(res, { reverted: true },
       'Production reverted — raw material stock restored');

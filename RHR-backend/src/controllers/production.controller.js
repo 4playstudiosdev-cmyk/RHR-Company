@@ -1,5 +1,6 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { invalidate } = require('../utils/simpleCache');
 
 // Orders that still need product manufactured/shipped for them. The task
 // spec says "pending customer orders" — but literally filtering to
@@ -240,6 +241,8 @@ const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, r
     .from('products')
     .update({ stock_quantity: Number(finishedProduct.stock_quantity) + Number(qtyProduced) })
     .eq('id', finishedProductId);
+
+  invalidate(`materials:${companyId}`);
 
   return {
     production_id:  newProduction.id,
