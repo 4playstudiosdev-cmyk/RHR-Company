@@ -22,9 +22,12 @@ const getMaterials = async (req, res) => {
     // result (below) means only the first load after a write/restart
     // ever has to survive the retry budget — every load after that is
     // instant from memory until the next write invalidates it.
+    let attemptNum = 0;
     const data = await retryIfEmpty(async () => {
-      const { data, error: dbErr } = await supabaseAdmin
+      attemptNum++;
+      const { data, error: dbErr, status, statusText, count } = await supabaseAdmin
         .rpc('get_raw_materials', { p_company_id: req.user.company_id });
+      console.log(`[materials] attempt ${attemptNum}: status=${status} statusText=${statusText} count=${count} isArray=${Array.isArray(data)} len=${data?.length} dbErr=${dbErr ? JSON.stringify(dbErr) : 'null'} company_id=${req.user.company_id}`);
       if (dbErr) throw new Error(dbErr.message);
       return data;
     }, 6, 600);
