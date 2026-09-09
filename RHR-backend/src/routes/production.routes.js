@@ -6,6 +6,7 @@ const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { retryIfEmpty } = require('../utils/withRetry');
 const { getCached, setCached, invalidate } = require('../utils/simpleCache');
+const { pgrestGet } = require('../utils/directQuery');
 
 const CACHE_TTL_MS = 60000;
 
@@ -39,25 +40,15 @@ router.get('/recipes', authenticate, isAdmin, async (req, res) => {
     const cached = getCached(cacheKey);
     if (cached) return success(res, cached);
 
-    // Same Railway<->Supabase blip as materials (see rawMaterials.controller.js)
-    // — caching a successful result means only the first load after a
-    // write/restart ever has to survive the retry budget below.
-    const data = await retryIfEmpty(async () => {
-      const { data, error: dbErr } = await supabaseAdmin
-        .from('production_bom')
-        .select(`
-          *,
-          recipe_ingredients:production_bom_items(
-            id, qty_required, unit,
-            raw_materials(id, name, unit)
-          )
-        `)
-        .eq('company_id', req.user.company_id)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
-      if (dbErr) throw new Error(dbErr.message);
-      return data;
-    }, 6, 600);
+    // Same supabase-js-on-Railway issue as materials (see
+    // src/utils/directQuery.js and rawMaterials.controller.js) — routed
+    // through the same raw-https bypass instead of supabase-js.
+    const data = await pgrestGet('production_bom', {
+      select: '*,recipe_ingredients:production_bom_items(id,qty_required,unit,raw_materials(id,name,unit))',
+      company_id: `eq.${req.user.company_id}`,
+      is_active: 'eq.true',
+      order: 'created_at.desc',
+    });
 
     if (data && data.length > 0) setCached(cacheKey, data, CACHE_TTL_MS);
     return success(res, data);
