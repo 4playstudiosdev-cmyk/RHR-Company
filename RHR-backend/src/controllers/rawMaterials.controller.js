@@ -14,21 +14,17 @@ const getMaterials = async (req, res) => {
 
     // raw_materials is the table most exposed to the Railway<->Supabase
     // blip this project keeps hitting — a successful-but-wrongly-empty
-    // read. See src/utils/withRetry.js. Bumped past the default budget
-    // (was 4x350ms=1.4s) — live testing showed this table's bad windows
-    // can run 1-2 minutes, well past what a couple of quick retries can
-    // paper over; 6x600ms buys more coverage without stalling the page
-    // load into feeling broken. Still not a full guarantee against a
-    // very long window — see the withRetry.js header comment. Caching a
-    // successful result (below) means only the first load after a
-    // write/restart ever has to survive that wait — every load after
-    // that is instant from memory until the next write invalidates it.
+    // read on the /rest/v1/raw_materials table route specifically (see
+    // src/utils/withRetry.js). Routed through a Postgres RPC function
+    // (get_raw_materials — see sql/) instead of a direct table select,
+    // since that's a different PostgREST code path (/rest/v1/rpc/...)
+    // than whatever the table route was hitting. Caching a successful
+    // result (below) means only the first load after a write/restart
+    // ever has to survive the retry budget — every load after that is
+    // instant from memory until the next write invalidates it.
     const data = await retryIfEmpty(async () => {
       const { data, error: dbErr } = await supabaseAdmin
-        .from('raw_materials')
-        .select('*')
-        .eq('company_id', req.user.company_id)
-        .order('name');
+        .rpc('get_raw_materials', { p_company_id: req.user.company_id });
       if (dbErr) throw new Error(dbErr.message);
       return data;
     }, 6, 600);
