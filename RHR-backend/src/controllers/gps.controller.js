@@ -1,5 +1,6 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { pgrestGet } = require('../utils/directQuery');
 
 // POST /api/v1/gps/ping
 // Salesman sends location every 2 minutes from Flutter app
@@ -64,8 +65,22 @@ const batchPingLocation = async (req, res) => {
 // companies is small and effectively static — fetched once per request
 // rather than joined, so the three staff-table queries below stay simple.
 async function companyLookup() {
-  const { data } = await supabaseAdmin.from('companies').select('id, name, city');
+  const data = await pgrestGet('companies', { select: 'id,name,city' });
   return Object.fromEntries((data || []).map(c => [c.id, { name: c.name, city: c.city }]));
+}
+
+// Latest ping for one field-staff member — via the raw-https bypass (see
+// directQuery.js): the plain supabaseAdmin version of this exact query
+// was confirmed to silently return empty on Railway for real, existing
+// staff (2 salesmen + 1 driver in Karachi came back as an empty list).
+async function latestPing(userId) {
+  const rows = await pgrestGet('gps_locations', {
+    select: 'latitude,longitude,status,recorded_at',
+    user_id: `eq.${userId}`,
+    order: 'recorded_at.desc',
+    limit: '1',
+  });
+  return rows?.[0] || null;
 }
 
 // GET /api/v1/gps/live
@@ -75,18 +90,13 @@ async function companyLookup() {
 const getLiveLocations = async (req, res) => {
   try {
     const scoped = req.user.role !== 'super_admin';
+    const companyFilter = scoped ? { company_id: `eq.${req.user.company_id}` } : {};
 
-    let salesmenQ = supabaseAdmin.from('salesmen').select('id, full_name, phone, company_id').eq('is_active', true).eq('is_approved', true);
-    let deliveryQ = supabaseAdmin.from('users').select('id, full_name, phone, company_id').eq('role', 'delivery').eq('is_active', true);
-    let driversQ  = supabaseAdmin.from('drivers').select('id, full_name, phone, car_number, company_id').eq('is_active', true).eq('is_approved', true);
-    if (scoped) {
-      salesmenQ = salesmenQ.eq('company_id', req.user.company_id);
-      deliveryQ = deliveryQ.eq('company_id', req.user.company_id);
-      driversQ  = driversQ.eq('company_id', req.user.company_id);
-    }
-
-    const [{ data: salesmen }, { data: delivery }, { data: drivers }, companies] = await Promise.all([
-      salesmenQ, deliveryQ, driversQ, companyLookup()
+    const [salesmen, delivery, drivers, companies] = await Promise.all([
+      pgrestGet('salesmen', { select: 'id,full_name,phone,company_id', is_active: 'eq.true', is_approved: 'eq.true', ...companyFilter }),
+      pgrestGet('users', { select: 'id,full_name,phone,company_id', role: 'eq.delivery', is_active: 'eq.true', ...companyFilter }),
+      pgrestGet('drivers', { select: 'id,full_name,phone,car_number,company_id', is_active: 'eq.true', is_approved: 'eq.true', ...companyFilter }),
+      companyLookup(),
     ]);
     const fieldStaff = [
       ...(salesmen || []).map(s => ({ ...s, staffType: 'salesman' })),
@@ -94,17 +104,9 @@ const getLiveLocations = async (req, res) => {
       ...(drivers  || []).map(s => ({ ...s, staffType: 'driver' }))
     ];
 
-    // Get latest ping for each field staff member
-    const liveData = await Promise.all(fieldStaff.map(async (s) => {
-      const { data: loc } = await supabaseAdmin
-        .from('gps_locations')
-        .select('latitude, longitude, status, recorded_at')
-        .eq('user_id', s.id)
-        .order('recorded_at', { ascending: false })
-        .limit(1)
-        .single();
-      return { ...s, company: companies[s.company_id] || null, location: loc || null };
-    }));
+    const liveData = await Promise.all(fieldStaff.map(async (s) => ({
+      ...s, company: companies[s.company_id] || null, location: await latestPing(s.id)
+    })));
 
     return success(res, liveData, 'Live locations');
   } catch (err) { return error(res, err.message); }
@@ -116,8 +118,8 @@ const getLiveLocations = async (req, res) => {
 // without this a branch_admin could view any other branch's staff by ID.
 async function resolveStaffCompany(userId) {
   for (const table of ['salesmen', 'users', 'drivers']) {
-    const { data } = await supabaseAdmin.from(table).select('company_id').eq('id', userId).maybeSingle();
-    if (data) return data.company_id;
+    const rows = await pgrestGet(table, { select: 'company_id', id: `eq.${userId}` });
+    if (rows?.[0]) return rows[0].company_id;
   }
   return null;
 }
@@ -137,14 +139,13 @@ const getLocationHistory = async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('gps_locations')
-      .select('latitude, longitude, status, recorded_at')
-      .eq('user_id', userId)
-      .gte('recorded_at', today.toISOString())
-      .order('recorded_at', { ascending: true });
+    const data = await pgrestGet('gps_locations', {
+      select: 'latitude,longitude,status,recorded_at',
+      user_id: `eq.${userId}`,
+      recorded_at: `gte.${today.toISOString()}`,
+      order: 'recorded_at.asc',
+    });
 
-    if (dbErr) throw new Error(dbErr.message);
     return success(res, data, 'Location history');
   } catch (err) { return error(res, err.message); }
 };
@@ -168,15 +169,12 @@ const getRoute = async (req, res) => {
     const endOfDay = new Date(targetDate);
     endOfDay.setHours(23, 59, 59, 999);
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('gps_locations')
-      .select('latitude, longitude, status, is_offline, recorded_at')
-      .eq('user_id', userId)
-      .gte('recorded_at', startOfDay.toISOString())
-      .lte('recorded_at', endOfDay.toISOString())
-      .order('recorded_at', { ascending: true });
-
-    if (dbErr) throw new Error(dbErr.message);
+    const data = await pgrestGet('gps_locations', {
+      select: 'latitude,longitude,status,is_offline,recorded_at',
+      user_id: `eq.${userId}`,
+      and: `(recorded_at.gte.${startOfDay.toISOString()},recorded_at.lte.${endOfDay.toISOString()})`,
+      order: 'recorded_at.asc',
+    });
 
     // Calculate total distance in KM
     let totalKM = 0;
@@ -219,33 +217,27 @@ const ASSUMED_SPEED_KMH = 25;
 // distance/ETA if the customer has set their own shop location.
 const getMySalesmanLocation = async (req, res) => {
   try {
-    const { data: customer, error: custErr } = await supabaseAdmin
-      .from('users')
-      .select('salesman_id, shop_latitude, shop_longitude')
-      .eq('id', req.user.id)
-      .single();
-    if (custErr) throw new Error(custErr.message);
+    const customerRows = await pgrestGet('users', {
+      select: 'salesman_id,shop_latitude,shop_longitude',
+      id: `eq.${req.user.id}`,
+    });
+    const customer = customerRows?.[0];
+    if (!customer) throw new Error('Customer not found');
 
     if (!customer.salesman_id) {
       return success(res, { assigned: false }, 'No salesman assigned yet');
     }
 
-    const { data: salesman, error: salesmanErr } = await supabaseAdmin
-      .from('salesmen')
-      .select('id, full_name, phone')
-      .eq('id', customer.salesman_id)
-      .single();
-    if (salesmanErr || !salesman) {
+    const salesmanRows = await pgrestGet('salesmen', {
+      select: 'id,full_name,phone',
+      id: `eq.${customer.salesman_id}`,
+    });
+    const salesman = salesmanRows?.[0];
+    if (!salesman) {
       return success(res, { assigned: false }, 'Assigned salesman not found');
     }
 
-    const { data: loc } = await supabaseAdmin
-      .from('gps_locations')
-      .select('latitude, longitude, status, recorded_at')
-      .eq('user_id', salesman.id)
-      .order('recorded_at', { ascending: false })
-      .limit(1)
-      .single();
+    const loc = await latestPing(salesman.id);
 
     let distanceKm = null;
     let etaMinutes = null;
