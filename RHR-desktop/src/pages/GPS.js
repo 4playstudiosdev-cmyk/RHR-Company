@@ -116,7 +116,8 @@ export default function GPS() {
       const status = effectiveStatus(s);
       const color = STATUS_COLORS[status] || '#888888';
       const roleLabel = s.staffType === 'driver' ? `Driver${s.car_number ? ` — ${s.car_number}` : ''}` : s.staffType === 'delivery' ? 'Delivery' : 'Salesman';
-      const popupHtml = `<div style="font-size:12px"><strong>${s.full_name}</strong><br/>${roleLabel}<br/>Status: ${STATUS_META[status]?.label || status}<br/>Last seen: ${new Date(
+      const branchLabel = s.company ? ` · ${s.company.city}` : '';
+      const popupHtml = `<div style="font-size:12px"><strong>${s.full_name}</strong><br/>${roleLabel}${branchLabel}<br/>Status: ${STATUS_META[status]?.label || status}<br/>Last seen: ${new Date(
         s.location.recorded_at
       ).toLocaleTimeString()}</div>`;
 
@@ -169,7 +170,8 @@ export default function GPS() {
     data.forEach((a) => {
       if (!a.location) return;
       const pos = [a.location.latitude, a.location.longitude];
-      const popupHtml = `<div style="font-size:12px"><strong>${a.full_name}</strong><br/>Admin<br/>Last seen: ${new Date(
+      const branchLabel = a.company ? ` · ${a.company.city}` : '';
+      const popupHtml = `<div style="font-size:12px"><strong>${a.full_name}</strong><br/>${a.role === 'super_admin' ? 'Super Admin' : 'Branch Admin'}${branchLabel}<br/>Last seen: ${new Date(
         a.location.recorded_at
       ).toLocaleTimeString()}</div>`;
 
@@ -438,6 +440,9 @@ export default function GPS() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-sm text-navy truncate">{a.full_name}</p>
+                    <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">
+                      {a.role === 'super_admin' ? 'Super Admin' : 'Branch Admin'}{a.company ? ` · ${a.company.city}` : ''}
+                    </p>
                     <p className="text-xs text-gray-400 mt-0.5">
                       {a.location ? `Updated ${timeAgo(a.location.recorded_at)}` : 'No location reported yet'}
                     </p>
@@ -483,7 +488,7 @@ export default function GPS() {
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-sm text-navy truncate">{s.full_name}</p>
                     <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">
-                      {roleLabel}{s.staffType === 'driver' && s.car_number ? ` · ${s.car_number}` : ''}
+                      {roleLabel}{s.staffType === 'driver' && s.car_number ? ` · ${s.car_number}` : ''}{s.company ? ` · ${s.company.city}` : ''}
                     </p>
                     <p className="text-xs text-gray-400 mt-0.5">
                       {s.location ? `Updated ${timeAgo(s.location.recorded_at)}` : 'No location reported yet'}

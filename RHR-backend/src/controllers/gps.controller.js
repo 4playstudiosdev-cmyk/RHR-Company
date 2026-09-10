@@ -61,35 +61,32 @@ const batchPingLocation = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+// companies is small and effectively static — fetched once per request
+// rather than joined, so the three staff-table queries below stay simple.
+async function companyLookup() {
+  const { data } = await supabaseAdmin.from('companies').select('id, name, city');
+  return Object.fromEntries((data || []).map(c => [c.id, { name: c.name, city: c.city }]));
+}
+
 // GET /api/v1/gps/live
-// Returns latest location for each active salesman in company
+// super_admin sees every branch's field staff at once ("massive upper
+// hand" — the whole company, not a branch switcher); branch_admin only
+// ever sees their own branch's salesmen/drivers.
 const getLiveLocations = async (req, res) => {
   try {
-    const companyId = req.user.role === 'super_admin'
-      ? req.query.company_id || req.user.company_id
-      : req.user.company_id;
+    const scoped = req.user.role !== 'super_admin';
 
-    // Get all field staff in company — salesmen and drivers live in their
-    // own tables now, delivery staff are still plain `users` rows.
-    const [{ data: salesmen }, { data: delivery }, { data: drivers }] = await Promise.all([
-      supabaseAdmin
-        .from('salesmen')
-        .select('id, full_name, phone')
-        .eq('company_id', companyId)
-        .eq('is_active', true)
-        .eq('is_approved', true),
-      supabaseAdmin
-        .from('users')
-        .select('id, full_name, phone')
-        .eq('company_id', companyId)
-        .eq('role', 'delivery')
-        .eq('is_active', true),
-      supabaseAdmin
-        .from('drivers')
-        .select('id, full_name, phone, car_number')
-        .eq('company_id', companyId)
-        .eq('is_active', true)
-        .eq('is_approved', true)
+    let salesmenQ = supabaseAdmin.from('salesmen').select('id, full_name, phone, company_id').eq('is_active', true).eq('is_approved', true);
+    let deliveryQ = supabaseAdmin.from('users').select('id, full_name, phone, company_id').eq('role', 'delivery').eq('is_active', true);
+    let driversQ  = supabaseAdmin.from('drivers').select('id, full_name, phone, car_number, company_id').eq('is_active', true).eq('is_approved', true);
+    if (scoped) {
+      salesmenQ = salesmenQ.eq('company_id', req.user.company_id);
+      deliveryQ = deliveryQ.eq('company_id', req.user.company_id);
+      driversQ  = driversQ.eq('company_id', req.user.company_id);
+    }
+
+    const [{ data: salesmen }, { data: delivery }, { data: drivers }, companies] = await Promise.all([
+      salesmenQ, deliveryQ, driversQ, companyLookup()
     ]);
     const fieldStaff = [
       ...(salesmen || []).map(s => ({ ...s, staffType: 'salesman' })),
@@ -106,18 +103,37 @@ const getLiveLocations = async (req, res) => {
         .order('recorded_at', { ascending: false })
         .limit(1)
         .single();
-      return { ...s, location: loc || null };
+      return { ...s, company: companies[s.company_id] || null, location: loc || null };
     }));
 
     return success(res, liveData, 'Live locations');
   } catch (err) { return error(res, err.message); }
 };
 
+// Finds which company a piece of field staff belongs to, checking every
+// table that kind of account can live in. Used to gate /route and
+// /history below — those take a bare userId with no other context, so
+// without this a branch_admin could view any other branch's staff by ID.
+async function resolveStaffCompany(userId) {
+  for (const table of ['salesmen', 'users', 'drivers']) {
+    const { data } = await supabaseAdmin.from(table).select('company_id').eq('id', userId).maybeSingle();
+    if (data) return data.company_id;
+  }
+  return null;
+}
+
 // GET /api/v1/gps/history/:userId
 // Today's location history for one salesman
 const getLocationHistory = async (req, res) => {
   try {
     const { userId } = req.params;
+
+    if (req.user.role !== 'super_admin') {
+      const staffCompanyId = await resolveStaffCompany(userId);
+      if (staffCompanyId !== req.user.company_id)
+        return error(res, 'Access denied — that staff member is not in your branch', 403);
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -139,6 +155,12 @@ const getRoute = async (req, res) => {
   try {
     const { userId } = req.params;
     const { date } = req.query;
+
+    if (req.user.role !== 'super_admin') {
+      const staffCompanyId = await resolveStaffCompany(userId);
+      if (staffCompanyId !== req.user.company_id)
+        return error(res, 'Access denied — that staff member is not in your branch', 403);
+    }
 
     const targetDate = date || new Date().toISOString().split('T')[0];
     const startOfDay = new Date(targetDate);

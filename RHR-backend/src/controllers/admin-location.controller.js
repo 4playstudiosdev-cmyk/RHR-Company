@@ -30,19 +30,22 @@ const pingAdminLocation = async (req, res) => {
 };
 
 // GET /api/v1/admin-location/live
-// Latest known location for each admin (super_admin/branch_admin) in the company
+// super_admin sees every branch's admins at once; branch_admin only ever
+// sees admins in their own branch (which in practice is just themselves).
 const getAdminLiveLocations = async (req, res) => {
   try {
-    const companyId = req.user.role === 'super_admin'
-      ? req.query.company_id || req.user.company_id
-      : req.user.company_id;
-
-    const { data: admins } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('users')
-      .select('id, full_name, phone, role')
-      .eq('company_id', companyId)
+      .select('id, full_name, phone, role, company_id')
       .in('role', ['super_admin', 'branch_admin'])
       .eq('is_active', true);
+    if (req.user.role !== 'super_admin') query = query.eq('company_id', req.user.company_id);
+
+    const [{ data: admins }, { data: companies }] = await Promise.all([
+      query,
+      supabaseAdmin.from('companies').select('id, name, city')
+    ]);
+    const companyById = Object.fromEntries((companies || []).map(c => [c.id, { name: c.name, city: c.city }]));
 
     const liveData = await Promise.all((admins || []).map(async (a) => {
       const { data: loc } = await supabaseAdmin
@@ -52,7 +55,7 @@ const getAdminLiveLocations = async (req, res) => {
         .order('recorded_at', { ascending: false })
         .limit(1)
         .single();
-      return { ...a, location: loc || null };
+      return { ...a, company: companyById[a.company_id] || null, location: loc || null };
     }));
 
     return success(res, liveData, 'Live admin locations');
@@ -64,6 +67,13 @@ const getAdminLiveLocations = async (req, res) => {
 const getAdminLocationHistory = async (req, res) => {
   try {
     const { adminId } = req.params;
+
+    if (req.user.role !== 'super_admin') {
+      const { data: target } = await supabaseAdmin.from('users').select('company_id').eq('id', adminId).maybeSingle();
+      if (!target || target.company_id !== req.user.company_id)
+        return error(res, 'Access denied — that admin is not in your branch', 403);
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 

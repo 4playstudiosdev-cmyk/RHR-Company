@@ -8,7 +8,7 @@ router.post('/ping',              authenticate, ctrl.pingLocation);
 router.post('/batch-ping',        authenticate, ctrl.batchPingLocation);
 router.get('/live',               authenticate, isAdmin, ctrl.getLiveLocations);
 router.get('/my-salesman',        authenticate, isCustomer, ctrl.getMySalesmanLocation);
-router.get('/route/:userId',      authenticate, ctrl.getRoute);
-router.get('/history/:userId',    authenticate, ctrl.getLocationHistory);
+router.get('/route/:userId',      authenticate, isAdmin, ctrl.getRoute);
+router.get('/history/:userId',    authenticate, isAdmin, ctrl.getLocationHistory);
 
 module.exports = router;
