@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { supabaseAdmin } = require('../config/supabase');
 const { withRetry } = require('../utils/withRetry');
+const { pgrestGet } = require('../utils/directQuery');
 
 function generateToken(user) {
   return jwt.sign(
@@ -92,24 +93,20 @@ async function registerCustomer({ phone, fullName, companyId, shopName, shopAddr
 async function loginWithCredentials({ email, password }) {
   // Salesmen log in via phone + OTP now (see findSalesmanByPhone /
   // registerSalesman) — only admin/delivery roles still use email+password.
-  // Same Railway<->Supabase blip documented in utils/withRetry.js —
-  // confirmed via server-side logging that Railway's connection gets a
-  // successful-but-empty response most of the time here (not an error,
-  // not a duplicate row — the identical query run locally returns exactly
-  // one row every single time). This path is hitting the blip far harder
-  // than raw_materials/production_bom ever needed to route around, and a
-  // failed login is fully blocking (unlike a slow list), so the budget
-  // here is deliberately much larger than those.
-  const user = await withRetry(async () => {
-    const { data, error } = await supabaseAdmin
-      .from('users')
-      .select('*')
-      .eq('email', email)
-      .in('role', ['super_admin', 'branch_admin', 'delivery']);
-    if (error) throw new Error(`users lookup: ${error.code || ''} ${error.message}`);
+  // Same supabase-js-on-Railway issue documented in utils/directQuery.js
+  // (proved via a raw-https diagnostic that supabase-js's own HTTP client
+  // silently drops the body on some Railway requests) — this lookup was
+  // still going through supabase-js and failing "no match" almost every
+  // time even with a 20x700ms retry budget, so routed through the same
+  // raw-https bypass already fixed for raw_materials/production_bom.
+  const user = await pgrestGet('users', {
+    select: '*',
+    email: `eq.${email}`,
+    role: 'in.(super_admin,branch_admin,delivery)',
+  }).then((data) => {
     if (!data || data.length === 0) throw new Error('users lookup: no match');
     return data[0];
-  }, 20, 700).catch((e) => { console.error('[login] users lookup failed:', e.message); return null; });
+  }).catch((e) => { console.error('[login] users lookup failed:', e.message); return null; });
 
   if (!user) throw new Error('Invalid email or password');
   if (!user.is_active) throw new Error('Account has been deactivated');
