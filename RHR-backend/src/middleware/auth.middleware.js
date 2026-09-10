@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
-const { supabaseAdmin } = require('../config/supabase');
 const { error } = require('../utils/response');
+const { pgrestGet } = require('../utils/directQuery');
 
 const authenticate = async (req, res, next) => {
   try {
@@ -32,15 +32,27 @@ const authenticate = async (req, res, next) => {
     const isSalesman = decoded.role === 'salesman';
     const isDriver = decoded.role === 'driver';
     const table = isSalesman ? 'salesmen' : isDriver ? 'drivers' : 'users';
-    const { data: user, error: dbError } = await supabaseAdmin
-      .from(table)
-      .select((isSalesman || isDriver)
-        ? 'id, company_id, full_name, phone, is_approved, is_active'
-        : 'id, company_id, role, full_name, phone, is_approved, is_active')
-      .eq('id', decoded.userId)
-      .single();
 
-    if (dbError || !user) {
+    // Runs on every authenticated request, so it's the single most
+    // consequential place this project's proven supabase-js-on-Railway bug
+    // (silently empty body — see utils/directQuery.js) could bite: any
+    // request could randomly 401 with "User not found" even for a
+    // perfectly valid, currently-logged-in user. Routed through the same
+    // raw-https bypass already fixed for login/raw_materials/recipes.
+    let user;
+    try {
+      const rows = await pgrestGet(table, {
+        select: (isSalesman || isDriver)
+          ? 'id,company_id,full_name,phone,is_approved,is_active'
+          : 'id,company_id,role,full_name,phone,is_approved,is_active',
+        id: `eq.${decoded.userId}`,
+      });
+      user = rows?.[0];
+    } catch (dbErr) {
+      console.error('[authenticate] user lookup failed:', dbErr.message);
+    }
+
+    if (!user) {
       return error(res, 'User not found', 401);
     }
 
