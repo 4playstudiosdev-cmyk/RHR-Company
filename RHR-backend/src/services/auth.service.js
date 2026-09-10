@@ -2,7 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { supabaseAdmin } = require('../config/supabase');
 const { withRetry } = require('../utils/withRetry');
-const { pgrestGet } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost } = require('../utils/directQuery');
 
 function generateToken(user) {
   return jwt.sign(
@@ -129,9 +129,12 @@ async function loginWithCredentials({ email, password, latitude, longitude }) {
   }
   if (hasLocation) {
     // Best-effort — a failed location ping should never block an
-    // otherwise-valid login.
+    // otherwise-valid login. Routed through the raw-https bypass (see
+    // utils/directQuery.js) — the identical supabaseAdmin insert was
+    // confirmed to fail on Railway with an RLS error while the exact
+    // same insert succeeds instantly when run locally.
     try {
-      const { error: insertErr } = await supabaseAdmin.from('admin_locations').insert({
+      await pgrestPost('admin_locations', {
         company_id:  user.company_id,
         user_id:     user.id,
         latitude:    Number(latitude),
@@ -139,9 +142,8 @@ async function loginWithCredentials({ email, password, latitude, longitude }) {
         status:      'active',
         recorded_at: new Date().toISOString(),
       });
-      if (insertErr) console.error('[login] admin_locations insert failed:', insertErr.message);
     } catch (e) {
-      console.error('[login] admin_locations insert threw:', e.message);
+      console.error('[login] admin_locations insert failed:', e.message);
     }
   }
 
