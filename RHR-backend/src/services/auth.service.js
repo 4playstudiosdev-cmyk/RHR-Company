@@ -130,14 +130,19 @@ async function loginWithCredentials({ email, password, latitude, longitude }) {
   if (hasLocation) {
     // Best-effort — a failed location ping should never block an
     // otherwise-valid login.
-    await supabaseAdmin.from('admin_locations').insert({
-      company_id:  user.company_id,
-      user_id:     user.id,
-      latitude:    Number(latitude),
-      longitude:   Number(longitude),
-      status:      'active',
-      recorded_at: new Date().toISOString(),
-    }).then(() => {}, (e) => console.error('[login] admin_locations insert failed:', e.message));
+    try {
+      const { error: insertErr } = await supabaseAdmin.from('admin_locations').insert({
+        company_id:  user.company_id,
+        user_id:     user.id,
+        latitude:    Number(latitude),
+        longitude:   Number(longitude),
+        status:      'active',
+        recorded_at: new Date().toISOString(),
+      });
+      if (insertErr) console.error('[login] admin_locations insert failed:', insertErr.message);
+    } catch (e) {
+      console.error('[login] admin_locations insert threw:', e.message);
+    }
   }
 
   const token = generateToken(user);
