@@ -52,22 +52,16 @@ const PAGES = {
   admins: AdminManagement
 };
 
-// Every production-* page requires super_admin — listed individually so
-// Sidebar and this map stay obviously in sync rather than pattern-matching
-// on the key prefix.
+// Dashboard and Admin Roles are the only super_admin-exclusive pages now —
+// branch admins get everything else (their own branch's Products, Raw
+// Materials, Production, HRM, etc.) per the Karachi/Hyderabad/Sukkur
+// access model.
 const PAGE_ACCESS = {
+  dashboard: { requiredRole: 'super_admin' },
   payments: { requiredPermission: 'can_view_payments' },
   reports: { requiredPermission: 'can_export_reports' },
   gps: { requiredPermission: 'can_view_gps' },
-  hrm: { requiredRole: 'super_admin' },
-  admins: { requiredRole: 'super_admin' },
-  'production-dashboard': { requiredRole: 'super_admin' },
-  'production-materials': { requiredRole: 'super_admin' },
-  'production-orders': { requiredRole: 'super_admin' },
-  'production-log': { requiredRole: 'super_admin' },
-  'production-dispatch': { requiredRole: 'super_admin' },
-  'production-reports': { requiredRole: 'super_admin' },
-  'production-recipes': { requiredRole: 'super_admin' }
+  admins: { requiredRole: 'super_admin' }
 };
 
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 hours
@@ -93,7 +87,17 @@ function AppShell() {
     const stored = localStorage.getItem('rhr_user');
     return stored ? JSON.parse(stored) : null;
   });
-  const [page, setPage] = useState('dashboard');
+  // Dashboard is super_admin-only now — branch admins land on Products
+  // instead, both on a fresh page load (restored session) and right after
+  // handleLogin below.
+  const [page, setPage] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('rhr_user') || 'null');
+      return stored && stored.role !== 'super_admin' ? 'products' : 'dashboard';
+    } catch {
+      return 'dashboard';
+    }
+  });
   // Lets Customers.js jump straight to a specific customer's ledger
   const [ledgerCustomerId, setLedgerCustomerId] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -111,6 +115,7 @@ function AppShell() {
     localStorage.setItem('rhr_login_time', Date.now().toString());
     setToken(newToken);
     setUser(newUser);
+    setPage(newUser.role === 'super_admin' ? 'dashboard' : 'products');
   };
 
   const handleLogout = () => {

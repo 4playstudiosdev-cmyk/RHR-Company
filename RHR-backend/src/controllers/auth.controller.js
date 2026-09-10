@@ -94,9 +94,9 @@ const verifyOTPHandler = async (req, res) => {
 
 const loginHandler = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, latitude, longitude } = req.body;
     if (!email || !password) return error(res, 'Email and password are required', 400);
-    const result = await loginWithCredentials({ email, password });
+    const result = await loginWithCredentials({ email, password, latitude, longitude });
     return success(res, result, 'Login successful');
   } catch (err) {
     return error(res, err.message, 401);

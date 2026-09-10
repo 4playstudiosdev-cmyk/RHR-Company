@@ -15,12 +15,26 @@ export default function Login({ onLogin }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Best-effort location capture — backend only actually requires it for
+  // branch_admin accounts (super_admin logins aren't gated on it), but we
+  // don't know the role until after credentials are checked, so this
+  // always tries and just sends whatever it gets (including nothing).
+  const captureLocation = () => new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve({});
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+      () => resolve({}),
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  });
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const res = await api.post('/auth/login', { email, password });
+      const location = await captureLocation();
+      const res = await api.post('/auth/login', { email, password, ...location });
       const { token, user } = res.data.data;
       if (!['super_admin', 'branch_admin'].includes(user.role)) {
         setError('This account does not have admin access.');

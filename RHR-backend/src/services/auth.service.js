@@ -90,7 +90,7 @@ async function registerCustomer({ phone, fullName, companyId, shopName, shopAddr
   return newUser;
 }
 
-async function loginWithCredentials({ email, password }) {
+async function loginWithCredentials({ email, password, latitude, longitude }) {
   // Salesmen log in via phone + OTP now (see findSalesmanByPhone /
   // registerSalesman) — only admin/delivery roles still use email+password.
   // Same supabase-js-on-Railway issue documented in utils/directQuery.js
@@ -118,6 +118,27 @@ async function loginWithCredentials({ email, password }) {
   }, 20, 700).catch((e) => { console.error('[login] signInWithPassword failed:', e.message); return false; });
 
   if (!signInOk) throw new Error('Invalid email or password');
+
+  // Branch admins (Hyderabad/Sukkur) must share their location on every
+  // login so Karachi's super_admin can see where they're logging in from
+  // — checked only after credentials are confirmed correct, so a bad
+  // password attempt never reveals whether an account is location-gated.
+  const hasLocation = latitude != null && longitude != null && !Number.isNaN(Number(latitude)) && !Number.isNaN(Number(longitude));
+  if (user.role === 'branch_admin' && !hasLocation) {
+    throw new Error('Location access is required to log in — please allow location access in your browser and try again.');
+  }
+  if (hasLocation) {
+    // Best-effort — a failed location ping should never block an
+    // otherwise-valid login.
+    await supabaseAdmin.from('admin_locations').insert({
+      company_id:  user.company_id,
+      user_id:     user.id,
+      latitude:    Number(latitude),
+      longitude:   Number(longitude),
+      status:      'active',
+      recorded_at: new Date().toISOString(),
+    }).then(() => {}, (e) => console.error('[login] admin_locations insert failed:', e.message));
+  }
 
   const token = generateToken(user);
 

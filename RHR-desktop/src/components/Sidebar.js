@@ -12,9 +12,9 @@ import api, { hasPermission } from '../services/api';
 // (e.g. an old bookmarked page state); this just keeps the menu itself
 // from showing links a user can't use.
 const NAV_ITEMS = [
-  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiredRole: 'super_admin' },
   { key: 'products', label: 'Products', icon: Package },
-  { key: 'production-materials', label: 'Raw Materials', icon: Boxes, requiredRole: 'super_admin' },
+  { key: 'production-materials', label: 'Raw Materials', icon: Boxes },
   { key: 'orders', label: 'Orders', icon: ShoppingCart },
   { key: 'customers', label: 'Customers', icon: Users },
   { key: 'salesmen', label: 'Salesmen', icon: UserCog },
@@ -28,7 +28,6 @@ const NAV_ITEMS = [
     key: 'production',
     label: 'Production',
     icon: Factory,
-    requiredRole: 'super_admin',
     children: [
       { key: 'production-dashboard', label: 'Production Dashboard', icon: Gauge },
       { key: 'production-orders', label: 'Production Orders', icon: ClipboardList },
@@ -39,7 +38,7 @@ const NAV_ITEMS = [
     ]
   },
   { key: 'stock-transfers', label: 'Stock Transfers', icon: ArrowLeftRight },
-  { key: 'hrm', label: 'HRM', icon: Briefcase, requiredRole: 'super_admin' },
+  { key: 'hrm', label: 'HRM', icon: Briefcase },
   { key: 'admins', label: 'Admin Roles', icon: KeyRound, requiredRole: 'super_admin' }
 ];
 

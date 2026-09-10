@@ -56,7 +56,7 @@ function effectiveStatus(s) {
 
 const todayStr = () => new Date().toISOString().split('T')[0];
 
-export default function GPS() {
+export default function GPS({ user }) {
   const toast = useToast();
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -64,17 +64,36 @@ export default function GPS() {
   const adminMarkersRef = useRef({});
   const routeLayerRef = useRef(null);
 
+  const isSuperAdmin = user?.role === 'super_admin';
+
   const [view, setView] = useState('live'); // 'live' | 'route' | 'admin'
   const [salesmen, setSalesmen] = useState([]);
   const [adminLocations, setAdminLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [branches, setBranches] = useState([]);
+  const [cityFilter, setCityFilter] = useState(''); // '' = all cities (super_admin's "massive upper hand" default)
 
   const [selectedUser, setSelectedUser] = useState('');
   const [routeDate, setRouteDate] = useState(todayStr());
   const [routeStats, setRouteStats] = useState(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [pinging, setPinging] = useState(false);
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    api.get('/companies').then((res) => setBranches(res.data.data || [])).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const visibleSalesmen = useMemo(
+    () => (cityFilter ? salesmen.filter((s) => s.company?.city === cityFilter) : salesmen),
+    [salesmen, cityFilter]
+  );
+  const visibleAdmins = useMemo(
+    () => (cityFilter ? adminLocations.filter((a) => a.company?.city === cityFilter) : adminLocations),
+    [adminLocations, cityFilter]
+  );
 
   // ── Init map once ──
   useEffect(() => {
@@ -109,8 +128,16 @@ export default function GPS() {
 
   const updateLiveMarkers = useCallback((data) => {
     setSalesmen(data);
-    if (!mapRef.current) return;
-    data.forEach((s) => {
+  }, []);
+
+  // Redraws from the city-filtered list whenever the fetched data or the
+  // filter changes — clear+redraw each time rather than incremental
+  // upsert/remove bookkeeping, which is simple and cheap enough at this
+  // scale (staff counts are small, refresh is only every 10s anyway).
+  useEffect(() => {
+    if (view !== 'live' || !mapRef.current) return;
+    clearMarkers();
+    visibleSalesmen.forEach((s) => {
       if (!s.location) return;
       const pos = [s.location.latitude, s.location.longitude];
       const status = effectiveStatus(s);
@@ -121,23 +148,18 @@ export default function GPS() {
         s.location.recorded_at
       ).toLocaleTimeString()}</div>`;
 
-      if (markersRef.current[s.id]) {
-        markersRef.current[s.id].setLatLng(pos);
-        markersRef.current[s.id].setStyle({ fillColor: color });
-        markersRef.current[s.id].setPopupContent(popupHtml);
-      } else {
-        markersRef.current[s.id] = L.circleMarker(pos, {
-          radius: 9,
-          fillColor: color,
-          fillOpacity: 1,
-          color: '#FFFFFF',
-          weight: 2
-        })
-          .addTo(mapRef.current)
-          .bindPopup(popupHtml);
-      }
+      markersRef.current[s.id] = L.circleMarker(pos, {
+        radius: 9,
+        fillColor: color,
+        fillOpacity: 1,
+        color: '#FFFFFF',
+        weight: 2
+      })
+        .addTo(mapRef.current)
+        .bindPopup(popupHtml);
     });
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleSalesmen, view]);
 
   const loadLive = useCallback(
     async (silent = false) => {
@@ -166,8 +188,12 @@ export default function GPS() {
 
   const updateAdminMarkers = useCallback((data) => {
     setAdminLocations(data);
-    if (!mapRef.current) return;
-    data.forEach((a) => {
+  }, []);
+
+  useEffect(() => {
+    if (view !== 'admin' || !mapRef.current) return;
+    clearAdminMarkers();
+    visibleAdmins.forEach((a) => {
       if (!a.location) return;
       const pos = [a.location.latitude, a.location.longitude];
       const branchLabel = a.company ? ` · ${a.company.city}` : '';
@@ -175,22 +201,18 @@ export default function GPS() {
         a.location.recorded_at
       ).toLocaleTimeString()}</div>`;
 
-      if (adminMarkersRef.current[a.id]) {
-        adminMarkersRef.current[a.id].setLatLng(pos);
-        adminMarkersRef.current[a.id].setPopupContent(popupHtml);
-      } else {
-        adminMarkersRef.current[a.id] = L.circleMarker(pos, {
-          radius: 10,
-          fillColor: '#8E44AD',
-          fillOpacity: 1,
-          color: '#FFFFFF',
-          weight: 2
-        })
-          .addTo(mapRef.current)
-          .bindPopup(popupHtml);
-      }
+      adminMarkersRef.current[a.id] = L.circleMarker(pos, {
+        radius: 10,
+        fillColor: '#8E44AD',
+        fillOpacity: 1,
+        color: '#FFFFFF',
+        weight: 2
+      })
+        .addTo(mapRef.current)
+        .bindPopup(popupHtml);
     });
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleAdmins, view]);
 
   const loadAdminLive = useCallback(
     async (silent = false) => {
@@ -308,9 +330,9 @@ export default function GPS() {
 
   const statusCounts = useMemo(() => {
     const counts = { moving: 0, at_customer: 0, idle: 0, offline: 0 };
-    salesmen.forEach((s) => { counts[effectiveStatus(s)] = (counts[effectiveStatus(s)] || 0) + 1; });
+    visibleSalesmen.forEach((s) => { counts[effectiveStatus(s)] = (counts[effectiveStatus(s)] || 0) + 1; });
     return counts;
-  }, [salesmen]);
+  }, [visibleSalesmen]);
 
   return (
     <div className="p-6 flex flex-col h-full">
@@ -345,7 +367,20 @@ export default function GPS() {
           </button>
         </div>
 
-        {view === 'live' && salesmen.length > 0 && (
+        {isSuperAdmin && branches.length > 0 && (
+          <select
+            value={cityFilter}
+            onChange={(e) => setCityFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-navy focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy bg-white"
+          >
+            <option value="">All Cities</option>
+            {branches.map((b) => (
+              <option key={b.id} value={b.city}>{b.name} ({b.city})</option>
+            ))}
+          </select>
+        )}
+
+        {view === 'live' && visibleSalesmen.length > 0 && (
           <div className="flex gap-2">
             <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Active ({statusCounts.moving})
@@ -380,7 +415,7 @@ export default function GPS() {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
               >
                 <option value="">— Select field staff —</option>
-                {salesmen.map((s) => (
+                {visibleSalesmen.map((s) => (
                   <option key={s.id} value={s.id}>{s.full_name}</option>
                 ))}
               </select>
@@ -428,12 +463,12 @@ export default function GPS() {
               <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-6 text-sm text-gray-400">
                 Loading...
               </div>
-            ) : adminLocations.length === 0 ? (
+            ) : visibleAdmins.length === 0 ? (
               <div className="bg-white rounded-2xl shadow-card border border-gray-100">
                 <EmptyState icon={ShieldCheck} title="No admins found" subtitle="Admin accounts will appear here" />
               </div>
             ) : (
-              adminLocations.map((a) => (
+              visibleAdmins.map((a) => (
                 <div key={a.id} className="bg-white rounded-2xl shadow-card border border-gray-100 p-4 flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 text-white" style={{ backgroundColor: '#8E44AD' }}>
                     {getInitials(a.full_name)}
@@ -459,12 +494,12 @@ export default function GPS() {
             <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-6 text-sm text-gray-400">
               Loading...
             </div>
-          ) : salesmen.length === 0 ? (
+          ) : visibleSalesmen.length === 0 ? (
             <div className="bg-white rounded-2xl shadow-card border border-gray-100">
               <EmptyState icon={MapPin} title="No field staff found" subtitle="Salesman and driver accounts will appear here" />
             </div>
           ) : (
-            salesmen.map((s) => {
+            visibleSalesmen.map((s) => {
               const status = effectiveStatus(s);
               const color = STATUS_COLORS[status];
               const meta = STATUS_META[status];
