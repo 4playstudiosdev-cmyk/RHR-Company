@@ -2,13 +2,15 @@ const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { getCached, setCached, invalidate } = require('../utils/simpleCache');
 const { pgrestGet } = require('../utils/directQuery');
+const { resolveCompanyId } = require('../utils/companyScope');
 
 const CACHE_TTL_MS = 60000;
 
 // GET /api/v1/production/materials
 const getMaterials = async (req, res) => {
   try {
-    const cacheKey = `materials:${req.user.company_id}`;
+    const companyId = resolveCompanyId(req);
+    const cacheKey = `materials:${companyId || 'all'}`;
     const cached = getCached(cacheKey);
     if (cached) return success(res, cached);
 
@@ -18,11 +20,9 @@ const getMaterials = async (req, res) => {
     // identical raw https request, at the same moment, always returned
     // the correct 16 rows — see src/utils/directQuery.js for the full
     // writeup. Routed through that instead of supabase-js here.
-    const data = await pgrestGet('raw_materials', {
-      select: '*',
-      company_id: `eq.${req.user.company_id}`,
-      order: 'name.asc',
-    });
+    const params = { select: '*', order: 'name.asc' };
+    if (companyId) params.company_id = `eq.${companyId}`;
+    const data = await pgrestGet('raw_materials', params);
 
     if (data && data.length > 0) setCached(cacheKey, data, CACHE_TTL_MS);
     return success(res, data);

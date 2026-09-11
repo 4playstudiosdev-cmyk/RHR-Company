@@ -4,16 +4,19 @@ const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin }      = require('../middleware/role.middleware');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { resolveCompanyId } = require('../utils/companyScope');
 
 // GET /api/v1/drivers — active drivers (approved + pending) in this admin's company
 router.get('/', authenticate, isAdmin, async (req, res) => {
   try {
-    const { data, error: dbErr } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('drivers')
       .select('id, full_name, phone, car_number, is_approved, is_active, created_at')
-      .eq('company_id', req.user.company_id)
-      .eq('is_active', true)
-      .order('full_name');
+      .eq('is_active', true);
+    const companyId = resolveCompanyId(req);
+    if (companyId) query = query.eq('company_id', companyId);
+
+    const { data, error: dbErr } = await query.order('full_name');
     if (dbErr) throw new Error(dbErr.message);
     return success(res, data);
   } catch (err) { return error(res, err.message); }
@@ -22,13 +25,16 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 // GET /api/v1/drivers/pending — self-registered drivers awaiting approval
 router.get('/pending', authenticate, isAdmin, async (req, res) => {
   try {
-    const { data, error: dbErr } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('drivers')
       .select('id, full_name, phone, car_number, created_at')
-      .eq('company_id', req.user.company_id)
       .eq('is_approved', false)
       .eq('is_active', true)
       .order('created_at', { ascending: false });
+    const companyId = resolveCompanyId(req);
+    if (companyId) query = query.eq('company_id', companyId);
+
+    const { data, error: dbErr } = await query;
     if (dbErr) throw new Error(dbErr.message);
     return success(res, data);
   } catch (err) { return error(res, err.message); }

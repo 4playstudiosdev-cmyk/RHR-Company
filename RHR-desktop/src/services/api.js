@@ -66,7 +66,7 @@ export const getFinishedProducts   = () => api.get('/recipes/finished-products')
 export const getRecipeRawMaterials = () => api.get('/recipes/raw-materials');
 
 // PRODUCTION LOG (recipe-driven batches, auto stock deduction)
-export const getProductionHistory = () => api.get('/production/history');
+export const getProductionHistory = (params) => api.get('/production/history', { params });
 export const logProduction        = (data) => api.post('/production/produce', data);
 export const revertProduction     = (id) => api.delete(`/production/runs/${id}`);
 

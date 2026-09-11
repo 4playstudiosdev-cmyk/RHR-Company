@@ -1,19 +1,21 @@
 const XLSX = require('xlsx');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { resolveCompanyId } = require('../utils/companyScope');
 
 // GET /api/v1/reports/outstanding — same per-customer "last ledger balance"
 // computation the Excel export below already does, just returned as JSON
 // so the Reports page can show it live instead of only as a download.
 const getOutstanding = async (req, res) => {
   try {
-    const companyId = req.user.company_id;
-    const { data: customers } = await supabaseAdmin
+    const companyId = resolveCompanyId(req);
+    let custQuery = supabaseAdmin
       .from('users')
       .select('id, full_name, phone, shop_name')
-      .eq('company_id', companyId)
       .eq('role', 'customer')
       .eq('is_approved', true);
+    if (companyId) custQuery = custQuery.eq('company_id', companyId);
+    const { data: customers } = await custQuery;
 
     const rows = await Promise.all((customers || []).map(async (c) => {
       const { data: last } = await supabaseAdmin
@@ -39,15 +41,16 @@ const getOutstanding = async (req, res) => {
 const exportReport = async (req, res) => {
   try {
     const { type = 'sales' } = req.query;
-    const companyId = req.user.company_id;
+    const companyId = resolveCompanyId(req);
     let data = [], sheetName = 'Report';
 
     if (type === 'sales') {
-      const { data: orders } = await supabaseAdmin
+      let salesQuery = supabaseAdmin
         .from('orders')
         .select('order_number, status, total_amount, created_at, users!customer_id(full_name, phone)')
-        .eq('company_id', companyId)
         .order('created_at', { ascending: false });
+      if (companyId) salesQuery = salesQuery.eq('company_id', companyId);
+      const { data: orders } = await salesQuery;
       data = orders.map(o => ({
         'Order No':    o.order_number,
         'Customer':    o.users?.full_name,
@@ -60,11 +63,12 @@ const exportReport = async (req, res) => {
     }
 
     if (type === 'payments') {
-      const { data: payments } = await supabaseAdmin
+      let paymentsQuery = supabaseAdmin
         .from('payments')
         .select('amount, method, status, created_at, users!customer_id(full_name, phone)')
-        .eq('company_id', companyId)
         .order('created_at', { ascending: false });
+      if (companyId) paymentsQuery = paymentsQuery.eq('company_id', companyId);
+      const { data: payments } = await paymentsQuery;
       data = payments.map(p => ({
         'Customer':    p.users?.full_name,
         'Phone':       p.users?.phone,
@@ -77,12 +81,13 @@ const exportReport = async (req, res) => {
     }
 
     if (type === 'outstanding') {
-      const { data: customers } = await supabaseAdmin
+      let outstandingQuery = supabaseAdmin
         .from('users')
         .select('id, full_name, phone, shop_name')
-        .eq('company_id', companyId)
         .eq('role', 'customer')
         .eq('is_approved', true);
+      if (companyId) outstandingQuery = outstandingQuery.eq('company_id', companyId);
+      const { data: customers } = await outstandingQuery;
 
       for (const c of customers) {
         const { data: last } = await supabaseAdmin

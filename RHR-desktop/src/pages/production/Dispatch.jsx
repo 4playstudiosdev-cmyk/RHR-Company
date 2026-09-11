@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Truck, PackageCheck } from 'lucide-react';
-import api from '../../services/api';
+import api, { getCurrentUser } from '../../services/api';
 import PageHeader from '../../components/PageHeader';
 import Modal from '../../components/Modal';
 import Button from '../../components/Button';
 import EmptyState from '../../components/EmptyState';
 import { SkeletonTable } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
+import CityFilter from '../../components/CityFilter';
 
 const DESTINATIONS = ['Karachi', 'Hyderabad', 'Sukkur'];
 const STATUS_BADGE = {
@@ -19,6 +20,9 @@ const EMPTY_FORM = { destination: DESTINATIONS[0], driver: '', notes: '' };
 
 export default function Dispatch() {
   const toast = useToast();
+  const user = getCurrentUser();
+  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [readyOrders, setReadyOrders] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -30,15 +34,18 @@ export default function Dispatch() {
 
   useEffect(() => {
     loadAll();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCity]);
 
   const loadAll = async () => {
     setLoading(true);
     setError('');
     try {
+      const companyFilter = selectedCity === 'all' ? null : selectedCity;
+      const params = companyFilter ? { params: { company_id: companyFilter } } : {};
       const [ordersRes, historyRes] = await Promise.all([
-        api.get('/production/orders'),
-        api.get('/production/dispatch')
+        api.get('/production/orders', params),
+        api.get('/production/dispatch', params)
       ]);
       setReadyOrders((ordersRes.data.data || []).filter((o) => o.status === 'ready'));
       setHistory(historyRes.data.data || []);
@@ -89,7 +96,11 @@ export default function Dispatch() {
 
   return (
     <div className="p-6">
-      <PageHeader title="Dispatch Management" subtitle="Send finished goods out to branches" />
+      <PageHeader
+        title="Dispatch Management"
+        subtitle="Send finished goods out to branches"
+        action={<CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />}
+      />
 
       {error && (
         <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>

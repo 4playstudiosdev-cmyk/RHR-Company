@@ -1,5 +1,6 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { resolveCompanyId } = require('../utils/companyScope');
 
 // GET /api/v1/production/reports/daily
 // Derived from production_orders.start_date — there's no separate
@@ -10,12 +11,15 @@ const getDailyReport = async (req, res) => {
     const since = new Date();
     since.setDate(since.getDate() - 30);
 
-    const { data, error: dbErr } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('production_orders')
       .select('start_date, product_name, qty, unit')
-      .eq('company_id', req.user.company_id)
       .gte('start_date', since.toISOString().split('T')[0])
       .order('start_date', { ascending: true });
+    const companyId = resolveCompanyId(req);
+    if (companyId) query = query.eq('company_id', companyId);
+
+    const { data, error: dbErr } = await query;
     if (dbErr) throw new Error(dbErr.message);
 
     const byDate = {};
@@ -35,11 +39,14 @@ const getDailyReport = async (req, res) => {
 // so the frontend shows an honest empty state instead of fake trends.
 const getConsumptionReport = async (req, res) => {
   try {
-    const { data, error: dbErr } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('raw_materials')
       .select('*')
-      .eq('company_id', req.user.company_id)
       .order('name');
+    const companyId = resolveCompanyId(req);
+    if (companyId) query = query.eq('company_id', companyId);
+
+    const { data, error: dbErr } = await query;
     if (dbErr) throw new Error(dbErr.message);
 
     return success(
@@ -53,11 +60,14 @@ const getConsumptionReport = async (req, res) => {
 // GET /api/v1/production/reports/stock
 const getStockReport = async (req, res) => {
   try {
-    const { data, error: dbErr } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('raw_materials')
       .select('*')
-      .eq('company_id', req.user.company_id)
       .order('name');
+    const companyId = resolveCompanyId(req);
+    if (companyId) query = query.eq('company_id', companyId);
+
+    const { data, error: dbErr } = await query;
     if (dbErr) throw new Error(dbErr.message);
     return success(res, data || [], 'Stock status report');
   } catch (err) { return error(res, err.message); }

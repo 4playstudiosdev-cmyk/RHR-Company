@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   TrendingUp, Wallet, ShoppingCart, Download, RefreshCw, ArrowUp, ArrowDown, Receipt
 } from 'lucide-react';
-import api from '../services/api';
+import api, { getCurrentUser } from '../services/api';
 import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
+import CityFilter from '../components/CityFilter';
 
 const REPORT_TABS = [
   { key: 'sales', label: 'Sales Report', icon: TrendingUp },
@@ -34,6 +35,9 @@ function TrendBadge({ value }) {
 
 export default function Reports() {
   const toast = useToast();
+  const user = getCurrentUser();
+  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [reportTab, setReportTab] = useState('sales');
   const [fromDate, setFromDate] = useState(defaultFrom());
   const [toDate, setToDate] = useState(defaultTo());
@@ -51,12 +55,15 @@ export default function Reports() {
     loadData();
     loadOutstanding();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [selectedCity]);
+
+  const companyFilter = selectedCity === 'all' ? null : selectedCity;
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [ordersRes, paymentsRes] = await Promise.all([api.get('/orders'), api.get('/payments')]);
+      const params = companyFilter ? { params: { company_id: companyFilter } } : {};
+      const [ordersRes, paymentsRes] = await Promise.all([api.get('/orders', params), api.get('/payments', params)]);
       setOrders(ordersRes.data.data || []);
       setPayments(paymentsRes.data.data || []);
     } catch (err) {
@@ -69,7 +76,7 @@ export default function Reports() {
   const loadOutstanding = async () => {
     setOutstandingLoading(true);
     try {
-      const res = await api.get('/reports/outstanding');
+      const res = await api.get('/reports/outstanding', { params: companyFilter ? { company_id: companyFilter } : {} });
       setOutstanding(res.data.data || []);
     } catch (err) {
       // non-fatal — Sales/Collections tabs still work
@@ -83,7 +90,10 @@ export default function Reports() {
   const handleExport = async (type) => {
     setDownloading(true);
     try {
-      const res = await api.get('/reports/export', { params: { type }, responseType: 'blob' });
+      const res = await api.get('/reports/export', {
+        params: { type, ...(companyFilter ? { company_id: companyFilter } : {}) },
+        responseType: 'blob'
+      });
       const url = window.URL.createObjectURL(
         new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
       );
@@ -193,6 +203,9 @@ export default function Reports() {
           <p className="text-sm text-gray-500 mt-1">Comprehensive financial and operational insights.</p>
         </div>
         <div className="flex items-end gap-2 flex-wrap">
+          <div>
+            <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
+          </div>
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">From</label>
             <input

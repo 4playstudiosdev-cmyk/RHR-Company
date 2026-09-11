@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, ClipboardList, Check, Circle } from 'lucide-react';
-import api from '../../services/api';
+import api, { getCurrentUser } from '../../services/api';
 import PageHeader from '../../components/PageHeader';
 import Modal from '../../components/Modal';
 import Button from '../../components/Button';
 import EmptyState from '../../components/EmptyState';
 import { SkeletonTable } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
+import CityFilter from '../../components/CityFilter';
 
 const STATUS_FLOW = ['pending', 'in_production', 'ready', 'dispatched'];
 const STATUS_LABEL = { pending: 'Pending', in_production: 'In Production', ready: 'Ready', dispatched: 'Dispatched' };
@@ -28,6 +29,9 @@ const EMPTY_FORM = { product_id: '', qty: '', batches: '1', priority: 'normal', 
 
 export default function ProductionOrders() {
   const toast = useToast();
+  const user = getCurrentUser();
+  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [orders, setOrders] = useState([]);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -43,13 +47,14 @@ export default function ProductionOrders() {
     loadOrders();
     loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [selectedCity]);
 
   const loadOrders = async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get('/production/orders');
+      const companyFilter = selectedCity === 'all' ? null : selectedCity;
+      const res = await api.get('/production/orders', { params: companyFilter ? { company_id: companyFilter } : {} });
       setOrders(res.data.data || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load production orders.');
@@ -118,9 +123,12 @@ export default function ProductionOrders() {
         title="Production Orders"
         subtitle="Plan and track manufacturing batches"
         action={
-          <Button variant="accent" onClick={() => setShowModal(true)} className="flex items-center gap-2">
-            <Plus size={16} /> New Production Order
-          </Button>
+          <div className="flex items-center gap-3">
+            <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
+            <Button variant="accent" onClick={() => setShowModal(true)} className="flex items-center gap-2">
+              <Plus size={16} /> New Production Order
+            </Button>
+          </div>
         }
       />
 

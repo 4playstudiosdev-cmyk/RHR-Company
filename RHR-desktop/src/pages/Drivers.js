@@ -1,17 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Truck, UserCheck, Pencil, UserX, UserCheck2 } from 'lucide-react';
-import api from '../services/api';
+import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
 import Button from '../components/Button';
 import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
+import CityFilter from '../components/CityFilter';
 
 const EMPTY_FORM = { full_name: '', phone: '', car_number: '' };
 
 export default function Drivers() {
   const toast = useToast();
+  const user = getCurrentUser();
+  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [tab, setTab] = useState('pending');
   const [pending, setPending] = useState([]);
   const [drivers, setDrivers] = useState([]);
@@ -26,15 +30,18 @@ export default function Drivers() {
 
   useEffect(() => {
     loadAll();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCity]);
 
   const loadAll = async () => {
     setLoading(true);
     setError('');
     try {
+      const companyFilter = selectedCity === 'all' ? null : selectedCity;
+      const params = companyFilter ? { params: { company_id: companyFilter } } : {};
       const [pendingRes, allRes] = await Promise.all([
-        api.get('/drivers/pending'),
-        api.get('/drivers')
+        api.get('/drivers/pending', params),
+        api.get('/drivers', params)
       ]);
       setPending(pendingRes.data.data || []);
       setDrivers(allRes.data.data || []);
@@ -133,9 +140,12 @@ export default function Drivers() {
         title="Drivers"
         subtitle="Approve self-registered drivers, manage accounts, and track vehicles"
         action={
-          <Button variant="accent" onClick={openAddModal} className="flex items-center gap-2">
-            <Plus size={16} /> Add Driver
-          </Button>
+          <div className="flex items-center gap-3">
+            <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
+            <Button variant="accent" onClick={openAddModal} className="flex items-center gap-2">
+              <Plus size={16} /> Add Driver
+            </Button>
+          </div>
         }
       />
 

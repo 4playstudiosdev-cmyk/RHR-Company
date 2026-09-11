@@ -22,7 +22,7 @@ async function createPayment({ companyId, customerId, salesmanId, orderId, amoun
   return data;
 }
 
-async function getPayments(user) {
+async function getPayments(user, companyIdOverride) {
   let query = supabaseAdmin
     .from('payments')
     .select('*, customer:users!customer_id(full_name, phone), salesman:salesmen!salesman_id(full_name)')
@@ -30,8 +30,8 @@ async function getPayments(user) {
 
   if (user.role === 'salesman') {
     query = query.eq('salesman_id', user.id);
-  } else if (user.company_id) {
-    query = query.eq('company_id', user.company_id);
+  } else if (companyIdOverride) {
+    query = query.eq('company_id', companyIdOverride);
   }
 
   const { data, error } = await query;

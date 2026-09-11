@@ -74,7 +74,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
   return order;
 }
 
-async function getOrders(user) {
+async function getOrders(user, companyIdOverride) {
   let query = supabaseAdmin
     .from('orders')
     .select('*, order_items(product_name, quantity, unit_price, subtotal), users!customer_id(full_name, phone, salesman_id)')
@@ -84,9 +84,11 @@ async function getOrders(user) {
     query = query.eq('customer_id', user.id);
   } else if (user.role === 'salesman') {
     query = query.eq('salesman_id', user.id);
-  } else {
-    // Admin sees all in their company
-    query = query.eq('company_id', user.company_id);
+  } else if (companyIdOverride) {
+    // Admin — companyIdOverride is null for super_admin's "All Cities"
+    // (see resolveCompanyId in utils/companyScope.js), which means no
+    // filter at all here — every branch's orders at once.
+    query = query.eq('company_id', companyIdOverride);
   }
 
   const { data, error } = await query;

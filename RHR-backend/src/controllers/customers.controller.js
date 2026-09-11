@@ -1,5 +1,6 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { resolveCompanyId } = require('../utils/companyScope');
 
 const getCustomers = async (req, res) => {
   try {
@@ -14,8 +15,8 @@ const getCustomers = async (req, res) => {
     if (user.role === 'salesman') {
       query = query.eq('salesman_id', user.id);
     } else {
-      // Admin sees all customers in their company
-      query = query.eq('company_id', user.company_id);
+      const companyId = resolveCompanyId(req);
+      if (companyId) query = query.eq('company_id', companyId);
     }
 
     const { data, error: dbError } = await query.order('full_name');
@@ -26,15 +27,17 @@ const getCustomers = async (req, res) => {
 
 const getPendingCustomers = async (req, res) => {
   try {
-    const { data, error: dbError } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('users')
       .select('id, full_name, phone, email, shop_name, created_at')
       .eq('role', 'customer')
       .eq('is_approved', false)
       .eq('is_active', true)
-      .eq('company_id', req.user.company_id)
       .order('created_at', { ascending: false });
+    const companyId = resolveCompanyId(req);
+    if (companyId) query = query.eq('company_id', companyId);
 
+    const { data, error: dbError } = await query;
     if (dbError) throw new Error(dbError.message);
     return success(res, data);
   } catch (err) { return error(res, err.message); }

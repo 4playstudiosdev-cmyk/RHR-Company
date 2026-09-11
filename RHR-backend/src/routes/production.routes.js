@@ -7,6 +7,7 @@ const { success, error } = require('../utils/response');
 const { retryIfEmpty } = require('../utils/withRetry');
 const { getCached, setCached, invalidate } = require('../utils/simpleCache');
 const { pgrestGet } = require('../utils/directQuery');
+const { resolveCompanyId } = require('../utils/companyScope');
 
 const CACHE_TTL_MS = 60000;
 
@@ -168,8 +169,9 @@ router.get('/history', authenticate, isAdmin, async (req, res) => {
   try {
     // Same embedded-resource-join flakiness as GET /recipes — see the
     // comment there and in utils/withRetry.js.
+    const companyId = resolveCompanyId(req);
     const data = await retryIfEmpty(async () => {
-      const { data, error: dbErr } = await supabaseAdmin
+      let query = supabaseAdmin
         .from('productions')
         .select(`
           *,
@@ -179,8 +181,9 @@ router.get('/history', authenticate, isAdmin, async (req, res) => {
           ),
           products!finished_item_id(id, name, unit)
         `)
-        .eq('company_id', req.user.company_id)
         .order('created_at', { ascending: false });
+      if (companyId) query = query.eq('company_id', companyId);
+      const { data, error: dbErr } = await query;
       if (dbErr) throw new Error(dbErr.message);
       return data;
     }, 6, 600);

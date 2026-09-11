@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { BarChart3, TrendingDown, PackageSearch, Download, FileSpreadsheet, AlertTriangle, Info } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import api from '../../services/api';
+import api, { getCurrentUser } from '../../services/api';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import { SkeletonTable } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
 import { exportTableToPDF, exportTableToExcel } from './exportUtils';
+import CityFilter from '../../components/CityFilter';
 
 const TABS = [
   { key: 'daily', label: 'Daily Production Report', icon: BarChart3 },
@@ -50,7 +51,7 @@ function padSeries(series) {
   return days;
 }
 
-function DailyProductionReport() {
+function DailyProductionReport({ companyFilter }) {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -62,7 +63,7 @@ function DailyProductionReport() {
       setLoading(true);
       setError('');
       try {
-        const res = await api.get('/production/reports/daily');
+        const res = await api.get('/production/reports/daily', { params: companyFilter ? { company_id: companyFilter } : {} });
         setSeries(padSeries(res.data.data.series));
         setRecords(res.data.data.records || []);
       } catch (err) {
@@ -71,7 +72,7 @@ function DailyProductionReport() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [companyFilter]);
 
   const recent = [...records].reverse().slice(0, 15);
 
@@ -157,7 +158,7 @@ function DailyProductionReport() {
   );
 }
 
-function RawMaterialConsumptionReport() {
+function RawMaterialConsumptionReport({ companyFilter }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [materials, setMaterials] = useState([]);
@@ -167,7 +168,7 @@ function RawMaterialConsumptionReport() {
       setLoading(true);
       setError('');
       try {
-        const res = await api.get('/production/reports/consumption');
+        const res = await api.get('/production/reports/consumption', { params: companyFilter ? { company_id: companyFilter } : {} });
         setMaterials(res.data.data.materials || []);
       } catch (err) {
         setError(err.response?.data?.message || 'Failed to load consumption report.');
@@ -175,7 +176,7 @@ function RawMaterialConsumptionReport() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [companyFilter]);
 
   if (loading) return <SkeletonTable rows={6} cols={4} />;
   if (error) return <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>;
@@ -240,7 +241,7 @@ const LEVEL_STYLE = {
   red: { row: 'bg-red-50/60', badge: 'bg-red-100 text-red-800', label: 'Low' }
 };
 
-function StockStatusReport() {
+function StockStatusReport({ companyFilter }) {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -250,14 +251,14 @@ function StockStatusReport() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get('/production/reports/stock');
+      const res = await api.get('/production/reports/stock', { params: companyFilter ? { company_id: companyFilter } : {} });
       setMaterials(res.data.data || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load stock status report.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [companyFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -364,10 +365,18 @@ function StockStatusReport() {
 
 export default function ProductionReports() {
   const [tab, setTab] = useState('daily');
+  const user = getCurrentUser();
+  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const [selectedCity, setSelectedCity] = useState(defaultCity);
+  const companyFilter = selectedCity === 'all' ? null : selectedCity;
 
   return (
     <div className="p-6">
-      <PageHeader title="Production Reports" subtitle="Daily output, material consumption and stock status" />
+      <PageHeader
+        title="Production Reports"
+        subtitle="Daily output, material consumption and stock status"
+        action={<CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />}
+      />
 
       <div className="flex gap-2 mb-6 flex-wrap">
         {TABS.map((t) => {
@@ -386,9 +395,9 @@ export default function ProductionReports() {
         })}
       </div>
 
-      {tab === 'daily' && <DailyProductionReport />}
-      {tab === 'consumption' && <RawMaterialConsumptionReport />}
-      {tab === 'stock' && <StockStatusReport />}
+      {tab === 'daily' && <DailyProductionReport companyFilter={companyFilter} />}
+      {tab === 'consumption' && <RawMaterialConsumptionReport companyFilter={companyFilter} />}
+      {tab === 'stock' && <StockStatusReport companyFilter={companyFilter} />}
     </div>
   );
 }

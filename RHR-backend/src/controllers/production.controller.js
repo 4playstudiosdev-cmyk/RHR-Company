@@ -1,6 +1,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { invalidate } = require('../utils/simpleCache');
+const { resolveCompanyId } = require('../utils/companyScope');
 
 // Orders that still need product manufactured/shipped for them. The task
 // spec says "pending customer orders" — but literally filtering to
@@ -54,11 +55,14 @@ const getProductionDemand = async (req, res) => {
 // GET /api/v1/production/orders
 const getProductionOrders = async (req, res) => {
   try {
-    const { data, error: dbErr } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('production_orders')
       .select('*')
-      .eq('company_id', req.user.company_id)
       .order('created_at', { ascending: false });
+    const companyId = resolveCompanyId(req);
+    if (companyId) query = query.eq('company_id', companyId);
+
+    const { data, error: dbErr } = await query;
     if (dbErr) throw new Error(dbErr.message);
     return success(res, data);
   } catch (err) { return error(res, err.message); }

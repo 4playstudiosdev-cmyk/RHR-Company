@@ -2,13 +2,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { ShoppingCart, FileDown, Search, Plus, Trash2, Wallet } from 'lucide-react';
-import api from '../services/api';
+import api, { getCurrentUser } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import Modal from '../components/Modal';
 import Button from '../components/Button';
+import CityFilter from '../components/CityFilter';
 
 // Matches the backend's validStatuses in orders.service.js
 const STATUS_OPTIONS = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered', 'cancelled'];
@@ -23,6 +24,9 @@ const PAYMENT_METHODS = [
 
 export default function Orders() {
   const toast = useToast();
+  const user = getCurrentUser();
+  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -45,7 +49,8 @@ export default function Orders() {
 
   useEffect(() => {
     loadOrders();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCity]);
 
   const openCreateOrder = async () => {
     setShowCreateOrder(true);
@@ -113,7 +118,8 @@ export default function Orders() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get('/orders');
+      const companyFilter = selectedCity === 'all' ? null : selectedCity;
+      const res = await api.get('/orders', { params: companyFilter ? { company_id: companyFilter } : {} });
       setOrders(res.data.data || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load orders.');
@@ -313,6 +319,7 @@ export default function Orders() {
       <div className="flex justify-between items-center flex-wrap gap-3 mb-6">
         <h1 className="text-2xl font-bold text-navy">Orders</h1>
         <div className="flex items-center gap-3 flex-wrap">
+          <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
           <div className="relative w-full sm:w-72">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input

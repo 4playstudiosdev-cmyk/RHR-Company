@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Users, UserCheck, BookOpen, Search, Phone, Mail, AlertTriangle, User } from 'lucide-react';
-import api from '../services/api';
+import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
+import CityFilter from '../components/CityFilter';
 
 const PAGE_SIZE = 10;
 
@@ -42,6 +43,9 @@ function filterCustomers(list, term) {
 
 export default function Customers({ onViewLedger }) {
   const toast = useToast();
+  const user = getCurrentUser();
+  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const [selectedCity, setSelectedCity] = useState(defaultCity);
   const pendingRef = useRef(null);
   const allRef = useRef(null);
   const [pending, setPending] = useState([]);
@@ -61,16 +65,19 @@ export default function Customers({ onViewLedger }) {
 
   useEffect(() => {
     loadCustomers();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCity]);
 
   const loadCustomers = async () => {
     setLoading(true);
     setError('');
     try {
+      const companyFilter = selectedCity === 'all' ? null : selectedCity;
+      const params = companyFilter ? { params: { company_id: companyFilter } } : {};
       const [pendingRes, allRes, ordersRes] = await Promise.all([
-        api.get('/customers/pending'),
-        api.get('/customers'),
-        api.get('/orders')
+        api.get('/customers/pending', params),
+        api.get('/customers', params),
+        api.get('/orders', params)
       ]);
       setPending(pendingRes.data.data || []);
       setAll(allRes.data.data || []);
@@ -149,9 +156,12 @@ export default function Customers({ onViewLedger }) {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-navy">Customers Management</h1>
-        <p className="text-sm text-gray-500 mt-1">Review pending approvals and manage your customer database.</p>
+      <div className="flex justify-between items-start flex-wrap gap-3 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-navy">Customers Management</h1>
+          <p className="text-sm text-gray-500 mt-1">Review pending approvals and manage your customer database.</p>
+        </div>
+        <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
       </div>
 
       {/* Both sections are always visible below — these just jump-scroll to them */}

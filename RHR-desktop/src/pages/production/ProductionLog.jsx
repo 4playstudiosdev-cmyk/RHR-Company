@@ -1,25 +1,31 @@
 import React, { useEffect, useState } from 'react';
 import { Factory, RotateCcw } from 'lucide-react';
-import { revertProduction, getProductionHistory } from '../../services/api';
+import { revertProduction, getProductionHistory, getCurrentUser } from '../../services/api';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
 import { SkeletonTable } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
+import CityFilter from '../../components/CityFilter';
 
 export default function ProductionLog() {
   const toast = useToast();
+  const user = getCurrentUser();
+  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const [selectedCity, setSelectedCity] = useState(defaultCity);
 
   const [history, setHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
 
   useEffect(() => {
     loadHistory();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCity]);
 
   const loadHistory = async () => {
     setLoadingHistory(true);
     try {
-      const r = await getProductionHistory();
+      const companyFilter = selectedCity === 'all' ? null : selectedCity;
+      const r = await getProductionHistory(companyFilter ? { company_id: companyFilter } : {});
       if (r.data.success) setHistory(r.data.data || []);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load production history.');
@@ -53,6 +59,7 @@ export default function ProductionLog() {
       <PageHeader
         title="Production History"
         subtitle="Revert a record to undo its stock changes"
+        action={<CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />}
       />
 
       <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">

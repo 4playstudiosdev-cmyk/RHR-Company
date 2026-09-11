@@ -1,5 +1,6 @@
 const svc = require('../services/orders.service');
 const { success, error } = require('../utils/response');
+const { resolveCompanyId } = require('../utils/companyScope');
 
 const createOrder = async (req, res) => {
   try {
@@ -27,7 +28,7 @@ const createOrder = async (req, res) => {
 
 const getOrders = async (req, res) => {
   try {
-    const data = await svc.getOrders(req.user);
+    const data = await svc.getOrders(req.user, resolveCompanyId(req));
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 };

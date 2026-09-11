@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Wallet, ImageOff, ExternalLink } from 'lucide-react';
-import api from '../services/api';
+import api, { getCurrentUser } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
+import CityFilter from '../components/CityFilter';
 
 const TABS = ['all', 'pending', 'approved', 'rejected'];
 const PAGE_SIZE = 10;
@@ -18,6 +19,9 @@ function getInitials(name) {
 
 export default function Payments() {
   const toast = useToast();
+  const user = getCurrentUser();
+  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -27,13 +31,15 @@ export default function Payments() {
 
   useEffect(() => {
     loadPayments();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCity]);
 
   const loadPayments = async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get('/payments');
+      const companyFilter = selectedCity === 'all' ? null : selectedCity;
+      const res = await api.get('/payments', { params: companyFilter ? { company_id: companyFilter } : {} });
       setPayments(res.data.data || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load payments.');
@@ -71,9 +77,12 @@ export default function Payments() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-navy">Payments</h1>
-        <p className="text-sm text-gray-500 mt-1">Review and approve salesman collections.</p>
+      <div className="flex justify-between items-start flex-wrap gap-3 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-navy">Payments</h1>
+          <p className="text-sm text-gray-500 mt-1">Review and approve salesman collections.</p>
+        </div>
+        <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
       </div>
 
       {error && (

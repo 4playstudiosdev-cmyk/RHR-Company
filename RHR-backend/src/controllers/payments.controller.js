@@ -1,6 +1,7 @@
 const svc = require('../services/payments.service');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { resolveCompanyId } = require('../utils/companyScope');
 
 const createPayment = async (req, res) => {
   try {
@@ -44,7 +45,7 @@ const createPayment = async (req, res) => {
 
 const getPayments = async (req, res) => {
   try {
-    const data = await svc.getPayments(req.user);
+    const data = await svc.getPayments(req.user, resolveCompanyId(req));
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 };

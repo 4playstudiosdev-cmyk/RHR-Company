@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { BookOpen, Plus, FileText, FileSpreadsheet, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
-import api from '../services/api';
+import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
 import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import { exportTableToExcel } from './production/exportUtils';
+import CityFilter from '../components/CityFilter';
 
 const EMPTY_ADJUSTMENT = { entry_type: 'debit', amount: '', description: '' };
 const PAGE_SIZE = 8;
@@ -27,6 +28,9 @@ function typeBadgeClasses(entry) {
 
 export default function Ledger({ initialCustomerId }) {
   const toast = useToast();
+  const user = getCurrentUser();
+  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const [selectedCity, setSelectedCity] = useState(defaultCity);
 
   const [customers, setCustomers] = useState([]);
   const [customersLoading, setCustomersLoading] = useState(true);
@@ -49,12 +53,13 @@ export default function Ledger({ initialCustomerId }) {
   useEffect(() => {
     loadCustomers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [selectedCity]);
 
   const loadCustomers = async () => {
     setCustomersLoading(true);
     try {
-      const res = await api.get('/customers');
+      const companyFilter = selectedCity === 'all' ? null : selectedCity;
+      const res = await api.get('/customers', { params: companyFilter ? { company_id: companyFilter } : {} });
       setCustomers(res.data.data || []);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load customer list.');
@@ -171,7 +176,8 @@ export default function Ledger({ initialCustomerId }) {
           <h1 className="text-2xl font-bold text-navy">Customer Ledger</h1>
           <p className="text-sm text-gray-500 mt-1">View financial history and outstanding balances.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
           <button
             onClick={handleDownloadStatement}
             disabled={!customerId || downloading}

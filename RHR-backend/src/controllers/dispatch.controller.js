@@ -1,14 +1,18 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { resolveCompanyId } = require('../utils/companyScope');
 
 // GET /api/v1/production/dispatch
 const getDispatches = async (req, res) => {
   try {
-    const { data, error: dbErr } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('dispatches')
       .select('*')
-      .eq('company_id', req.user.company_id)
       .order('dispatched_at', { ascending: false });
+    const companyId = resolveCompanyId(req);
+    if (companyId) query = query.eq('company_id', companyId);
+
+    const { data, error: dbErr } = await query;
     if (dbErr) throw new Error(dbErr.message);
     return success(res, data);
   } catch (err) { return error(res, err.message); }

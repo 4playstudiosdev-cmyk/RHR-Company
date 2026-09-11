@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, AlertCircle, PackagePlus } from 'lucide-react';
-import api from '../../services/api';
+import api, { getCurrentUser } from '../../services/api';
 import PageHeader from '../../components/PageHeader';
 import Modal from '../../components/Modal';
 import Button from '../../components/Button';
 import EmptyState from '../../components/EmptyState';
 import { SkeletonTable } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
+import CityFilter from '../../components/CityFilter';
 
 const MATERIAL_CATEGORIES = ['Cement', 'Sand/Bajri', 'Chemicals', 'Pigments', 'Other'];
 const UNITS = ['kg', 'litre', 'piece', 'bag'];
@@ -15,6 +16,9 @@ const EMPTY_STOCK_FORM = { quantity: '', date: new Date().toISOString().split('T
 
 export default function RawMaterials() {
   const toast = useToast();
+  const user = getCurrentUser();
+  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -28,13 +32,15 @@ export default function RawMaterials() {
 
   useEffect(() => {
     loadMaterials();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCity]);
 
   const loadMaterials = async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get('/production/materials');
+      const companyFilter = selectedCity === 'all' ? null : selectedCity;
+      const res = await api.get('/production/materials', { params: companyFilter ? { company_id: companyFilter } : {} });
       setMaterials(res.data.data || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load raw materials.');
@@ -106,9 +112,12 @@ export default function RawMaterials() {
         title="Raw Materials Stock"
         subtitle="Track raw material inventory used in production"
         action={
-          <Button variant="accent" onClick={() => setShowAddModal(true)} className="flex items-center gap-2">
-            <Plus size={16} /> Add Material
-          </Button>
+          <div className="flex items-center gap-3">
+            <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
+            <Button variant="accent" onClick={() => setShowAddModal(true)} className="flex items-center gap-2">
+              <Plus size={16} /> Add Material
+            </Button>
+          </div>
         }
       />
 
