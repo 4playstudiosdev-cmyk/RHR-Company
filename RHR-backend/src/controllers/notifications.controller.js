@@ -112,4 +112,21 @@ const getMyNotifications = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { sendNotification, getMyNotifications };
+// PATCH /api/v1/notifications/mark-read
+// Clears the unread badge (e.g. Sidebar's admin_login alert count) —
+// called once when the recipient opens the Notifications page.
+const markAllRead = async (req, res) => {
+  try {
+    const { error: dbErr } = await supabaseAdmin
+      .from('notifications')
+      .update({ is_read: true })
+      .or(`recipient_id.eq.${req.user.id},recipient_role.eq.${req.user.role}`)
+      .eq('company_id', req.user.company_id)
+      .eq('is_read', false);
+
+    if (dbErr) throw new Error(dbErr.message);
+    return success(res, { marked: true });
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { sendNotification, getMyNotifications, markAllRead };

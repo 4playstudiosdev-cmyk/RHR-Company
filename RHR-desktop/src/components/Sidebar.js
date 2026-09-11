@@ -90,6 +90,15 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose }
     return () => clearInterval(interval);
   }, [user?.role]);
 
+  // Clears the badge the moment the admin actually opens Notifications —
+  // marks everything read server-side too, so it doesn't reappear on the
+  // next 60s poll above.
+  useEffect(() => {
+    if (page !== 'notifications' || user?.role !== 'super_admin') return;
+    setLoginAlerts(0);
+    api.patch('/notifications/mark-read').catch(() => {});
+  }, [page, user?.role]);
+
   return (
     <>
       {/* Backdrop — mobile only, closes the drawer on outside tap */}
