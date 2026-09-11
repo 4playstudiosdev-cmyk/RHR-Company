@@ -45,5 +45,11 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>RHR & Company needs your location to track deliveries and field visits while the app is open.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>RHR & Company needs your location to track deliveries and field visits, including while the app is in the background.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>RHR & Company needs your location to track deliveries and field visits, including while the app is in the background.</string>
 </dict>
 </plist>

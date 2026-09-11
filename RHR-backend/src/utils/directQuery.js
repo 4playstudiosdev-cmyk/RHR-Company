@@ -89,4 +89,45 @@ function pgrestPost(table, body) {
   });
 }
 
-module.exports = { pgrestGet, pgrestGetRaw, pgrestPost };
+// Same bypass, for updates. table: e.g. 'users'. params: PostgREST filter
+// query params identifying the row(s), e.g. { id: 'eq.<uuid>' } — required,
+// since an unfiltered PATCH would update every row in the table. body: the
+// fields to change.
+function pgrestPatch(table, params, body) {
+  return new Promise((resolve, reject) => {
+    const qs = Object.entries(params)
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+      .join('&');
+    const payload = JSON.stringify(body);
+    const url = `${process.env.SUPABASE_URL}/rest/v1/${table}?${qs}`;
+    const req = https.request(url, {
+      method: 'PATCH',
+      headers: {
+        apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+        'Content-Length': Buffer.byteLength(payload),
+      },
+    }, (res) => {
+      let respBody = '';
+      res.on('data', (chunk) => { respBody += chunk; });
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          return reject(new Error(`PostgREST ${res.statusCode}: ${respBody}`));
+        }
+        try {
+          resolve(respBody ? JSON.parse(respBody) : null);
+        } catch (e) {
+          reject(new Error(`PostgREST returned non-JSON body: ${respBody.slice(0, 200)}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(8000, () => { req.destroy(); reject(new Error('PostgREST request timed out')); });
+    req.write(payload);
+    req.end();
+  });
+}
+
+module.exports = { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch };

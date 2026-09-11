@@ -61,7 +61,16 @@ const PAGE_ACCESS = {
   payments: { requiredPermission: 'can_view_payments' },
   reports: { requiredPermission: 'can_export_reports' },
   gps: { requiredPermission: 'can_view_gps' },
-  admins: { requiredRole: 'super_admin' }
+  admins: { requiredRole: 'super_admin' },
+  customers: { requiredPermission: 'can_manage_customers' },
+  hrm: { requiredPermission: 'can_manage_hrm' },
+  'production-materials': { requiredPermission: 'can_manage_production' },
+  'production-dashboard': { requiredPermission: 'can_manage_production' },
+  'production-orders': { requiredPermission: 'can_manage_production' },
+  'production-log': { requiredPermission: 'can_manage_production' },
+  'production-dispatch': { requiredPermission: 'can_manage_production' },
+  'production-reports': { requiredPermission: 'can_manage_production' },
+  'production-recipes': { requiredPermission: 'can_manage_production' }
 };
 
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 hours

@@ -14,9 +14,9 @@ import api, { hasPermission } from '../services/api';
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiredRole: 'super_admin' },
   { key: 'products', label: 'Products', icon: Package },
-  { key: 'production-materials', label: 'Raw Materials', icon: Boxes },
+  { key: 'production-materials', label: 'Raw Materials', icon: Boxes, requiredPermission: 'can_manage_production' },
   { key: 'orders', label: 'Orders', icon: ShoppingCart },
-  { key: 'customers', label: 'Customers', icon: Users },
+  { key: 'customers', label: 'Customers', icon: Users, requiredPermission: 'can_manage_customers' },
   { key: 'salesmen', label: 'Salesmen', icon: UserCog },
   { key: 'drivers', label: 'Drivers', icon: CarFront },
   { key: 'payments', label: 'Payments', icon: Wallet, requiredPermission: 'can_view_payments' },
@@ -28,6 +28,7 @@ const NAV_ITEMS = [
     key: 'production',
     label: 'Production',
     icon: Factory,
+    requiredPermission: 'can_manage_production',
     children: [
       { key: 'production-dashboard', label: 'Production Dashboard', icon: Gauge },
       { key: 'production-orders', label: 'Production Orders', icon: ClipboardList },
@@ -38,7 +39,7 @@ const NAV_ITEMS = [
     ]
   },
   { key: 'stock-transfers', label: 'Stock Transfers', icon: ArrowLeftRight },
-  { key: 'hrm', label: 'HRM', icon: Briefcase },
+  { key: 'hrm', label: 'HRM', icon: Briefcase, requiredPermission: 'can_manage_hrm' },
   { key: 'admins', label: 'Admin Roles', icon: KeyRound, requiredRole: 'super_admin' }
 ];
 
