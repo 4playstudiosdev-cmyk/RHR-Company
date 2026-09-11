@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Plus, Search, Package, Pencil, Trash2, Upload, X, Image } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
@@ -8,11 +8,11 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
+import { CITY_IDS } from '../utils/multiCityFetch';
 
-// "All Cities" on Products means the Karachi master catalog, not a
-// combined 3-branch list — products aren't summed across branches the way
-// orders/payments/etc are, each branch just has its own copy of the same
-// catalog, so Karachi's is the reference view.
+// Karachi is where a new product goes when it's created while "All
+// Cities" is selected — you can't add a row to a virtual combined view,
+// so it needs one concrete real branch to land in.
 const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
 
 const EMPTY_FORM = {
@@ -34,12 +34,17 @@ export default function Products() {
   const user = getCurrentUser();
   const isSuperAdmin = user?.role === 'super_admin';
 
-  const [products, setProducts]     = useState([]);
-  const [total, setTotal]           = useState(0);
+  // Raw, ungrouped rows for whatever's currently in scope (one branch, or
+  // all 3 concatenated) — displayProducts below derives the actual grouped
+  // + filtered + paginated view from this.
+  const [rawProducts, setRawProducts] = useState([]);
   const [page, setPage]             = useState(1);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState('');
   const [search, setSearch]         = useState('');
+  // Category NAME (not id) — category rows/ids are per-branch, but the
+  // taxonomy is shared across branches by name, and this needs to keep
+  // working uniformly whether one branch or all 3 combined are showing.
   const [activeCategory, setActiveCategory] = useState('');
   const [showModal, setShowModal]   = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -52,8 +57,10 @@ export default function Products() {
   const [branches, setBranches]     = useState([]);
   const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
   const [selectedCity, setSelectedCity] = useState(defaultCity);
-  // 'all' means the Karachi master catalog here (see note above), so every
-  // API call resolves it to a real company_id before sending.
+  // Used only for the Add-form's category dropdown/target branch and the
+  // category tab list — those need one concrete real company_id even while
+  // "All Cities" is selected (see KARACHI_COMPANY_ID above); the actual
+  // product list below is driven by selectedCity directly, not this.
   const activeBranch = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
 
   useEffect(() => {
@@ -69,8 +76,9 @@ export default function Products() {
 
   useEffect(() => {
     loadProducts();
+    setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, activeCategory, activeBranch]);
+  }, [selectedCity]);
 
   const loadBranches = async () => {
     try {
@@ -92,21 +100,24 @@ export default function Products() {
     }
   };
 
-  const loadProducts = async (searchTerm = search) => {
+  // Fetches every product in scope (one branch, or all 3 in parallel) with
+  // no server-side pagination/search/category filter — displayProducts
+  // below groups (when "All Cities") and filters it client-side instead,
+  // since a category_id is only meaningful within its own branch and stock
+  // needs to be summed by product name across branches, not just concatenated.
+  const loadProducts = async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get('/products', {
-        params: {
-          page,
-          limit: PAGE_SIZE,
-          ...(searchTerm ? { search: searchTerm } : {}),
-          ...(activeCategory ? { category_id: activeCategory } : {}),
-          ...(isSuperAdmin && activeBranch ? { company_id: activeBranch } : {})
-        }
-      });
-      setProducts(res.data.data.products || []);
-      setTotal(res.data.data.total || 0);
+      if (selectedCity === 'all') {
+        const results = await Promise.all(
+          CITY_IDS.map((id) => api.get('/products', { params: { company_id: id, limit: 500 } }))
+        );
+        setRawProducts(results.flatMap((r) => r.data.data.products || []));
+      } else {
+        const res = await api.get('/products', { params: { company_id: selectedCity, limit: 500 } });
+        setRawProducts(res.data.data.products || []);
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load products.');
     } finally {
@@ -117,10 +128,45 @@ export default function Products() {
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     setPage(1);
-    loadProducts(search);
   };
 
+  // Groups by product name and sums stock when viewing "All Cities" (each
+  // branch holds its own copy of the same catalog, so the combined view
+  // is one row per product with combined stock, not 3 duplicate rows),
+  // then applies the category/search filters and pagination.
+  const displayProducts = useMemo(() => {
+    let list = rawProducts;
+
+    if (selectedCity === 'all') {
+      const byName = new Map();
+      list.forEach((p) => {
+        const key = p.name.trim().toLowerCase();
+        const existing = byName.get(key);
+        if (!existing) {
+          byName.set(key, { ...p, stock_quantity: Number(p.stock_quantity) || 0 });
+        } else {
+          existing.stock_quantity += Number(p.stock_quantity) || 0;
+          if (!existing.image_url && p.image_url) existing.image_url = p.image_url;
+          if (!existing.categories?.name && p.categories?.name) existing.categories = p.categories;
+        }
+      });
+      list = Array.from(byName.values());
+    }
+
+    if (activeCategory) {
+      list = list.filter((p) => p.categories?.name === activeCategory);
+    }
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter((p) => p.name.toLowerCase().includes(q));
+    }
+
+    return [...list].sort((a, b) => a.name.localeCompare(b.name));
+  }, [rawProducts, selectedCity, activeCategory, search]);
+
+  const total = displayProducts.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const products = displayProducts.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const openAddModal = () => {
     setEditingProduct(null);
@@ -234,7 +280,7 @@ export default function Products() {
         toast.success('Product added successfully.');
       }
       setShowModal(false);
-      loadProducts(search);
+      loadProducts();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to save product.');
     } finally {
@@ -247,7 +293,7 @@ export default function Products() {
     try {
       await api.delete(`/products/${product.id}`);
       toast.success('Product deleted.');
-      loadProducts(search);
+      loadProducts();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to delete product.');
     }
@@ -299,9 +345,9 @@ export default function Products() {
           {categories.map((cat) => (
             <button
               key={cat.id}
-              onClick={() => { setActiveCategory(cat.id); setPage(1); }}
+              onClick={() => { setActiveCategory(cat.name); setPage(1); }}
               className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                activeCategory === cat.id ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                activeCategory === cat.name ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
               }`}
             >
               {cat.name}

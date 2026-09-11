@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, AlertCircle, PackagePlus } from 'lucide-react';
 import api, { getCurrentUser } from '../../services/api';
 import PageHeader from '../../components/PageHeader';
@@ -52,8 +52,28 @@ export default function RawMaterials() {
     }
   };
 
+  // "All Cities" combines each branch's own copy of the same materials
+  // list — group by name and sum stock/min_level so it reads as one
+  // company-wide inventory total instead of 3 duplicate rows per material.
+  const isCombined = selectedCity === 'all';
+  const groupedMaterials = useMemo(() => {
+    if (!isCombined) return materials;
+    const byName = new Map();
+    materials.forEach((m) => {
+      const key = m.name.trim().toLowerCase();
+      const existing = byName.get(key);
+      if (!existing) {
+        byName.set(key, { ...m, stock: Number(m.stock) || 0, min_level: Number(m.min_level) || 0 });
+      } else {
+        existing.stock += Number(m.stock) || 0;
+        existing.min_level += Number(m.min_level) || 0;
+      }
+    });
+    return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [materials, isCombined]);
+
   const tabs = ['All', ...MATERIAL_CATEGORIES];
-  const filtered = tab === 'All' ? materials : materials.filter((m) => m.category === tab);
+  const filtered = tab === 'All' ? groupedMaterials : groupedMaterials.filter((m) => m.category === tab);
 
   const handleAddMaterial = async (e) => {
     e.preventDefault();
@@ -189,12 +209,18 @@ export default function RawMaterials() {
                         )}
                       </td>
                       <td className="px-6 py-3.5">
-                        <button
-                          onClick={() => openAddStock(m)}
-                          className="text-xs font-medium text-navy hover:underline"
-                        >
-                          + Add Stock
-                        </button>
+                        {isCombined ? (
+                          <span className="text-xs text-gray-400" title="Select a specific city to add stock to one branch">
+                            Select a city to add stock
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => openAddStock(m)}
+                            className="text-xs font-medium text-navy hover:underline"
+                          >
+                            + Add Stock
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

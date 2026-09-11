@@ -8,7 +8,7 @@ import { SkeletonTable } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
 import { exportTableToPDF, exportTableToExcel } from './exportUtils';
 import CityFilter from '../../components/CityFilter';
-import { CITY_IDS, fetchAllCities } from '../../utils/multiCityFetch';
+import { CITY_IDS, fetchAllCities, groupByName } from '../../utils/multiCityFetch';
 
 const TABS = [
   { key: 'daily', label: 'Daily Production Report', icon: BarChart3 },
@@ -192,10 +192,14 @@ function RawMaterialConsumptionReport({ companyFilter }) {
           const res = await api.get('/production/reports/consumption', { params: { company_id: companyFilter } });
           setMaterials(res.data.data.materials || []);
         } else {
+          // Each branch holds its own copy of the same materials list —
+          // group by name and sum stock so this reads as one combined
+          // inventory total instead of 3 duplicate rows per material.
           const results = await Promise.all(
             CITY_IDS.map((id) => api.get('/production/reports/consumption', { params: { company_id: id } }))
           );
-          setMaterials(results.flatMap((res) => res.data.data.materials || []));
+          const combined = results.flatMap((res) => res.data.data.materials || []);
+          setMaterials(groupByName(combined, ['stock', 'min_level']));
         }
       } catch (err) {
         setError(err.response?.data?.message || 'Failed to load consumption report.');
@@ -280,7 +284,7 @@ function StockStatusReport({ companyFilter }) {
     try {
       const data = companyFilter
         ? (await api.get('/production/reports/stock', { params: { company_id: companyFilter } })).data.data || []
-        : await fetchAllCities('/production/reports/stock');
+        : groupByName(await fetchAllCities('/production/reports/stock'), ['stock', 'min_level']);
       setMaterials(data);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load stock status report.');

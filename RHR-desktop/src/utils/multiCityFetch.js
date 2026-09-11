@@ -21,3 +21,23 @@ export async function fetchAllCities(endpoint, extraParams = {}) {
   );
   return results.flatMap((r) => r.data.data || []);
 }
+
+// Groups rows by (trimmed, case-insensitive) `name` and sums the given
+// numeric fields — for catalog-type data (products, raw materials) where
+// each branch holds its own copy of the same item, so "All Cities" should
+// read as one row per item with combined totals, not one row per branch.
+export function groupByName(rows, sumFields) {
+  const byName = new Map();
+  rows.forEach((row) => {
+    const key = row.name.trim().toLowerCase();
+    const existing = byName.get(key);
+    if (!existing) {
+      const copy = { ...row };
+      sumFields.forEach((f) => { copy[f] = Number(row[f]) || 0; });
+      byName.set(key, copy);
+    } else {
+      sumFields.forEach((f) => { existing[f] += Number(row[f]) || 0; });
+    }
+  });
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
