@@ -4,6 +4,13 @@ const { supabaseAdmin } = require('../config/supabase');
 const { withRetry } = require('../utils/withRetry');
 const { pgrestGet, pgrestPost } = require('../utils/directQuery');
 
+// Same company IDs the desktop's CityFilter dropdown uses.
+const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
+const BRANCH_CITY_NAMES = {
+  '09a1fda3-7ac0-406a-8f42-75d973dc3b7e': 'Hyderabad',
+  '00f79d89-0d36-4704-8865-fc7bbd662267': 'Sukkur',
+};
+
 function generateToken(user) {
   return jwt.sign(
     { userId: user.id, role: user.role, companyId: user.company_id },
@@ -144,6 +151,27 @@ async function loginWithCredentials({ email, password, latitude, longitude }) {
       });
     } catch (e) {
       console.error('[login] admin_locations insert failed:', e.message);
+    }
+  }
+
+  // Alert Karachi's super_admin whenever a branch admin (Hyderabad/Sukkur)
+  // logs in, so they can see who logged in and from where without having
+  // to keep the GPS page open. Notifications are scoped to company_id —
+  // super_admin's own company_id is Karachi's, so that's what this must be
+  // filed under for GET /notifications (which filters by the requesting
+  // user's own company_id) to surface it to them. Best-effort, same as
+  // the location ping above — never blocks a valid login.
+  if (user.role === 'branch_admin' && hasLocation) {
+    try {
+      await pgrestPost('notifications', {
+        company_id:     KARACHI_COMPANY_ID,
+        recipient_role: 'super_admin',
+        title:          `${BRANCH_CITY_NAMES[user.company_id] || 'Branch'} Admin Login`,
+        body:           `${user.full_name} logged in from ${Number(latitude).toFixed(4)}, ${Number(longitude).toFixed(4)}`,
+        type:           'admin_login',
+      });
+    } catch (e) {
+      console.error('[login] admin_login notification insert failed:', e.message);
     }
   }
 

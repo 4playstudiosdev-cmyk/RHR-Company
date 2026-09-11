@@ -63,12 +63,31 @@ function formatRole(role) {
 export default function Sidebar({ page, setPage, user, onLogout, open, onClose }) {
   const [productionOpen, setProductionOpen] = useState(page.startsWith('production-'));
   const [pendingTransfers, setPendingTransfers] = useState(0);
+  const [loginAlerts, setLoginAlerts] = useState(0);
 
   useEffect(() => {
     api.get('/transfers/pending')
       .then((r) => { if (r.data.success) setPendingTransfers((r.data.data || []).length); })
       .catch(() => {});
   }, []);
+
+  // Alerts super_admin to branch_admin (HYD/SUK) logins — a red badge on
+  // the Notifications nav item, same as the pending-transfers badge above.
+  useEffect(() => {
+    if (user?.role !== 'super_admin') return;
+    const checkAlerts = () => {
+      api.get('/notifications')
+        .then((r) => {
+          if (!r.data.success) return;
+          const unread = (r.data.data || []).filter((n) => n.type === 'admin_login' && !n.is_read);
+          setLoginAlerts(unread.length);
+        })
+        .catch(() => {});
+    };
+    checkAlerts();
+    const interval = setInterval(checkAlerts, 60000);
+    return () => clearInterval(interval);
+  }, [user?.role]);
 
   return (
     <>
@@ -165,6 +184,11 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose }
               {item.key === 'stock-transfers' && pendingTransfers > 0 && (
                 <span className="text-[11px] font-bold bg-orange text-white px-1.5 py-0.5 rounded-full">
                   {pendingTransfers}
+                </span>
+              )}
+              {item.key === 'notifications' && loginAlerts > 0 && (
+                <span className="text-[11px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded-full">
+                  {loginAlerts}
                 </span>
               )}
             </button>

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bell, Send, History, Search, Users2, Radio, Package } from 'lucide-react';
+import { Bell, Send, History, Search, Users2, Radio, Package, MapPin } from 'lucide-react';
 import api from '../services/api';
 import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
@@ -17,7 +17,8 @@ const ROLE_BADGE = {
   customer: { label: 'All Customers', icon: Users2, classes: 'bg-navy-chip text-navy' },
   salesman: { label: 'All Salesmen', icon: Package, classes: 'bg-orange/10 text-orange' },
   delivery: { label: 'All Delivery Staff', icon: Package, classes: 'bg-orange/10 text-orange' },
-  branch_admin: { label: 'All Branch Admins', icon: Radio, classes: 'bg-navy-chip text-navy' }
+  branch_admin: { label: 'All Branch Admins', icon: Radio, classes: 'bg-navy-chip text-navy' },
+  super_admin: { label: 'Super Admin Alert', icon: MapPin, classes: 'bg-red-50 text-red-600' }
 };
 
 const EMPTY_FORM = { title: '', body: '', type: 'broadcast', targetMode: 'role', recipient_role: 'customer', recipient_id: '' };
