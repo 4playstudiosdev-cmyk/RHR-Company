@@ -264,10 +264,18 @@ async function registerDriver({ phone, fullName, companyId, carNumber }) {
   return newDriver;
 }
 
-async function approveCustomer(customerId, adminUser) {
+const VALID_RATE_TIERS = ['manual', 'discount', 'premium'];
+
+async function approveCustomer(customerId, adminUser, rateTier) {
+  const update = { is_approved: true };
+  if (rateTier) {
+    if (!VALID_RATE_TIERS.includes(rateTier)) throw new Error('Invalid rate_tier');
+    update.rate_tier = rateTier;
+  }
+
   const { data, error } = await supabaseAdmin
     .from('users')
-    .update({ is_approved: true })
+    .update(update)
     .eq('id', customerId)
     .eq('company_id', adminUser.company_id)
     .eq('role', 'customer')

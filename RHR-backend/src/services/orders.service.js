@@ -1,19 +1,35 @@
 const { supabaseAdmin }    = require('../config/supabase');
 const { generateInvoice }  = require('./invoice.service');
 
+// Flat PKR 10 adjustment set on the customer's rate_tier at approval time
+// (see the Rate Tier dialog on Customers.js / auth.service.js's
+// approveCustomer) — 'discount' knocks 10 off, 'premium' adds 10, 'manual'
+// (the default) leaves the listed price untouched. Clamped at 0 so a
+// heavily-discounted, cheap item can't price negative.
+const RATE_TIER_ADJUSTMENT = { manual: 0, discount: -10, premium: 10 };
+
 async function createOrder({ customerId, salesmanId, companyId, items, notes, deliveryAddress }) {
   // Step 1: Validate all products exist and have enough stock
   const productIds = items.map(i => i.product_id);
-  const { data: products, error: pErr } = await supabaseAdmin
-    .from('products')
-    .select('id, name, price, stock_quantity')
-    .in('id', productIds)
-    .eq('company_id', companyId)
-    .eq('is_active', true);
+  const [{ data: products, error: pErr }, { data: customer }] = await Promise.all([
+    supabaseAdmin
+      .from('products')
+      .select('id, name, price, stock_quantity')
+      .in('id', productIds)
+      .eq('company_id', companyId)
+      .eq('is_active', true),
+    supabaseAdmin
+      .from('users')
+      .select('rate_tier')
+      .eq('id', customerId)
+      .maybeSingle()
+  ]);
 
   if (pErr || products.length !== items.length) {
     throw new Error('One or more products not found');
   }
+
+  const tierAdjustment = RATE_TIER_ADJUSTMENT[customer?.rate_tier] || 0;
 
   // Step 2: Build order items with price snapshot
   let totalAmount = 0;
@@ -22,12 +38,13 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
     if (product.stock_quantity < item.quantity) {
       throw new Error(`Insufficient stock for ${product.name}`);
     }
-    const subtotal = product.price * item.quantity;
+    const unitPrice = Math.max(0, Number(product.price) + tierAdjustment);
+    const subtotal = unitPrice * item.quantity;
     totalAmount += subtotal;
     return {
       product_id:   item.product_id,
       product_name: product.name,
-      unit_price:   product.price,
+      unit_price:   unitPrice,
       quantity:     item.quantity,
       subtotal
     };

@@ -106,7 +106,7 @@ const loginHandler = async (req, res) => {
 const approveCustomerHandler = async (req, res) => {
   try {
     const { id } = req.params;
-    const approvedUser = await approveCustomer(id, req.user);
+    const approvedUser = await approveCustomer(id, req.user, req.body.rate_tier);
     return success(res, approvedUser, 'Customer approved successfully');
   } catch (err) {
     return error(res, err.message, 400);
