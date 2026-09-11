@@ -30,6 +30,32 @@ const STATUS_META = {
   offline: { label: 'Offline', icon: WifiOff }
 };
 
+// Branch color-coding for map markers — lets a super_admin viewing all
+// cities at once tell branches apart at a glance. Role (salesman vs
+// driver) is conveyed by marker shape instead (see buildMarkerIcon below),
+// so both dimensions are visible without needing to open a popup.
+const COMPANY_COLORS = {
+  '1e5962c6-33a7-460b-913e-9e08db46973a': '#1B2E6B', // KHI blue
+  '09a1fda3-7ac0-406a-8f42-75d973dc3b7e': '#C0392B', // HYD red
+  '00f79d89-0d36-4704-8865-fc7bbd662267': '#1A7A4A', // SUK green
+};
+
+const getMarkerColor = (user) => COMPANY_COLORS[user.company_id] || '#888888';
+const getMarkerLabel = (user) => (user.staffType === 'driver' ? '🚗' : '👤');
+
+// Drivers get a rotated-square (diamond) divIcon; salesmen/delivery keep
+// the plain circleMarker. Dimmed when offline so a stale pin still reads
+// as stale even though color now encodes branch, not status.
+function buildDriverIcon(color, dimmed) {
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:16px;height:16px;background:${color};opacity:${dimmed ? 0.45 : 1};border:2px solid #FFFFFF;transform:rotate(45deg);box-shadow:0 1px 3px rgba(0,0,0,.35);"></div>`,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+    popupAnchor: [0, -10]
+  });
+}
+
 function timeAgo(iso) {
   if (!iso) return '—';
   const diffSec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -141,22 +167,23 @@ export default function GPS({ user }) {
       if (!s.location) return;
       const pos = [s.location.latitude, s.location.longitude];
       const status = effectiveStatus(s);
-      const color = STATUS_COLORS[status] || '#888888';
+      const color = getMarkerColor(s);
+      const dimmed = status === 'offline';
       const roleLabel = s.staffType === 'driver' ? `Driver${s.car_number ? ` — ${s.car_number}` : ''}` : s.staffType === 'delivery' ? 'Delivery' : 'Salesman';
       const branchLabel = s.company ? ` · ${s.company.city}` : '';
-      const popupHtml = `<div style="font-size:12px"><strong>${s.full_name}</strong><br/>${roleLabel}${branchLabel}<br/>Status: ${STATUS_META[status]?.label || status}<br/>Last seen: ${new Date(
+      const popupHtml = `<div style="font-size:12px"><strong>${getMarkerLabel(s)} ${s.full_name}</strong><br/>${roleLabel}${branchLabel}<br/>Status: ${STATUS_META[status]?.label || status}<br/>Last seen: ${new Date(
         s.location.recorded_at
       ).toLocaleTimeString()}</div>`;
 
-      markersRef.current[s.id] = L.circleMarker(pos, {
-        radius: 9,
-        fillColor: color,
-        fillOpacity: 1,
-        color: '#FFFFFF',
-        weight: 2
-      })
-        .addTo(mapRef.current)
-        .bindPopup(popupHtml);
+      markersRef.current[s.id] = s.staffType === 'driver'
+        ? L.marker(pos, { icon: buildDriverIcon(color, dimmed) }).addTo(mapRef.current).bindPopup(popupHtml)
+        : L.circleMarker(pos, {
+            radius: 9,
+            fillColor: color,
+            fillOpacity: dimmed ? 0.45 : 1,
+            color: '#FFFFFF',
+            weight: 2
+          }).addTo(mapRef.current).bindPopup(popupHtml);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleSalesmen, view]);
@@ -542,8 +569,21 @@ export default function GPS({ user }) {
         </div>
 
         {/* Map — real Leaflet + OpenStreetMap, no API key required */}
-        <div className="flex-1 rounded-2xl overflow-hidden border border-gray-100 shadow-card">
+        <div className="flex-1 relative rounded-2xl overflow-hidden border border-gray-100 shadow-card">
           <div ref={mapContainerRef} className="w-full h-full min-h-[500px]" />
+          {view === 'live' && (
+            <div className="absolute left-3 bottom-3 z-[1000] bg-white/95 backdrop-blur border border-gray-200 rounded-xl shadow-card px-3.5 py-2.5 text-xs text-gray-600 flex flex-col gap-1.5">
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1 font-medium">🔵 Karachi</span>
+                <span className="flex items-center gap-1 font-medium">🔴 Hyderabad</span>
+                <span className="flex items-center gap-1 font-medium">🟢 Sukkur</span>
+              </div>
+              <div className="flex items-center gap-3 border-t border-gray-100 pt-1.5">
+                <span className="flex items-center gap-1 font-medium">👤 Salesman</span>
+                <span className="flex items-center gap-1 font-medium">🚗 Driver</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
