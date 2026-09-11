@@ -1,6 +1,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { generatePayslip } = require('../services/payslip.service');
+const { resolveCompanyId } = require('../utils/companyScope');
 
 // ═══════════════════════════════════════
 // ATTENDANCE
@@ -219,7 +220,11 @@ const getPayroll = async (req, res) => {
     const y = year || now.getFullYear();
     const start = new Date(y, m - 1, 1).toISOString().split('T')[0];
     const end = new Date(y, m, 0).toISOString().split('T')[0];
-    const companyId = req.user.company_id;
+    // Explicit ?company_id lets super_admin view another branch's payroll
+    // (CityFilter sends one real ID per branch when "All Cities" is
+    // selected and combines results client-side); falls back to the
+    // requester's own branch otherwise, same as before.
+    const companyId = resolveCompanyId(req) || req.user.company_id;
 
     const [salesmenRes, employeesRes, structuresRes] = await Promise.all([
       supabaseAdmin.from('salesmen').select('id, full_name, position').eq('company_id', companyId).eq('is_active', true),
@@ -470,7 +475,7 @@ const getLeaveHistory = async (req, res) => {
 // employee), so names are resolved here by checking both tables.
 const getAllLeaveRequests = async (req, res) => {
   try {
-    const companyId = req.user.company_id;
+    const companyId = resolveCompanyId(req) || req.user.company_id;
 
     const [requestsRes, salesmenRes, employeesRes] = await Promise.all([
       supabaseAdmin

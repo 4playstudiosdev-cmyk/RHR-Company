@@ -7,6 +7,13 @@ import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
+import CityFilter from '../components/CityFilter';
+
+// "All Cities" on Products means the Karachi master catalog, not a
+// combined 3-branch list — products aren't summed across branches the way
+// orders/payments/etc are, each branch just has its own copy of the same
+// catalog, so Karachi's is the reference view.
+const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
 
 const EMPTY_FORM = {
   name: '',
@@ -43,7 +50,11 @@ export default function Products() {
   const [uploading, setUploading]   = useState(false);
   const [categories, setCategories] = useState([]);
   const [branches, setBranches]     = useState([]);
-  const [activeBranch, setActiveBranch] = useState(user?.companyId || '');
+  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const [selectedCity, setSelectedCity] = useState(defaultCity);
+  // 'all' means the Karachi master catalog here (see note above), so every
+  // API call resolves it to a real company_id before sending.
+  const activeBranch = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
 
   useEffect(() => {
     if (isSuperAdmin) loadBranches();
@@ -254,20 +265,12 @@ export default function Products() {
         }
       />
 
-      {isSuperAdmin && branches.length > 0 && (
-        <div className="mb-4 flex items-center gap-2">
-          <label className="text-sm font-medium text-gray-600">Branch:</label>
-          <select
-            value={activeBranch}
-            onChange={(e) => { setActiveBranch(e.target.value); setPage(1); }}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy bg-white"
-          >
-            {branches.map((b) => (
-              <option key={b.id} value={b.id}>{b.name} ({b.city})</option>
-            ))}
-          </select>
-        </div>
-      )}
+      <div className="mb-4 flex items-center gap-2">
+        <CityFilter
+          selectedCity={selectedCity}
+          onChange={(city) => { setSelectedCity(city); setPage(1); }}
+        />
+      </div>
 
       <form onSubmit={handleSearchSubmit} className="mb-4 flex gap-2">
         <div className="relative w-full max-w-sm">

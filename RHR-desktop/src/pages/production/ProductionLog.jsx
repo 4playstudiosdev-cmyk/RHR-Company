@@ -6,6 +6,7 @@ import EmptyState from '../../components/EmptyState';
 import { SkeletonTable } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
 import CityFilter from '../../components/CityFilter';
+import { CITY_IDS } from '../../utils/multiCityFetch';
 
 export default function ProductionLog() {
   const toast = useToast();
@@ -25,8 +26,13 @@ export default function ProductionLog() {
     setLoadingHistory(true);
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
-      const r = await getProductionHistory(companyFilter ? { company_id: companyFilter } : {});
-      if (r.data.success) setHistory(r.data.data || []);
+      if (companyFilter) {
+        const r = await getProductionHistory({ company_id: companyFilter });
+        if (r.data.success) setHistory(r.data.data || []);
+      } else {
+        const results = await Promise.all(CITY_IDS.map((id) => getProductionHistory({ company_id: id })));
+        setHistory(results.flatMap((r) => (r.data.success ? r.data.data || [] : [])));
+      }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load production history.');
     } finally {

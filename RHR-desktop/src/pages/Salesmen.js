@@ -12,6 +12,7 @@ import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import { exportTableToExcel } from './production/exportUtils';
 import CityFilter from '../components/CityFilter';
+import { fetchAllCities } from '../utils/multiCityFetch';
 
 const EMPTY_FORM = { full_name: '', phone: '', email: '', password: '', position: '' };
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -51,13 +52,18 @@ export default function Salesmen({ onViewLedger }) {
     setError('');
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
-      const params = companyFilter ? { params: { company_id: companyFilter } } : {};
-      const [pendingRes, allRes] = await Promise.all([
-        api.get('/salesmen/pending', params),
-        api.get('/salesmen', params)
-      ]);
-      setPending(pendingRes.data.data || []);
-      setSalesmen(allRes.data.data || []);
+      const params = { company_id: companyFilter };
+      const [pendingData, allData] = companyFilter
+        ? await Promise.all([
+            api.get('/salesmen/pending', { params }).then((r) => r.data.data || []),
+            api.get('/salesmen', { params }).then((r) => r.data.data || [])
+          ])
+        : await Promise.all([
+            fetchAllCities('/salesmen/pending'),
+            fetchAllCities('/salesmen')
+          ]);
+      setPending(pendingData);
+      setSalesmen(allData);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load salesmen.');
     } finally {

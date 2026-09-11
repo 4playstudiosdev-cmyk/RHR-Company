@@ -8,6 +8,7 @@ import EmptyState from '../../components/EmptyState';
 import { SkeletonTable } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
 import CityFilter from '../../components/CityFilter';
+import { fetchAllCities } from '../../utils/multiCityFetch';
 
 const STATUS_FLOW = ['pending', 'in_production', 'ready', 'dispatched'];
 const STATUS_LABEL = { pending: 'Pending', in_production: 'In Production', ready: 'Ready', dispatched: 'Dispatched' };
@@ -54,8 +55,10 @@ export default function ProductionOrders() {
     setError('');
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
-      const res = await api.get('/production/orders', { params: companyFilter ? { company_id: companyFilter } : {} });
-      setOrders(res.data.data || []);
+      const data = companyFilter
+        ? (await api.get('/production/orders', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/production/orders');
+      setOrders(data);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load production orders.');
     } finally {

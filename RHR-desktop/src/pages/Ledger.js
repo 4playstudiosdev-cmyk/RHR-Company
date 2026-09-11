@@ -8,6 +8,7 @@ import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import { exportTableToExcel } from './production/exportUtils';
 import CityFilter from '../components/CityFilter';
+import { fetchAllCities } from '../utils/multiCityFetch';
 
 const EMPTY_ADJUSTMENT = { entry_type: 'debit', amount: '', description: '' };
 const PAGE_SIZE = 8;
@@ -59,8 +60,10 @@ export default function Ledger({ initialCustomerId }) {
     setCustomersLoading(true);
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
-      const res = await api.get('/customers', { params: companyFilter ? { company_id: companyFilter } : {} });
-      setCustomers(res.data.data || []);
+      const data = companyFilter
+        ? (await api.get('/customers', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/customers');
+      setCustomers(data);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load customer list.');
     } finally {

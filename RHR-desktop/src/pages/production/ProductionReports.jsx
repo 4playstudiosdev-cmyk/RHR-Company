@@ -8,6 +8,7 @@ import { SkeletonTable } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
 import { exportTableToPDF, exportTableToExcel } from './exportUtils';
 import CityFilter from '../../components/CityFilter';
+import { CITY_IDS, fetchAllCities } from '../../utils/multiCityFetch';
 
 const TABS = [
   { key: 'daily', label: 'Daily Production Report', icon: BarChart3 },
@@ -63,9 +64,28 @@ function DailyProductionReport({ companyFilter }) {
       setLoading(true);
       setError('');
       try {
-        const res = await api.get('/production/reports/daily', { params: companyFilter ? { company_id: companyFilter } : {} });
-        setSeries(padSeries(res.data.data.series));
-        setRecords(res.data.data.records || []);
+        if (companyFilter) {
+          const res = await api.get('/production/reports/daily', { params: { company_id: companyFilter } });
+          setSeries(padSeries(res.data.data.series));
+          setRecords(res.data.data.records || []);
+        } else {
+          // Combine all 3 branches — sum qty per date across branches
+          // (not a plain concat of raw series entries, which would let a
+          // later branch's per-date qty silently overwrite an earlier
+          // one's instead of adding to it).
+          const results = await Promise.all(
+            CITY_IDS.map((id) => api.get('/production/reports/daily', { params: { company_id: id } }))
+          );
+          const qtyByDate = {};
+          results.forEach((res) => {
+            (res.data.data.series || []).forEach((d) => {
+              qtyByDate[d.date] = (qtyByDate[d.date] || 0) + Number(d.qty);
+            });
+          });
+          const mergedSeries = Object.entries(qtyByDate).map(([date, qty]) => ({ date, qty }));
+          setSeries(padSeries(mergedSeries));
+          setRecords(results.flatMap((res) => res.data.data.records || []));
+        }
       } catch (err) {
         setError(err.response?.data?.message || 'Failed to load daily production report.');
       } finally {
@@ -168,8 +188,15 @@ function RawMaterialConsumptionReport({ companyFilter }) {
       setLoading(true);
       setError('');
       try {
-        const res = await api.get('/production/reports/consumption', { params: companyFilter ? { company_id: companyFilter } : {} });
-        setMaterials(res.data.data.materials || []);
+        if (companyFilter) {
+          const res = await api.get('/production/reports/consumption', { params: { company_id: companyFilter } });
+          setMaterials(res.data.data.materials || []);
+        } else {
+          const results = await Promise.all(
+            CITY_IDS.map((id) => api.get('/production/reports/consumption', { params: { company_id: id } }))
+          );
+          setMaterials(results.flatMap((res) => res.data.data.materials || []));
+        }
       } catch (err) {
         setError(err.response?.data?.message || 'Failed to load consumption report.');
       } finally {
@@ -251,8 +278,10 @@ function StockStatusReport({ companyFilter }) {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get('/production/reports/stock', { params: companyFilter ? { company_id: companyFilter } : {} });
-      setMaterials(res.data.data || []);
+      const data = companyFilter
+        ? (await api.get('/production/reports/stock', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/production/reports/stock');
+      setMaterials(data);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load stock status report.');
     } finally {

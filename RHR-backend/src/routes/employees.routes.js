@@ -4,6 +4,7 @@ const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin }      = require('../middleware/role.middleware');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { resolveCompanyId } = require('../utils/companyScope');
 
 // Plain HR directory records — no login account, no auth.users row.
 // See sql/phase9_employees_directory.sql. Contrast with /salesmen,
@@ -12,12 +13,15 @@ const { success, error } = require('../utils/response');
 // GET /api/v1/employees — active employees in this admin's company
 router.get('/', authenticate, isAdmin, async (req, res) => {
   try {
-    const { data, error: dbErr } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('employees')
       .select('id, full_name, phone, email, address, city, salary, is_active, created_at')
-      .eq('company_id', req.user.company_id)
       .eq('is_active', true)
       .order('full_name');
+    const companyId = resolveCompanyId(req);
+    if (companyId) query = query.eq('company_id', companyId);
+
+    const { data, error: dbErr } = await query;
     if (dbErr) throw new Error(dbErr.message);
     return success(res, data);
   } catch (err) { return error(res, err.message); }

@@ -6,6 +6,7 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
+import { fetchAllCities } from '../utils/multiCityFetch';
 
 const TABS = ['all', 'pending', 'approved', 'rejected'];
 const PAGE_SIZE = 10;
@@ -39,8 +40,10 @@ export default function Payments() {
     setError('');
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
-      const res = await api.get('/payments', { params: companyFilter ? { company_id: companyFilter } : {} });
-      setPayments(res.data.data || []);
+      const data = companyFilter
+        ? (await api.get('/payments', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/payments');
+      setPayments(data);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load payments.');
     } finally {

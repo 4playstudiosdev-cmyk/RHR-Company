@@ -8,6 +8,7 @@ import EmptyState from '../../components/EmptyState';
 import { SkeletonTable } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
 import CityFilter from '../../components/CityFilter';
+import { fetchAllCities } from '../../utils/multiCityFetch';
 
 const DESTINATIONS = ['Karachi', 'Hyderabad', 'Sukkur'];
 const STATUS_BADGE = {
@@ -42,13 +43,14 @@ export default function Dispatch() {
     setError('');
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
-      const params = companyFilter ? { params: { company_id: companyFilter } } : {};
-      const [ordersRes, historyRes] = await Promise.all([
-        api.get('/production/orders', params),
-        api.get('/production/dispatch', params)
-      ]);
-      setReadyOrders((ordersRes.data.data || []).filter((o) => o.status === 'ready'));
-      setHistory(historyRes.data.data || []);
+      const [ordersData, historyData] = companyFilter
+        ? await Promise.all([
+            api.get('/production/orders', { params: { company_id: companyFilter } }).then((r) => r.data.data || []),
+            api.get('/production/dispatch', { params: { company_id: companyFilter } }).then((r) => r.data.data || [])
+          ])
+        : await Promise.all([fetchAllCities('/production/orders'), fetchAllCities('/production/dispatch')]);
+      setReadyOrders(ordersData.filter((o) => o.status === 'ready'));
+      setHistory(historyData);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load dispatch data.');
     } finally {

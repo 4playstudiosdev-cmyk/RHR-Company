@@ -4,12 +4,14 @@ import {
   ChevronLeft, ChevronRight, CheckCircle2, XCircle, PlaneTakeoff,
   Contact, MapPin, Wallet, Palmtree, Stethoscope, Plus, PlayCircle, Users
 } from 'lucide-react';
-import api from '../services/api';
+import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
 import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
+import CityFilter from '../components/CityFilter';
+import { CITY_IDS, fetchAllCities } from '../utils/multiCityFetch';
 
 const TABS = [
   { key: 'attendance', label: 'Attendance', icon: Clock },
@@ -38,6 +40,9 @@ function getInitials(name) {
 
 export default function HRM() {
   const toast = useToast();
+  const user = getCurrentUser();
+  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [staff, setStaff] = useState([]);
   const [userId, setUserId] = useState('');
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -52,15 +57,20 @@ export default function HRM() {
   const [employeesLoading, setEmployeesLoading] = useState(true);
 
   useEffect(() => {
+    setUserId('');
     loadStaff();
     loadEmployees();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [selectedCity]);
+
+  const companyFilter = selectedCity === 'all' ? null : selectedCity;
 
   const loadStaff = async () => {
     try {
-      const res = await api.get('/salesmen');
-      setStaff(res.data.data || []);
+      const data = companyFilter
+        ? (await api.get('/salesmen', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/salesmen');
+      setStaff(data);
     } catch (err) {
       toast.error('Failed to load staff list.');
     }
@@ -69,8 +79,10 @@ export default function HRM() {
   const loadEmployees = async () => {
     setEmployeesLoading(true);
     try {
-      const res = await api.get('/employees');
-      setEmployees(res.data.data || []);
+      const data = companyFilter
+        ? (await api.get('/employees', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/employees');
+      setEmployees(data);
     } catch (err) {
       toast.error('Failed to load employee directory.');
     } finally {
@@ -119,13 +131,16 @@ export default function HRM() {
           <h1 className="text-2xl font-bold text-navy">HRM</h1>
           <p className="text-sm text-gray-500 mt-1">Attendance, salary and leave management for field staff</p>
         </div>
-        <Button
-          variant="accent"
-          onClick={() => { setEmployeeForm(EMPTY_EMPLOYEE_FORM); setShowAddEmployee(true); }}
-          className="flex items-center gap-2"
-        >
-          <UserPlus size={16} /> Add Employee
-        </Button>
+        <div className="flex items-center gap-3">
+          <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
+          <Button
+            variant="accent"
+            onClick={() => { setEmployeeForm(EMPTY_EMPLOYEE_FORM); setShowAddEmployee(true); }}
+            className="flex items-center gap-2"
+          >
+            <UserPlus size={16} /> Add Employee
+          </Button>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5 mb-6 flex flex-wrap gap-4 items-end">
@@ -196,9 +211,9 @@ export default function HRM() {
       {tab === 'employees' ? (
         <EmployeesTab employees={employees} loading={employeesLoading} />
       ) : tab === 'leave' ? (
-        <LeaveTab staff={staff} employees={employees} toast={toast} />
+        <LeaveTab staff={staff} employees={employees} toast={toast} companyFilter={companyFilter} />
       ) : tab === 'salary' ? (
-        <PayrollTab month={month} year={year} toast={toast} />
+        <PayrollTab month={month} year={year} toast={toast} companyFilter={companyFilter} />
       ) : !userId ? (
         <div className="bg-white rounded-2xl shadow-card border border-gray-100">
           <EmptyState icon={Briefcase} title="Select an employee" subtitle="Choose an employee above to manage their records" />
@@ -646,7 +661,7 @@ const EMPTY_STRUCTURE_FORM = { basic_salary: '', allowances: '', deductions: '',
 // which reuses the exact same net-salary math as the old per-employee
 // view (attendance-based earned salary minus late deduction minus fixed
 // deductions), just run for the whole roster in one call.
-function PayrollTab({ month, year, toast }) {
+function PayrollTab({ month, year, toast, companyFilter }) {
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState({ totalEmployees: 0, totalPayroll: 0, pendingCount: 0 });
   const [loading, setLoading] = useState(true);
@@ -660,19 +675,32 @@ function PayrollTab({ month, year, toast }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get('/hrm/payroll', { params: { month, year } });
-      setRows(res.data.data.rows || []);
-      setSummary({
-        totalEmployees: res.data.data.totalEmployees || 0,
-        totalPayroll: res.data.data.totalPayroll || 0,
-        pendingCount: res.data.data.pendingCount || 0
-      });
+      if (companyFilter) {
+        const res = await api.get('/hrm/payroll', { params: { month, year, company_id: companyFilter } });
+        setRows(res.data.data.rows || []);
+        setSummary({
+          totalEmployees: res.data.data.totalEmployees || 0,
+          totalPayroll: res.data.data.totalPayroll || 0,
+          pendingCount: res.data.data.pendingCount || 0
+        });
+      } else {
+        const results = await Promise.all(
+          CITY_IDS.map((id) => api.get('/hrm/payroll', { params: { month, year, company_id: id } }))
+        );
+        const combinedRows = results.flatMap((r) => r.data.data.rows || []);
+        setRows(combinedRows);
+        setSummary({
+          totalEmployees: results.reduce((s, r) => s + (r.data.data.totalEmployees || 0), 0),
+          totalPayroll: results.reduce((s, r) => s + (r.data.data.totalPayroll || 0), 0),
+          pendingCount: results.reduce((s, r) => s + (r.data.data.pendingCount || 0), 0)
+        });
+      }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load payroll.');
     } finally {
       setLoading(false);
     }
-  }, [month, year, toast]);
+  }, [month, year, toast, companyFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -928,7 +956,7 @@ const EMPTY_LEAVE_FORM = { user_id: '', leave_type: 'casual', from_date: '', to_
 // Company-wide leave board — every staff member's requests at once
 // (salesmen + directory employees), not scoped to one selected employee.
 // Backed by GET /hrm/leave (see hrm.controller.js's getAllLeaveRequests).
-function LeaveTab({ staff, employees, toast }) {
+function LeaveTab({ staff, employees, toast, companyFilter }) {
   const [requests, setRequests] = useState([]);
   const [balances, setBalances] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -942,15 +970,23 @@ function LeaveTab({ staff, employees, toast }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get('/hrm/leave');
-      setRequests(res.data.data.requests || []);
-      setBalances(res.data.data.balances || []);
+      if (companyFilter) {
+        const res = await api.get('/hrm/leave', { params: { company_id: companyFilter } });
+        setRequests(res.data.data.requests || []);
+        setBalances(res.data.data.balances || []);
+      } else {
+        const results = await Promise.all(
+          CITY_IDS.map((id) => api.get('/hrm/leave', { params: { company_id: id } }))
+        );
+        setRequests(results.flatMap((r) => r.data.data.requests || []));
+        setBalances(results.flatMap((r) => r.data.data.balances || []));
+      }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load leave requests.');
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, companyFilter]);
 
   useEffect(() => { load(); }, [load]);
 

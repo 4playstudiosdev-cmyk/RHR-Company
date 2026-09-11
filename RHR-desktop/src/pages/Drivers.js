@@ -8,6 +8,7 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
+import { fetchAllCities } from '../utils/multiCityFetch';
 
 const EMPTY_FORM = { full_name: '', phone: '', car_number: '' };
 
@@ -38,13 +39,18 @@ export default function Drivers() {
     setError('');
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
-      const params = companyFilter ? { params: { company_id: companyFilter } } : {};
-      const [pendingRes, allRes] = await Promise.all([
-        api.get('/drivers/pending', params),
-        api.get('/drivers', params)
-      ]);
-      setPending(pendingRes.data.data || []);
-      setDrivers(allRes.data.data || []);
+      const params = { company_id: companyFilter };
+      const [pendingData, allData] = companyFilter
+        ? await Promise.all([
+            api.get('/drivers/pending', { params }).then((r) => r.data.data || []),
+            api.get('/drivers', { params }).then((r) => r.data.data || [])
+          ])
+        : await Promise.all([
+            fetchAllCities('/drivers/pending'),
+            fetchAllCities('/drivers')
+          ]);
+      setPending(pendingData);
+      setDrivers(allData);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load drivers.');
     } finally {

@@ -7,6 +7,7 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
+import { fetchAllCities } from '../utils/multiCityFetch';
 
 const REPORT_TABS = [
   { key: 'sales', label: 'Sales Report', icon: TrendingUp },
@@ -62,10 +63,14 @@ export default function Reports() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const params = companyFilter ? { params: { company_id: companyFilter } } : {};
-      const [ordersRes, paymentsRes] = await Promise.all([api.get('/orders', params), api.get('/payments', params)]);
-      setOrders(ordersRes.data.data || []);
-      setPayments(paymentsRes.data.data || []);
+      const [ordersData, paymentsData] = companyFilter
+        ? await Promise.all([
+            api.get('/orders', { params: { company_id: companyFilter } }).then((r) => r.data.data || []),
+            api.get('/payments', { params: { company_id: companyFilter } }).then((r) => r.data.data || [])
+          ])
+        : await Promise.all([fetchAllCities('/orders'), fetchAllCities('/payments')]);
+      setOrders(ordersData);
+      setPayments(paymentsData);
     } catch (err) {
       toast.error('Failed to load report data.');
     } finally {
@@ -76,8 +81,10 @@ export default function Reports() {
   const loadOutstanding = async () => {
     setOutstandingLoading(true);
     try {
-      const res = await api.get('/reports/outstanding', { params: companyFilter ? { company_id: companyFilter } : {} });
-      setOutstanding(res.data.data || []);
+      const data = companyFilter
+        ? (await api.get('/reports/outstanding', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/reports/outstanding');
+      setOutstanding(data);
     } catch (err) {
       // non-fatal — Sales/Collections tabs still work
     } finally {

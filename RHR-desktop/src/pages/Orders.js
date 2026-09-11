@@ -10,6 +10,7 @@ import { useToast } from '../components/Toast';
 import Modal from '../components/Modal';
 import Button from '../components/Button';
 import CityFilter from '../components/CityFilter';
+import { fetchAllCities } from '../utils/multiCityFetch';
 
 // Matches the backend's validStatuses in orders.service.js
 const STATUS_OPTIONS = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered', 'cancelled'];
@@ -119,8 +120,10 @@ export default function Orders() {
     setError('');
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
-      const res = await api.get('/orders', { params: companyFilter ? { company_id: companyFilter } : {} });
-      setOrders(res.data.data || []);
+      const data = companyFilter
+        ? (await api.get('/orders', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/orders');
+      setOrders(data);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load orders.');
     } finally {

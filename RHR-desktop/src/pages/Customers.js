@@ -1,11 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Users, UserCheck, BookOpen, Search, Phone, Mail, AlertTriangle, User } from 'lucide-react';
+import { Users, UserCheck, BookOpen, Search, Phone, Mail, AlertTriangle, User, Tag } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
+import Modal from '../components/Modal';
 import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
+import { fetchAllCities } from '../utils/multiCityFetch';
+
+const RATE_TIERS = [
+  { value: 'manual', label: 'Standard Rate', desc: 'Original price' },
+  { value: 'discount', label: 'Discount Rate', desc: 'Price − PKR 10' },
+  { value: 'premium', label: 'Premium Rate', desc: 'Price + PKR 10' }
+];
 
 const PAGE_SIZE = 10;
 
@@ -54,6 +62,7 @@ export default function Customers({ onViewLedger }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [approvingId, setApprovingId] = useState(null);
+  const [approvingCustomer, setApprovingCustomer] = useState(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
 
@@ -73,17 +82,23 @@ export default function Customers({ onViewLedger }) {
     setError('');
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
-      const params = companyFilter ? { params: { company_id: companyFilter } } : {};
-      const [pendingRes, allRes, ordersRes] = await Promise.all([
-        api.get('/customers/pending', params),
-        api.get('/customers', params),
-        api.get('/orders', params)
-      ]);
-      setPending(pendingRes.data.data || []);
-      setAll(allRes.data.data || []);
+      const params = { company_id: companyFilter };
+      const [pendingData, allData, ordersData] = companyFilter
+        ? await Promise.all([
+            api.get('/customers/pending', { params }).then((r) => r.data.data || []),
+            api.get('/customers', { params }).then((r) => r.data.data || []),
+            api.get('/orders', { params }).then((r) => r.data.data || [])
+          ])
+        : await Promise.all([
+            fetchAllCities('/customers/pending'),
+            fetchAllCities('/customers'),
+            fetchAllCities('/orders')
+          ]);
+      setPending(pendingData);
+      setAll(allData);
 
       const counts = {};
-      (ordersRes.data.data || []).forEach((o) => {
+      ordersData.forEach((o) => {
         if (o.customer_id) counts[o.customer_id] = (counts[o.customer_id] || 0) + 1;
       });
       setOrdersByCustomer(counts);
@@ -94,11 +109,15 @@ export default function Customers({ onViewLedger }) {
     }
   };
 
-  const handleApprove = async (customer) => {
-    if (!window.confirm(`Approve "${customer.full_name}"?`)) return;
+  const handleApprove = (customer) => {
+    setApprovingCustomer(customer);
+  };
+
+  const confirmApprove = async (rateTier) => {
+    const customer = approvingCustomer;
     setApprovingId(customer.id);
     try {
-      await api.patch(`/auth/approve-customer/${customer.id}`);
+      await api.patch(`/auth/approve-customer/${customer.id}`, { rate_tier: rateTier });
       setPending((prev) => prev.filter((c) => c.id !== customer.id));
       toast.success(`${customer.full_name} approved.`);
       loadCustomers();
@@ -106,6 +125,7 @@ export default function Customers({ onViewLedger }) {
       toast.error(err.response?.data?.message || 'Failed to approve customer.');
     } finally {
       setApprovingId(null);
+      setApprovingCustomer(null);
     }
   };
 
@@ -390,6 +410,45 @@ export default function Customers({ onViewLedger }) {
             </div>
           )}
         </section>
+      )}
+
+      {approvingCustomer && (
+        <Modal title={`Select Rate Tier — ${approvingCustomer.full_name}`} onClose={() => setApprovingCustomer(null)}>
+          <p className="text-sm text-gray-500 mb-4">
+            This sets the pricing tier applied to every order this customer places going forward.
+          </p>
+          <div className="space-y-2.5">
+            {RATE_TIERS.map((tier) => (
+              <button
+                key={tier.value}
+                type="button"
+                disabled={approvingId === approvingCustomer.id}
+                onClick={() => confirmApprove(tier.value)}
+                className="w-full flex items-center justify-between gap-3 text-left border border-gray-200 rounded-xl px-4 py-3.5 hover:border-navy hover:bg-navy-chip/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-navy-chip text-navy flex items-center justify-center flex-shrink-0">
+                    <Tag size={16} />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-navy text-sm">{tier.label}</p>
+                    <p className="text-xs text-gray-400">{tier.desc}</p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+          <div className="flex justify-end pt-4">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={approvingId === approvingCustomer.id}
+              onClick={() => setApprovingCustomer(null)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </Modal>
       )}
     </div>
   );

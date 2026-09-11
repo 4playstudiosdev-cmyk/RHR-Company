@@ -8,6 +8,7 @@ import EmptyState from '../../components/EmptyState';
 import { SkeletonTable } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
 import CityFilter from '../../components/CityFilter';
+import { fetchAllCities } from '../../utils/multiCityFetch';
 
 const MATERIAL_CATEGORIES = ['Cement', 'Sand/Bajri', 'Chemicals', 'Pigments', 'Other'];
 const UNITS = ['kg', 'litre', 'piece', 'bag'];
@@ -40,8 +41,10 @@ export default function RawMaterials() {
     setError('');
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
-      const res = await api.get('/production/materials', { params: companyFilter ? { company_id: companyFilter } : {} });
-      setMaterials(res.data.data || []);
+      const data = companyFilter
+        ? (await api.get('/production/materials', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/production/materials');
+      setMaterials(data);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load raw materials.');
     } finally {
