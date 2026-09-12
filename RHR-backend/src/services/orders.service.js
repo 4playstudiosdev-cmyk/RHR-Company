@@ -11,7 +11,7 @@ const RATE_TIER_ADJUSTMENT = { manual: 0, discount: -10, premium: 10 };
 async function createOrder({ customerId, salesmanId, companyId, items, notes, deliveryAddress }) {
   // Step 1: Validate all products exist and have enough stock
   const productIds = items.map(i => i.product_id);
-  const [{ data: products, error: pErr }, { data: customer }] = await Promise.all([
+  const [{ data: products, error: pErr }, { data: customer }, { data: customPrices }] = await Promise.all([
     supabaseAdmin
       .from('products')
       .select('id, name, price, stock_quantity')
@@ -22,7 +22,16 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       .from('users')
       .select('rate_tier')
       .eq('id', customerId)
-      .maybeSingle()
+      .maybeSingle(),
+    // Per-customer, per-product override (Customers page → Set Custom
+    // Pricing) — takes precedence over rate_tier for whichever products
+    // it covers; anything not overridden still falls through to the
+    // tier adjustment below.
+    supabaseAdmin
+      .from('customer_product_prices')
+      .select('product_id, price')
+      .eq('customer_id', customerId)
+      .in('product_id', productIds)
   ]);
 
   if (pErr || products.length !== items.length) {
@@ -30,6 +39,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
   }
 
   const tierAdjustment = RATE_TIER_ADJUSTMENT[customer?.rate_tier] || 0;
+  const customPriceByProduct = Object.fromEntries((customPrices || []).map(c => [c.product_id, Number(c.price)]));
 
   // Step 2: Build order items with price snapshot
   let totalAmount = 0;
@@ -38,7 +48,10 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
     if (product.stock_quantity < item.quantity) {
       throw new Error(`Insufficient stock for ${product.name}`);
     }
-    const unitPrice = Math.max(0, Number(product.price) + tierAdjustment);
+    const hasCustomPrice = item.product_id in customPriceByProduct;
+    const unitPrice = hasCustomPrice
+      ? customPriceByProduct[item.product_id]
+      : Math.max(0, Number(product.price) + tierAdjustment);
     const subtotal = unitPrice * item.quantity;
     totalAmount += subtotal;
     return {

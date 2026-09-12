@@ -273,14 +273,17 @@ async function approveCustomer(customerId, adminUser, rateTier) {
     update.rate_tier = rateTier;
   }
 
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('users')
     .update(update)
     .eq('id', customerId)
-    .eq('company_id', adminUser.company_id)
-    .eq('role', 'customer')
-    .select()
-    .single();
+    .eq('role', 'customer');
+  // super_admin can approve a pending customer in any branch (the
+  // Customers page already lists all 3 branches' pending signups for
+  // them via CityFilter); branch_admin stays locked to their own.
+  if (adminUser.role !== 'super_admin') query = query.eq('company_id', adminUser.company_id);
+
+  const { data, error } = await query.select().single();
 
   if (error) throw new Error('Customer not found or access denied');
   return data;

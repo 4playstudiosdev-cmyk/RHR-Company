@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Users, UserCheck, BookOpen, Search, Phone, Mail, AlertTriangle, User, Tag } from 'lucide-react';
+import { Users, UserCheck, BookOpen, Search, Phone, Mail, AlertTriangle, User, Tag, DollarSign, RotateCcw } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
@@ -14,6 +14,12 @@ const RATE_TIERS = [
   { value: 'discount', label: 'Discount Rate', desc: 'Price − PKR 10' },
   { value: 'premium', label: 'Premium Rate', desc: 'Price + PKR 10' }
 ];
+
+const RATE_BADGE = {
+  manual:   { label: 'Standard', classes: 'bg-navy-chip text-navy' },
+  discount: { label: 'Discount', classes: 'bg-emerald-50 text-emerald-700' },
+  premium:  { label: 'Premium',  classes: 'bg-orange/10 text-orange' }
+};
 
 const PAGE_SIZE = 10;
 
@@ -52,7 +58,7 @@ function filterCustomers(list, term) {
 export default function Customers({ onViewLedger }) {
   const toast = useToast();
   const user = getCurrentUser();
-  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId; // KHI default
   const [selectedCity, setSelectedCity] = useState(defaultCity);
   const pendingRef = useRef(null);
   const allRef = useRef(null);
@@ -128,6 +134,77 @@ export default function Customers({ onViewLedger }) {
       setApprovingCustomer(null);
     }
   };
+
+  const handleChangeRateTier = async (customer, rateTier) => {
+    if (rateTier === (customer.rate_tier || 'manual')) return;
+    try {
+      await api.patch(`/customers/${customer.id}/rate-tier`, { rate_tier: rateTier });
+      setAll((prev) => prev.map((c) => (c.id === customer.id ? { ...c, rate_tier: rateTier } : c)));
+      toast.success(`${customer.full_name}'s rate tier updated.`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update rate tier.');
+    }
+  };
+
+  const [pricingCustomer, setPricingCustomer] = useState(null);
+  const [pricingRows, setPricingRows] = useState([]);
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [pricingSearch, setPricingSearch] = useState('');
+  const [priceInputs, setPriceInputs] = useState({});
+  const [savingProductId, setSavingProductId] = useState(null);
+
+  const openPricingModal = async (customer) => {
+    setPricingCustomer(customer);
+    setPricingSearch('');
+    setPricingLoading(true);
+    try {
+      const res = await api.get(`/customers/${customer.id}/pricing`);
+      const rows = res.data.data || [];
+      setPricingRows(rows);
+      setPriceInputs(Object.fromEntries(rows.map((r) => [r.product_id, r.custom_price ?? ''])));
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load pricing.');
+      setPricingRows([]);
+    } finally {
+      setPricingLoading(false);
+    }
+  };
+
+  const handleSaveCustomPrice = async (productId) => {
+    const raw = priceInputs[productId];
+    if (raw === '' || raw === null || raw === undefined || Number(raw) < 0) {
+      toast.error('Enter a valid price.');
+      return;
+    }
+    setSavingProductId(productId);
+    try {
+      await api.put(`/customers/${pricingCustomer.id}/pricing/${productId}`, { price: Number(raw) });
+      setPricingRows((prev) => prev.map((r) => (r.product_id === productId ? { ...r, custom_price: Number(raw) } : r)));
+      toast.success('Custom price saved.');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to save price.');
+    } finally {
+      setSavingProductId(null);
+    }
+  };
+
+  const handleResetCustomPrice = async (productId) => {
+    setSavingProductId(productId);
+    try {
+      await api.delete(`/customers/${pricingCustomer.id}/pricing/${productId}`);
+      setPricingRows((prev) => prev.map((r) => (r.product_id === productId ? { ...r, custom_price: null } : r)));
+      setPriceInputs((prev) => ({ ...prev, [productId]: '' }));
+      toast.success('Reverted to default price.');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to reset price.');
+    } finally {
+      setSavingProductId(null);
+    }
+  };
+
+  const visiblePricingRows = pricingSearch.trim()
+    ? pricingRows.filter((r) => r.name.toLowerCase().includes(pricingSearch.trim().toLowerCase()))
+    : pricingRows;
 
   const filtered = filterCustomers(all, search);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -305,6 +382,7 @@ export default function Customers({ onViewLedger }) {
                     <tr className="bg-gray-50 border-b border-gray-100 text-gray-500">
                       <th className="py-3 px-6 font-semibold text-xs uppercase tracking-wide">Customer</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Phone</th>
+                      <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Rate</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Orders</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Outstanding</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-center">Status</th>
@@ -335,6 +413,26 @@ export default function Customers({ onViewLedger }) {
                             </div>
                           </td>
                           <td className="py-3 px-4 text-gray-600">{customer.phone}</td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-bold whitespace-nowrap ${
+                                  (RATE_BADGE[customer.rate_tier] || RATE_BADGE.manual).classes
+                                }`}
+                              >
+                                {(RATE_BADGE[customer.rate_tier] || RATE_BADGE.manual).label}
+                              </span>
+                              <select
+                                value={customer.rate_tier || 'manual'}
+                                onChange={(e) => handleChangeRateTier(customer, e.target.value)}
+                                className="border border-gray-200 rounded-md px-1.5 py-0.5 text-[11px] text-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-chip focus:border-navy bg-white cursor-pointer"
+                              >
+                                {RATE_TIERS.map((t) => (
+                                  <option key={t.value} value={t.value}>{t.label.replace(' Rate', '')}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </td>
                           <td className="py-3 px-4 text-right text-navy font-medium">
                             {ordersByCustomer[customer.id] || 0}
                           </td>
@@ -359,14 +457,22 @@ export default function Customers({ onViewLedger }) {
                             </span>
                           </td>
                           <td className="py-3 px-6 text-right">
-                            {onViewLedger && (
+                            <div className="flex items-center justify-end gap-3">
                               <button
-                                onClick={() => onViewLedger(customer.id)}
+                                onClick={() => openPricingModal(customer)}
                                 className="inline-flex items-center gap-1.5 text-xs text-navy hover:underline font-medium"
                               >
-                                <BookOpen size={13} /> View Ledger
+                                <DollarSign size={13} /> Pricing
                               </button>
-                            )}
+                              {onViewLedger && (
+                                <button
+                                  onClick={() => onViewLedger(customer.id)}
+                                  className="inline-flex items-center gap-1.5 text-xs text-navy hover:underline font-medium"
+                                >
+                                  <BookOpen size={13} /> View Ledger
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -447,6 +553,79 @@ export default function Customers({ onViewLedger }) {
             >
               Cancel
             </Button>
+          </div>
+        </Modal>
+      )}
+
+      {pricingCustomer && (
+        <Modal title={`Set Custom Pricing — ${pricingCustomer.full_name}`} onClose={() => setPricingCustomer(null)}>
+          <p className="text-sm text-gray-500 mb-3">
+            Set a specific rate for this customer on individual products — overrides their rate tier for that product only.
+          </p>
+          <div className="relative mb-3">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={pricingSearch}
+              onChange={(e) => setPricingSearch(e.target.value)}
+              placeholder="Search products..."
+              className="w-full border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
+            />
+          </div>
+
+          {pricingLoading ? (
+            <p className="text-sm text-gray-400 py-6 text-center">Loading products…</p>
+          ) : visiblePricingRows.length === 0 ? (
+            <p className="text-sm text-gray-400 py-6 text-center">No products found.</p>
+          ) : (
+            <div className="max-h-[360px] overflow-y-auto -mx-1 space-y-2">
+              {visiblePricingRows.map((row) => {
+                const hasCustom = row.custom_price !== null && row.custom_price !== undefined;
+                const isSaving = savingProductId === row.product_id;
+                return (
+                  <div key={row.product_id} className="flex items-center gap-3 border border-gray-100 rounded-xl px-3.5 py-2.5 mx-1">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-navy truncate">{row.name}</p>
+                      <p className="text-xs text-gray-400">
+                        Catalog: PKR {row.catalog_price.toLocaleString()}{hasCustom && <span className="text-navy font-medium"> · Custom: PKR {Number(row.custom_price).toLocaleString()}</span>}
+                      </p>
+                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder={String(row.catalog_price)}
+                      value={priceInputs[row.product_id] ?? ''}
+                      onChange={(e) => setPriceInputs((prev) => ({ ...prev, [row.product_id]: e.target.value }))}
+                      className="w-24 border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                    />
+                    <button
+                      type="button"
+                      disabled={isSaving}
+                      onClick={() => handleSaveCustomPrice(row.product_id)}
+                      className="text-xs font-semibold text-white bg-navy hover:bg-navy/90 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors"
+                    >
+                      Save
+                    </button>
+                    {hasCustom && (
+                      <button
+                        type="button"
+                        disabled={isSaving}
+                        onClick={() => handleResetCustomPrice(row.product_id)}
+                        title="Reset to default"
+                        className="text-gray-400 hover:text-red-600 disabled:opacity-50 p-1.5"
+                      >
+                        <RotateCcw size={14} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex justify-end pt-4">
+            <Button type="button" variant="secondary" onClick={() => setPricingCustomer(null)}>Close</Button>
           </div>
         </Modal>
       )}
