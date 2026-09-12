@@ -11,7 +11,7 @@ import { CITY_IDS } from '../../utils/multiCityFetch';
 export default function ProductionLog() {
   const toast = useToast();
   const user = getCurrentUser();
-  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId; // KHI default
   const [selectedCity, setSelectedCity] = useState(defaultCity);
 
   const [history, setHistory] = useState([]);

@@ -10,15 +10,27 @@ import { useToast } from '../../components/Toast';
 import CityFilter from '../../components/CityFilter';
 import { fetchAllCities } from '../../utils/multiCityFetch';
 
-const MATERIAL_CATEGORIES = ['Cement', 'Sand/Bajri', 'Chemicals', 'Pigments', 'Other'];
+// Labels shown in the UI vs. the actual lowercase codes stored in
+// raw_materials.category — tabs/filter/form all used to compare against
+// the pretty label directly, which never matched a real row's category
+// (always "binder"/"filler"/etc in the DB), so every tab but "All" and
+// every newly-added material silently mismatched.
+const MATERIAL_CATEGORIES = [
+  { label: 'Cement', value: 'binder' },
+  { label: 'Sand/Bajri', value: 'filler' },
+  { label: 'Chemicals', value: 'chemical' },
+  { label: 'Pigments', value: 'pigment' },
+  { label: 'Other', value: 'other' },
+];
+const CATEGORY_LABEL = Object.fromEntries(MATERIAL_CATEGORIES.map((c) => [c.value, c.label]));
 const UNITS = ['kg', 'litre', 'piece', 'bag'];
-const EMPTY_FORM = { name: '', category: MATERIAL_CATEGORIES[0], unit: UNITS[0], stock: '', min_level: '' };
+const EMPTY_FORM = { name: '', category: MATERIAL_CATEGORIES[0].value, unit: UNITS[0], stock: '', min_level: '' };
 const EMPTY_STOCK_FORM = { quantity: '', date: new Date().toISOString().split('T')[0], note: '' };
 
 export default function RawMaterials() {
   const toast = useToast();
   const user = getCurrentUser();
-  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId; // KHI default
   const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -32,6 +44,7 @@ export default function RawMaterials() {
   const [savingStock, setSavingStock] = useState(false);
 
   useEffect(() => {
+    setTab('All');
     loadMaterials();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
@@ -72,7 +85,7 @@ export default function RawMaterials() {
     return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [materials, isCombined]);
 
-  const tabs = ['All', ...MATERIAL_CATEGORIES];
+  const tabs = [{ label: 'All', value: 'All' }, ...MATERIAL_CATEGORIES];
   const filtered = tab === 'All' ? groupedMaterials : groupedMaterials.filter((m) => m.category === tab);
 
   const handleAddMaterial = async (e) => {
@@ -147,13 +160,13 @@ export default function RawMaterials() {
       <div className="flex gap-2 mb-6 flex-wrap">
         {tabs.map((t) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={t.value}
+            onClick={() => setTab(t.value)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              tab === t ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+              tab === t.value ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
             }`}
           >
-            {t}
+            {t.label}
           </button>
         ))}
       </div>
@@ -193,7 +206,7 @@ export default function RawMaterials() {
                       }`}
                     >
                       <td className="px-6 py-3.5 font-medium text-navy">{m.name}</td>
-                      <td className="px-6 py-3.5 text-gray-600">{m.category}</td>
+                      <td className="px-6 py-3.5 text-gray-600">{CATEGORY_LABEL[m.category] || m.category}</td>
                       <td className="px-6 py-3.5 text-gray-600">{m.unit}</td>
                       <td className="px-6 py-3.5 text-right text-gray-700">{Number(m.stock).toLocaleString()}</td>
                       <td className="px-6 py-3.5 text-right text-gray-500">{Number(m.min_level).toLocaleString()}</td>
@@ -254,7 +267,7 @@ export default function RawMaterials() {
                   className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
                 >
                   {MATERIAL_CATEGORIES.map((c) => (
-                    <option key={c} value={c}>{c}</option>
+                    <option key={c.value} value={c.value}>{c.label}</option>
                   ))}
                 </select>
               </div>

@@ -26,7 +26,7 @@ const PAYMENT_METHODS = [
 export default function Orders() {
   const toast = useToast();
   const user = getCurrentUser();
-  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId; // KHI default
   const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -147,12 +147,12 @@ export default function Orders() {
     }
   };
 
-  const handleInvoice = async (order) => {
+  const handleInvoice = async (order, withTax = false) => {
     setPdfLoadingId(order.id);
     try {
       const res = await api.get(`/orders/${order.id}`);
       const detail = res.data.data;
-      buildInvoicePdf(detail);
+      buildInvoicePdf(detail, withTax);
       toast.success(`Invoice for ${order.order_number} downloaded.`);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to generate invoice.');
@@ -161,7 +161,9 @@ export default function Orders() {
     }
   };
 
-  const buildInvoicePdf = (order) => {
+  const TAX_RATE = 0.18; // 18% sales tax
+
+  const buildInvoicePdf = (order, withTax = false) => {
     const doc = new jsPDF();
     const customer = order.users || {};
     const items = order.order_items || [];
@@ -179,6 +181,15 @@ export default function Orders() {
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.text('INVOICE', 196, 18, { align: 'right' });
+
+    if (withTax) {
+      doc.setFillColor(232, 132, 26); // orange
+      doc.roundedRect(150, 22, 46, 7, 1, 1, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'bold');
+      doc.text('INCLUDES 18% SALES TAX', 173, 26.8, { align: 'center' });
+    }
 
     // Meta + customer info
     doc.setTextColor(30, 30, 30);
@@ -218,23 +229,41 @@ export default function Orders() {
     });
 
     const finalY = doc.lastAutoTable.finalY || 80;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text(
-      `Grand Total: PKR ${Number(order.total_amount).toLocaleString()}`,
-      196,
-      finalY + 12,
-      { align: 'right' }
-    );
+    const subtotal = Number(order.total_amount);
+    const taxAmount = withTax ? subtotal * TAX_RATE : 0;
+    const grandTotal = subtotal + taxAmount;
 
+    if (withTax) {
+      doc.setTextColor(30, 30, 30);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text(`Subtotal: PKR ${subtotal.toLocaleString()}`, 196, finalY + 8, { align: 'right' });
+      doc.setTextColor(232, 132, 26);
+      doc.text(`Sales Tax (18%): PKR ${taxAmount.toLocaleString()}`, 196, finalY + 15, { align: 'right' });
+      doc.setTextColor(30, 30, 30);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text(`Grand Total: PKR ${grandTotal.toLocaleString()}`, 196, finalY + 24, { align: 'right' });
+    } else {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text(
+        `Grand Total: PKR ${subtotal.toLocaleString()}`,
+        196,
+        finalY + 12,
+        { align: 'right' }
+      );
+    }
+
+    const afterTotalsY = withTax ? finalY + 24 : finalY + 12;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(120, 120, 120);
-    doc.text('Thank you for your business — RHR & Company', 105, finalY + 30, {
+    doc.text('Thank you for your business — RHR & Company', 105, afterTotalsY + 18, {
       align: 'center'
     });
 
-    doc.save(`Invoice-${order.order_number}.pdf`);
+    doc.save(withTax ? `Invoice-Tax-${order.order_number}.pdf` : `Invoice-${order.order_number}.pdf`);
   };
 
   const openRecordPayment = async (order) => {
@@ -445,14 +474,25 @@ export default function Orders() {
                         </button>
                       </td>
                       <td className="px-6 py-3.5">
-                        <button
-                          onClick={() => handleInvoice(order)}
-                          disabled={pdfLoadingId === order.id}
-                          className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
-                        >
-                          <FileDown size={14} />
-                          {pdfLoadingId === order.id ? 'Generating...' : 'PDF'}
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => handleInvoice(order)}
+                            disabled={pdfLoadingId === order.id}
+                            className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                          >
+                            <FileDown size={14} />
+                            {pdfLoadingId === order.id ? 'Generating...' : 'Invoice'}
+                          </button>
+                          <button
+                            onClick={() => handleInvoice(order, true)}
+                            disabled={pdfLoadingId === order.id}
+                            title="Invoice with 18% sales tax"
+                            className="flex items-center gap-1.5 bg-[#E8841A] hover:bg-[#d1760f] disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                          >
+                            <FileDown size={14} />
+                            + Tax
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

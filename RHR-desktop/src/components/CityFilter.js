@@ -5,10 +5,10 @@ export default function CityFilter({ selectedCity, onChange }) {
   if (user?.role !== 'super_admin') return null;
 
   const cities = [
-    { label: 'All Cities', value: 'all' },
     { label: 'Karachi', value: '1e5962c6-33a7-460b-913e-9e08db46973a' },
     { label: 'Hyderabad', value: '09a1fda3-7ac0-406a-8f42-75d973dc3b7e' },
     { label: 'Sukkur', value: '00f79d89-0d36-4704-8865-fc7bbd662267' },
+    { label: 'All Cities', value: 'all' },
   ];
 
   return (

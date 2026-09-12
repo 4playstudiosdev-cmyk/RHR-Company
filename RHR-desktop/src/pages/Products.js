@@ -55,7 +55,7 @@ export default function Products() {
   const [uploading, setUploading]   = useState(false);
   const [categories, setCategories] = useState([]);
   const [branches, setBranches]     = useState([]);
-  const defaultCity = user?.role === 'super_admin' ? 'all' : user?.companyId;
+  const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId; // KHI default
   const [selectedCity, setSelectedCity] = useState(defaultCity);
   // Used only for the Add-form's category dropdown/target branch and the
   // category tab list — those need one concrete real company_id even while
