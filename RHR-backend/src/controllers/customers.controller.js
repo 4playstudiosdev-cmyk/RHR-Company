@@ -1,6 +1,13 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
+const { pgrestPost, pgrestPatch } = require('../utils/directQuery');
+
+function normalizePhone(phone) {
+  let digits = phone.replace(/\D/g, '');
+  if (digits.startsWith('0')) digits = '92' + digits.slice(1);
+  return '+' + digits;
+}
 
 const getCustomers = async (req, res) => {
   try {
@@ -62,6 +69,75 @@ const getCustomerById = async (req, res) => {
     }
 
     return success(res, data);
+  } catch (err) { return error(res, err.message); }
+};
+
+// POST /api/v1/customers — admin adds a customer account directly
+// (phone-based, auto-approved) — mirrors the Salesmen/Drivers "Add"
+// flow. Self-registration via the mobile app (registerCustomer in
+// auth.service.js) still lands as is_approved: false; this one skips
+// that queue since an admin is entering it by hand.
+const createCustomer = async (req, res) => {
+  try {
+    const { full_name, phone, email, shop_name, shop_address, company_id } = req.body;
+    if (!full_name || !phone)
+      return error(res, 'full_name and phone are required', 400);
+
+    const targetCompanyId = req.user.role === 'branch_admin'
+      ? req.user.company_id
+      : (company_id || req.user.company_id);
+    if (!targetCompanyId) return error(res, 'company_id is required', 400);
+
+    const canonical = normalizePhone(phone);
+    const bare = canonical.replace('+', '');
+    const { data: existing } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .or(`phone.eq.${canonical},phone.eq.${bare}`)
+      .maybeSingle();
+    if (existing) return error(res, 'A customer with this phone number already exists', 400);
+
+    const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({
+      phone: canonical,
+      phone_confirm: true,
+      user_metadata: { full_name, role: 'customer' }
+    });
+    if (authErr) throw new Error(authErr.message);
+
+    const [data] = await pgrestPost('users', {
+      id:           authData.user.id,
+      company_id:   targetCompanyId,
+      role:         'customer',
+      full_name,
+      phone:        canonical,
+      email:        email || null,
+      shop_name:    shop_name || null,
+      shop_address: shop_address || null,
+      is_approved:  true,
+      is_active:    true
+    });
+
+    return success(res, data, 'Customer account created', 201);
+  } catch (err) { return error(res, err.message); }
+};
+
+// PATCH /api/v1/customers/:id — edit an existing customer's details
+const updateCustomer = async (req, res) => {
+  try {
+    const { full_name, phone, email, shop_name, shop_address } = req.body;
+
+    const filter = { id: `eq.${req.params.id}`, role: 'eq.customer' };
+    if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
+
+    const data = await pgrestPatch('users', filter, {
+      full_name,
+      phone: phone ? normalizePhone(phone) : undefined,
+      email,
+      shop_name,
+      shop_address
+    });
+    if (!data?.[0]) return error(res, 'Customer not found or access denied', 404);
+    return success(res, data[0], 'Customer updated');
   } catch (err) { return error(res, err.message); }
 };
 
@@ -225,5 +301,6 @@ const updateMyShopLocation = async (req, res) => {
 
 module.exports = {
   getCustomers, getPendingCustomers, getCustomerById, updateMyShopLocation, updateRateTier,
-  getCustomerPricing, setCustomerPricing, deleteCustomerPricing
+  getCustomerPricing, setCustomerPricing, deleteCustomerPricing,
+  createCustomer, updateCustomer
 };

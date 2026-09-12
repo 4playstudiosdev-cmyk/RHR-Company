@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Users, UserCheck, BookOpen, Search, Phone, Mail, AlertTriangle, User, Tag, DollarSign, RotateCcw } from 'lucide-react';
+import { Users, UserCheck, BookOpen, Search, Phone, Mail, AlertTriangle, User, Tag, DollarSign, RotateCcw, Plus, Pencil } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
@@ -20,6 +20,12 @@ const RATE_BADGE = {
   discount: { label: 'Discount', classes: 'bg-emerald-50 text-emerald-700' },
   premium:  { label: 'Premium',  classes: 'bg-orange/10 text-orange' }
 };
+
+// New customers created while "All Cities" is selected land in Karachi —
+// same default the Products/Raw Materials pages use, since there's no
+// single real branch a "combined view" create action could target.
+const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
+const EMPTY_CUSTOMER_FORM = { full_name: '', phone: '', email: '', shop_name: '', shop_address: '' };
 
 const PAGE_SIZE = 10;
 
@@ -206,6 +212,54 @@ export default function Customers({ onViewLedger }) {
     ? pricingRows.filter((r) => r.name.toLowerCase().includes(pricingSearch.trim().toLowerCase()))
     : pricingRows;
 
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState(null);
+  const [customerForm, setCustomerForm] = useState(EMPTY_CUSTOMER_FORM);
+  const [savingCustomer, setSavingCustomer] = useState(false);
+
+  const openAddCustomerModal = () => {
+    setEditingCustomer(null);
+    setCustomerForm(EMPTY_CUSTOMER_FORM);
+    setShowCustomerModal(true);
+  };
+
+  const openEditCustomerModal = (customer) => {
+    setEditingCustomer(customer);
+    setCustomerForm({
+      full_name:    customer.full_name || '',
+      phone:        customer.phone || '',
+      email:        customer.email || '',
+      shop_name:    customer.shop_name || '',
+      shop_address: customer.shop_address || ''
+    });
+    setShowCustomerModal(true);
+  };
+
+  const handleSaveCustomer = async (e) => {
+    e.preventDefault();
+    if (!customerForm.full_name || (!editingCustomer && !customerForm.phone)) {
+      toast.error('Full name and phone are required.');
+      return;
+    }
+    setSavingCustomer(true);
+    try {
+      if (editingCustomer) {
+        await api.patch(`/customers/${editingCustomer.id}`, customerForm);
+        toast.success('Customer updated.');
+      } else {
+        const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
+        await api.post('/customers', { ...customerForm, company_id: targetCompanyId });
+        toast.success('Customer account created.');
+      }
+      setShowCustomerModal(false);
+      loadCustomers();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to save customer.');
+    } finally {
+      setSavingCustomer(false);
+    }
+  };
+
   const filtered = filterCustomers(all, search);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageCustomers = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -258,7 +312,12 @@ export default function Customers({ onViewLedger }) {
           <h1 className="text-2xl font-bold text-navy">Customers Management</h1>
           <p className="text-sm text-gray-500 mt-1">Review pending approvals and manage your customer database.</p>
         </div>
-        <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
+        <div className="flex items-center gap-3">
+          <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
+          <Button variant="accent" onClick={openAddCustomerModal} className="flex items-center gap-2">
+            <Plus size={16} /> Add Customer
+          </Button>
+        </div>
       </div>
 
       {/* Both sections are always visible below — these just jump-scroll to them */}
@@ -459,6 +518,12 @@ export default function Customers({ onViewLedger }) {
                           <td className="py-3 px-6 text-right">
                             <div className="flex items-center justify-end gap-3">
                               <button
+                                onClick={() => openEditCustomerModal(customer)}
+                                className="inline-flex items-center gap-1.5 text-xs text-navy hover:underline font-medium"
+                              >
+                                <Pencil size={13} /> Edit
+                              </button>
+                              <button
                                 onClick={() => openPricingModal(customer)}
                                 className="inline-flex items-center gap-1.5 text-xs text-navy hover:underline font-medium"
                               >
@@ -627,6 +692,74 @@ export default function Customers({ onViewLedger }) {
           <div className="flex justify-end pt-4">
             <Button type="button" variant="secondary" onClick={() => setPricingCustomer(null)}>Close</Button>
           </div>
+        </Modal>
+      )}
+
+      {showCustomerModal && (
+        <Modal title={editingCustomer ? 'Edit Customer' : 'Add Customer'} onClose={() => setShowCustomerModal(false)}>
+          <form onSubmit={handleSaveCustomer} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Full Name *</label>
+              <input
+                type="text"
+                required
+                value={customerForm.full_name}
+                onChange={(e) => setCustomerForm({ ...customerForm, full_name: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Phone {!editingCustomer && '*'}</label>
+              <input
+                type="text"
+                required={!editingCustomer}
+                disabled={!!editingCustomer}
+                placeholder="03001234567"
+                value={customerForm.phone}
+                onChange={(e) => setCustomerForm({ ...customerForm, phone: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow disabled:bg-gray-50 disabled:text-gray-400"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Email</label>
+              <input
+                type="email"
+                value={customerForm.email}
+                onChange={(e) => setCustomerForm({ ...customerForm, email: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Shop Name</label>
+              <input
+                type="text"
+                value={customerForm.shop_name}
+                onChange={(e) => setCustomerForm({ ...customerForm, shop_name: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Shop Address</label>
+              <textarea
+                rows={2}
+                value={customerForm.shop_address}
+                onChange={(e) => setCustomerForm({ ...customerForm, shop_address: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+            </div>
+            {!editingCustomer && (
+              <p className="text-xs text-gray-400">
+                Creates the account directly (auto-approved) — most customers should instead self-register from the mobile app and be approved from the Pending Approval section above.
+              </p>
+            )}
+            {editingCustomer && (
+              <p className="text-xs text-gray-400">Phone number can't be changed here.</p>
+            )}
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setShowCustomerModal(false)}>Cancel</Button>
+              <Button type="submit" variant="accent" disabled={savingCustomer}>{savingCustomer ? 'Saving...' : 'Save'}</Button>
+            </div>
+          </form>
         </Modal>
       )}
     </div>
