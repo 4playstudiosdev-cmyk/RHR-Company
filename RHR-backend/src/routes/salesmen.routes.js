@@ -5,6 +5,7 @@ const { isAdmin }      = require('../middleware/role.middleware');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
+const { pgrestPost, pgrestPatch } = require('../utils/directQuery');
 
 // GET /api/v1/salesmen — active salesmen (approved + pending) in this admin's company
 router.get('/', authenticate, isAdmin, async (req, res) => {
@@ -41,6 +42,11 @@ router.get('/pending', authenticate, isAdmin, async (req, res) => {
 });
 
 // POST /api/v1/salesmen — admin creates a salesman account directly (email+password)
+// The profile insert is routed through the raw-https bypass (see
+// utils/directQuery.js) — plain supabase-js writes have intermittently
+// thrown a spurious empty-result/RLS error on Railway for this exact
+// shape of insert elsewhere in the codebase (auth.service.js's registration
+// flows, admins.routes.js), and this one was never migrated.
 router.post('/', authenticate, isAdmin, async (req, res) => {
   try {
     const { full_name, phone, email, password, position } = req.body;
@@ -55,22 +61,17 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
     });
     if (authErr) throw new Error(authErr.message);
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('salesmen')
-      .insert({
-        id:         authData.user.id,
-        company_id: req.user.company_id,
-        full_name,
-        phone:      phone || null,
-        email,
-        position:   position || null,
-        is_approved: true,
-        is_active:   true
-      })
-      .select()
-      .single();
+    const [data] = await pgrestPost('salesmen', {
+      id:         authData.user.id,
+      company_id: req.user.company_id,
+      full_name,
+      phone:      phone || null,
+      email,
+      position:   position || null,
+      is_approved: true,
+      is_active:   true
+    });
 
-    if (dbErr) throw new Error(dbErr.message);
     return success(res, data, 'Salesman account created', 201);
   } catch (err) { return error(res, err.message); }
 });
@@ -92,26 +93,24 @@ router.get('/:id', authenticate, isAdmin, async (req, res) => {
 router.patch('/:id', authenticate, isAdmin, async (req, res) => {
   try {
     const { full_name, phone, position, is_active } = req.body;
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('salesmen')
-      .update({ full_name, phone, position, is_active })
-      .eq('id', req.params.id)
-      .eq('company_id', req.user.company_id)
-      .select()
-      .single();
-    if (dbErr) throw new Error(dbErr.message);
-    return success(res, data, 'Salesman updated');
+    const data = await pgrestPatch(
+      'salesmen',
+      { id: `eq.${req.params.id}`, company_id: `eq.${req.user.company_id}` },
+      { full_name, phone, position, is_active }
+    );
+    if (!data?.[0]) return error(res, 'Salesman not found', 404);
+    return success(res, data[0], 'Salesman updated');
   } catch (err) { return error(res, err.message); }
 });
 
 // DELETE /api/v1/salesmen/:id — soft delete
 router.delete('/:id', authenticate, isAdmin, async (req, res) => {
   try {
-    await supabaseAdmin
-      .from('salesmen')
-      .update({ is_active: false })
-      .eq('id', req.params.id)
-      .eq('company_id', req.user.company_id);
+    await pgrestPatch(
+      'salesmen',
+      { id: `eq.${req.params.id}`, company_id: `eq.${req.user.company_id}` },
+      { is_active: false }
+    );
     return success(res, { deleted: true }, 'Salesman deactivated');
   } catch (err) { return error(res, err.message); }
 });

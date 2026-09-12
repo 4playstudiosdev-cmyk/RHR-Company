@@ -5,6 +5,7 @@ const { isAdmin }      = require('../middleware/role.middleware');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
+const { pgrestPost, pgrestPatch } = require('../utils/directQuery');
 
 // Plain HR directory records — no login account, no auth.users row.
 // See sql/phase9_employees_directory.sql. Contrast with /salesmen,
@@ -28,26 +29,24 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 });
 
 // POST /api/v1/employees — add an employee record (no account created)
+// Routed through the raw-https bypass (see utils/directQuery.js) — same
+// class of Railway/supabase-js write flakiness fixed elsewhere in this
+// codebase, never applied here.
 router.post('/', authenticate, isAdmin, async (req, res) => {
   try {
     const { full_name, phone, email, address, city, salary } = req.body;
     if (!full_name) return error(res, 'full_name is required', 400);
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('employees')
-      .insert({
-        company_id: req.user.company_id,
-        full_name,
-        phone:   phone || null,
-        email:   email || null,
-        address: address || null,
-        city:    city || null,
-        salary:  salary === '' || salary == null ? null : Number(salary)
-      })
-      .select()
-      .single();
+    const [data] = await pgrestPost('employees', {
+      company_id: req.user.company_id,
+      full_name,
+      phone:   phone || null,
+      email:   email || null,
+      address: address || null,
+      city:    city || null,
+      salary:  salary === '' || salary == null ? null : Number(salary)
+    });
 
-    if (dbErr) throw new Error(dbErr.message);
     return success(res, data, 'Employee added', 201);
   } catch (err) { return error(res, err.message); }
 });
@@ -70,33 +69,31 @@ router.get('/:id', authenticate, isAdmin, async (req, res) => {
 router.patch('/:id', authenticate, isAdmin, async (req, res) => {
   try {
     const { full_name, phone, email, address, city, salary } = req.body;
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('employees')
-      .update({
+    const data = await pgrestPatch(
+      'employees',
+      { id: `eq.${req.params.id}`, company_id: `eq.${req.user.company_id}` },
+      {
         full_name,
         phone,
         email,
         address,
         city,
         salary: salary === '' || salary == null ? null : Number(salary)
-      })
-      .eq('id', req.params.id)
-      .eq('company_id', req.user.company_id)
-      .select()
-      .single();
-    if (dbErr) throw new Error(dbErr.message);
-    return success(res, data, 'Employee updated');
+      }
+    );
+    if (!data?.[0]) return error(res, 'Employee not found', 404);
+    return success(res, data[0], 'Employee updated');
   } catch (err) { return error(res, err.message); }
 });
 
 // DELETE /api/v1/employees/:id — soft delete
 router.delete('/:id', authenticate, isAdmin, async (req, res) => {
   try {
-    await supabaseAdmin
-      .from('employees')
-      .update({ is_active: false })
-      .eq('id', req.params.id)
-      .eq('company_id', req.user.company_id);
+    await pgrestPatch(
+      'employees',
+      { id: `eq.${req.params.id}`, company_id: `eq.${req.user.company_id}` },
+      { is_active: false }
+    );
     return success(res, { deleted: true }, 'Employee removed');
   } catch (err) { return error(res, err.message); }
 });
