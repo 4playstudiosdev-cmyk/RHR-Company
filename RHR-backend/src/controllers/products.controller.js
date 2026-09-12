@@ -74,4 +74,15 @@ const deleteProduct = async (req, res) => {
   } catch (err) { return error(res, err.message, 404); }
 };
 
-module.exports = { getProducts, getProductById, createProduct, updateProduct, updateStock, deleteProduct };
+// GET /api/v1/products/reports/stock — in/out/closing balance per product
+const getStockReport = async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    const companyId = resolveCompanyId(req);
+    if (!companyId) return error(res, 'company_id is required', 400);
+    const data = await svc.getStockReport({ companyId, from, to });
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { getProducts, getProductById, createProduct, updateProduct, updateStock, deleteProduct, getStockReport };

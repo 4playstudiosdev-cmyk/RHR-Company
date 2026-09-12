@@ -27,6 +27,7 @@ import Dispatch from './pages/production/Dispatch';
 import ProductionReports from './pages/production/ProductionReports';
 import RecipesPage from './pages/production/RecipesPage';
 import StockTransfers from './pages/StockTransfers';
+import StockReports from './pages/StockReports';
 
 const PAGES = {
   dashboard: Dashboard,
@@ -48,6 +49,7 @@ const PAGES = {
   'production-reports': ProductionReports,
   'production-recipes': RecipesPage,
   'stock-transfers': StockTransfers,
+  'stock-reports': StockReports,
   hrm: HRM,
   admins: AdminManagement
 };
@@ -60,6 +62,7 @@ const PAGE_ACCESS = {
   dashboard: { requiredRole: 'super_admin' },
   payments: { requiredPermission: 'can_view_payments' },
   reports: { requiredPermission: 'can_export_reports' },
+  'stock-reports': { requiredPermission: 'can_export_reports' },
   gps: { requiredPermission: 'can_view_gps' },
   admins: { requiredRole: 'super_admin' },
   customers: { requiredPermission: 'can_manage_customers' },

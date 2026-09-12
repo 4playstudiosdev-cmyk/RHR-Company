@@ -1,7 +1,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { getCached, setCached, invalidate } = require('../utils/simpleCache');
-const { pgrestGet } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost } = require('../utils/directQuery');
 const { resolveCompanyId } = require('../utils/companyScope');
 
 const CACHE_TTL_MS = 60000;
@@ -30,26 +30,26 @@ const getMaterials = async (req, res) => {
 };
 
 // POST /api/v1/production/materials
+// Routed through the raw-https bypass (see utils/directQuery.js) — this
+// write path was still on plain supabase-js, the exact pattern that's
+// intermittently thrown a spurious empty-result/RLS error on Railway for
+// this same table's reads (already fixed in getMaterials above) and
+// writes elsewhere in the codebase.
 const createMaterial = async (req, res) => {
   try {
     const { name, category, unit, stock, min_level } = req.body;
     if (!name || !category || !unit)
       return error(res, 'name, category, unit are required', 400);
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('raw_materials')
-      .insert({
-        company_id: req.user.company_id,
-        name,
-        category,
-        unit,
-        stock:     Number(stock) || 0,
-        min_level: Number(min_level) || 0
-      })
-      .select()
-      .single();
+    const [data] = await pgrestPost('raw_materials', {
+      company_id: req.user.company_id,
+      name,
+      category,
+      unit,
+      stock:     Number(stock) || 0,
+      min_level: Number(min_level) || 0
+    });
 
-    if (dbErr) throw new Error(dbErr.message);
     invalidate(`materials:${req.user.company_id}`);
     return success(res, data, 'Material added', 201);
   } catch (err) { return error(res, err.message); }
@@ -92,4 +92,56 @@ const addStock = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getMaterials, createMaterial, addStock };
+// GET /api/v1/production/materials/stock-report — in/out/closing balance
+// per raw material. raw_material_stock_logs already carries every
+// movement (positive = added via addStock above, negative = consumed by
+// a production run — see runProduction in production.controller.js), so
+// unlike products (which have no equivalent log table) this is a
+// straight sum from real history rather than derived from other tables.
+// "Closing balance" is the material's current stock, the same live
+// running total those log rows already feed into.
+const getStockReport = async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    const companyId = resolveCompanyId(req);
+    if (!companyId) return error(res, 'company_id is required', 400);
+
+    const { data: materials, error: mErr } = await supabaseAdmin
+      .from('raw_materials')
+      .select('id, name, category, unit, stock, min_level')
+      .eq('company_id', companyId)
+      .order('name');
+    if (mErr) throw new Error(mErr.message);
+
+    let logsQuery = supabaseAdmin
+      .from('raw_material_stock_logs')
+      .select('material_id, quantity, logged_date')
+      .eq('company_id', companyId);
+    if (from) logsQuery = logsQuery.gte('logged_date', from);
+    if (to)   logsQuery = logsQuery.lte('logged_date', to);
+    const { data: logs, error: lErr } = await logsQuery;
+    if (lErr) throw new Error(lErr.message);
+
+    const inByMaterial = {};
+    const outByMaterial = {};
+    (logs || []).forEach((l) => {
+      const qty = Number(l.quantity);
+      if (qty >= 0) inByMaterial[l.material_id] = (inByMaterial[l.material_id] || 0) + qty;
+      else outByMaterial[l.material_id] = (outByMaterial[l.material_id] || 0) + Math.abs(qty);
+    });
+
+    const data = materials.map((m) => ({
+      id: m.id,
+      name: m.name,
+      category: m.category,
+      unit: m.unit,
+      minLevel: Number(m.min_level) || 0,
+      stockIn: inByMaterial[m.id] || 0,
+      stockOut: outByMaterial[m.id] || 0,
+      closingBalance: Number(m.stock)
+    }));
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { getMaterials, createMaterial, addStock, getStockReport };

@@ -67,4 +67,64 @@ async function deleteProduct(id, companyId) {
   return { deleted: true };
 }
 
-module.exports = { getProducts, getProductById, createProduct, updateProduct, updateStock, deleteProduct };
+// Finished-goods in/out/closing-balance report. "IN" comes from completed
+// production runs crediting this product (productions.finished_item_id —
+// see runProduction in production.controller.js), "OUT" from quantities
+// sold on customer orders (order_items, via each order's created_at for
+// date filtering — order_items itself carries no date/company_id of its
+// own). "Closing balance" is simply the product's current stock_quantity,
+// which is the live running total both of those already feed into — not
+// derived by summing history, so it's always correct even if in/out
+// logging gaps ever existed.
+async function getStockReport({ companyId, from, to }) {
+  const { data: products, error: pErr } = await supabaseAdmin
+    .from('products')
+    .select('id, name, unit, stock_quantity, categories(name)')
+    .eq('company_id', companyId)
+    .or('is_active.eq.true,is_active.is.null')
+    .order('name');
+  if (pErr) throw new Error(pErr.message);
+
+  let ordersQuery = supabaseAdmin
+    .from('orders')
+    .select('created_at, order_items(product_id, quantity)')
+    .eq('company_id', companyId);
+  if (from) ordersQuery = ordersQuery.gte('created_at', from);
+  if (to)   ordersQuery = ordersQuery.lte('created_at', `${to}T23:59:59`);
+  const { data: orders, error: oErr } = await ordersQuery;
+  if (oErr) throw new Error(oErr.message);
+
+  const outByProduct = {};
+  (orders || []).forEach((o) => {
+    (o.order_items || []).forEach((item) => {
+      outByProduct[item.product_id] = (outByProduct[item.product_id] || 0) + Number(item.quantity);
+    });
+  });
+
+  let runsQuery = supabaseAdmin
+    .from('productions')
+    .select('finished_item_id, qty_produced, date')
+    .eq('company_id', companyId);
+  if (from) runsQuery = runsQuery.gte('date', from);
+  if (to)   runsQuery = runsQuery.lte('date', to);
+  const { data: runs, error: rErr } = await runsQuery;
+  if (rErr) throw new Error(rErr.message);
+
+  const inByProduct = {};
+  (runs || []).forEach((r) => {
+    if (!r.finished_item_id) return;
+    inByProduct[r.finished_item_id] = (inByProduct[r.finished_item_id] || 0) + Number(r.qty_produced);
+  });
+
+  return products.map((p) => ({
+    id: p.id,
+    name: p.name,
+    unit: p.unit,
+    category: p.categories?.name || null,
+    stockIn: inByProduct[p.id] || 0,
+    stockOut: outByProduct[p.id] || 0,
+    closingBalance: Number(p.stock_quantity)
+  }));
+}
+
+module.exports = { getProducts, getProductById, createProduct, updateProduct, updateStock, deleteProduct, getStockReport };

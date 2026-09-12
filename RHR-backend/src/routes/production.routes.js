@@ -6,7 +6,7 @@ const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { retryIfEmpty } = require('../utils/withRetry');
 const { getCached, setCached, invalidate } = require('../utils/simpleCache');
-const { pgrestGet } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { resolveCompanyId } = require('../utils/companyScope');
 
 const CACHE_TTL_MS = 60000;
@@ -22,6 +22,7 @@ router.post('/orders',             authenticate, isAdmin, production.createProdu
 router.patch('/orders/:id/status', authenticate, isAdmin, production.updateProductionOrderStatus);
 
 router.get('/materials',           authenticate, isAdmin, materials.getMaterials);
+router.get('/materials/stock-report', authenticate, isAdmin, materials.getStockReport);
 router.post('/materials',          authenticate, isAdmin, materials.createMaterial);
 router.patch('/materials/:id/stock', authenticate, isAdmin, materials.addStock);
 
@@ -57,6 +58,9 @@ router.get('/recipes', authenticate, isAdmin, async (req, res) => {
 });
 
 // POST /api/v1/production/recipes
+// Both inserts routed through the raw-https bypass (see
+// utils/directQuery.js) — GET /recipes above was already migrated for
+// this exact Railway/supabase-js flakiness, but the write side never was.
 router.post('/recipes', authenticate, isAdmin, async (req, res) => {
   try {
     const { recipe_name, product_name, batch_size, batch_unit, ingredients } = req.body;
@@ -67,18 +71,12 @@ router.post('/recipes', authenticate, isAdmin, async (req, res) => {
     if (ingredients.some(i => !i.raw_material_id || !i.qty_required))
       return error(res, 'Every ingredient needs a raw material and quantity', 400);
 
-    const { data: bom, error: bErr } = await supabaseAdmin
-      .from('production_bom')
-      .insert({
-        company_id:   req.user.company_id,
-        product_name: name,
-        batch_size:   batch_size || 1,
-        batch_unit:   batch_unit || 'bag',
-      })
-      .select()
-      .single();
-
-    if (bErr) throw new Error(bErr.message);
+    const [bom] = await pgrestPost('production_bom', {
+      company_id:   req.user.company_id,
+      product_name: name,
+      batch_size:   batch_size || 1,
+      batch_unit:   batch_unit || 'bag',
+    });
 
     const rows = ingredients.map(i => ({
       bom_id:           bom.id,
@@ -86,9 +84,7 @@ router.post('/recipes', authenticate, isAdmin, async (req, res) => {
       qty_required:     Number(i.qty_required),
       unit:             i.unit,
     }));
-
-    const { error: iErr } = await supabaseAdmin.from('production_bom_items').insert(rows);
-    if (iErr) throw new Error(iErr.message);
+    await pgrestPost('production_bom_items', rows);
 
     invalidate(`recipes:${req.user.company_id}`);
     return success(res, bom, 'Recipe saved', 201);
@@ -106,19 +102,13 @@ router.put('/recipes/:id', authenticate, isAdmin, async (req, res) => {
     if (ingredients.some(i => !i.raw_material_id || !i.qty_required))
       return error(res, 'Every ingredient needs a raw material and quantity', 400);
 
-    const { data: updatedBom, error: bErr } = await supabaseAdmin
-      .from('production_bom')
-      .update({
-        product_name: name,
-        batch_size:   batch_size || 1,
-        batch_unit:   batch_unit || 'bag',
-      })
-      .eq('id', req.params.id)
-      .eq('company_id', req.user.company_id)
-      .select()
-      .single();
-
-    if (bErr || !updatedBom) return error(res, 'Recipe not found', 404);
+    const updatedRows = await pgrestPatch(
+      'production_bom',
+      { id: `eq.${req.params.id}`, company_id: `eq.${req.user.company_id}` },
+      { product_name: name, batch_size: batch_size || 1, batch_unit: batch_unit || 'bag' }
+    );
+    const updatedBom = updatedRows?.[0];
+    if (!updatedBom) return error(res, 'Recipe not found', 404);
 
     // Replace ingredient lines wholesale — simpler and safer than diffing
     // adds/edits/removes against whatever the client sent.
@@ -130,8 +120,7 @@ router.put('/recipes/:id', authenticate, isAdmin, async (req, res) => {
       qty_required:     Number(i.qty_required),
       unit:             i.unit,
     }));
-    const { error: iErr } = await supabaseAdmin.from('production_bom_items').insert(rows);
-    if (iErr) throw new Error(iErr.message);
+    await pgrestPost('production_bom_items', rows);
 
     invalidate(`recipes:${req.user.company_id}`);
     return success(res, updatedBom, 'Recipe updated');
