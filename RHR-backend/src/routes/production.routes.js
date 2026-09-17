@@ -24,7 +24,9 @@ router.patch('/orders/:id/status', authenticate, isAdmin, production.updateProdu
 router.get('/materials',           authenticate, isAdmin, materials.getMaterials);
 router.get('/materials/stock-report', authenticate, isAdmin, materials.getStockReport);
 router.post('/materials',          authenticate, isAdmin, materials.createMaterial);
+router.patch('/materials/:id',     authenticate, isAdmin, materials.updateMaterial);
 router.patch('/materials/:id/stock', authenticate, isAdmin, materials.addStock);
+router.delete('/materials/:id',    authenticate, isAdmin, materials.deleteMaterial);
 
 // ─────────────────────────────────────
 // Production section's own BOM list (production_bom/production_bom_items

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Plus, UserCog, UserCheck, Pencil, UserX, UserCheck2,
-  ShoppingCart, Wallet, Footprints, TrendingUp, Download, BarChart3
+  ShoppingCart, Wallet, Footprints, TrendingUp, Download, BarChart3, Users
 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
@@ -15,6 +15,14 @@ import CityFilter from '../components/CityFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
 
 const EMPTY_FORM = { full_name: '', phone: '', email: '', password: '', position: '' };
+// New salesmen created while "All Cities" is selected land in Karachi —
+// same default the Products/Raw Materials/Customers pages use.
+const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
+const CITY_LABELS = {
+  '1e5962c6-33a7-460b-913e-9e08db46973a': 'Karachi',
+  '09a1fda3-7ac0-406a-8f42-75d973dc3b7e': 'Hyderabad',
+  '00f79d89-0d36-4704-8865-fc7bbd662267': 'Sukkur'
+};
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const now = new Date();
 
@@ -113,12 +121,19 @@ export default function Salesmen({ onViewLedger }) {
         });
         toast.success('Salesman updated.');
       } else {
+        // Target whichever branch the CityFilter dropdown is currently
+        // showing — without this, a super_admin adding a salesman while
+        // viewing Hyderabad/Sukkur would have it silently created in
+        // Karachi instead (their own default branch) and never appear
+        // in the list they're looking at.
+        const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
         await api.post('/salesmen', {
           full_name: form.full_name,
           phone: form.phone,
           email: form.email,
           password: form.password,
-          position: form.position
+          position: form.position,
+          company_id: targetCompanyId
         });
         toast.success('Salesman account created.');
       }
@@ -147,6 +162,39 @@ export default function Salesmen({ onViewLedger }) {
       toast.error(err.response?.data?.message || `Failed to ${action} salesman.`);
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const [assignedSalesman, setAssignedSalesman] = useState(null);
+  const [assignedCustomers, setAssignedCustomers] = useState([]);
+  const [assignedLoading, setAssignedLoading] = useState(false);
+  const [reassigningId, setReassigningId] = useState(null);
+
+  const openAssignedCustomers = async (salesman) => {
+    setAssignedSalesman(salesman);
+    setAssignedLoading(true);
+    try {
+      const res = await api.get(`/salesmen/${salesman.id}/customers`);
+      setAssignedCustomers(res.data.data || []);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load assigned customers.');
+      setAssignedCustomers([]);
+    } finally {
+      setAssignedLoading(false);
+    }
+  };
+
+  const handleReassign = async (customer, newSalesmanId) => {
+    setReassigningId(customer.id);
+    try {
+      await api.patch(`/customers/${customer.id}/assign-salesman`, { salesman_id: newSalesmanId || null });
+      setAssignedCustomers((prev) => prev.filter((c) => c.id !== customer.id));
+      toast.success(newSalesmanId ? 'Customer reassigned.' : 'Customer unassigned.');
+      loadAll();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to reassign customer.');
+    } finally {
+      setReassigningId(null);
     }
   };
 
@@ -256,6 +304,7 @@ export default function Salesmen({ onViewLedger }) {
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Phone</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Email</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customers</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
                 </tr>
               </thead>
@@ -283,6 +332,14 @@ export default function Salesmen({ onViewLedger }) {
                       >
                         {!s.is_active ? 'Inactive' : s.is_approved ? 'Active' : 'Pending'}
                       </span>
+                    </td>
+                    <td className="px-6 py-3.5">
+                      <button
+                        onClick={() => openAssignedCustomers(s)}
+                        className="flex items-center gap-1.5 bg-navy-chip text-navy border-none rounded-lg px-3 py-1.5 text-xs font-semibold hover:bg-navy-chip/70 transition-colors"
+                      >
+                        <Users size={13} /> {s.customer_count || 0} Customers
+                      </button>
                     </td>
                     <td className="px-6 py-3.5">
                       <div className="flex items-center gap-2">
@@ -317,6 +374,11 @@ export default function Salesmen({ onViewLedger }) {
       {showModal && (
         <Modal title={editing ? 'Edit Salesman' : 'Add Salesman'} onClose={() => setShowModal(false)}>
           <form onSubmit={handleSave} className="space-y-4">
+            {!editing && user?.role === 'super_admin' && (
+              <div className="bg-navy-chip/40 border border-navy-chip rounded-lg px-3.5 py-2 text-xs text-navy">
+                Adding to: <strong>{selectedCity === 'all' ? 'Karachi (default)' : CITY_LABELS[selectedCity] || 'selected branch'}</strong>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Full Name *</label>
               <input
@@ -385,6 +447,42 @@ export default function Salesmen({ onViewLedger }) {
               </Button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {assignedSalesman && (
+        <Modal title={`Assigned Customers — ${assignedSalesman.full_name}`} onClose={() => setAssignedSalesman(null)}>
+          {assignedLoading ? (
+            <p className="text-sm text-gray-400 py-6 text-center">Loading…</p>
+          ) : assignedCustomers.length === 0 ? (
+            <EmptyState icon={Users} title="No customers assigned" subtitle="Assign customers to this salesman from the Customers page" />
+          ) : (
+            <div className="max-h-[400px] overflow-y-auto -mx-1 space-y-2">
+              {assignedCustomers.map((c) => (
+                <div key={c.id} className="flex items-center gap-3 border border-gray-100 rounded-xl px-3.5 py-2.5 mx-1">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-navy truncate">{c.full_name}</p>
+                    <p className="text-xs text-gray-400 truncate">{c.shop_name || c.phone}</p>
+                  </div>
+                  <select
+                    defaultValue={assignedSalesman.id}
+                    disabled={reassigningId === c.id}
+                    onChange={(e) => handleReassign(c, e.target.value)}
+                    className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white disabled:opacity-50"
+                  >
+                    <option value={assignedSalesman.id}>{assignedSalesman.full_name} (current)</option>
+                    <option value="">— Unassign —</option>
+                    {salesmen.filter((s) => s.id !== assignedSalesman.id).map((s) => (
+                      <option key={s.id} value={s.id}>Reassign to {s.full_name}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-end pt-4">
+            <Button type="button" variant="secondary" onClick={() => setAssignedSalesman(null)}>Close</Button>
+          </div>
         </Modal>
       )}
     </div>

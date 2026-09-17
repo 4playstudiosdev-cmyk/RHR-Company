@@ -1,7 +1,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { getCached, setCached, invalidate } = require('../utils/simpleCache');
-const { pgrestGet, pgrestPost } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { resolveCompanyId } = require('../utils/companyScope');
 
 const CACHE_TTL_MS = 60000;
@@ -20,9 +20,19 @@ const getMaterials = async (req, res) => {
     // identical raw https request, at the same moment, always returned
     // the correct 16 rows — see src/utils/directQuery.js for the full
     // writeup. Routed through that instead of supabase-js here.
-    const params = { select: '*', order: 'name.asc' };
+    const params = { select: '*', order: 'name.asc', is_active: 'eq.true' };
     if (companyId) params.company_id = `eq.${companyId}`;
-    const data = await pgrestGet('raw_materials', params);
+    let data;
+    try {
+      data = await pgrestGet('raw_materials', params);
+    } catch (e) {
+      // is_active is a phase17 migration — if it hasn't been run yet,
+      // PostgREST 400s on the unknown filter column. Fall back to the
+      // unfiltered query so the list still works (just without
+      // soft-delete filtering) instead of breaking outright.
+      const { is_active, ...fallbackParams } = params;
+      data = await pgrestGet('raw_materials', fallbackParams);
+    }
 
     if (data && data.length > 0) setCached(cacheKey, data, CACHE_TTL_MS);
     return success(res, data);
@@ -50,8 +60,47 @@ const createMaterial = async (req, res) => {
       min_level: Number(min_level) || 0
     });
 
-    invalidate(`materials:${req.user.company_id}`);
+    invalidate('materials:');
     return success(res, data, 'Material added', 201);
+  } catch (err) { return error(res, err.message); }
+};
+
+// PATCH /api/v1/production/materials/:id — edit name/category/unit/stock/min_level
+const updateMaterial = async (req, res) => {
+  try {
+    const { name, category, unit, stock, min_level } = req.body;
+    const filter = { id: `eq.${req.params.id}` };
+    if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
+
+    const data = await pgrestPatch('raw_materials', filter, {
+      name,
+      category,
+      unit,
+      stock:     stock !== undefined ? Number(stock) : undefined,
+      min_level: min_level !== undefined ? Number(min_level) : undefined
+    });
+    if (!data?.[0]) return error(res, 'Material not found or access denied', 404);
+
+    invalidate('materials:');
+    return success(res, data[0], 'Material updated');
+  } catch (err) { return error(res, err.message); }
+};
+
+// DELETE /api/v1/production/materials/:id — soft delete (is_active:
+// false), not a hard DELETE FROM. Real recipes (production_bom_items)
+// and stock history (raw_material_stock_logs) reference this row by id
+// — a hard delete would either violate those FKs or, if cascaded,
+// silently destroy that history. Needs sql/phase17 run first.
+const deleteMaterial = async (req, res) => {
+  try {
+    const filter = { id: `eq.${req.params.id}` };
+    if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
+
+    const data = await pgrestPatch('raw_materials', filter, { is_active: false });
+    if (!data?.[0]) return error(res, 'Material not found or access denied', 404);
+
+    invalidate('materials:');
+    return success(res, { deleted: true }, 'Material deleted');
   } catch (err) { return error(res, err.message); }
 };
 
@@ -144,4 +193,4 @@ const getStockReport = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getMaterials, createMaterial, addStock, getStockReport };
+module.exports = { getMaterials, createMaterial, updateMaterial, deleteMaterial, addStock, getStockReport };

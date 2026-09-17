@@ -14,7 +14,7 @@ const getCustomers = async (req, res) => {
     const user = req.user;
     let query  = supabaseAdmin
       .from('users')
-      .select('id, full_name, phone, email, is_approved, salesman_id, shop_name, shop_address, shop_latitude, shop_longitude, rate_tier, created_at')
+      .select('id, company_id, full_name, phone, email, is_approved, salesman_id, driver_id, shop_name, shop_address, shop_latitude, shop_longitude, rate_tier, created_at')
       .eq('role', 'customer')
       .eq('is_active', true);
 
@@ -138,6 +138,68 @@ const updateCustomer = async (req, res) => {
     });
     if (!data?.[0]) return error(res, 'Customer not found or access denied', 404);
     return success(res, data[0], 'Customer updated');
+  } catch (err) { return error(res, err.message); }
+};
+
+// PATCH /api/v1/customers/:id/assign-salesman — assigns (or clears, if
+// salesman_id is falsy) which salesman this customer belongs to. Uses
+// findScopedCustomer below (defined further down but hoisted as a
+// function declaration) so super_admin can assign across any branch
+// while branch_admin stays locked to their own.
+const assignSalesman = async (req, res) => {
+  try {
+    const { salesman_id } = req.body;
+    const customer = await findScopedCustomer(req);
+    if (!customer) return error(res, 'Customer not found or access denied', 404);
+
+    if (salesman_id) {
+      const { data: sm } = await supabaseAdmin
+        .from('salesmen')
+        .select('id')
+        .eq('id', salesman_id)
+        .eq('company_id', customer.company_id)
+        .maybeSingle();
+      if (!sm) return error(res, 'Salesman not found in this customer\'s branch', 404);
+    }
+
+    const data = await pgrestPatch('users', { id: `eq.${customer.id}` }, { salesman_id: salesman_id || null });
+    return success(res, data?.[0], salesman_id ? 'Salesman assigned' : 'Salesman unassigned');
+  } catch (err) { return error(res, err.message); }
+};
+
+// PATCH /api/v1/customers/:id/assign-driver — same pattern as
+// assignSalesman above, for users.driver_id.
+const assignDriver = async (req, res) => {
+  try {
+    const { driver_id } = req.body;
+    const customer = await findScopedCustomer(req);
+    if (!customer) return error(res, 'Customer not found or access denied', 404);
+
+    if (driver_id) {
+      const { data: dr } = await supabaseAdmin
+        .from('drivers')
+        .select('id')
+        .eq('id', driver_id)
+        .eq('company_id', customer.company_id)
+        .maybeSingle();
+      if (!dr) return error(res, 'Driver not found in this customer\'s branch', 404);
+    }
+
+    const data = await pgrestPatch('users', { id: `eq.${customer.id}` }, { driver_id: driver_id || null });
+    return success(res, data?.[0], driver_id ? 'Driver assigned' : 'Driver unassigned');
+  } catch (err) { return error(res, err.message); }
+};
+
+// DELETE /api/v1/customers/:id — soft delete (is_active: false), same
+// convention as Salesmen/Drivers/Employees. The double-confirmation
+// this backs is entirely a frontend concern (see Customers.js).
+const deleteCustomer = async (req, res) => {
+  try {
+    const customer = await findScopedCustomer(req);
+    if (!customer) return error(res, 'Customer not found or access denied', 404);
+
+    await pgrestPatch('users', { id: `eq.${customer.id}` }, { is_active: false });
+    return success(res, { deleted: true }, 'Customer deleted');
   } catch (err) { return error(res, err.message); }
 };
 
@@ -302,5 +364,5 @@ const updateMyShopLocation = async (req, res) => {
 module.exports = {
   getCustomers, getPendingCustomers, getCustomerById, updateMyShopLocation, updateRateTier,
   getCustomerPricing, setCustomerPricing, deleteCustomerPricing,
-  createCustomer, updateCustomer
+  createCustomer, updateCustomer, assignSalesman, assignDriver, deleteCustomer
 };

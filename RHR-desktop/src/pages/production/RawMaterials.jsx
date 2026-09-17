@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, AlertCircle, PackagePlus } from 'lucide-react';
+import { Plus, AlertCircle, PackagePlus, Pencil, Trash2 } from 'lucide-react';
 import api, { getCurrentUser } from '../../services/api';
 import PageHeader from '../../components/PageHeader';
 import Modal from '../../components/Modal';
@@ -37,6 +37,7 @@ export default function RawMaterials() {
   const [error, setError] = useState('');
   const [tab, setTab] = useState('All');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingMaterial, setEditingMaterial] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [stockTarget, setStockTarget] = useState(null);
@@ -88,7 +89,19 @@ export default function RawMaterials() {
   const tabs = [{ label: 'All', value: 'All' }, ...MATERIAL_CATEGORIES];
   const filtered = tab === 'All' ? groupedMaterials : groupedMaterials.filter((m) => m.category === tab);
 
-  const handleAddMaterial = async (e) => {
+  const openEditModal = (material) => {
+    setEditingMaterial(material);
+    setForm({
+      name: material.name || '',
+      category: material.category || MATERIAL_CATEGORIES[0].value,
+      unit: material.unit || UNITS[0],
+      stock: material.stock ?? '',
+      min_level: material.min_level ?? ''
+    });
+    setShowAddModal(true);
+  };
+
+  const handleSaveMaterial = async (e) => {
     e.preventDefault();
     if (!form.name || form.stock === '' || form.min_level === '') {
       toast.error('Material name, current stock and minimum level are required.');
@@ -96,21 +109,48 @@ export default function RawMaterials() {
     }
     setSaving(true);
     try {
-      await api.post('/production/materials', {
-        name: form.name,
-        category: form.category,
-        unit: form.unit,
-        stock: Number(form.stock),
-        min_level: Number(form.min_level)
-      });
-      toast.success('Material added.');
+      if (editingMaterial) {
+        await api.patch(`/production/materials/${editingMaterial.id}`, {
+          name: form.name,
+          category: form.category,
+          unit: form.unit,
+          stock: Number(form.stock),
+          min_level: Number(form.min_level)
+        });
+        toast.success('Material updated.');
+      } else {
+        await api.post('/production/materials', {
+          name: form.name,
+          category: form.category,
+          unit: form.unit,
+          stock: Number(form.stock),
+          min_level: Number(form.min_level)
+        });
+        toast.success('Material added.');
+      }
       setShowAddModal(false);
+      setEditingMaterial(null);
       setForm(EMPTY_FORM);
       loadMaterials();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to add material.');
+      toast.error(err.response?.data?.message || 'Failed to save material.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteMaterial = async (material) => {
+    const confirmed = window.confirm(
+      `Delete "${material.name}"?\n` +
+      `This will remove it from Raw Materials — existing recipes/history that reference it are kept, but it won't be usable in new ones.`
+    );
+    if (!confirmed) return;
+    try {
+      await api.delete(`/production/materials/${material.id}`);
+      toast.success('Material deleted.');
+      loadMaterials();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete material.');
     }
   };
 
@@ -150,7 +190,11 @@ export default function RawMaterials() {
         action={
           <div className="flex items-center gap-3">
             <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
-            <Button variant="accent" onClick={() => setShowAddModal(true)} className="flex items-center gap-2">
+            <Button
+              variant="accent"
+              onClick={() => { setEditingMaterial(null); setForm(EMPTY_FORM); setShowAddModal(true); }}
+              className="flex items-center gap-2"
+            >
               <Plus size={16} /> Add Material
             </Button>
           </div>
@@ -223,16 +267,32 @@ export default function RawMaterials() {
                       </td>
                       <td className="px-6 py-3.5">
                         {isCombined ? (
-                          <span className="text-xs text-gray-400" title="Select a specific city to add stock to one branch">
-                            Select a city to add stock
+                          <span className="text-xs text-gray-400" title="Select a specific city to manage one branch's material">
+                            Select a city to manage
                           </span>
                         ) : (
-                          <button
-                            onClick={() => openAddStock(m)}
-                            className="text-xs font-medium text-navy hover:underline"
-                          >
-                            + Add Stock
-                          </button>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => openAddStock(m)}
+                              className="text-xs font-medium text-navy hover:underline"
+                            >
+                              + Add Stock
+                            </button>
+                            <button
+                              onClick={() => openEditModal(m)}
+                              className="text-navy hover:bg-navy/10 p-1.5 rounded-lg transition-colors"
+                              title="Edit"
+                            >
+                              <Pencil size={13} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteMaterial(m)}
+                              className="text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -246,8 +306,8 @@ export default function RawMaterials() {
       )}
 
       {showAddModal && (
-        <Modal title="Add Material" onClose={() => setShowAddModal(false)}>
-          <form onSubmit={handleAddMaterial} className="space-y-4">
+        <Modal title={editingMaterial ? 'Edit Material' : 'Add Material'} onClose={() => { setShowAddModal(false); setEditingMaterial(null); }}>
+          <form onSubmit={handleSaveMaterial} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Material Name *</label>
               <input
@@ -310,7 +370,7 @@ export default function RawMaterials() {
               </div>
             </div>
             <div className="flex justify-end gap-3 pt-2">
-              <Button type="button" variant="secondary" onClick={() => setShowAddModal(false)}>Cancel</Button>
+              <Button type="button" variant="secondary" onClick={() => { setShowAddModal(false); setEditingMaterial(null); }}>Cancel</Button>
               <Button type="submit" variant="accent" disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
             </div>
           </form>

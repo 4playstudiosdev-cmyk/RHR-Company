@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Users, UserCheck, BookOpen, Search, Phone, Mail, AlertTriangle, User, Tag, DollarSign, RotateCcw, Plus, Pencil } from 'lucide-react';
+import { Users, UserCheck, BookOpen, Search, Phone, Mail, AlertTriangle, User, Tag, DollarSign, RotateCcw, Plus, Pencil, Trash2 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
@@ -71,6 +71,8 @@ export default function Customers({ onViewLedger }) {
   const [pending, setPending] = useState([]);
   const [all, setAll] = useState([]);
   const [ordersByCustomer, setOrdersByCustomer] = useState({});
+  const [salesmenList, setSalesmenList] = useState([]);
+  const [driversList, setDriversList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [approvingId, setApprovingId] = useState(null);
@@ -95,19 +97,25 @@ export default function Customers({ onViewLedger }) {
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
       const params = { company_id: companyFilter };
-      const [pendingData, allData, ordersData] = companyFilter
+      const [pendingData, allData, ordersData, salesmenData, driversData] = companyFilter
         ? await Promise.all([
             api.get('/customers/pending', { params }).then((r) => r.data.data || []),
             api.get('/customers', { params }).then((r) => r.data.data || []),
-            api.get('/orders', { params }).then((r) => r.data.data || [])
+            api.get('/orders', { params }).then((r) => r.data.data || []),
+            api.get('/salesmen', { params }).then((r) => r.data.data || []),
+            api.get('/drivers', { params }).then((r) => r.data.data || [])
           ])
         : await Promise.all([
             fetchAllCities('/customers/pending'),
             fetchAllCities('/customers'),
-            fetchAllCities('/orders')
+            fetchAllCities('/orders'),
+            fetchAllCities('/salesmen'),
+            fetchAllCities('/drivers')
           ]);
       setPending(pendingData);
       setAll(allData);
+      setSalesmenList(salesmenData);
+      setDriversList(driversData);
 
       const counts = {};
       ordersData.forEach((o) => {
@@ -149,6 +157,54 @@ export default function Customers({ onViewLedger }) {
       toast.success(`${customer.full_name}'s rate tier updated.`);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update rate tier.');
+    }
+  };
+
+  const handleAssignSalesman = async (customer, salesmanId) => {
+    if (salesmanId === (customer.salesman_id || '')) return;
+    try {
+      await api.patch(`/customers/${customer.id}/assign-salesman`, { salesman_id: salesmanId || null });
+      setAll((prev) => prev.map((c) => (c.id === customer.id ? { ...c, salesman_id: salesmanId || null } : c)));
+      toast.success(salesmanId ? 'Salesman assigned.' : 'Salesman unassigned.');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to assign salesman.');
+    }
+  };
+
+  const handleAssignDriver = async (customer, driverId) => {
+    if (driverId === (customer.driver_id || '')) return;
+    try {
+      await api.patch(`/customers/${customer.id}/assign-driver`, { driver_id: driverId || null });
+      setAll((prev) => prev.map((c) => (c.id === customer.id ? { ...c, driver_id: driverId || null } : c)));
+      toast.success(driverId ? 'Driver assigned.' : 'Driver unassigned.');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to assign driver.');
+    }
+  };
+
+  // Double confirmation — customer delete removes their ledger/order
+  // history from view entirely, so this is deliberately harder to do by
+  // accident than the single-confirm delete used for salesmen/drivers.
+  const handleDeleteCustomer = async (customer) => {
+    const first = window.confirm(
+      `Delete customer "${customer.full_name}"?\n\n` +
+      `This will remove their account, ledger, and order history from view.`
+    );
+    if (!first) return;
+
+    const second = window.confirm(
+      `⚠️ FINAL WARNING\n\n` +
+      `Are you absolutely sure you want to delete "${customer.full_name}"?\n\n` +
+      `This action cannot be undone from this screen.`
+    );
+    if (!second) return;
+
+    try {
+      await api.delete(`/customers/${customer.id}`);
+      toast.success('Customer deleted.');
+      loadCustomers();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete customer.');
     }
   };
 
@@ -442,6 +498,8 @@ export default function Customers({ onViewLedger }) {
                       <th className="py-3 px-6 font-semibold text-xs uppercase tracking-wide">Customer</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Phone</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Rate</th>
+                      <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Salesman</th>
+                      <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Driver</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Orders</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Outstanding</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-center">Status</th>
@@ -492,6 +550,34 @@ export default function Customers({ onViewLedger }) {
                               </select>
                             </div>
                           </td>
+                          <td className="py-3 px-4">
+                            <select
+                              value={customer.salesman_id || ''}
+                              onChange={(e) => handleAssignSalesman(customer, e.target.value)}
+                              className="border border-gray-200 rounded-md px-1.5 py-1 text-[11px] text-gray-600 focus:outline-none focus:ring-1 focus:ring-navy-chip focus:border-navy bg-white cursor-pointer max-w-[130px]"
+                            >
+                              <option value="">— None —</option>
+                              {salesmenList
+                                .filter((s) => !customer.company_id || s.company_id === customer.company_id)
+                                .map((s) => (
+                                  <option key={s.id} value={s.id}>{s.full_name}</option>
+                                ))}
+                            </select>
+                          </td>
+                          <td className="py-3 px-4">
+                            <select
+                              value={customer.driver_id || ''}
+                              onChange={(e) => handleAssignDriver(customer, e.target.value)}
+                              className="border border-gray-200 rounded-md px-1.5 py-1 text-[11px] text-gray-600 focus:outline-none focus:ring-1 focus:ring-navy-chip focus:border-navy bg-white cursor-pointer max-w-[130px]"
+                            >
+                              <option value="">— None —</option>
+                              {driversList
+                                .filter((d) => !customer.company_id || d.company_id === customer.company_id)
+                                .map((d) => (
+                                  <option key={d.id} value={d.id}>{d.full_name}</option>
+                                ))}
+                            </select>
+                          </td>
                           <td className="py-3 px-4 text-right text-navy font-medium">
                             {ordersByCustomer[customer.id] || 0}
                           </td>
@@ -537,6 +623,12 @@ export default function Customers({ onViewLedger }) {
                                   <BookOpen size={13} /> View Ledger
                                 </button>
                               )}
+                              <button
+                                onClick={() => handleDeleteCustomer(customer)}
+                                className="inline-flex items-center gap-1.5 text-xs text-red-600 hover:underline font-medium"
+                              >
+                                <Trash2 size={13} /> Delete
+                              </button>
                             </div>
                           </td>
                         </tr>
