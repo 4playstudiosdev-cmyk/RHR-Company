@@ -5,33 +5,43 @@ const { isAdmin }      = require('../middleware/role.middleware');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
-const { pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 
 // GET /api/v1/salesmen — active salesmen (approved + pending) in this
 // admin's company, each with a customer_count (how many active customers
 // currently have this salesman assigned) — fetched as one extra grouped
 // query rather than N+1 per-salesman lookups.
+//
+// Routed through the raw-https bypass (see utils/directQuery.js) — this
+// was still on plain supabase-js, which was confirmed (via a live
+// production probe) to silently return an empty array for this exact
+// query on Railway: status 200, correct headers, but no rows, while the
+// same table always has the expected data when queried directly through
+// the bypass at the same moment. Same class of bug already fixed for
+// raw_materials/production_bom reads elsewhere in this codebase — this
+// endpoint was just never migrated, which is why Salesmen never showed
+// up in the desktop UI despite existing in the database.
 router.get('/', authenticate, isAdmin, async (req, res) => {
   try {
-    let query = supabaseAdmin
-      .from('salesmen')
-      .select('id, company_id, full_name, phone, email, position, is_approved, is_active, created_at')
-      .eq('is_active', true);
     const companyId = resolveCompanyId(req);
-    if (companyId) query = query.eq('company_id', companyId);
+    const params = {
+      select: 'id,company_id,full_name,phone,email,position,is_approved,is_active,created_at',
+      is_active: 'eq.true',
+      order: 'full_name.asc',
+    };
+    if (companyId) params.company_id = `eq.${companyId}`;
 
-    const { data, error: dbErr } = await query.order('full_name');
-    if (dbErr) throw new Error(dbErr.message);
+    const data = await pgrestGet('salesmen', params);
 
     const salesmanIds = (data || []).map((s) => s.id);
     let countBySalesman = {};
     if (salesmanIds.length) {
-      const { data: custRows } = await supabaseAdmin
-        .from('users')
-        .select('salesman_id')
-        .eq('role', 'customer')
-        .eq('is_active', true)
-        .in('salesman_id', salesmanIds);
+      const custRows = await pgrestGet('users', {
+        select: 'salesman_id',
+        role: 'eq.customer',
+        is_active: 'eq.true',
+        salesman_id: `in.(${salesmanIds.join(',')})`,
+      });
       (custRows || []).forEach((c) => {
         countBySalesman[c.salesman_id] = (countBySalesman[c.salesman_id] || 0) + 1;
       });
@@ -45,17 +55,16 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 // GET /api/v1/salesmen/pending — self-registered salesmen awaiting approval
 router.get('/pending', authenticate, isAdmin, async (req, res) => {
   try {
-    let query = supabaseAdmin
-      .from('salesmen')
-      .select('id, full_name, phone, created_at')
-      .eq('is_approved', false)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false });
     const companyId = resolveCompanyId(req);
-    if (companyId) query = query.eq('company_id', companyId);
+    const params = {
+      select: 'id,full_name,phone,created_at',
+      is_approved: 'eq.false',
+      is_active: 'eq.true',
+      order: 'created_at.desc',
+    };
+    if (companyId) params.company_id = `eq.${companyId}`;
 
-    const { data, error: dbErr } = await query;
-    if (dbErr) throw new Error(dbErr.message);
+    const data = await pgrestGet('salesmen', params);
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 });
@@ -110,13 +119,12 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
 // GET /api/v1/salesmen/:id — single salesman
 router.get('/:id', authenticate, isAdmin, async (req, res) => {
   try {
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('salesmen')
-      .select('id, full_name, phone, email, position, is_approved, is_active, created_at')
-      .eq('id', req.params.id)
-      .single();
-    if (dbErr) return error(res, 'Salesman not found', 404);
-    return success(res, data);
+    const rows = await pgrestGet('salesmen', {
+      select: 'id,full_name,phone,email,position,is_approved,is_active,created_at',
+      id: `eq.${req.params.id}`,
+    });
+    if (!rows?.[0]) return error(res, 'Salesman not found', 404);
+    return success(res, rows[0]);
   } catch (err) { return error(res, err.message); }
 });
 
@@ -127,19 +135,18 @@ router.get('/:id', authenticate, isAdmin, async (req, res) => {
 // salesman id.
 router.get('/:id/customers', authenticate, isAdmin, async (req, res) => {
   try {
-    let smQuery = supabaseAdmin.from('salesmen').select('id, company_id').eq('id', req.params.id);
-    if (req.user.role !== 'super_admin') smQuery = smQuery.eq('company_id', req.user.company_id);
-    const { data: salesman } = await smQuery.maybeSingle();
-    if (!salesman) return error(res, 'Salesman not found or access denied', 404);
+    const smParams = { select: 'id,company_id', id: `eq.${req.params.id}` };
+    if (req.user.role !== 'super_admin') smParams.company_id = `eq.${req.user.company_id}`;
+    const smRows = await pgrestGet('salesmen', smParams);
+    if (!smRows?.[0]) return error(res, 'Salesman not found or access denied', 404);
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('users')
-      .select('id, full_name, phone, shop_name, rate_tier')
-      .eq('salesman_id', req.params.id)
-      .eq('role', 'customer')
-      .eq('is_active', true)
-      .order('full_name');
-    if (dbErr) throw new Error(dbErr.message);
+    const data = await pgrestGet('users', {
+      select: 'id,full_name,phone,shop_name,rate_tier',
+      salesman_id: `eq.${req.params.id}`,
+      role: 'eq.customer',
+      is_active: 'eq.true',
+      order: 'full_name.asc',
+    });
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 });

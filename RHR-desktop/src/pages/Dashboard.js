@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import {
   ShoppingCart, Wallet, HourglassIcon, ReceiptText, Bell, CalendarDays,
-  ArrowRight, Inbox
+  ArrowRight, Inbox, RefreshCw
 } from 'lucide-react';
-import api from '../services/api';
+import api, { getCurrentUser } from '../services/api';
 import StatCard from '../components/StatCard';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
 import { SkeletonStatCards, SkeletonTable } from '../components/Skeleton';
+import CityFilter from '../components/CityFilter';
+
+const todayISO = () => new Date().toISOString().split('T')[0];
 
 const TODAY_LABEL = new Date().toLocaleDateString('en-US', {
   weekday: 'long',
@@ -61,9 +64,16 @@ function buildWeekSeries(orders) {
 }
 
 export default function Dashboard({ user, setPage }) {
+  // Dashboard predates the CityFilter convention used elsewhere (which
+  // defaults super_admin to Karachi) — it always showed every branch
+  // combined, so it keeps that as its own default rather than silently
+  // shrinking what admins see here on first load.
+  const [selectedCity, setSelectedCity] = useState('all');
+  const [dateFrom, setDateFrom] = useState(todayISO());
+  const [dateTo, setDateTo] = useState(todayISO());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [stats, setStats] = useState({ ordersToday: 0, pendingOrders: 0 });
+  const [stats, setStats] = useState({ ordersInRange: 0, pendingOrders: 0 });
   const [financials, setFinancials] = useState(null);
   const [recentOrders, setRecentOrders] = useState([]);
   const [statusCounts, setStatusCounts] = useState({});
@@ -73,35 +83,50 @@ export default function Dashboard({ user, setPage }) {
 
   useEffect(() => {
     loadDashboard();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCity]);
 
   const loadDashboard = async () => {
     setLoading(true);
     setError('');
     try {
+      const companyParams = selectedCity === 'all' ? {} : { company_id: selectedCity };
       const [ordersRes, pendingCustomersRes, paymentsRes] = await Promise.all([
-        api.get('/orders'),
-        api.get('/customers/pending'),
-        api.get('/payments')
+        api.get('/orders', { params: companyParams }),
+        api.get('/customers/pending', { params: companyParams }),
+        api.get('/payments', { params: companyParams })
       ]);
 
       // Non-fatal — company-wide financial totals are a bonus on top of the
       // core stats above, so a failure here shouldn't block the dashboard.
-      api.get('/analytics/dashboard')
+      api.get('/analytics/dashboard', { params: { ...companyParams, from: dateFrom, to: dateTo } })
         .then((res) => setFinancials(res.data.data))
         .catch(() => setFinancials(null));
 
-      const orders = ordersRes.data.data || [];
-      const today = new Date().toDateString();
-      const ordersToday = orders.filter((o) => new Date(o.created_at).toDateString() === today).length;
+      const allOrders = ordersRes.data.data || [];
+
+      // Date range (default: today) — same client-side range filter
+      // Reports.js already uses, applied to stat cards/status
+      // breakdown/recent orders. The "Sales Overview" trend chart below
+      // stays on the real trailing 7 days regardless (buildWeekSeries
+      // uses allOrders, unfiltered) so it doesn't collapse to an empty
+      // chart whenever a narrow range like "today" is selected.
+      const from = new Date(dateFrom);
+      const to = new Date(dateTo);
+      to.setHours(23, 59, 59, 999);
+      const orders = allOrders.filter((o) => {
+        const t = new Date(o.created_at).getTime();
+        return t >= from.getTime() && t <= to.getTime();
+      });
+
       const pendingOrders = orders.filter((o) => o.status === 'pending').length;
 
       const counts = {};
       orders.forEach((o) => { counts[o.status] = (counts[o.status] || 0) + 1; });
 
-      setStats({ ordersToday, pendingOrders });
+      setStats({ ordersInRange: orders.length, pendingOrders });
       setStatusCounts(counts);
-      setWeekSeries(buildWeekSeries(orders));
+      setWeekSeries(buildWeekSeries(allOrders));
       setRecentOrders(orders.slice(0, 10));
       setPendingCustomers(pendingCustomersRes.data.data || []);
       setPendingPayments((paymentsRes.data.data || []).filter((p) => p.status === 'pending'));
@@ -132,7 +157,7 @@ export default function Dashboard({ user, setPage }) {
 
   return (
     <div className="p-6 lg:p-8 flex flex-col gap-6">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-navy">Dashboard</h1>
           <p className="text-sm text-gray-500 mt-1">
@@ -159,6 +184,37 @@ export default function Dashboard({ user, setPage }) {
         </div>
       </div>
 
+      <div className="flex items-end gap-2 flex-wrap justify-end -mt-2">
+        <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
+        <div>
+          <label className="block text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">From</label>
+          <input
+            type="date"
+            value={dateFrom}
+            max={dateTo}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">To</label>
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom}
+            max={todayISO()}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
+          />
+        </div>
+        <button
+          onClick={loadDashboard}
+          className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
+        >
+          <RefreshCw size={14} /> Apply
+        </button>
+      </div>
+
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
           {error}
@@ -174,7 +230,12 @@ export default function Dashboard({ user, setPage }) {
         <>
           {/* Stat cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
-            <StatCard label="Orders Today" value={stats.ordersToday} icon={ShoppingCart} color="navy" />
+            <StatCard
+              label={dateFrom === dateTo ? (dateFrom === todayISO() ? 'Orders Today' : 'Orders') : 'Orders in Range'}
+              value={stats.ordersInRange}
+              icon={ShoppingCart}
+              color="navy"
+            />
             <StatCard
               label="Revenue"
               value={financials ? `PKR ${Number(financials.totalRevenue).toLocaleString()}` : '—'}

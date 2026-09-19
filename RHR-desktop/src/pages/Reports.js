@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  TrendingUp, Wallet, ShoppingCart, Download, RefreshCw, ArrowUp, ArrowDown, Receipt
+  TrendingUp, Wallet, ShoppingCart, Download, RefreshCw, ArrowUp, ArrowDown, Receipt,
+  Package, CreditCard, Plus, TrendingDown
 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import EmptyState from '../components/EmptyState';
@@ -12,12 +13,17 @@ import { fetchAllCities } from '../utils/multiCityFetch';
 const REPORT_TABS = [
   { key: 'sales', label: 'Sales Report', icon: TrendingUp },
   { key: 'collections', label: 'Collections', icon: Wallet },
-  { key: 'outstanding', label: 'Outstanding', icon: Receipt }
+  { key: 'outstanding', label: 'Outstanding', icon: Receipt },
+  { key: 'purchases', label: 'Purchases', icon: Package },
+  { key: 'expenses', label: 'Expenses', icon: CreditCard }
 ];
+
+const EXPENSE_CATEGORIES = ['Rent', 'Salary', 'Utilities', 'Transport', 'Other'];
 
 const toISODate = (d) => d.toISOString().split('T')[0];
 const defaultFrom = () => { const d = new Date(); d.setDate(d.getDate() - 29); return toISODate(d); };
 const defaultTo = () => toISODate(new Date());
+const EMPTY_EXPENSE_FORM = { category: EXPENSE_CATEGORIES[0], amount: '', description: '', expense_date: defaultTo() };
 
 function pctChange(current, previous) {
   if (previous === 0) return current === 0 ? 0 : 100;
@@ -52,11 +58,59 @@ export default function Reports() {
   const [downloading, setDownloading] = useState(false);
   const [outPage, setOutPage] = useState(1);
 
+  const [purchasesData, setPurchasesData] = useState({ purchases: [], grand_total: 0 });
+  const [expensesData, setExpensesData] = useState({ expenses: [], total_amount: 0 });
+  const [purchasesLoading, setPurchasesLoading] = useState(true);
+  const [expenseForm, setExpenseForm] = useState(EMPTY_EXPENSE_FORM);
+  const [savingExpense, setSavingExpense] = useState(false);
+
   useEffect(() => {
     loadData();
     loadOutstanding();
+    loadPurchasesAndExpenses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
+
+  useEffect(() => {
+    loadPurchasesAndExpenses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applied]);
+
+  const loadPurchasesAndExpenses = async () => {
+    setPurchasesLoading(true);
+    try {
+      const params = { from: applied.from, to: applied.to, ...(companyFilter ? { company_id: companyFilter } : {}) };
+      const [purchasesRes, expensesRes] = await Promise.all([
+        api.get('/reports/purchases', { params }),
+        api.get('/reports/expenses', { params })
+      ]);
+      setPurchasesData(purchasesRes.data.data || { purchases: [], grand_total: 0 });
+      setExpensesData(expensesRes.data.data || { expenses: [], total_amount: 0 });
+    } catch (err) {
+      // non-fatal — Sales/Collections/Outstanding tabs still work
+    } finally {
+      setPurchasesLoading(false);
+    }
+  };
+
+  const handleAddExpense = async (e) => {
+    e.preventDefault();
+    if (!expenseForm.amount || Number(expenseForm.amount) <= 0) {
+      toast.error('Enter a valid amount.');
+      return;
+    }
+    setSavingExpense(true);
+    try {
+      await api.post('/expenses', { ...expenseForm, amount: Number(expenseForm.amount) });
+      toast.success('Expense recorded.');
+      setExpenseForm({ ...EMPTY_EXPENSE_FORM, expense_date: expenseForm.expense_date });
+      loadPurchasesAndExpenses();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to record expense.');
+    } finally {
+      setSavingExpense(false);
+    }
+  };
 
   const companyFilter = selectedCity === 'all' ? null : selectedCity;
 
@@ -161,6 +215,8 @@ export default function Reports() {
   const totalCollected = paymentsInRange.reduce((s, p) => s + Number(p.amount), 0);
   const prevCollected = prevPayments.reduce((s, p) => s + Number(p.amount), 0);
 
+  const netProfit = totalSales - purchasesData.grand_total - expensesData.total_amount;
+
   // ── Weekly buckets across the selected range ──
   const weeklySales = useMemo(() => {
     const weeks = Math.max(1, Math.ceil(rangeMs.spanMs / (7 * 24 * 60 * 60 * 1000)));
@@ -264,7 +320,7 @@ export default function Reports() {
         <SkeletonTable rows={5} cols={4} />
       ) : reportTab === 'sales' ? (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-6">
             <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5">
               <div className="flex justify-between items-start">
                 <div>
@@ -294,6 +350,20 @@ export default function Reports() {
                 <div className="w-10 h-10 rounded-lg bg-orange/10 text-orange flex items-center justify-center"><Receipt size={18} /></div>
               </div>
               <div className="mt-2"><TrendBadge value={pctChange(avgOrderValue, prevAvgOrderValue)} /> <span className="text-xs text-gray-400 ml-1">vs previous period</span></div>
+            </div>
+            <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Net Profit</p>
+                  <p className={`text-2xl font-bold mt-1 ${netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    PKR {netProfit.toLocaleString()}
+                  </p>
+                </div>
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${netProfit >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+                  {netProfit >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">Sales − Purchases (PKR {purchasesData.grand_total.toLocaleString()}) − Expenses (PKR {expensesData.total_amount.toLocaleString()})</p>
             </div>
           </div>
 
@@ -399,7 +469,7 @@ export default function Reports() {
             )}
           </div>
         </>
-      ) : (
+      ) : reportTab === 'outstanding' ? (
         <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center flex-wrap gap-3 bg-gray-50/50">
             <div>
@@ -454,6 +524,133 @@ export default function Reports() {
               </div>
             </>
           )}
+        </div>
+      ) : reportTab === 'purchases' ? (
+        <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center flex-wrap gap-3 bg-gray-50/50">
+            <div>
+              <h3 className="font-semibold text-navy text-sm">Raw Material Purchases</h3>
+              <p className="text-xs text-gray-400 mt-0.5">From Raw Materials → Purchase — grouped by supplier and date</p>
+            </div>
+            <span className="text-sm font-semibold text-navy">Total: PKR {purchasesData.grand_total.toLocaleString()}</span>
+          </div>
+          {purchasesLoading ? (
+            <SkeletonTable rows={5} cols={4} />
+          ) : purchasesData.purchases.length === 0 ? (
+            <EmptyState icon={Package} title="No purchases in this period" />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Supplier</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Items</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Total Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {purchasesData.purchases.map((p, i) => (
+                    <tr key={p.purchase_id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                      <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(p.date).toLocaleDateString('en-GB')}</td>
+                      <td className="px-6 py-3.5 font-medium text-navy">{p.supplier_name}</td>
+                      <td className="px-6 py-3.5 text-gray-600">
+                        {p.items.map((it) => `${it.material_name} (${it.quantity} ${it.unit})`).join(', ')}
+                      </td>
+                      <td className="px-6 py-3.5 text-right font-semibold text-navy">
+                        {p.total_amount > 0 ? `PKR ${p.total_amount.toLocaleString()}` : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <div className="lg:col-span-4 bg-white rounded-2xl shadow-card border border-gray-100 p-5">
+            <h3 className="font-semibold text-navy text-sm mb-4">Record Expense</h3>
+            <form onSubmit={handleAddExpense} className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
+                <select
+                  value={expenseForm.category}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                >
+                  {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Amount *</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  value={expenseForm.amount}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Date</label>
+                <input
+                  type="date"
+                  value={expenseForm.expense_date}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, expense_date: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Description</label>
+                <textarea
+                  rows={2}
+                  value={expenseForm.description}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+              </div>
+              <Button type="submit" variant="accent" disabled={savingExpense} className="w-full flex items-center justify-center gap-1.5">
+                <Plus size={14} /> {savingExpense ? 'Saving...' : 'Add Expense'}
+              </Button>
+            </form>
+          </div>
+
+          <div className="lg:col-span-8 bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center flex-wrap gap-3 bg-gray-50/50">
+              <h3 className="font-semibold text-navy text-sm">Expenses</h3>
+              <span className="text-sm font-semibold text-red-600">Total: PKR {expensesData.total_amount.toLocaleString()}</span>
+            </div>
+            {purchasesLoading ? (
+              <SkeletonTable rows={5} cols={4} />
+            ) : expensesData.expenses.length === 0 ? (
+              <EmptyState icon={CreditCard} title="No expenses in this period" />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Description</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {expensesData.expenses.map((e, i) => (
+                      <tr key={e.id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                        <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(e.expense_date).toLocaleDateString('en-GB')}</td>
+                        <td className="px-6 py-3.5 font-medium text-navy">{e.category}</td>
+                        <td className="px-6 py-3.5 text-gray-600">{e.description || '—'}</td>
+                        <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(e.amount).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

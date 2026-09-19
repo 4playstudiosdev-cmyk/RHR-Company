@@ -5,9 +5,9 @@ const { resolveCompanyId } = require('../utils/companyScope');
 
 const createPayment = async (req, res) => {
   try {
-    const { customer_id, order_id, amount, method, photo_url, salesman_id } = req.body;
-    if (!customer_id || !amount || !photo_url)
-      return error(res, 'customer_id, amount, photo_url are required', 400);
+    const { customer_id, order_id, amount, method, photo_url, salesman_id, bank_account_id, notes } = req.body;
+    if (!customer_id || !amount)
+      return error(res, 'customer_id and amount are required', 400);
 
     // payments.salesman_id is a NOT NULL FK to salesmen(id) — an admin's
     // own id won't satisfy it, so an admin recording a payment must name
@@ -16,15 +16,24 @@ const createPayment = async (req, res) => {
     const isAdminUser = ['super_admin', 'branch_admin'].includes(req.user.role);
     if (isAdminUser && !salesman_id)
       return error(res, 'salesman_id is required when recording a payment as admin', 400);
+    // Photo proof is still required from the salesman mobile app —
+    // only an admin typing a Recovery entry in directly can skip it.
+    if (!isAdminUser && !photo_url)
+      return error(res, 'photo_url is required', 400);
+    if (method === 'bank' && !bank_account_id)
+      return error(res, 'bank_account_id is required when method is bank', 400);
 
     const data = await svc.createPayment({
-      companyId:  req.user.company_id,
-      customerId: customer_id,
-      salesmanId: isAdminUser ? salesman_id : req.user.id,
-      orderId:    order_id,
+      companyId:      req.user.company_id,
+      customerId:     customer_id,
+      salesmanId:     isAdminUser ? salesman_id : req.user.id,
+      orderId:        order_id,
       amount,
       method,
-      photoUrl:   photo_url
+      photoUrl:       photo_url,
+      bankAccountId:  bank_account_id,
+      notes,
+      recordedByAdmin: isAdminUser
     });
 
     // Admin-recorded payments are self-verified — approve immediately
@@ -45,7 +54,7 @@ const createPayment = async (req, res) => {
 
 const getPayments = async (req, res) => {
   try {
-    const data = await svc.getPayments(req.user, resolveCompanyId(req));
+    const data = await svc.getPayments(req.user, resolveCompanyId(req), req.query.salesman_id);
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 };

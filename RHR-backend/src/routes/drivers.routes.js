@@ -5,39 +5,47 @@ const { isAdmin }      = require('../middleware/role.middleware');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
-const { pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 
 // GET /api/v1/drivers — active drivers (approved + pending) in this
 // admin's company, each with a customer_count (how many active customers
 // currently have this driver assigned) — one extra grouped query rather
 // than N+1 per-driver lookups.
+//
+// Routed through the raw-https bypass (see utils/directQuery.js) — same
+// fix as GET /salesmen: plain supabase-js was confirmed (via a live
+// production probe) to silently return an empty array for this exact
+// query on Railway even though the table has real rows, which is why
+// Drivers never showed up in the desktop UI.
 router.get('/', authenticate, isAdmin, async (req, res) => {
   try {
-    let query = supabaseAdmin
-      .from('drivers')
-      .select('id, company_id, full_name, phone, car_number, is_approved, is_active, created_at')
-      .eq('is_active', true);
     const companyId = resolveCompanyId(req);
-    if (companyId) query = query.eq('company_id', companyId);
+    const params = {
+      select: 'id,company_id,full_name,phone,car_number,is_approved,is_active,created_at',
+      is_active: 'eq.true',
+      order: 'full_name.asc',
+    };
+    if (companyId) params.company_id = `eq.${companyId}`;
 
-    const { data, error: dbErr } = await query.order('full_name');
-    if (dbErr) throw new Error(dbErr.message);
+    const data = await pgrestGet('drivers', params);
 
     const driverIds = (data || []).map((d) => d.id);
     let countByDriver = {};
     if (driverIds.length) {
-      // users.driver_id is a phase17 migration — tolerate it not existing
-      // yet so the driver list itself doesn't break before that's run;
-      // counts just read as 0 until then.
-      const { data: custRows } = await supabaseAdmin
-        .from('users')
-        .select('driver_id')
-        .eq('role', 'customer')
-        .eq('is_active', true)
-        .in('driver_id', driverIds);
-      (custRows || []).forEach((c) => {
-        countByDriver[c.driver_id] = (countByDriver[c.driver_id] || 0) + 1;
-      });
+      try {
+        // users.driver_id is a phase17 migration — tolerate it not
+        // existing yet so the driver list itself doesn't break before
+        // that's run; counts just read as 0 until then.
+        const custRows = await pgrestGet('users', {
+          select: 'driver_id',
+          role: 'eq.customer',
+          is_active: 'eq.true',
+          driver_id: `in.(${driverIds.join(',')})`,
+        });
+        (custRows || []).forEach((c) => {
+          countByDriver[c.driver_id] = (countByDriver[c.driver_id] || 0) + 1;
+        });
+      } catch (e) { /* driver_id not migrated yet — counts stay 0 */ }
     }
     const withCounts = (data || []).map((d) => ({ ...d, customer_count: countByDriver[d.id] || 0 }));
 
@@ -48,17 +56,16 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 // GET /api/v1/drivers/pending — self-registered drivers awaiting approval
 router.get('/pending', authenticate, isAdmin, async (req, res) => {
   try {
-    let query = supabaseAdmin
-      .from('drivers')
-      .select('id, full_name, phone, car_number, created_at')
-      .eq('is_approved', false)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false });
     const companyId = resolveCompanyId(req);
-    if (companyId) query = query.eq('company_id', companyId);
+    const params = {
+      select: 'id,full_name,phone,car_number,created_at',
+      is_approved: 'eq.false',
+      is_active: 'eq.true',
+      order: 'created_at.desc',
+    };
+    if (companyId) params.company_id = `eq.${companyId}`;
 
-    const { data, error: dbErr } = await query;
-    if (dbErr) throw new Error(dbErr.message);
+    const data = await pgrestGet('drivers', params);
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 });
@@ -113,13 +120,12 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
 // GET /api/v1/drivers/:id — single driver
 router.get('/:id', authenticate, isAdmin, async (req, res) => {
   try {
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('drivers')
-      .select('id, full_name, phone, car_number, is_approved, is_active, created_at')
-      .eq('id', req.params.id)
-      .single();
-    if (dbErr) return error(res, 'Driver not found', 404);
-    return success(res, data);
+    const rows = await pgrestGet('drivers', {
+      select: 'id,full_name,phone,car_number,is_approved,is_active,created_at',
+      id: `eq.${req.params.id}`,
+    });
+    if (!rows?.[0]) return error(res, 'Driver not found', 404);
+    return success(res, rows[0]);
   } catch (err) { return error(res, err.message); }
 });
 
@@ -128,19 +134,18 @@ router.get('/:id', authenticate, isAdmin, async (req, res) => {
 // (super_admin: any branch, branch_admin: their own only).
 router.get('/:id/customers', authenticate, isAdmin, async (req, res) => {
   try {
-    let drQuery = supabaseAdmin.from('drivers').select('id, company_id').eq('id', req.params.id);
-    if (req.user.role !== 'super_admin') drQuery = drQuery.eq('company_id', req.user.company_id);
-    const { data: driver } = await drQuery.maybeSingle();
-    if (!driver) return error(res, 'Driver not found or access denied', 404);
+    const drParams = { select: 'id,company_id', id: `eq.${req.params.id}` };
+    if (req.user.role !== 'super_admin') drParams.company_id = `eq.${req.user.company_id}`;
+    const drRows = await pgrestGet('drivers', drParams);
+    if (!drRows?.[0]) return error(res, 'Driver not found or access denied', 404);
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('users')
-      .select('id, full_name, phone, shop_name, rate_tier')
-      .eq('driver_id', req.params.id)
-      .eq('role', 'customer')
-      .eq('is_active', true)
-      .order('full_name');
-    if (dbErr) throw new Error(dbErr.message);
+    const data = await pgrestGet('users', {
+      select: 'id,full_name,phone,shop_name,rate_tier',
+      driver_id: `eq.${req.params.id}`,
+      role: 'eq.customer',
+      is_active: 'eq.true',
+      order: 'full_name.asc',
+    });
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 });

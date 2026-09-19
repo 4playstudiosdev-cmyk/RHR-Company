@@ -79,7 +79,7 @@ const getCustomerById = async (req, res) => {
 // that queue since an admin is entering it by hand.
 const createCustomer = async (req, res) => {
   try {
-    const { full_name, phone, email, shop_name, shop_address, company_id } = req.body;
+    const { full_name, phone, email, shop_name, shop_address, company_id, rate_tier, driver_id } = req.body;
     if (!full_name || !phone)
       return error(res, 'full_name and phone are required', 400);
 
@@ -87,6 +87,19 @@ const createCustomer = async (req, res) => {
       ? req.user.company_id
       : (company_id || req.user.company_id);
     if (!targetCompanyId) return error(res, 'company_id is required', 400);
+
+    if (rate_tier && !VALID_RATE_TIERS.includes(rate_tier))
+      return error(res, `rate_tier must be one of: ${VALID_RATE_TIERS.join(', ')}`, 400);
+
+    if (driver_id) {
+      const { data: dr } = await supabaseAdmin
+        .from('drivers')
+        .select('id')
+        .eq('id', driver_id)
+        .eq('company_id', targetCompanyId)
+        .maybeSingle();
+      if (!dr) return error(res, 'Driver not found in this branch', 404);
+    }
 
     const canonical = normalizePhone(phone);
     const bare = canonical.replace('+', '');
@@ -113,6 +126,8 @@ const createCustomer = async (req, res) => {
       email:        email || null,
       shop_name:    shop_name || null,
       shop_address: shop_address || null,
+      rate_tier:    rate_tier || 'manual',
+      driver_id:    driver_id || null,
       is_approved:  true,
       is_active:    true
     });

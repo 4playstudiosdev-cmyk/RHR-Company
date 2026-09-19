@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Package, ShoppingCart, Users, UserCog, Wallet, LogOut,
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
   Gauge, Boxes, ClipboardList, Truck, FileBarChart2, ChevronDown, X, CarFront,
-  PackageCheck, ArrowLeftRight, PackageSearch
+  PackageCheck, ArrowLeftRight, PackageSearch, Landmark
 } from 'lucide-react';
 import api, { hasPermission } from '../services/api';
 
@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { key: 'salesmen', label: 'Salesmen', icon: UserCog },
   { key: 'drivers', label: 'Drivers', icon: CarFront },
   { key: 'payments', label: 'Payments', icon: Wallet, requiredPermission: 'can_view_payments' },
+  { key: 'bank', label: 'Bank', icon: Landmark, requiredPermission: 'can_view_payments' },
   { key: 'ledger', label: 'Ledger', icon: BookOpen },
   { key: 'reports', label: 'Reports', icon: FileSpreadsheet, requiredPermission: 'can_export_reports' },
   { key: 'gps', label: 'Live GPS', icon: MapPin, requiredPermission: 'can_view_gps' },

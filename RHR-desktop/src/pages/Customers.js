@@ -25,7 +25,7 @@ const RATE_BADGE = {
 // same default the Products/Raw Materials pages use, since there's no
 // single real branch a "combined view" create action could target.
 const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
-const EMPTY_CUSTOMER_FORM = { full_name: '', phone: '', email: '', shop_name: '', shop_address: '' };
+const EMPTY_CUSTOMER_FORM = { full_name: '', phone: '', email: '', shop_name: '', shop_address: '', rate_tier: 'manual', driver_id: '' };
 
 const PAGE_SIZE = 10;
 
@@ -304,7 +304,11 @@ export default function Customers({ onViewLedger }) {
         toast.success('Customer updated.');
       } else {
         const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
-        await api.post('/customers', { ...customerForm, company_id: targetCompanyId });
+        await api.post('/customers', {
+          ...customerForm,
+          driver_id: customerForm.driver_id || null,
+          company_id: targetCompanyId
+        });
         toast.success('Customer account created.');
       }
       setShowCustomerModal(false);
@@ -839,6 +843,37 @@ export default function Customers({ onViewLedger }) {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
               />
             </div>
+            {!editingCustomer && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Rate Tier</label>
+                  <select
+                    value={customerForm.rate_tier}
+                    onChange={(e) => setCustomerForm({ ...customerForm, rate_tier: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                  >
+                    {RATE_TIERS.map((t) => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Assign Driver (optional)</label>
+                  <select
+                    value={customerForm.driver_id}
+                    onChange={(e) => setCustomerForm({ ...customerForm, driver_id: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                  >
+                    <option value="">— No Driver —</option>
+                    {driversList
+                      .filter((d) => selectedCity === 'all' || d.company_id === selectedCity)
+                      .map((d) => (
+                        <option key={d.id} value={d.id}>{d.full_name}{d.car_number ? ` (${d.car_number})` : ''}</option>
+                      ))}
+                  </select>
+                </div>
+              </>
+            )}
             {!editingCustomer && (
               <p className="text-xs text-gray-400">
                 Creates the account directly (auto-approved) — most customers should instead self-register from the mobile app and be approved from the Pending Approval section above.

@@ -13,6 +13,7 @@ import Customers from './pages/Customers';
 import Salesmen from './pages/Salesmen';
 import Drivers from './pages/Drivers';
 import Payments from './pages/Payments';
+import Bank from './pages/Bank';
 import Ledger from './pages/Ledger';
 import Reports from './pages/Reports';
 import GPS from './pages/GPS';
@@ -37,6 +38,7 @@ const PAGES = {
   salesmen: Salesmen,
   drivers: Drivers,
   payments: Payments,
+  bank: Bank,
   ledger: Ledger,
   reports: Reports,
   gps: GPS,
@@ -61,6 +63,7 @@ const PAGES = {
 const PAGE_ACCESS = {
   dashboard: { requiredRole: 'super_admin' },
   payments: { requiredPermission: 'can_view_payments' },
+  bank: { requiredPermission: 'can_view_payments' },
   reports: { requiredPermission: 'can_export_reports' },
   'stock-reports': { requiredPermission: 'can_export_reports' },
   gps: { requiredPermission: 'can_view_gps' },

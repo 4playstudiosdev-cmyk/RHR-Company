@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Plus, UserCog, UserCheck, Pencil, UserX, UserCheck2,
-  ShoppingCart, Wallet, Footprints, TrendingUp, Download, BarChart3, Users
+  ShoppingCart, Wallet, Footprints, TrendingUp, Download, BarChart3, Users, Search, Banknote
 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
@@ -49,11 +49,19 @@ export default function Salesmen({ onViewLedger }) {
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [approvingId, setApprovingId] = useState(null);
+  const [customers, setCustomers] = useState([]);
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState([]);
+  const [customerSearch, setCustomerSearch] = useState('');
 
   useEffect(() => {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
+
+  // Which branch an "Add Salesman" created right now would land in —
+  // same rule handleSave already used, shared here so the customer
+  // picklist in that modal only shows customers from that same branch.
+  const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
 
   const loadAll = async () => {
     setLoading(true);
@@ -61,22 +69,31 @@ export default function Salesmen({ onViewLedger }) {
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
       const params = { company_id: companyFilter };
-      const [pendingData, allData] = companyFilter
+      const [pendingData, allData, customersData] = companyFilter
         ? await Promise.all([
             api.get('/salesmen/pending', { params }).then((r) => r.data.data || []),
-            api.get('/salesmen', { params }).then((r) => r.data.data || [])
+            api.get('/salesmen', { params }).then((r) => r.data.data || []),
+            api.get('/customers', { params }).then((r) => r.data.data || [])
           ])
         : await Promise.all([
             fetchAllCities('/salesmen/pending'),
-            fetchAllCities('/salesmen')
+            fetchAllCities('/salesmen'),
+            fetchAllCities('/customers')
           ]);
       setPending(pendingData);
       setSalesmen(allData);
+      setCustomers(customersData);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load salesmen.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleCustomer = (customerId) => {
+    setSelectedCustomerIds((prev) =>
+      prev.includes(customerId) ? prev.filter((id) => id !== customerId) : [...prev, customerId]
+    );
   };
 
   const handleApprove = async (salesman) => {
@@ -96,6 +113,8 @@ export default function Salesmen({ onViewLedger }) {
   const openAddModal = () => {
     setEditing(null);
     setForm(EMPTY_FORM);
+    setSelectedCustomerIds([]);
+    setCustomerSearch('');
     setShowModal(true);
   };
 
@@ -126,8 +145,7 @@ export default function Salesmen({ onViewLedger }) {
         // viewing Hyderabad/Sukkur would have it silently created in
         // Karachi instead (their own default branch) and never appear
         // in the list they're looking at.
-        const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
-        await api.post('/salesmen', {
+        const res = await api.post('/salesmen', {
           full_name: form.full_name,
           phone: form.phone,
           email: form.email,
@@ -135,7 +153,19 @@ export default function Salesmen({ onViewLedger }) {
           position: form.position,
           company_id: targetCompanyId
         });
-        toast.success('Salesman account created.');
+        const newSalesmanId = res.data.data?.id;
+        if (newSalesmanId && selectedCustomerIds.length > 0) {
+          await Promise.all(
+            selectedCustomerIds.map((customerId) =>
+              api.patch(`/customers/${customerId}/assign-salesman`, { salesman_id: newSalesmanId })
+            )
+          );
+        }
+        toast.success(
+          selectedCustomerIds.length > 0
+            ? `Salesman account created — ${selectedCustomerIds.length} customer${selectedCustomerIds.length > 1 ? 's' : ''} assigned.`
+            : 'Salesman account created.'
+        );
       }
       setShowModal(false);
       loadAll();
@@ -197,6 +227,72 @@ export default function Salesmen({ onViewLedger }) {
       setReassigningId(null);
     }
   };
+
+  // ── Recovery/Collection panel — a filtered view + entry form over the
+  // existing Payments data (salesman_id, method, bank_account_id), not a
+  // separate ledger. See phase18_bank_accounts_and_expenses.sql.
+  const EMPTY_RECOVERY_FORM = { customer_id: '', amount: '', method: 'cash', bank_account_id: '', notes: '' };
+  const [recoverySalesman, setRecoverySalesman] = useState(null);
+  const [recoveryPayments, setRecoveryPayments] = useState([]);
+  const [recoveryCustomers, setRecoveryCustomers] = useState([]);
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [recoveryForm, setRecoveryForm] = useState(EMPTY_RECOVERY_FORM);
+  const [savingRecovery, setSavingRecovery] = useState(false);
+
+  const openRecovery = async (salesman) => {
+    setRecoverySalesman(salesman);
+    setRecoveryForm(EMPTY_RECOVERY_FORM);
+    setRecoveryLoading(true);
+    try {
+      const [paymentsRes, customersRes, banksRes] = await Promise.all([
+        api.get('/payments', { params: { salesman_id: salesman.id } }),
+        api.get(`/salesmen/${salesman.id}/customers`),
+        api.get('/bank/accounts', { params: { company_id: salesman.company_id } })
+      ]);
+      setRecoveryPayments(paymentsRes.data.data || []);
+      setRecoveryCustomers(customersRes.data.data || []);
+      setBankAccounts(banksRes.data.data || []);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load recovery data.');
+    } finally {
+      setRecoveryLoading(false);
+    }
+  };
+
+  const handleAddRecovery = async (e) => {
+    e.preventDefault();
+    if (!recoveryForm.customer_id || !recoveryForm.amount || Number(recoveryForm.amount) <= 0) {
+      toast.error('Select a customer and enter a valid amount.');
+      return;
+    }
+    if (recoveryForm.method === 'bank' && !recoveryForm.bank_account_id) {
+      toast.error('Select a bank account.');
+      return;
+    }
+    setSavingRecovery(true);
+    try {
+      const res = await api.post('/payments', {
+        customer_id: recoveryForm.customer_id,
+        salesman_id: recoverySalesman.id,
+        amount: Number(recoveryForm.amount),
+        method: recoveryForm.method,
+        bank_account_id: recoveryForm.method === 'bank' ? recoveryForm.bank_account_id : null,
+        notes: recoveryForm.notes || null
+      });
+      setRecoveryPayments((prev) => [res.data.data, ...prev]);
+      setRecoveryForm(EMPTY_RECOVERY_FORM);
+      toast.success('Recovery recorded and approved.');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to record recovery.');
+    } finally {
+      setSavingRecovery(false);
+    }
+  };
+
+  const recoveryTotalCollected = recoveryPayments
+    .filter((p) => p.status === 'approved')
+    .reduce((s, p) => s + Number(p.amount), 0);
 
   const tabs = [
     { key: 'pending', label: 'Pending Approval', count: pending.length },
@@ -316,7 +412,13 @@ export default function Salesmen({ onViewLedger }) {
                       i % 2 === 1 ? 'bg-gray-50/40' : ''
                     }`}
                   >
-                    <td className="px-6 py-3.5 font-medium text-navy">{s.full_name}</td>
+                    <td
+                      className="px-6 py-3.5 font-medium text-navy cursor-pointer hover:underline"
+                      onClick={() => openAssignedCustomers(s)}
+                      title="View assigned customers"
+                    >
+                      {s.full_name}
+                    </td>
                     <td className="px-6 py-3.5 text-gray-600">{s.position || '—'}</td>
                     <td className="px-6 py-3.5 text-gray-600">{s.phone || '—'}</td>
                     <td className="px-6 py-3.5 text-gray-600">{s.email || '—'}</td>
@@ -343,6 +445,13 @@ export default function Salesmen({ onViewLedger }) {
                     </td>
                     <td className="px-6 py-3.5">
                       <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => openRecovery(s)}
+                          className="p-2 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors"
+                          title="Recovery"
+                        >
+                          <Banknote size={15} />
+                        </button>
                         <button
                           onClick={() => openEditModal(s)}
                           className="p-2 rounded-lg text-navy hover:bg-navy/10 transition-colors"
@@ -433,6 +542,44 @@ export default function Salesmen({ onViewLedger }) {
                 <p className="text-xs text-gray-400">
                   This creates an account directly (auto-approved). Most salesmen should instead self-register from the phone app and be approved from the "Pending Approval" tab.
                 </p>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Assign Customers (optional)</label>
+                  <div className="relative mb-2">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={customerSearch}
+                      onChange={(e) => setCustomerSearch(e.target.value)}
+                      placeholder="Search customers..."
+                      className="w-full border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
+                    />
+                  </div>
+                  <div className="max-h-[200px] overflow-y-auto border border-gray-200 rounded-lg">
+                    {customers
+                      .filter((c) => c.company_id === targetCompanyId)
+                      .filter((c) => c.full_name.toLowerCase().includes(customerSearch.toLowerCase()))
+                      .map((c) => (
+                        <label
+                          key={c.id}
+                          className="flex items-center px-3 py-2 cursor-pointer border-b border-gray-50 last:border-0 hover:bg-gray-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedCustomerIds.includes(c.id)}
+                            onChange={() => toggleCustomer(c.id)}
+                            className="mr-2.5"
+                          />
+                          <span className="text-sm text-gray-700 truncate">{c.full_name}</span>
+                          <span className="ml-auto text-xs text-gray-400 flex-shrink-0">{c.phone}</span>
+                        </label>
+                      ))}
+                    {customers.filter((c) => c.company_id === targetCompanyId).length === 0 && (
+                      <p className="text-xs text-gray-400 text-center py-4">No customers in this branch yet.</p>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1.5">{selectedCustomerIds.length} customer{selectedCustomerIds.length === 1 ? '' : 's'} selected</p>
+                </div>
               </>
             )}
             {editing && (
@@ -485,8 +632,125 @@ export default function Salesmen({ onViewLedger }) {
           </div>
         </Modal>
       )}
+
+      {recoverySalesman && (
+        <Modal title={`Recovery — ${recoverySalesman.full_name}`} onClose={() => setRecoverySalesman(null)}>
+          {recoveryLoading ? (
+            <p className="text-sm text-gray-400 py-6 text-center">Loading…</p>
+          ) : (
+            <>
+              <form onSubmit={handleAddRecovery} className="space-y-3 mb-5 pb-5 border-b border-gray-100">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Customer *</label>
+                    <select
+                      value={recoveryForm.customer_id}
+                      onChange={(e) => setRecoveryForm({ ...recoveryForm, customer_id: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                    >
+                      <option value="">— Select —</option>
+                      {recoveryCustomers.map((c) => (
+                        <option key={c.id} value={c.id}>{c.full_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Amount *</label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="0.01"
+                      value={recoveryForm.amount}
+                      onChange={(e) => setRecoveryForm({ ...recoveryForm, amount: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Method</label>
+                    <select
+                      value={recoveryForm.method}
+                      onChange={(e) => setRecoveryForm({ ...recoveryForm, method: e.target.value, bank_account_id: '' })}
+                      className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                    >
+                      <option value="cash">Cash</option>
+                      <option value="bank">Bank Transfer</option>
+                    </select>
+                  </div>
+                  {recoveryForm.method === 'bank' && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Bank Account *</label>
+                      <select
+                        value={recoveryForm.bank_account_id}
+                        onChange={(e) => setRecoveryForm({ ...recoveryForm, bank_account_id: e.target.value })}
+                        className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                      >
+                        <option value="">— Select —</option>
+                        {bankAccounts.map((b) => (
+                          <option key={b.id} value={b.id}>{b.account_name} — {b.bank_name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Notes (optional)</label>
+                  <input
+                    type="text"
+                    value={recoveryForm.notes}
+                    onChange={(e) => setRecoveryForm({ ...recoveryForm, notes: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                  />
+                </div>
+                <Button type="submit" variant="accent" disabled={savingRecovery} className="w-full">
+                  {savingRecovery ? 'Recording...' : '+ Record Recovery'}
+                </Button>
+              </form>
+
+              <div className="flex justify-between items-center mb-3">
+                <h4 className="text-sm font-semibold text-navy">Collection History</h4>
+                <span className="text-sm font-semibold text-emerald-600">Total: PKR {recoveryTotalCollected.toLocaleString()}</span>
+              </div>
+              {recoveryPayments.length === 0 ? (
+                <p className="text-sm text-gray-400 py-6 text-center">No recoveries recorded yet.</p>
+              ) : (
+                <div className="max-h-[280px] overflow-y-auto -mx-1 space-y-2">
+                  {recoveryPayments.map((p) => (
+                    <div key={p.id} className="flex items-center gap-3 border border-gray-100 rounded-xl px-3.5 py-2.5 mx-1">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-navy truncate">{p.customer?.full_name || '—'}</p>
+                        <p className="text-xs text-gray-400 truncate">
+                          {new Date(p.created_at).toLocaleDateString('en-GB')} · {p.method}
+                          {p.bank_accounts ? ` (${p.bank_accounts.account_name})` : ''}
+                        </p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-sm font-semibold text-navy">PKR {Number(p.amount).toLocaleString()}</p>
+                        <StatusBadgeMini status={p.status} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          <div className="flex justify-end pt-4">
+            <Button type="button" variant="secondary" onClick={() => setRecoverySalesman(null)}>Close</Button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
+}
+
+function StatusBadgeMini({ status }) {
+  const classes = status === 'approved'
+    ? 'bg-emerald-50 text-emerald-700'
+    : status === 'rejected'
+      ? 'bg-red-50 text-red-600'
+      : 'bg-amber-50 text-amber-700';
+  return <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${classes}`}>{status}</span>;
 }
 
 // ── Performance ──

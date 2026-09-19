@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Truck, UserCheck, Pencil, UserX, UserCheck2, Users } from 'lucide-react';
+import { Plus, Truck, UserCheck, Pencil, UserX, UserCheck2, Users, Search } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
 import Button from '../components/Button';
@@ -36,11 +36,19 @@ export default function Drivers() {
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [approvingId, setApprovingId] = useState(null);
+  const [customers, setCustomers] = useState([]);
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState([]);
+  const [customerSearch, setCustomerSearch] = useState('');
 
   useEffect(() => {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
+
+  // Which branch an "Add Driver" created right now would land in — same
+  // rule handleSave already used, shared here so the customer picklist
+  // in that modal only shows customers from that same branch.
+  const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
 
   const loadAll = async () => {
     setLoading(true);
@@ -48,22 +56,31 @@ export default function Drivers() {
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
       const params = { company_id: companyFilter };
-      const [pendingData, allData] = companyFilter
+      const [pendingData, allData, customersData] = companyFilter
         ? await Promise.all([
             api.get('/drivers/pending', { params }).then((r) => r.data.data || []),
-            api.get('/drivers', { params }).then((r) => r.data.data || [])
+            api.get('/drivers', { params }).then((r) => r.data.data || []),
+            api.get('/customers', { params }).then((r) => r.data.data || [])
           ])
         : await Promise.all([
             fetchAllCities('/drivers/pending'),
-            fetchAllCities('/drivers')
+            fetchAllCities('/drivers'),
+            fetchAllCities('/customers')
           ]);
       setPending(pendingData);
       setDrivers(allData);
+      setCustomers(customersData);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load drivers.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleCustomer = (customerId) => {
+    setSelectedCustomerIds((prev) =>
+      prev.includes(customerId) ? prev.filter((id) => id !== customerId) : [...prev, customerId]
+    );
   };
 
   const handleApprove = async (driver) => {
@@ -83,6 +100,8 @@ export default function Drivers() {
   const openAddModal = () => {
     setEditing(null);
     setForm(EMPTY_FORM);
+    setSelectedCustomerIds([]);
+    setCustomerSearch('');
     setShowModal(true);
   };
 
@@ -113,14 +132,25 @@ export default function Drivers() {
         // viewing Hyderabad/Sukkur would have it silently created in
         // Karachi instead (their own default branch) and never appear
         // in the list they're looking at.
-        const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
-        await api.post('/drivers', {
+        const res = await api.post('/drivers', {
           full_name: form.full_name,
           phone: form.phone,
           car_number: form.car_number,
           company_id: targetCompanyId
         });
-        toast.success('Driver account created.');
+        const newDriverId = res.data.data?.id;
+        if (newDriverId && selectedCustomerIds.length > 0) {
+          await Promise.all(
+            selectedCustomerIds.map((customerId) =>
+              api.patch(`/customers/${customerId}/assign-driver`, { driver_id: newDriverId })
+            )
+          );
+        }
+        toast.success(
+          selectedCustomerIds.length > 0
+            ? `Driver account created — ${selectedCustomerIds.length} customer${selectedCustomerIds.length > 1 ? 's' : ''} assigned.`
+            : 'Driver account created.'
+        );
       }
       setShowModal(false);
       loadAll();
@@ -297,7 +327,13 @@ export default function Drivers() {
                       i % 2 === 1 ? 'bg-gray-50/40' : ''
                     }`}
                   >
-                    <td className="px-6 py-3.5 font-medium text-navy">{d.full_name}</td>
+                    <td
+                      className="px-6 py-3.5 font-medium text-navy cursor-pointer hover:underline"
+                      onClick={() => openAssignedCustomers(d)}
+                      title="View assigned customers"
+                    >
+                      {d.full_name}
+                    </td>
                     <td className="px-6 py-3.5 text-gray-600">{d.car_number || '—'}</td>
                     <td className="px-6 py-3.5 text-gray-600">{d.phone || '—'}</td>
                     <td className="px-6 py-3.5">
@@ -392,9 +428,49 @@ export default function Drivers() {
               />
             </div>
             {!editing && (
-              <p className="text-xs text-gray-400">
-                This creates an account directly (auto-approved), logged in via phone + WhatsApp OTP. Most drivers should instead self-register from the phone app and be approved from the "Pending Approval" tab.
-              </p>
+              <>
+                <p className="text-xs text-gray-400">
+                  This creates an account directly (auto-approved), logged in via phone + WhatsApp OTP. Most drivers should instead self-register from the phone app and be approved from the "Pending Approval" tab.
+                </p>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Assign Customers (optional)</label>
+                  <div className="relative mb-2">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={customerSearch}
+                      onChange={(e) => setCustomerSearch(e.target.value)}
+                      placeholder="Search customers..."
+                      className="w-full border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
+                    />
+                  </div>
+                  <div className="max-h-[200px] overflow-y-auto border border-gray-200 rounded-lg">
+                    {customers
+                      .filter((c) => c.company_id === targetCompanyId)
+                      .filter((c) => c.full_name.toLowerCase().includes(customerSearch.toLowerCase()))
+                      .map((c) => (
+                        <label
+                          key={c.id}
+                          className="flex items-center px-3 py-2 cursor-pointer border-b border-gray-50 last:border-0 hover:bg-gray-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedCustomerIds.includes(c.id)}
+                            onChange={() => toggleCustomer(c.id)}
+                            className="mr-2.5"
+                          />
+                          <span className="text-sm text-gray-700 truncate">{c.full_name}</span>
+                          <span className="ml-auto text-xs text-gray-400 flex-shrink-0">{c.phone}</span>
+                        </label>
+                      ))}
+                    {customers.filter((c) => c.company_id === targetCompanyId).length === 0 && (
+                      <p className="text-xs text-gray-400 text-center py-4">No customers in this branch yet.</p>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1.5">{selectedCustomerIds.length} customer{selectedCustomerIds.length === 1 ? '' : 's'} selected — delivery destinations for this driver</p>
+                </div>
+              </>
             )}
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={() => setShowModal(false)}>
