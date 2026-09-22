@@ -22,6 +22,7 @@ const MATERIAL_CATEGORIES = [
   { label: 'Sand/Bajri', value: 'filler' },
   { label: 'Chemicals', value: 'chemical' },
   { label: 'Pigments', value: 'pigment' },
+  { label: 'Packaging', value: 'packaging' },
   { label: 'Other', value: 'other' },
 ];
 const CATEGORY_LABEL = Object.fromEntries(MATERIAL_CATEGORIES.map((c) => [c.value, c.label]));
