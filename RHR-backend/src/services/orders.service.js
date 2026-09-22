@@ -270,4 +270,19 @@ async function deductDeliveredStock(orderId) {
   }
 }
 
-module.exports = { createOrder, getOrders, getOrderById, updateOrderStatus };
+// Marks that an invoice now exists for this order — the Orders.js
+// "Create Invoice" button switches to "Edit Invoice" once this is set,
+// falling back to no-op if invoice_generated_at (a phase23 addition)
+// hasn't been migrated yet, so invoice generation itself never breaks.
+async function markInvoiceGenerated(id, companyId) {
+  const filter = { id: `eq.${id}` };
+  if (companyId) filter.company_id = `eq.${companyId}`;
+  try {
+    const rows = await pgrestPatch('orders', filter, { invoice_generated_at: new Date().toISOString() });
+    return rows?.[0] || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+module.exports = { createOrder, getOrders, getOrderById, updateOrderStatus, markInvoiceGenerated };

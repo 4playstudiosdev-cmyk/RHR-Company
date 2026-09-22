@@ -64,4 +64,11 @@ const updateOrderStatus = async (req, res) => {
   }
 };
 
-module.exports = { createOrder, getOrders, getOrderById, updateOrderStatus };
+const markInvoiceGenerated = async (req, res) => {
+  try {
+    const data = await svc.markInvoiceGenerated(req.params.id, req.user.role === 'super_admin' ? null : req.user.company_id);
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { createOrder, getOrders, getOrderById, updateOrderStatus, markInvoiceGenerated };

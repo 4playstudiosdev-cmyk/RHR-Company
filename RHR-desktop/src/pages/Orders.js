@@ -68,6 +68,16 @@ export default function Orders() {
   const [conveyanceError, setConveyanceError] = useState('');
   const [generatingInvoice, setGeneratingInvoice] = useState(false);
 
+  // "Edit Invoice" — shown once an order already has an invoice
+  // (order.invoice_generated_at set). Lets the admin record bags
+  // returned and download an updated invoice reflecting the reduced total.
+  const [editInvoiceOrder, setEditInvoiceOrder] = useState(null); // full order detail (order_items etc.)
+  const [editInvoiceItemId, setEditInvoiceItemId] = useState(''); // which line item, when an order has more than one
+  const [bagsReturned, setBagsReturned] = useState('');
+  const [bagsReturnedError, setBagsReturnedError] = useState('');
+  const [editInvoiceLoadingId, setEditInvoiceLoadingId] = useState(null);
+  const [savingReturn, setSavingReturn] = useState(false);
+
   useEffect(() => {
     loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -286,12 +296,82 @@ export default function Orders() {
       } else {
         toast.success(`Invoice for ${order.order_number} downloaded.`);
       }
+
+      // First invoice for this order — flips the button to "Edit
+      // Invoice" from here on (no-ops quietly pre-migration).
+      api.patch(`/orders/${order.id}/mark-invoiced`)
+        .then((r) => {
+          if (r.data.data?.invoice_generated_at) {
+            setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, invoice_generated_at: r.data.data.invoice_generated_at } : o)));
+          }
+        })
+        .catch(() => {});
+
       setInvoiceOrder(null);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to generate invoice.');
     } finally {
       setGeneratingInvoice(false);
       setPdfLoadingId(null);
+    }
+  };
+
+  const openEditInvoice = async (order) => {
+    setEditInvoiceLoadingId(order.id);
+    try {
+      const res = await api.get(`/orders/${order.id}`);
+      const detail = res.data.data;
+      setEditInvoiceOrder(detail);
+      setEditInvoiceItemId(detail.order_items?.[0]?.id || '');
+      setBagsReturned('');
+      setBagsReturnedError('');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load order details.');
+    } finally {
+      setEditInvoiceLoadingId(null);
+    }
+  };
+
+  const editInvoiceItem = editInvoiceOrder?.order_items?.find((it) => it.id === editInvoiceItemId) || editInvoiceOrder?.order_items?.[0];
+  const bagsReturnedNum = Number(bagsReturned) || 0;
+  const returnAmountPreview = editInvoiceItem ? bagsReturnedNum * Number(editInvoiceItem.unit_price) : 0;
+  const updatedTotalPreview = editInvoiceOrder ? Number(editInvoiceOrder.total_amount) - returnAmountPreview : 0;
+
+  const confirmGenerateUpdatedInvoice = async () => {
+    const order = editInvoiceOrder;
+    const item = editInvoiceItem;
+    if (!item) { toast.error('This order has no items to return.'); return; }
+
+    const qty = Number(bagsReturned);
+    if (!bagsReturned || isNaN(qty) || qty <= 0) {
+      setBagsReturnedError('Enter a valid quantity returned.');
+      return;
+    }
+    if (qty > Number(item.quantity)) {
+      setBagsReturnedError(`Cannot return more than the ${item.quantity} ${item.products?.unit || ''} sold.`);
+      return;
+    }
+
+    const returnAmount = qty * Number(item.unit_price);
+    setSavingReturn(true);
+    try {
+      // Same order-return endpoint the Returns page uses — credits the
+      // customer's ledger and records the return, so this stays the one
+      // place that logic lives.
+      await api.post('/returns/orders', {
+        order_id: order.id,
+        amount_returned: returnAmount,
+        notes: `${qty} ${item.products?.unit || 'unit'}(s) of "${item.product_name}" returned`
+      });
+
+      buildInvoicePdf(order, { returnAmount });
+
+      toast.success(`Updated invoice downloaded — ${order.users?.full_name || 'the customer'}'s ledger credited PKR ${returnAmount.toLocaleString()}.`);
+      setEditInvoiceOrder(null);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to record the return.');
+    } finally {
+      setSavingReturn(false);
     }
   };
 
@@ -433,14 +513,25 @@ export default function Orders() {
                         })()}
                       </td>
                       <td className="px-6 py-3.5">
-                        <button
-                          onClick={() => handleInvoice(order)}
-                          disabled={pdfLoadingId === order.id}
-                          className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
-                        >
-                          <FileDown size={14} />
-                          {pdfLoadingId === order.id ? 'Generating...' : 'Create Invoice'}
-                        </button>
+                        {order.invoice_generated_at ? (
+                          <button
+                            onClick={() => openEditInvoice(order)}
+                            disabled={editInvoiceLoadingId === order.id}
+                            className="flex items-center gap-1.5 bg-orange hover:bg-orange/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                          >
+                            <FileDown size={14} />
+                            {editInvoiceLoadingId === order.id ? 'Loading...' : 'Edit Invoice'}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleInvoice(order)}
+                            disabled={pdfLoadingId === order.id}
+                            className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                          >
+                            <FileDown size={14} />
+                            {pdfLoadingId === order.id ? 'Generating...' : 'Create Invoice'}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -755,6 +846,73 @@ export default function Orders() {
               <Button type="button" variant="secondary" onClick={() => setInvoiceStep(1)}>Back</Button>
               <Button type="button" variant="accent" onClick={confirmGenerateInvoice} disabled={generatingInvoice} className="flex items-center gap-2">
                 <FileDown size={15} /> {generatingInvoice ? 'Generating...' : 'Generate Invoice'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {editInvoiceOrder && (
+        <Modal title={`Edit Invoice — ${editInvoiceOrder.order_number}`} onClose={() => setEditInvoiceOrder(null)}>
+          <div className="space-y-4">
+            <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 space-y-1 text-sm">
+              <p className="text-gray-600">Customer: <span className="font-semibold text-navy">{editInvoiceOrder.users?.full_name || '—'}</span></p>
+              {editInvoiceOrder.order_items?.length > 1 ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-600">Item:</span>
+                  <select
+                    value={editInvoiceItemId}
+                    onChange={(e) => { setEditInvoiceItemId(e.target.value); setBagsReturned(''); setBagsReturnedError(''); }}
+                    className="border border-gray-300 rounded-md px-2 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-navy"
+                  >
+                    {editInvoiceOrder.order_items.map((it) => (
+                      <option key={it.id} value={it.id}>{it.product_name} — {it.quantity} {it.products?.unit || ''}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <p className="text-gray-600">
+                  Sold: <span className="font-semibold text-navy">{editInvoiceItem?.quantity} {editInvoiceItem?.products?.unit || ''} — {editInvoiceItem?.product_name}</span>
+                </p>
+              )}
+              <p className="text-gray-600">Total: <span className="font-semibold text-navy">PKR {Number(editInvoiceOrder.total_amount).toLocaleString()}</span></p>
+              <p className="text-gray-600">Date: <span className="font-semibold text-navy">{new Date(editInvoiceOrder.created_at).toLocaleDateString('en-GB')}</span></p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                {editInvoiceItem?.products?.unit ? `${editInvoiceItem.products.unit.replace(/^\w/, (c) => c.toUpperCase())}s` : 'Units'} Returned *
+              </label>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                max={editInvoiceItem?.quantity}
+                autoFocus
+                value={bagsReturned}
+                onChange={(e) => { setBagsReturned(e.target.value); setBagsReturnedError(''); }}
+                placeholder={`Max ${editInvoiceItem?.quantity || 0}`}
+                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 transition-shadow ${
+                  bagsReturnedError ? 'border-red-400 focus:ring-red-200 focus:border-red-500' : 'border-gray-300 focus:ring-navy focus:border-navy'
+                }`}
+              />
+              {bagsReturnedError && <p className="text-xs text-red-600 mt-1.5">{bagsReturnedError}</p>}
+            </div>
+
+            <div className="bg-navy-chip/30 border border-navy-chip rounded-xl px-4 py-3">
+              <p className="text-xs text-gray-500">Updated Total (after return)</p>
+              <p className="text-lg font-bold text-navy">PKR {updatedTotalPreview.toLocaleString()}</p>
+              {bagsReturnedNum > 0 && (
+                <p className="text-xs text-gray-400 mt-0.5">
+                  PKR {Number(editInvoiceOrder.total_amount).toLocaleString()} − ({bagsReturnedNum} × PKR {Number(editInvoiceItem?.unit_price || 0).toLocaleString()}) = PKR {updatedTotalPreview.toLocaleString()}
+                </p>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setEditInvoiceOrder(null)}>Cancel</Button>
+              <Button type="button" variant="accent" onClick={confirmGenerateUpdatedInvoice} disabled={savingReturn} className="flex items-center gap-2">
+                <FileDown size={15} /> {savingReturn ? 'Saving...' : 'Generate Updated Invoice'}
               </Button>
             </div>
           </div>
