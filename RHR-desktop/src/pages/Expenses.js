@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { Wallet, Plus, Download, Trash2, Receipt } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
@@ -94,19 +95,56 @@ export default function Expenses() {
 
   const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0);
 
-  const exportToExcel = () => {
+  const exportToPdf = () => {
     if (expenses.length === 0) { toast.error('No expenses to export.'); return; }
-    const rows = expenses.map((e) => ({
-      Date: e.expense_date,
-      Category: e.category,
-      Description: e.description,
-      'Amount (PKR)': Number(e.amount)
-    }));
-    rows.push({ Date: '', Category: '', Description: 'TOTAL', 'Amount (PKR)': totalExpenses });
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Expenses');
-    XLSX.writeFile(wb, `expenses-${selectedMonth}.xlsx`);
+    const doc = new jsPDF();
+    const M = 20;
+    const PAGE_W = 210;
+
+    doc.setTextColor(20, 20, 30);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(22);
+    doc.text('RHR & COMPANY', M, 26);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(110, 110, 110);
+    doc.text('Industrial Area, Karachi', M, 33);
+    doc.text('Phone: +92 332 2110690', M, 38);
+
+    doc.setTextColor(20, 20, 30);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(20);
+    doc.text('EXPENSE REPORT', PAGE_W - M, 26, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.text(`Month: ${selectedMonth}`, PAGE_W - M, 34, { align: 'right' });
+    doc.text(`Generated: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`, PAGE_W - M, 40, { align: 'right' });
+
+    doc.setDrawColor(30, 30, 40);
+    doc.setLineWidth(0.6);
+    doc.line(M, 46, PAGE_W - M, 46);
+
+    const rows = expenses.map((e) => [
+      new Date(e.expense_date).toLocaleDateString('en-GB'),
+      e.category,
+      e.description,
+      `Rs ${Number(e.amount).toLocaleString()}`
+    ]);
+
+    autoTable(doc, {
+      startY: 56,
+      head: [['Date', 'Category', 'Description', 'Amount']],
+      body: rows,
+      margin: { left: M, right: M },
+      headStyles: { fillColor: [27, 39, 58], textColor: 255, fontStyle: 'bold', fontSize: 10 },
+      bodyStyles: { fontSize: 10, textColor: [30, 30, 30] },
+      columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } },
+      styles: { cellPadding: { top: 4, bottom: 4, left: 4, right: 4 } },
+      foot: [['', '', 'TOTAL', `Rs ${totalExpenses.toLocaleString()}`]],
+      footStyles: { fillColor: [27, 39, 58], textColor: [230, 126, 34], fontStyle: 'bold', fontSize: 10 }
+    });
+
+    doc.save(`Expense-Report-${selectedMonth}.pdf`);
   };
 
   return (
@@ -124,8 +162,8 @@ export default function Expenses() {
             onChange={(e) => setSelectedMonth(e.target.value)}
             className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
           />
-          <Button variant="primary" onClick={exportToExcel} className="flex items-center gap-2">
-            <Download size={15} /> Export Excel
+          <Button variant="primary" onClick={exportToPdf} className="flex items-center gap-2">
+            <Download size={15} /> Export PDF
           </Button>
         </div>
       </div>
