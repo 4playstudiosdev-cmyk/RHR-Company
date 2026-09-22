@@ -71,7 +71,6 @@ export default function Customers({ onViewLedger }) {
   const [all, setAll] = useState([]);
   const [ordersByCustomer, setOrdersByCustomer] = useState({});
   const [salesmenList, setSalesmenList] = useState([]);
-  const [driversList, setDriversList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [approvingId, setApprovingId] = useState(null);
@@ -96,25 +95,22 @@ export default function Customers({ onViewLedger }) {
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
       const params = { company_id: companyFilter };
-      const [pendingData, allData, ordersData, salesmenData, driversData] = companyFilter
+      const [pendingData, allData, ordersData, salesmenData] = companyFilter
         ? await Promise.all([
             api.get('/customers/pending', { params }).then((r) => r.data.data || []),
             api.get('/customers', { params }).then((r) => r.data.data || []),
             api.get('/orders', { params }).then((r) => r.data.data || []),
-            api.get('/salesmen', { params }).then((r) => r.data.data || []),
-            api.get('/drivers', { params }).then((r) => r.data.data || [])
+            api.get('/salesmen', { params }).then((r) => r.data.data || [])
           ])
         : await Promise.all([
             fetchAllCities('/customers/pending'),
             fetchAllCities('/customers'),
             fetchAllCities('/orders'),
-            fetchAllCities('/salesmen'),
-            fetchAllCities('/drivers')
+            fetchAllCities('/salesmen')
           ]);
       setPending(pendingData);
       setAll(allData);
       setSalesmenList(salesmenData);
-      setDriversList(driversData);
 
       const counts = {};
       ordersData.forEach((o) => {
@@ -167,17 +163,6 @@ export default function Customers({ onViewLedger }) {
       toast.success(salesmanId ? 'Salesman assigned.' : 'Salesman unassigned.');
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to assign salesman.');
-    }
-  };
-
-  const handleAssignDriver = async (customer, driverId) => {
-    if (driverId === (customer.driver_id || '')) return;
-    try {
-      await api.patch(`/customers/${customer.id}/assign-driver`, { driver_id: driverId || null });
-      setAll((prev) => prev.map((c) => (c.id === customer.id ? { ...c, driver_id: driverId || null } : c)));
-      toast.success(driverId ? 'Driver assigned.' : 'Driver unassigned.');
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to assign driver.');
     }
   };
 
@@ -506,7 +491,6 @@ export default function Customers({ onViewLedger }) {
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Phone</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Rate</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Salesman</th>
-                      <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Driver</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Orders</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Outstanding</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-center">Status</th>
@@ -561,20 +545,6 @@ export default function Customers({ onViewLedger }) {
                             {salesmenList.find((s) => s.id === customer.salesman_id)?.full_name || (
                               <span className="text-gray-300">— None —</span>
                             )}
-                          </td>
-                          <td className="py-3 px-4">
-                            <select
-                              value={customer.driver_id || ''}
-                              onChange={(e) => handleAssignDriver(customer, e.target.value)}
-                              className="border border-gray-200 rounded-md px-1.5 py-1 text-[11px] text-gray-600 focus:outline-none focus:ring-1 focus:ring-navy-chip focus:border-navy bg-white cursor-pointer max-w-[130px]"
-                            >
-                              <option value="">— None —</option>
-                              {driversList
-                                .filter((d) => !customer.company_id || d.company_id === customer.company_id)
-                                .map((d) => (
-                                  <option key={d.id} value={d.id}>{d.full_name}</option>
-                                ))}
-                            </select>
                           </td>
                           <td className="py-3 px-4 text-right text-navy font-medium">
                             {ordersByCustomer[customer.id] || 0}

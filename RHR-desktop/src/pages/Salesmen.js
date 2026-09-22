@@ -231,7 +231,8 @@ export default function Salesmen({ onViewLedger }) {
   // ── Recovery/Collection panel — a filtered view + entry form over the
   // existing Payments data (salesman_id, method, bank_account_id), not a
   // separate ledger. See phase18_bank_accounts_and_expenses.sql.
-  const EMPTY_RECOVERY_FORM = { customer_id: '', amount: '', method: 'cash', bank_account_id: '', notes: '' };
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const EMPTY_RECOVERY_FORM = { customer_id: '', amount: '', method: 'cash', bank_account_id: '', notes: '', date: todayStr() };
   const [recoverySalesman, setRecoverySalesman] = useState(null);
   const [recoveryPayments, setRecoveryPayments] = useState([]);
   const [recoveryCustomers, setRecoveryCustomers] = useState([]);
@@ -278,7 +279,8 @@ export default function Salesmen({ onViewLedger }) {
         amount: Number(recoveryForm.amount),
         method: recoveryForm.method,
         bank_account_id: recoveryForm.method === 'bank' ? recoveryForm.bank_account_id : null,
-        notes: recoveryForm.notes || null
+        notes: recoveryForm.notes || null,
+        date: recoveryForm.date || undefined
       });
       setRecoveryPayments((prev) => [res.data.data, ...prev]);
       setRecoveryForm(EMPTY_RECOVERY_FORM);
@@ -667,6 +669,17 @@ export default function Salesmen({ onViewLedger }) {
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Date *</label>
+                    <input
+                      type="date"
+                      required
+                      max={todayStr()}
+                      value={recoveryForm.date}
+                      onChange={(e) => setRecoveryForm({ ...recoveryForm, date: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                    />
+                  </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Method</label>
                     <select

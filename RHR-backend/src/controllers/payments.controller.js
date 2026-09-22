@@ -5,7 +5,7 @@ const { resolveCompanyId } = require('../utils/companyScope');
 
 const createPayment = async (req, res) => {
   try {
-    const { customer_id, order_id, amount, method, photo_url, salesman_id, bank_account_id, notes } = req.body;
+    const { customer_id, order_id, amount, method, photo_url, salesman_id, bank_account_id, notes, date } = req.body;
     if (!customer_id || !amount)
       return error(res, 'customer_id and amount are required', 400);
 
@@ -33,7 +33,8 @@ const createPayment = async (req, res) => {
       photoUrl:       photo_url,
       bankAccountId:  bank_account_id,
       notes,
-      recordedByAdmin: isAdminUser
+      recordedByAdmin: isAdminUser,
+      date:           isAdminUser ? date : null
     });
 
     // Admin-recorded payments are self-verified — approve immediately

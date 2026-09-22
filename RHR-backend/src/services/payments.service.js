@@ -4,7 +4,7 @@ const { supabaseAdmin } = require('../config/supabase');
 // a cash/receipt handoff) but not for a Recovery entry an admin types in
 // directly at the office — recordedByAdmin relaxes that one requirement
 // without touching the mobile flow's validation.
-async function createPayment({ companyId, customerId, salesmanId, orderId, amount, method, photoUrl, bankAccountId, notes, recordedByAdmin }) {
+async function createPayment({ companyId, customerId, salesmanId, orderId, amount, method, photoUrl, bankAccountId, notes, recordedByAdmin, date }) {
   if (!photoUrl && !recordedByAdmin) throw new Error('Photo proof is required for all payments');
 
   const baseRow = {
@@ -17,6 +17,9 @@ async function createPayment({ companyId, customerId, salesmanId, orderId, amoun
     status:      'pending',
     photo_url:   photoUrl || null
   };
+  // Admin-recorded recoveries can be backdated (e.g. logging a collection
+  // from earlier in the week) — the mobile salesman flow always uses "now".
+  if (recordedByAdmin && date) baseRow.created_at = new Date(date).toISOString();
 
   // bank_account_id/notes are a phase18 addition — fall back to
   // inserting without them if that migration hasn't run yet, rather
