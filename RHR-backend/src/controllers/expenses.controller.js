@@ -16,42 +16,66 @@ const getExpenses = async (req, res) => {
     const companyId = resolveCompanyId(req);
     const { from, to } = req.query;
 
-    const parts = [
-      'select=id,company_id,category,amount,description,expense_date,created_at',
-      'order=expense_date.desc',
-    ];
-    if (companyId) parts.push(`company_id=eq.${companyId}`);
-    if (from) parts.push(`expense_date=gte.${from}`);
-    if (to)   parts.push(`expense_date=lte.${to}`);
+    const filters = [];
+    if (companyId) filters.push(`company_id=eq.${companyId}`);
+    if (from) filters.push(`expense_date=gte.${from}`);
+    if (to)   filters.push(`expense_date=lte.${to}`);
+    const filterStr = filters.length ? `&${filters.join('&')}` : '';
 
-    const data = await pgrestGetRaw(`expenses?${parts.join('&')}`);
-    return success(res, data);
+    // method/bank_account_id are a phase24 addition — fall back to the
+    // plain select if that migration hasn't run yet, same pattern used
+    // for the other phase18 bank_account_id columns.
+    try {
+      const data = await pgrestGetRaw(
+        `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),created_at&order=expense_date.desc${filterStr}`
+      );
+      return success(res, data);
+    } catch (e) {
+      const data = await pgrestGetRaw(
+        `expenses?select=id,company_id,category,amount,description,expense_date,created_at&order=expense_date.desc${filterStr}`
+      );
+      return success(res, data);
+    }
   } catch (err) { return error(res, err.message); }
 };
 
 // POST /api/v1/expenses
 const createExpense = async (req, res) => {
   try {
-    const { category, amount, description, expense_date, company_id } = req.body;
+    const { category, amount, description, expense_date, company_id, method, bank_account_id } = req.body;
     if (!category || !amount || Number(amount) <= 0)
       return error(res, 'category and a positive amount are required', 400);
     if (!EXPENSE_CATEGORIES.includes(category))
       return error(res, `category must be one of: ${EXPENSE_CATEGORIES.join(', ')}`, 400);
+    if (method === 'bank' && !bank_account_id)
+      return error(res, 'bank_account_id is required when method is bank', 400);
 
     const targetCompanyId = req.user.role === 'branch_admin'
       ? req.user.company_id
       : (company_id || req.user.company_id);
 
-    const [data] = await pgrestPost('expenses', {
+    const baseRow = {
       company_id:   targetCompanyId,
       category,
       amount:       Number(amount),
       description:  description || null,
       expense_date: expense_date || new Date().toISOString().split('T')[0],
       created_by:   req.user.id,
-    });
+    };
 
-    return success(res, data, 'Expense recorded', 201);
+    // method/bank_account_id are a phase24 addition — fall back to
+    // inserting without them if that migration hasn't run yet.
+    try {
+      const [data] = await pgrestPost('expenses', {
+        ...baseRow,
+        method: method === 'bank' ? 'bank' : 'cash',
+        bank_account_id: method === 'bank' ? bank_account_id : null,
+      });
+      return success(res, data, 'Expense recorded', 201);
+    } catch (e) {
+      const [data] = await pgrestPost('expenses', baseRow);
+      return success(res, data, 'Expense recorded', 201);
+    }
   } catch (err) { return error(res, err.message); }
 };
 

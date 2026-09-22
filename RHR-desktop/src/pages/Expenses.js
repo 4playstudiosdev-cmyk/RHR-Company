@@ -19,7 +19,7 @@ const EXPENSE_CATEGORIES = [
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 const todayISO = () => new Date().toISOString().split('T')[0];
-const EMPTY_FORM = { category: EXPENSE_CATEGORIES[0], amount: '', description: '', expense_date: todayISO() };
+const EMPTY_FORM = { category: EXPENSE_CATEGORIES[0], amount: '', description: '', expense_date: todayISO(), method: 'cash', bank_account_id: '' };
 
 export default function Expenses() {
   const toast = useToast();
@@ -28,6 +28,7 @@ export default function Expenses() {
   const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [expenses, setExpenses] = useState([]);
+  const [bankAccounts, setBankAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
@@ -38,6 +39,21 @@ export default function Expenses() {
     loadExpenses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity, selectedMonth]);
+
+  useEffect(() => {
+    const loadBankAccounts = async () => {
+      try {
+        const companyFilter = selectedCity === 'all' ? null : selectedCity;
+        const data = companyFilter
+          ? (await api.get('/bank/accounts', { params: { company_id: companyFilter } })).data.data || []
+          : await fetchAllCities('/bank/accounts');
+        setBankAccounts(data);
+      } catch (err) {
+        setBankAccounts([]);
+      }
+    };
+    loadBankAccounts();
+  }, [selectedCity]);
 
   const loadExpenses = async () => {
     setLoading(true);
@@ -63,6 +79,10 @@ export default function Expenses() {
     e.preventDefault();
     if (!form.amount || Number(form.amount) <= 0 || !form.description.trim()) {
       toast.error('Amount and description are required.');
+      return;
+    }
+    if (form.method === 'bank' && !form.bank_account_id) {
+      toast.error('Select a bank account.');
       return;
     }
     setSaving(true);
@@ -128,19 +148,20 @@ export default function Expenses() {
       new Date(e.expense_date).toLocaleDateString('en-GB'),
       e.category,
       e.description,
+      e.method === 'bank' ? `Bank${e.bank_accounts ? ` — ${e.bank_accounts.account_name}` : ''}` : 'Cash',
       `Rs ${Number(e.amount).toLocaleString()}`
     ]);
 
     autoTable(doc, {
       startY: 56,
-      head: [['Date', 'Category', 'Description', 'Amount']],
+      head: [['Date', 'Category', 'Description', 'Paid From', 'Amount']],
       body: rows,
       margin: { left: M, right: M },
       headStyles: { fillColor: [27, 39, 58], textColor: 255, fontStyle: 'bold', fontSize: 10 },
       bodyStyles: { fontSize: 10, textColor: [30, 30, 30] },
-      columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } },
+      columnStyles: { 4: { halign: 'right', fontStyle: 'bold' } },
       styles: { cellPadding: { top: 4, bottom: 4, left: 4, right: 4 } },
-      foot: [['', '', 'TOTAL', `Rs ${totalExpenses.toLocaleString()}`]],
+      foot: [['', '', '', 'TOTAL', `Rs ${totalExpenses.toLocaleString()}`]],
       footStyles: { fillColor: [27, 39, 58], textColor: [230, 126, 34], fontStyle: 'bold', fontSize: 10 }
     });
 
@@ -198,6 +219,32 @@ export default function Expenses() {
               </select>
             </div>
             <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Paid From</label>
+              <select
+                value={form.method}
+                onChange={(e) => setForm({ ...form, method: e.target.value, bank_account_id: '' })}
+                className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+              >
+                <option value="cash">Cash</option>
+                <option value="bank">Bank Transfer</option>
+              </select>
+            </div>
+            {form.method === 'bank' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Bank Account *</label>
+                <select
+                  value={form.bank_account_id}
+                  onChange={(e) => setForm({ ...form, bank_account_id: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                >
+                  <option value="">— Select —</option>
+                  {bankAccounts.map((b) => (
+                    <option key={b.id} value={b.id}>{b.account_name} — {b.bank_name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Amount (PKR) *</label>
               <input
                 type="number"
@@ -247,6 +294,7 @@ export default function Expenses() {
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Description</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Paid From</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
                   </tr>
@@ -259,6 +307,11 @@ export default function Expenses() {
                         <span className="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-navy-chip text-navy">{e.category}</span>
                       </td>
                       <td className="px-6 py-3.5 text-gray-700">{e.description}</td>
+                      <td className="px-6 py-3.5 text-gray-600 text-xs">
+                        {e.method === 'bank'
+                          ? `Bank${e.bank_accounts ? ` — ${e.bank_accounts.account_name}` : ''}`
+                          : 'Cash'}
+                      </td>
                       <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(e.amount).toLocaleString()}</td>
                       <td className="px-6 py-3.5">
                         <button
@@ -274,7 +327,7 @@ export default function Expenses() {
                 </tbody>
                 <tfoot>
                   <tr className="bg-navy">
-                    <td colSpan={3} className="px-6 py-3.5 text-white font-semibold text-sm">TOTAL</td>
+                    <td colSpan={4} className="px-6 py-3.5 text-white font-semibold text-sm">TOTAL</td>
                     <td className="px-6 py-3.5 text-orange font-bold text-sm text-right">PKR {totalExpenses.toLocaleString()}</td>
                     <td></td>
                   </tr>
