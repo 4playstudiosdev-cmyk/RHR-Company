@@ -2,6 +2,7 @@ const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { invalidate } = require('../utils/simpleCache');
 const { resolveCompanyId } = require('../utils/companyScope');
+const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 
 // Orders that still need product manufactured/shipped for them. The task
 // spec says "pending customer orders" — but literally filtering to
@@ -53,59 +54,61 @@ const getProductionDemand = async (req, res) => {
 };
 
 // GET /api/v1/production/orders
+// Routed through the raw-https bypass (see utils/directQuery.js) — same
+// class of Railway/supabase-js flakiness already fixed for salesmen/
+// drivers/raw_materials reads. This one hadn't been touched yet.
 const getProductionOrders = async (req, res) => {
   try {
-    let query = supabaseAdmin
-      .from('production_orders')
-      .select('*')
-      .order('created_at', { ascending: false });
     const companyId = resolveCompanyId(req);
-    if (companyId) query = query.eq('company_id', companyId);
+    const params = { select: '*', order: 'created_at.desc' };
+    if (companyId) params.company_id = `eq.${companyId}`;
 
-    const { data, error: dbErr } = await query;
-    if (dbErr) throw new Error(dbErr.message);
+    const data = await pgrestGet('production_orders', params);
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 };
 
 // POST /api/v1/production/orders
+// Routed through the raw-https bypass — this insert had been reported
+// as failing with what looked like an RLS/permission error. supabaseAdmin
+// already uses the service role key (bypasses RLS by definition — see
+// config/supabase.js), so a genuine RLS block here would be unusual;
+// this matches the exact same "RLS-looking" failure signature documented
+// in utils/directQuery.js for supabase-js writes on Railway elsewhere in
+// this codebase (raw_materials, salesmen, admins), all fixed the same
+// way — via this bypass, not a policy change.
 const createProductionOrder = async (req, res) => {
   try {
     const { product_id, qty, batches, priority, notes, start_date } = req.body;
     if (!product_id || !qty) return error(res, 'product_id and qty are required', 400);
 
-    const { data: product, error: prodErr } = await supabaseAdmin
-      .from('products')
-      .select('name, unit')
-      .eq('id', product_id)
-      .eq('company_id', req.user.company_id)
-      .single();
-    if (prodErr || !product) return error(res, 'Product not found', 404);
+    const products = await pgrestGet('products', {
+      select: 'name,unit',
+      id: `eq.${product_id}`,
+      company_id: `eq.${req.user.company_id}`,
+    });
+    const product = products?.[0];
+    if (!product) return error(res, 'Product not found', 404);
 
     const datePart = new Date().toISOString().split('T')[0].replace(/-/g, '');
     const randPart = Math.floor(1000 + Math.random() * 9000);
     const orderNumber = `PRD-${datePart}-${randPart}`;
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('production_orders')
-      .insert({
-        company_id:   req.user.company_id,
-        order_number: orderNumber,
-        product_id,
-        product_name: product.name,
-        unit:         product.unit || 'units',
-        qty:          Number(qty),
-        batches:      Number(batches) || 1,
-        priority:     priority === 'urgent' ? 'urgent' : 'normal',
-        notes:        notes || null,
-        start_date:   start_date || new Date().toISOString().split('T')[0],
-        status:       'pending',
-        created_by:   req.user.id
-      })
-      .select()
-      .single();
+    const [data] = await pgrestPost('production_orders', {
+      company_id:   req.user.company_id,
+      order_number: orderNumber,
+      product_id,
+      product_name: product.name,
+      unit:         product.unit || 'units',
+      qty:          Number(qty),
+      batches:      Number(batches) || 1,
+      priority:     priority === 'urgent' ? 'urgent' : 'normal',
+      notes:        notes || null,
+      start_date:   start_date || new Date().toISOString().split('T')[0],
+      status:       'pending',
+      created_by:   req.user.id
+    });
 
-    if (dbErr) throw new Error(dbErr.message);
     return success(res, data, 'Production order created', 201);
   } catch (err) { return error(res, err.message); }
 };
@@ -266,13 +269,13 @@ const updateProductionOrderStatus = async (req, res) => {
     if (!valid.includes(status))
       return error(res, `status must be one of: ${valid.join(', ')}`, 400);
 
-    const { data: order, error: findErr } = await supabaseAdmin
-      .from('production_orders')
-      .select('*')
-      .eq('id', req.params.id)
-      .eq('company_id', req.user.company_id)
-      .single();
-    if (findErr || !order) return error(res, 'Production order not found', 404);
+    const orders = await pgrestGet('production_orders', {
+      select: '*',
+      id: `eq.${req.params.id}`,
+      company_id: `eq.${req.user.company_id}`,
+    });
+    const order = orders?.[0];
+    if (!order) return error(res, 'Production order not found', 404);
 
     let productionResult = null;
 
@@ -309,16 +312,14 @@ const updateProductionOrderStatus = async (req, res) => {
       }
     }
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('production_orders')
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq('id', req.params.id)
-      .eq('company_id', req.user.company_id)
-      .select()
-      .single();
+    const updated = await pgrestPatch(
+      'production_orders',
+      { id: `eq.${req.params.id}`, company_id: `eq.${req.user.company_id}` },
+      { status, updated_at: new Date().toISOString() }
+    );
+    if (!updated?.[0]) return error(res, 'Production order not found', 404);
 
-    if (dbErr) throw new Error(dbErr.message);
-    return success(res, { ...data, production: productionResult }, `Order marked ${status}`);
+    return success(res, { ...updated[0], production: productionResult }, `Order marked ${status}`);
   } catch (err) { return error(res, err.message); }
 };
 

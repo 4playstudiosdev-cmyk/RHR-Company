@@ -130,4 +130,40 @@ function pgrestPatch(table, params, body) {
   });
 }
 
-module.exports = { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch };
+// Same bypass, for deletes. table: e.g. 'expenses'. params: PostgREST
+// filter query params identifying the row(s), e.g. { id: 'eq.<uuid>' } —
+// required, since an unfiltered DELETE would remove every row in the table.
+function pgrestDelete(table, params) {
+  return new Promise((resolve, reject) => {
+    const qs = Object.entries(params)
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+      .join('&');
+    const url = `${process.env.SUPABASE_URL}/rest/v1/${table}?${qs}`;
+    const req = https.request(url, {
+      method: 'DELETE',
+      headers: {
+        apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+        Prefer: 'return=representation',
+      },
+    }, (res) => {
+      let respBody = '';
+      res.on('data', (chunk) => { respBody += chunk; });
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          return reject(new Error(`PostgREST ${res.statusCode}: ${respBody}`));
+        }
+        try {
+          resolve(respBody ? JSON.parse(respBody) : null);
+        } catch (e) {
+          reject(new Error(`PostgREST returned non-JSON body: ${respBody.slice(0, 200)}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(8000, () => { req.destroy(); reject(new Error('PostgREST request timed out')); });
+    req.end();
+  });
+}
+
+module.exports = { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch, pgrestDelete };

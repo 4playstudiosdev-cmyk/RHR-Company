@@ -50,9 +50,13 @@ const updateOrderStatus = async (req, res) => {
   console.log('================================');
 
   try {
-    const { status } = req.body;
+    const { status, driver_id, car_number, delivery_address } = req.body;
     if (!status) return error(res, 'status is required', 400);
-    const data = await svc.updateOrderStatus(req.params.id, req.user.company_id, status);
+    const data = await svc.updateOrderStatus(req.params.id, req.user.company_id, status, {
+      driverId: driver_id,
+      carNumber: car_number,
+      deliveryAddress: delivery_address,
+    });
     return success(res, data, `Order status updated to ${status}`);
   } catch (err) {
     console.log('ERROR:', err.message);

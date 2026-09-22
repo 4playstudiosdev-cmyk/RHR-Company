@@ -1,7 +1,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
-const { pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
 
 function normalizePhone(phone) {
   let digits = phone.replace(/\D/g, '');
@@ -79,7 +79,7 @@ const getCustomerById = async (req, res) => {
 // that queue since an admin is entering it by hand.
 const createCustomer = async (req, res) => {
   try {
-    const { full_name, phone, email, shop_name, shop_address, company_id, rate_tier, driver_id } = req.body;
+    const { full_name, phone, email, shop_name, shop_address, company_id, rate_tier, driver_id, salesman_id } = req.body;
     if (!full_name || !phone)
       return error(res, 'full_name and phone are required', 400);
 
@@ -99,6 +99,16 @@ const createCustomer = async (req, res) => {
         .eq('company_id', targetCompanyId)
         .maybeSingle();
       if (!dr) return error(res, 'Driver not found in this branch', 404);
+    }
+
+    if (salesman_id) {
+      const { data: sm } = await supabaseAdmin
+        .from('salesmen')
+        .select('id')
+        .eq('id', salesman_id)
+        .eq('company_id', targetCompanyId)
+        .maybeSingle();
+      if (!sm) return error(res, 'Salesman not found in this branch', 404);
     }
 
     const canonical = normalizePhone(phone);
@@ -128,6 +138,7 @@ const createCustomer = async (req, res) => {
       shop_address: shop_address || null,
       rate_tier:    rate_tier || 'manual',
       driver_id:    driver_id || null,
+      salesman_id:  salesman_id || null,
       is_approved:  true,
       is_active:    true
     });
@@ -301,6 +312,14 @@ const getCustomerPricing = async (req, res) => {
 
 // PUT /api/v1/customers/:id/pricing/:productId — set/replace this
 // customer's override price for one product.
+// Routed through the raw-https bypass (see utils/directQuery.js) — this
+// was reported failing with what looked like an RLS error on Railway,
+// matching the exact same supabase-js write-flakiness signature already
+// fixed elsewhere in this codebase (production_orders, dispatches,
+// salesmen, raw_materials — never a real RLS issue, since supabaseAdmin
+// already bypasses RLS via the service role key). No native upsert over
+// this bypass, so this does the same find-then-insert-or-update the rest
+// of the codebase already uses (see assignSalesman above).
 const setCustomerPricing = async (req, res) => {
   try {
     const { price } = req.body;
@@ -313,27 +332,37 @@ const setCustomerPricing = async (req, res) => {
 
     // Product must actually belong to the customer's own branch — cheap
     // guard against setting a price for a product from a different company.
-    const { data: product } = await supabaseAdmin
-      .from('products')
-      .select('id')
-      .eq('id', req.params.productId)
-      .eq('company_id', customer.company_id)
-      .maybeSingle();
-    if (!product) return error(res, 'Product not found in this customer\'s branch', 404);
+    const products = await pgrestGet('products', {
+      select: 'id',
+      id: `eq.${req.params.productId}`,
+      company_id: `eq.${customer.company_id}`,
+    });
+    if (!products?.[0]) return error(res, 'Product not found in this customer\'s branch', 404);
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('customer_product_prices')
-      .upsert({
+    const existing = await pgrestGet('customer_product_prices', {
+      select: 'id',
+      customer_id: `eq.${customer.id}`,
+      product_id: `eq.${req.params.productId}`,
+    });
+
+    let data;
+    if (existing?.[0]) {
+      const updated = await pgrestPatch(
+        'customer_product_prices',
+        { id: `eq.${existing[0].id}` },
+        { price: Number(price), updated_at: new Date().toISOString() }
+      );
+      data = updated?.[0];
+    } else {
+      const [inserted] = await pgrestPost('customer_product_prices', {
         customer_id: customer.id,
         product_id:  req.params.productId,
         company_id:  customer.company_id,
         price:       Number(price),
-        updated_at:  new Date().toISOString()
-      }, { onConflict: 'customer_id,product_id' })
-      .select()
-      .single();
+      });
+      data = inserted;
+    }
 
-    if (dbErr) throw new Error(dbErr.message);
     return success(res, data, 'Custom price saved');
   } catch (err) { return error(res, err.message); }
 };
@@ -345,13 +374,10 @@ const deleteCustomerPricing = async (req, res) => {
     const customer = await findScopedCustomer(req);
     if (!customer) return error(res, 'Customer not found or access denied', 404);
 
-    const { error: dbErr } = await supabaseAdmin
-      .from('customer_product_prices')
-      .delete()
-      .eq('customer_id', customer.id)
-      .eq('product_id', req.params.productId);
-
-    if (dbErr) throw new Error(dbErr.message);
+    await pgrestDelete('customer_product_prices', {
+      customer_id: `eq.${customer.id}`,
+      product_id:  `eq.${req.params.productId}`,
+    });
     return success(res, { deleted: true }, 'Custom price removed');
   } catch (err) { return error(res, err.message); }
 };

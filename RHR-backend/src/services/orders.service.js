@@ -1,5 +1,6 @@
 const { supabaseAdmin }    = require('../config/supabase');
 const { generateInvoice }  = require('./invoice.service');
+const { pgrestGet, pgrestPatch } = require('../utils/directQuery');
 
 // Flat PKR 10 adjustment set on the customer's rate_tier at approval time
 // (see the Rate Tier dialog on Customers.js / auth.service.js's
@@ -145,11 +146,25 @@ async function getOrders(user, companyIdOverride) {
 }
 
 async function getOrderById(id, user) {
-  const { data, error } = await supabaseAdmin
+  // order_items already carries product_name/unit_price/subtotal as a
+  // price-snapshot at order time (see createOrder above) — the products
+  // embed here is just for the unit label (kg/bag/etc), which isn't
+  // snapshotted. Falls back to the plain select if that embed ever fails
+  // (e.g. a product later deleted breaks the join), so order detail
+  // still loads without it.
+  let query = supabaseAdmin
     .from('orders')
-    .select('*, order_items(*), users!customer_id(full_name, phone, shop_name, shop_address)')
+    .select('*, order_items(*, products(unit)), users!customer_id(full_name, phone, shop_name, shop_address), drivers(full_name, car_number, phone)')
     .eq('id', id)
     .single();
+  let { data, error } = await query;
+  if (error) {
+    ({ data, error } = await supabaseAdmin
+      .from('orders')
+      .select('*, order_items(*), users!customer_id(full_name, phone, shop_name, shop_address)')
+      .eq('id', id)
+      .single());
+  }
   if (error) throw new Error('Order not found');
 
   // Security check
@@ -161,39 +176,45 @@ async function getOrderById(id, user) {
   return data;
 }
 
-async function updateOrderStatus(id, companyId, status) {
+// dispatchInfo: { driverId, carNumber, deliveryAddress } — optional,
+// only meaningful when status is 'dispatched' (see the Orders.js dispatch
+// popup). driver_id/car_number are a phase20 addition on orders — the
+// update falls back to plain status-only if that migration hasn't run
+// yet, so advancing status still works either way.
+async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
   const validStatuses = ['confirmed', 'preparing', 'dispatched', 'delivered', 'cancelled'];
   if (!validStatuses.includes(status))
     throw new Error('Invalid status. Must be one of: ' + validStatuses.join(', '));
 
-  // Step 1: Check the order exists first
-  const { data: existing, error: fetchErr } = await supabaseAdmin
-    .from('orders')
-    .select('id, status, company_id')
-    .eq('id', id)
-    .single();
+  const existingRows = await pgrestGet('orders', { select: 'id,status,company_id', id: `eq.${id}` });
+  if (!existingRows?.[0]) throw new Error('Order not found');
 
-  if (fetchErr || !existing) throw new Error('Order not found');
-
-  // Step 2: Do the update separately
-  const { error: updateErr } = await supabaseAdmin
-    .from('orders')
-    .update({ status })
-    .eq('id', id);
-
-  if (updateErr) {
-    console.error('Update error:', updateErr);
-    throw new Error('Failed to update order status: ' + updateErr.message);
+  const { driverId, carNumber, deliveryAddress } = dispatchInfo;
+  if (driverId) {
+    const drivers = await pgrestGet('drivers', {
+      select: 'id',
+      id: `eq.${driverId}`,
+      company_id: `eq.${existingRows[0].company_id}`,
+    });
+    if (!drivers?.[0]) throw new Error('Driver not found in this order\'s branch');
   }
 
-  // Step 3: Fetch the updated order to return
-  const { data: updated, error: refetchErr } = await supabaseAdmin
-    .from('orders')
-    .select('*')
-    .eq('id', id)
-    .single();
+  const patchBody = { status };
+  if (deliveryAddress !== undefined) patchBody.delivery_address = deliveryAddress;
 
-  if (refetchErr || !updated) throw new Error('Order updated but failed to fetch result');
+  let updated;
+  try {
+    const rows = await pgrestPatch('orders', { id: `eq.${id}` }, {
+      ...patchBody,
+      ...(driverId ? { driver_id: driverId } : {}),
+      ...(carNumber ? { car_number: carNumber } : {}),
+    });
+    updated = rows?.[0];
+  } catch (e) {
+    const rows = await pgrestPatch('orders', { id: `eq.${id}` }, patchBody);
+    updated = rows?.[0];
+  }
+  if (!updated) throw new Error('Order updated but failed to fetch result');
 
   // Auto-generate invoice when order is confirmed
   if (status === 'confirmed') {

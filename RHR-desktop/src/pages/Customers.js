@@ -25,7 +25,7 @@ const RATE_BADGE = {
 // same default the Products/Raw Materials pages use, since there's no
 // single real branch a "combined view" create action could target.
 const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
-const EMPTY_CUSTOMER_FORM = { full_name: '', phone: '', email: '', shop_name: '', shop_address: '', rate_tier: 'manual', driver_id: '' };
+const EMPTY_CUSTOMER_FORM = { full_name: '', phone: '', email: '', shop_name: '', shop_address: '', rate_tier: 'manual', salesman_id: '' };
 
 const PAGE_SIZE = 10;
 
@@ -306,7 +306,7 @@ export default function Customers({ onViewLedger }) {
         const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
         await api.post('/customers', {
           ...customerForm,
-          driver_id: customerForm.driver_id || null,
+          salesman_id: customerForm.salesman_id || null,
           company_id: targetCompanyId
         });
         toast.success('Customer account created.');
@@ -858,17 +858,17 @@ export default function Customers({ onViewLedger }) {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Assign Driver (optional)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Assign Salesman (optional)</label>
                   <select
-                    value={customerForm.driver_id}
-                    onChange={(e) => setCustomerForm({ ...customerForm, driver_id: e.target.value })}
+                    value={customerForm.salesman_id}
+                    onChange={(e) => setCustomerForm({ ...customerForm, salesman_id: e.target.value })}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
                   >
-                    <option value="">— No Driver —</option>
-                    {driversList
-                      .filter((d) => selectedCity === 'all' || d.company_id === selectedCity)
-                      .map((d) => (
-                        <option key={d.id} value={d.id}>{d.full_name}{d.car_number ? ` (${d.car_number})` : ''}</option>
+                    <option value="">— No Salesman —</option>
+                    {salesmenList
+                      .filter((s) => selectedCity === 'all' || s.company_id === selectedCity)
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>{s.full_name}</option>
                       ))}
                   </select>
                 </div>

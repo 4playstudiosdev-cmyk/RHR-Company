@@ -17,7 +17,7 @@ const STATUS_BADGE = {
 };
 const STATUS_LABEL = { in_transit: 'In Transit', delivered: 'Delivered' };
 
-const EMPTY_FORM = { destination: DESTINATIONS[0], driver: '', notes: '' };
+const EMPTY_FORM = { destination: DESTINATIONS[0], driver_id: '', notes: '' };
 
 export default function Dispatch() {
   const toast = useToast();
@@ -26,6 +26,7 @@ export default function Dispatch() {
   const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [readyOrders, setReadyOrders] = useState([]);
   const [history, setHistory] = useState([]);
+  const [driversList, setDriversList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dispatchTarget, setDispatchTarget] = useState(null);
@@ -43,14 +44,20 @@ export default function Dispatch() {
     setError('');
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
-      const [ordersData, historyData] = companyFilter
+      const [ordersData, historyData, driversData] = companyFilter
         ? await Promise.all([
             api.get('/production/orders', { params: { company_id: companyFilter } }).then((r) => r.data.data || []),
-            api.get('/production/dispatch', { params: { company_id: companyFilter } }).then((r) => r.data.data || [])
+            api.get('/production/dispatch', { params: { company_id: companyFilter } }).then((r) => r.data.data || []),
+            api.get('/drivers', { params: { company_id: companyFilter } }).then((r) => r.data.data || [])
           ])
-        : await Promise.all([fetchAllCities('/production/orders'), fetchAllCities('/production/dispatch')]);
+        : await Promise.all([
+            fetchAllCities('/production/orders'),
+            fetchAllCities('/production/dispatch'),
+            fetchAllCities('/drivers')
+          ]);
       setReadyOrders(ordersData.filter((o) => o.status === 'ready'));
       setHistory(historyData);
+      setDriversList(driversData);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load dispatch data.');
     } finally {
@@ -60,8 +67,8 @@ export default function Dispatch() {
 
   const handleDispatch = async (e) => {
     e.preventDefault();
-    if (!form.driver.trim()) {
-      toast.error('Enter a vehicle/driver name.');
+    if (!form.driver_id) {
+      toast.error('Select a driver.');
       return;
     }
     setSaving(true);
@@ -69,7 +76,7 @@ export default function Dispatch() {
       const res = await api.post('/production/dispatch', {
         production_order_id: dispatchTarget.id,
         destination: form.destination,
-        driver: form.driver.trim(),
+        driver_id: form.driver_id,
         notes: form.notes
       });
       toast.success(`${res.data.data.dispatch_number} dispatched to ${form.destination}.`);
@@ -195,7 +202,11 @@ export default function Dispatch() {
                       <td className="px-6 py-3.5 text-gray-700">{r.product_name}</td>
                       <td className="px-6 py-3.5 text-gray-600">{r.qty} {r.unit}</td>
                       <td className="px-6 py-3.5 text-gray-600">{r.destination}</td>
-                      <td className="px-6 py-3.5 text-gray-600">{r.driver}</td>
+                      <td className="px-6 py-3.5 text-gray-600">
+                        {r.drivers?.full_name
+                          ? `${r.drivers.full_name}${r.drivers.car_number ? ` (${r.drivers.car_number})` : ''}`
+                          : r.driver || '—'}
+                      </td>
                       <td className="px-6 py-3.5 text-gray-500">{new Date(r.dispatched_at).toLocaleDateString('en-GB')}</td>
                       <td className="px-6 py-3.5">
                         <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${STATUS_BADGE[r.status]}`}>
@@ -241,14 +252,20 @@ export default function Dispatch() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Vehicle / Driver Name *</label>
-              <input
-                type="text"
-                required
-                value={form.driver}
-                onChange={(e) => setForm({ ...form, driver: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-              />
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Assign Driver *</label>
+              <select
+                value={form.driver_id}
+                onChange={(e) => setForm({ ...form, driver_id: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+              >
+                <option value="">-- Select Driver --</option>
+                {driversList.map((d) => (
+                  <option key={d.id} value={d.id}>{d.full_name}{d.car_number ? ` — ${d.car_number}` : ''}</option>
+                ))}
+              </select>
+              {driversList.length === 0 && (
+                <p className="text-xs text-gray-400 mt-1">No drivers in this branch — add one under Drivers first.</p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Notes</label>

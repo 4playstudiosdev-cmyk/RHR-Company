@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { ShoppingCart, FileDown, Search, Plus, Trash2, Wallet } from 'lucide-react';
+import { ShoppingCart, FileDown, Search, Plus, Trash2, Wallet, Eye, Truck } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
@@ -42,6 +42,15 @@ export default function Orders() {
   const [products, setProducts] = useState([]);
   const [orderForm, setOrderForm] = useState(EMPTY_ORDER_FORM);
   const [creating, setCreating] = useState(false);
+
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [viewLoadingId, setViewLoadingId] = useState(null);
+
+  const [showDispatchModal, setShowDispatchModal] = useState(false);
+  const [dispatchingOrder, setDispatchingOrder] = useState(null);
+  const [dispatchForm, setDispatchForm] = useState({ driver_id: '', car_number: '', delivery_address: '' });
+  const [driversList, setDriversList] = useState([]);
+  const [dispatching, setDispatching] = useState(false);
 
   const [payingOrder, setPayingOrder] = useState(null);
   const [salesmen, setSalesmen] = useState([]);
@@ -133,6 +142,12 @@ export default function Orders() {
 
   const handleStatusChange = async (order, newStatus) => {
     if (newStatus === order.status) return;
+    // Dispatching needs a driver assigned first — hand off to the
+    // dispatch popup instead of patching immediately.
+    if (newStatus === 'dispatched') {
+      openDispatchModal(order);
+      return;
+    }
     setUpdatingId(order.id);
     try {
       await api.patch(`/orders/${order.id}/status`, { status: newStatus });
@@ -144,6 +159,61 @@ export default function Orders() {
       toast.error(err.response?.data?.message || 'Failed to update order status.');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const openDispatchModal = async (order) => {
+    setDispatchingOrder(order);
+    setDispatchForm({ driver_id: '', car_number: '', delivery_address: order.delivery_address || '' });
+    setShowDispatchModal(true);
+    if (driversList.length === 0) {
+      try {
+        const companyFilter = selectedCity === 'all' ? order.company_id : selectedCity;
+        const res = await api.get('/drivers', { params: { company_id: companyFilter } });
+        setDriversList(res.data.data || []);
+      } catch (err) {
+        toast.error('Failed to load drivers list.');
+      }
+    }
+  };
+
+  const handleDriverSelect = (driverId) => {
+    const driver = driversList.find((d) => d.id === driverId);
+    setDispatchForm((prev) => ({ ...prev, driver_id: driverId, car_number: driver?.car_number || '' }));
+  };
+
+  const confirmDispatch = async () => {
+    if (!dispatchForm.driver_id) { toast.error('Select a driver.'); return; }
+    setDispatching(true);
+    try {
+      await api.patch(`/orders/${dispatchingOrder.id}/status`, {
+        status: 'dispatched',
+        driver_id: dispatchForm.driver_id,
+        car_number: dispatchForm.car_number,
+        delivery_address: dispatchForm.delivery_address
+      });
+      setOrders((prev) =>
+        prev.map((o) => (o.id === dispatchingOrder.id ? { ...o, status: 'dispatched' } : o))
+      );
+      toast.success(`Order ${dispatchingOrder.order_number} dispatched.`);
+      setShowDispatchModal(false);
+      setDispatchingOrder(null);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to dispatch order.');
+    } finally {
+      setDispatching(false);
+    }
+  };
+
+  const handleViewOrder = async (order) => {
+    setViewLoadingId(order.id);
+    try {
+      const res = await api.get(`/orders/${order.id}`);
+      setSelectedOrder(res.data.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load order details.');
+    } finally {
+      setViewLoadingId(null);
     }
   };
 
@@ -396,7 +466,7 @@ export default function Orders() {
         </div>
 
         {loading ? (
-          <SkeletonTable rows={6} cols={11} />
+          <SkeletonTable rows={6} cols={12} />
         ) : filtered.length === 0 ? (
           <EmptyState icon={ShoppingCart} title="No orders here" subtitle={search ? 'Try a different search' : 'Orders placed by customers will appear here'} />
         ) : (
@@ -413,6 +483,7 @@ export default function Orders() {
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Due</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">View</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Update</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Payment</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Invoice</th>
@@ -450,6 +521,15 @@ export default function Orders() {
                       </td>
                       <td className="px-6 py-3.5">
                         <StatusBadge status={order.status} />
+                      </td>
+                      <td className="px-6 py-3.5">
+                        <button
+                          onClick={() => handleViewOrder(order)}
+                          disabled={viewLoadingId === order.id}
+                          className="flex items-center gap-1.5 bg-navy-chip text-navy border-none rounded-lg px-3 py-1.5 text-xs font-semibold hover:bg-navy-chip/70 transition-colors disabled:opacity-50"
+                        >
+                          <Eye size={13} /> {viewLoadingId === order.id ? 'Loading...' : 'View'}
+                        </button>
                       </td>
                       <td className="px-6 py-3.5">
                         <select
@@ -693,6 +773,113 @@ export default function Orders() {
               <Button type="submit" variant="accent" disabled={recordingPayment}>{recordingPayment ? 'Recording...' : 'Record Payment'}</Button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {selectedOrder && (
+        <Modal title={`Order #${selectedOrder.order_number}`} onClose={() => setSelectedOrder(null)}>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-xs text-gray-400">{new Date(selectedOrder.created_at).toLocaleDateString('en-GB')}</p>
+            <StatusBadge status={selectedOrder.status} />
+          </div>
+
+          <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 mb-5 space-y-1">
+            <p className="text-sm font-semibold text-navy">{selectedOrder.users?.full_name || '—'}</p>
+            <p className="text-xs text-gray-500">Phone: {selectedOrder.users?.phone || '—'}</p>
+            <p className="text-xs text-gray-500">Address: {selectedOrder.delivery_address || selectedOrder.users?.shop_address || '—'}</p>
+          </div>
+
+          <h4 className="text-sm font-semibold text-navy mb-2">Order Items</h4>
+          <div className="overflow-x-auto mb-4 border border-gray-100 rounded-xl">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                  <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Product</th>
+                  <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Qty</th>
+                  <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Unit Price</th>
+                  <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(selectedOrder.order_items || []).map((item, i) => (
+                  <tr key={item.id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                    <td className="px-4 py-2.5 font-medium text-navy">{item.product_name}</td>
+                    <td className="px-4 py-2.5 text-gray-600">{item.quantity} {item.products?.unit || ''}</td>
+                    <td className="px-4 py-2.5 text-gray-600">PKR {Number(item.unit_price).toLocaleString()}</td>
+                    <td className="px-4 py-2.5 font-semibold text-navy">PKR {Number(item.subtotal).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-navy">
+                  <td colSpan={3} className="px-4 py-3 text-white font-semibold text-sm">TOTAL</td>
+                  <td className="px-4 py-3 text-orange font-bold text-sm">PKR {Number(selectedOrder.total_amount).toLocaleString()}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {selectedOrder.notes && (
+            <div className="bg-orange-50 border border-orange/20 rounded-xl px-4 py-3 mb-4">
+              <p className="text-xs text-amber-800">📝 Notes: {selectedOrder.notes}</p>
+            </div>
+          )}
+
+          <div className="flex justify-end pt-2">
+            <Button type="button" variant="secondary" onClick={() => setSelectedOrder(null)}>Close</Button>
+          </div>
+        </Modal>
+      )}
+
+      {showDispatchModal && dispatchingOrder && (
+        <Modal title={`Dispatch Order #${dispatchingOrder.order_number}`} onClose={() => setShowDispatchModal(false)}>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Select Driver *</label>
+              <select
+                value={dispatchForm.driver_id}
+                onChange={(e) => handleDriverSelect(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+              >
+                <option value="">-- Select Driver --</option>
+                {driversList.map((d) => (
+                  <option key={d.id} value={d.id}>{d.full_name}{d.car_number ? ` — ${d.car_number}` : ''}</option>
+                ))}
+              </select>
+              {driversList.length === 0 && (
+                <p className="text-xs text-gray-400 mt-1">No drivers in this branch — add one under Drivers first.</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Car Number</label>
+              <input
+                type="text"
+                value={dispatchForm.car_number}
+                onChange={(e) => setDispatchForm({ ...dispatchForm, car_number: e.target.value })}
+                placeholder="e.g. KHI-1234"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Delivery Address</label>
+              <input
+                type="text"
+                value={dispatchForm.delivery_address}
+                onChange={(e) => setDispatchForm({ ...dispatchForm, delivery_address: e.target.value })}
+                placeholder="Enter delivery address"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setShowDispatchModal(false)}>Cancel</Button>
+              <Button type="button" variant="accent" onClick={confirmDispatch} disabled={dispatching} className="flex items-center gap-2">
+                <Truck size={15} /> {dispatching ? 'Dispatching...' : 'Confirm Dispatch'}
+              </Button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>
