@@ -249,6 +249,30 @@ export default function Orders() {
     setConveyanceError('');
   };
 
+  // Print — reprints the invoice as it stands right now (order total minus
+  // any recorded returns), with no tax/conveyance prompts. Those were
+  // already decided and posted to the ledger the first time the invoice
+  // was created; reprinting just needs the current numbers.
+  const handlePrintInvoice = async (order) => {
+    setPdfLoadingId(order.id);
+    try {
+      const [orderRes, returnsRes] = await Promise.all([
+        api.get(`/orders/${order.id}`),
+        api.get('/returns/orders', { params: { order_id: order.id } }).catch(() => ({ data: { data: [] } }))
+      ]);
+      const detail = orderRes.data.data;
+      const returns = returnsRes.data.data || [];
+      const returnAmount = returns.reduce((sum, r) => sum + Number(r.amount_returned || 0), 0);
+
+      buildInvoicePdf(detail, returnAmount > 0 ? { returnAmount } : {});
+      toast.success(`Invoice for ${order.order_number} downloaded.`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to download invoice.');
+    } finally {
+      setPdfLoadingId(null);
+    }
+  };
+
   const chooseTax = (choice) => {
     setTaxChoice(choice);
     setInvoiceStep(2);
@@ -516,7 +540,7 @@ export default function Orders() {
                         {order.invoice_generated_at ? (
                           <div className="flex items-center gap-1.5">
                             <button
-                              onClick={() => handleInvoice(order)}
+                              onClick={() => handlePrintInvoice(order)}
                               disabled={pdfLoadingId === order.id}
                               title="Print / re-generate this invoice"
                               className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"

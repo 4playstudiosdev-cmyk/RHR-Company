@@ -81,7 +81,11 @@ const getOrderReturns = async (req, res) => {
       select: 'id,order_id,amount_total,amount_returned,notes,created_at,orders(order_number),users:customer_id(full_name)',
       order: 'created_at.desc',
     };
-    if (companyId) params.company_id = `eq.${companyId}`;
+    if (req.query.order_id) {
+      params.order_id = `eq.${req.query.order_id}`;
+    } else if (companyId) {
+      params.company_id = `eq.${companyId}`;
+    }
 
     const data = await pgrestGet('order_returns', params);
     return success(res, data);
