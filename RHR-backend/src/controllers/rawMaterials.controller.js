@@ -163,6 +163,7 @@ const purchaseMaterials = async (req, res) => {
     const purchaseDate = purchase_date || new Date().toISOString().split('T')[0];
     const purchaseId = require('crypto').randomUUID();
     const results = [];
+    let purchaseCompanyId = null;
 
     for (const item of items) {
       const matRows = await pgrestGet('raw_materials', {
@@ -172,6 +173,7 @@ const purchaseMaterials = async (req, res) => {
       const mat = matRows?.[0];
       if (!mat) continue;
       if (req.user.role !== 'super_admin' && mat.company_id !== req.user.company_id) continue;
+      purchaseCompanyId = purchaseCompanyId || mat.company_id;
 
       const qty = Number(item.qty);
       const pricePerUnit = Number(item.price_per_unit);
@@ -212,6 +214,15 @@ const purchaseMaterials = async (req, res) => {
     }
 
     if (!results.length) return error(res, 'No valid materials found for this purchase', 400);
+
+    // A freely-typed supplier name lands in the suppliers list
+    // automatically — non-fatal if suppliers isn't migrated yet or the
+    // lookup fails, since the purchase itself already succeeded.
+    if (supplier_name && purchaseCompanyId) {
+      try {
+        await require('./suppliers.controller').findOrCreateSupplier(purchaseCompanyId, supplier_name);
+      } catch (e) { /* suppliers is a phase21 addition — ignore until it's run */ }
+    }
 
     invalidate('materials:');
 

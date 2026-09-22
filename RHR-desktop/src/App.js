@@ -12,6 +12,7 @@ import Orders from './pages/Orders';
 import Customers from './pages/Customers';
 import Salesmen from './pages/Salesmen';
 import Drivers from './pages/Drivers';
+import Suppliers from './pages/Suppliers';
 import Payments from './pages/Payments';
 import Bank from './pages/Bank';
 import Expenses from './pages/Expenses';
@@ -38,6 +39,7 @@ const PAGES = {
   customers: Customers,
   salesmen: Salesmen,
   drivers: Drivers,
+  suppliers: Suppliers,
   payments: Payments,
   bank: Bank,
   expenses: Expenses,
@@ -74,6 +76,7 @@ const PAGE_ACCESS = {
   customers: { requiredPermission: 'can_manage_customers' },
   hrm: { requiredPermission: 'can_manage_hrm' },
   'production-materials': { requiredPermission: 'can_manage_production' },
+  suppliers: { requiredPermission: 'can_manage_production' },
   'production-dashboard': { requiredPermission: 'can_manage_production' },
   'production-orders': { requiredPermission: 'can_manage_production' },
   'production-log': { requiredPermission: 'can_manage_production' },

@@ -1,0 +1,95 @@
+const { success, error } = require('../utils/response');
+const { resolveCompanyId } = require('../utils/companyScope');
+const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+
+// GET /api/v1/suppliers?company_id= — active suppliers for the autocomplete
+// on Raw Materials → Purchase, and for the standalone Suppliers panel.
+const getSuppliers = async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const params = {
+      select: 'id,company_id,name,is_active,created_at',
+      is_active: 'eq.true',
+      order: 'name.asc',
+    };
+    if (companyId) params.company_id = `eq.${companyId}`;
+
+    const data = await pgrestGet('suppliers', params);
+    return success(res, data);
+  } catch (err) {
+    // suppliers is a phase21 addition — read as empty rather than
+    // breaking the purchase modal/Suppliers panel before it's run.
+    return success(res, []);
+  }
+};
+
+// POST /api/v1/suppliers — manual add (the Suppliers panel's own "Add"
+// button). Case-insensitive unique per branch (see phase21's index) —
+// re-adding an existing name just returns the existing row instead of
+// erroring, since from the admin's point of view that's not a failure.
+const createSupplier = async (req, res) => {
+  try {
+    const { name, company_id } = req.body;
+    if (!name || !name.trim()) return error(res, 'name is required', 400);
+
+    const targetCompanyId = req.user.role === 'branch_admin'
+      ? req.user.company_id
+      : (company_id || req.user.company_id);
+
+    const existing = await pgrestGet('suppliers', {
+      select: 'id,company_id,name,is_active',
+      company_id: `eq.${targetCompanyId}`,
+      name: `ilike.${name.trim()}`,
+    });
+    if (existing?.[0]) {
+      if (!existing[0].is_active) {
+        const reactivated = await pgrestPatch('suppliers', { id: `eq.${existing[0].id}` }, { is_active: true });
+        return success(res, reactivated?.[0], 'Supplier reactivated', 201);
+      }
+      return success(res, existing[0], 'Supplier already exists');
+    }
+
+    const [data] = await pgrestPost('suppliers', {
+      company_id: targetCompanyId,
+      name: name.trim(),
+      is_active: true,
+    });
+    return success(res, data, 'Supplier added', 201);
+  } catch (err) { return error(res, err.message); }
+};
+
+// DELETE /api/v1/suppliers/:id — soft delete, same convention as
+// salesmen/drivers/customers.
+const deleteSupplier = async (req, res) => {
+  try {
+    const filter = { id: `eq.${req.params.id}` };
+    if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
+    const data = await pgrestPatch('suppliers', filter, { is_active: false });
+    if (!data?.[0]) return error(res, 'Supplier not found', 404);
+    return success(res, { deleted: true }, 'Supplier removed');
+  } catch (err) { return error(res, err.message); }
+};
+
+// Shared by the purchase endpoint — finds a supplier by name (case
+// insensitive) for this company, creating it if it doesn't exist yet, so
+// a freely-typed new supplier name lands in the list automatically.
+async function findOrCreateSupplier(companyId, name) {
+  if (!name || !name.trim()) return null;
+  const trimmed = name.trim();
+
+  const existing = await pgrestGet('suppliers', {
+    select: 'id,name',
+    company_id: `eq.${companyId}`,
+    name: `ilike.${trimmed}`,
+  });
+  if (existing?.[0]) return existing[0];
+
+  const [created] = await pgrestPost('suppliers', {
+    company_id: companyId,
+    name: trimmed,
+    is_active: true,
+  });
+  return created;
+}
+
+module.exports = { getSuppliers, createSupplier, deleteSupplier, findOrCreateSupplier };

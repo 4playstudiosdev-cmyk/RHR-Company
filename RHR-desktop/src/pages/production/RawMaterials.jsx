@@ -53,6 +53,8 @@ export default function RawMaterials() {
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
   const [savingPurchase, setSavingPurchase] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [suppliersList, setSuppliersList] = useState([]);
+  const [showSupplierDropdown, setShowSupplierDropdown] = useState(false);
 
   useEffect(() => {
     setTab('All');
@@ -192,12 +194,22 @@ export default function RawMaterials() {
     }
   };
 
-  const openPurchaseModal = () => {
+  const openPurchaseModal = async () => {
     setPurchaseItems([{ ...EMPTY_PURCHASE_ROW }]);
     setSupplierName('');
     setPurchaseDate(new Date().toISOString().split('T')[0]);
     setShowPurchaseModal(true);
+    try {
+      const res = await api.get('/suppliers', { params: { company_id: selectedCity === 'all' ? null : selectedCity } });
+      setSuppliersList(res.data.data || []);
+    } catch (err) {
+      setSuppliersList([]);
+    }
   };
+
+  const filteredSuppliers = suppliersList.filter((s) =>
+    s.name.toLowerCase().includes(supplierName.trim().toLowerCase())
+  );
 
   // Invoice upload → OCR (Claude, proxied through the backend) → drops
   // extracted rows straight into the same editable purchaseItems table
@@ -582,7 +594,7 @@ export default function RawMaterials() {
       )}
 
       {showPurchaseModal && (
-        <Modal title="Purchase Raw Materials" onClose={() => setShowPurchaseModal(false)}>
+        <Modal title="Purchase Raw Materials" size="lg" onClose={() => setShowPurchaseModal(false)}>
           <form onSubmit={handlePurchase} className="space-y-4">
             <label className={`flex items-center justify-center gap-2 border-2 border-dashed rounded-xl py-4 cursor-pointer transition-colors ${
               isExtracting ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-wait' : 'border-orange/40 text-orange hover:bg-orange/5'
@@ -599,15 +611,35 @@ export default function RawMaterials() {
             </label>
 
             <div className="grid grid-cols-2 gap-4">
-              <div>
+              <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Supplier Name</label>
                 <input
                   type="text"
-                  placeholder="e.g. Al-Noor Chemicals"
+                  placeholder="Type to search or add new..."
                   value={supplierName}
-                  onChange={(e) => setSupplierName(e.target.value)}
+                  onChange={(e) => { setSupplierName(e.target.value); setShowSupplierDropdown(true); }}
+                  onFocus={() => setShowSupplierDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowSupplierDropdown(false), 150)}
+                  autoComplete="off"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
                 />
+                {showSupplierDropdown && filteredSuppliers.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full max-h-[180px] overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+                    {filteredSuppliers.map((s) => (
+                      <button
+                        type="button"
+                        key={s.id}
+                        onMouseDown={() => { setSupplierName(s.name); setShowSupplierDropdown(false); }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-navy-chip/40 text-gray-700"
+                      >
+                        {s.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {supplierName.trim() && !suppliersList.some((s) => s.name.toLowerCase() === supplierName.trim().toLowerCase()) && (
+                  <p className="text-xs text-gray-400 mt-1">New supplier — will be saved to the list on purchase.</p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Purchase Date</label>
