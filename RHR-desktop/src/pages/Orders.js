@@ -60,6 +60,12 @@ export default function Orders() {
   const [driversList, setDriversList] = useState([]);
   const [dispatching, setDispatching] = useState(false);
 
+  const [invoiceRequest, setInvoiceRequest] = useState(null); // { order, withTax }
+  const [wantsConveyance, setWantsConveyance] = useState(false);
+  const [conveyanceAmount, setConveyanceAmount] = useState('');
+  const [conveyanceError, setConveyanceError] = useState('');
+  const [generatingInvoice, setGeneratingInvoice] = useState(false);
+
   useEffect(() => {
     loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -220,16 +226,28 @@ export default function Orders() {
     }
   };
 
-  const handleInvoice = async (order, withTax = false) => {
-    // Conveyance (delivery) charge — optional, asked fresh every time
-    // since it varies by delivery, not something worth persisting on the
-    // order itself.
+  // Opens the invoice options modal instead of generating immediately —
+  // conveyance is asked here rather than via window.confirm/prompt.
+  const handleInvoice = (order, withTax = false) => {
+    setInvoiceRequest({ order, withTax });
+    setWantsConveyance(false);
+    setConveyanceAmount('');
+    setConveyanceError('');
+  };
+
+  const confirmGenerateInvoice = async () => {
+    const { order, withTax } = invoiceRequest;
+
     let conveyance = 0;
-    if (window.confirm('Add a conveyance (delivery) charge to this invoice?')) {
-      const input = window.prompt('Conveyance amount (PKR):', '');
-      conveyance = Number(input) || 0;
+    if (wantsConveyance) {
+      conveyance = Number(conveyanceAmount);
+      if (!conveyanceAmount || isNaN(conveyance) || conveyance <= 0) {
+        setConveyanceError('Enter a valid conveyance amount before generating the invoice.');
+        return;
+      }
     }
 
+    setGeneratingInvoice(true);
     setPdfLoadingId(order.id);
     try {
       const res = await api.get(`/orders/${order.id}`);
@@ -258,9 +276,11 @@ export default function Orders() {
       } else {
         toast.success(`Invoice for ${order.order_number} downloaded.`);
       }
+      setInvoiceRequest(null);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to generate invoice.');
     } finally {
+      setGeneratingInvoice(false);
       setPdfLoadingId(null);
     }
   };
@@ -768,6 +788,55 @@ export default function Orders() {
               <Button type="button" variant="secondary" onClick={() => setShowDispatchModal(false)}>Cancel</Button>
               <Button type="button" variant="accent" onClick={confirmDispatch} disabled={dispatching} className="flex items-center gap-2">
                 <Truck size={15} /> {dispatching ? 'Dispatching...' : 'Confirm Dispatch'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {invoiceRequest && (
+        <Modal
+          title={`Generate Invoice${invoiceRequest.withTax ? ' (with Tax)' : ''} — ${invoiceRequest.order.order_number}`}
+          onClose={() => setInvoiceRequest(null)}
+        >
+          <div className="space-y-4">
+            <label className="flex items-center gap-2.5 border border-gray-200 rounded-lg px-3.5 py-3 cursor-pointer hover:bg-gray-50">
+              <input
+                type="checkbox"
+                checked={wantsConveyance}
+                onChange={(e) => {
+                  setWantsConveyance(e.target.checked);
+                  setConveyanceError('');
+                  if (!e.target.checked) setConveyanceAmount('');
+                }}
+              />
+              <span className="text-sm text-gray-700">Add a conveyance (delivery) charge to this invoice</span>
+            </label>
+
+            {wantsConveyance && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Conveyance Amount (PKR) *</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  autoFocus
+                  value={conveyanceAmount}
+                  onChange={(e) => { setConveyanceAmount(e.target.value); setConveyanceError(''); }}
+                  placeholder="e.g. 500"
+                  className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 transition-shadow ${
+                    conveyanceError ? 'border-red-400 focus:ring-red-200 focus:border-red-500' : 'border-gray-300 focus:ring-navy focus:border-navy'
+                  }`}
+                />
+                {conveyanceError && <p className="text-xs text-red-600 mt-1.5">{conveyanceError}</p>}
+                <p className="text-xs text-gray-400 mt-1.5">Added as its own line on the invoice, on top of the order total{invoiceRequest.withTax ? ' and tax' : ''}.</p>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setInvoiceRequest(null)}>Cancel</Button>
+              <Button type="button" variant="accent" onClick={confirmGenerateInvoice} disabled={generatingInvoice} className="flex items-center gap-2">
+                <FileDown size={15} /> {generatingInvoice ? 'Generating...' : 'Generate Invoice'}
               </Button>
             </div>
           </div>
