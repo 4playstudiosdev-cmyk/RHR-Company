@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Package, ShoppingCart, Users, UserCog, Wallet, LogOut,
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
   Gauge, Boxes, ClipboardList, Truck, FileBarChart2, ChevronDown, X, CarFront,
-  PackageCheck, ArrowLeftRight, PackageSearch, Landmark, Receipt, Store
+  PackageCheck, ArrowLeftRight, PackageSearch, Landmark, Receipt, Store, RotateCcw
 } from 'lucide-react';
 import api, { hasPermission } from '../services/api';
 
@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { key: 'products', label: 'Products', icon: Package },
   { key: 'production-materials', label: 'Raw Materials', icon: Boxes, requiredPermission: 'can_manage_production' },
   { key: 'suppliers', label: 'Suppliers', icon: Store, requiredPermission: 'can_manage_production' },
+  { key: 'returns', label: 'Returns', icon: RotateCcw, requiredPermission: 'can_manage_production' },
   { key: 'orders', label: 'Orders', icon: ShoppingCart },
   { key: 'customers', label: 'Customers', icon: Users, requiredPermission: 'can_manage_customers' },
   { key: 'salesmen', label: 'Salesmen', icon: UserCog },

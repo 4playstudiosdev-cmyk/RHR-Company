@@ -1,6 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { ShoppingCart, FileDown, Search, Plus, Trash2, Eye, Truck } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
@@ -11,6 +9,7 @@ import Modal from '../components/Modal';
 import Button from '../components/Button';
 import CityFilter from '../components/CityFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
+import { buildInvoicePdf } from '../utils/invoicePdf';
 
 // Matches the backend's validStatuses in orders.service.js
 const STATUS_OPTIONS = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered', 'cancelled'];
@@ -29,6 +28,7 @@ function availableNextStatuses(currentStatus) {
   return [...STATUS_PROGRESSION.slice(idx + 1), 'cancelled'];
 }
 const PAGE_SIZE = 10;
+const TAX_RATE = 0.18; // 18% sales tax
 const EMPTY_ORDER_FORM = { customer_id: '', items: [{ product_id: '', quantity: 1 }], delivery_address: '', notes: '' };
 
 export default function Orders() {
@@ -60,7 +60,9 @@ export default function Orders() {
   const [driversList, setDriversList] = useState([]);
   const [dispatching, setDispatching] = useState(false);
 
-  const [invoiceRequest, setInvoiceRequest] = useState(null); // { order, withTax }
+  const [invoiceOrder, setInvoiceOrder] = useState(null);
+  const [invoiceStep, setInvoiceStep] = useState(1); // 1 = tax question, 2 = conveyance question
+  const [taxChoice, setTaxChoice] = useState(null); // 'with' | 'without'
   const [wantsConveyance, setWantsConveyance] = useState(false);
   const [conveyanceAmount, setConveyanceAmount] = useState('');
   const [conveyanceError, setConveyanceError] = useState('');
@@ -226,17 +228,25 @@ export default function Orders() {
     }
   };
 
-  // Opens the invoice options modal instead of generating immediately —
-  // conveyance is asked here rather than via window.confirm/prompt.
-  const handleInvoice = (order, withTax = false) => {
-    setInvoiceRequest({ order, withTax });
+  // One "Create Invoice" entry point — a 2-step modal asks tax first,
+  // then conveyance, instead of two separate Invoice/+Tax buttons.
+  const handleInvoice = (order) => {
+    setInvoiceOrder(order);
+    setInvoiceStep(1);
+    setTaxChoice(null);
     setWantsConveyance(false);
     setConveyanceAmount('');
     setConveyanceError('');
   };
 
+  const chooseTax = (choice) => {
+    setTaxChoice(choice);
+    setInvoiceStep(2);
+  };
+
   const confirmGenerateInvoice = async () => {
-    const { order, withTax } = invoiceRequest;
+    const order = invoiceOrder;
+    const withTax = taxChoice === 'with';
 
     let conveyance = 0;
     if (wantsConveyance) {
@@ -254,7 +264,7 @@ export default function Orders() {
       const detail = res.data.data;
       const taxAmount = withTax ? Number(detail.total_amount) * TAX_RATE : 0;
 
-      buildInvoicePdf(detail, withTax, conveyance);
+      buildInvoicePdf(detail, { withTax, conveyance });
 
       // Tax and conveyance aren't part of orders.total_amount, so without
       // this the customer's ledger (and anything that rolls up from it —
@@ -276,120 +286,13 @@ export default function Orders() {
       } else {
         toast.success(`Invoice for ${order.order_number} downloaded.`);
       }
-      setInvoiceRequest(null);
+      setInvoiceOrder(null);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to generate invoice.');
     } finally {
       setGeneratingInvoice(false);
       setPdfLoadingId(null);
     }
-  };
-
-  const TAX_RATE = 0.18; // 18% sales tax
-
-  const buildInvoicePdf = (order, withTax = false, conveyance = 0) => {
-    const doc = new jsPDF();
-    const customer = order.users || {};
-    const items = order.order_items || [];
-
-    // Header
-    doc.setFillColor(27, 46, 107); // navy
-    doc.rect(0, 0, 210, 32, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(18);
-    doc.setFont('helvetica', 'bold');
-    doc.text('RHR & COMPANY', 14, 15);
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.text('Construction Materials Manufacturer', 14, 22);
-    doc.setFontSize(16);
-    doc.setFont('helvetica', 'bold');
-    doc.text('INVOICE', 196, 18, { align: 'right' });
-
-    if (withTax) {
-      doc.setFillColor(232, 132, 26); // orange
-      doc.roundedRect(150, 22, 46, 7, 1, 1, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(7);
-      doc.setFont('helvetica', 'bold');
-      doc.text('INCLUDES 18% SALES TAX', 173, 26.8, { align: 'center' });
-    }
-
-    // Meta + customer info
-    doc.setTextColor(30, 30, 30);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`Order #: ${order.order_number}`, 14, 42);
-    doc.text(
-      `Date: ${new Date(order.created_at).toLocaleDateString('en-GB')}`,
-      14,
-      48
-    );
-    doc.text(`Status: ${order.status}`, 14, 54);
-
-    doc.text('Bill To:', 140, 42);
-    doc.setFont('helvetica', 'normal');
-    doc.text(customer.full_name || 'Customer', 140, 48);
-    doc.text(customer.phone || '', 140, 54);
-    if (order.delivery_address) {
-      doc.text(doc.splitTextToSize(order.delivery_address, 56), 140, 60);
-    }
-
-    // Items table
-    const rows = items.map((item, i) => [
-      i + 1,
-      item.product_name,
-      item.quantity,
-      `PKR ${Number(item.unit_price).toLocaleString()}`,
-      `PKR ${Number(item.subtotal).toLocaleString()}`
-    ]);
-
-    autoTable(doc, {
-      startY: 70,
-      head: [['#', 'Product', 'Qty', 'Unit Price', 'Subtotal']],
-      body: rows,
-      headStyles: { fillColor: [27, 46, 107] },
-      styles: { fontSize: 9 }
-    });
-
-    const finalY = doc.lastAutoTable.finalY || 80;
-    const subtotal = Number(order.total_amount);
-    const taxAmount = withTax ? subtotal * TAX_RATE : 0;
-    const grandTotal = subtotal + taxAmount + conveyance;
-
-    let lineY = finalY + 8;
-    doc.setTextColor(30, 30, 30);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-
-    if (withTax || conveyance > 0) {
-      doc.text(`Subtotal: PKR ${subtotal.toLocaleString()}`, 196, lineY, { align: 'right' });
-      lineY += 7;
-    }
-    if (withTax) {
-      doc.setTextColor(232, 132, 26);
-      doc.text(`Sales Tax (18%): PKR ${taxAmount.toLocaleString()}`, 196, lineY, { align: 'right' });
-      doc.setTextColor(30, 30, 30);
-      lineY += 7;
-    }
-    if (conveyance > 0) {
-      doc.text(`Conveyance: PKR ${conveyance.toLocaleString()}`, 196, lineY, { align: 'right' });
-      lineY += 7;
-    }
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text(`Grand Total: PKR ${grandTotal.toLocaleString()}`, 196, lineY + 2, { align: 'right' });
-
-    const afterTotalsY = lineY + 2;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(120, 120, 120);
-    doc.text('Thank you for your business — RHR & Company', 105, afterTotalsY + 18, {
-      align: 'center'
-    });
-
-    doc.save(withTax ? `Invoice-Tax-${order.order_number}.pdf` : `Invoice-${order.order_number}.pdf`);
   };
 
   const counts = useMemo(() => {
@@ -530,25 +433,14 @@ export default function Orders() {
                         })()}
                       </td>
                       <td className="px-6 py-3.5">
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => handleInvoice(order)}
-                            disabled={pdfLoadingId === order.id}
-                            className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
-                          >
-                            <FileDown size={14} />
-                            {pdfLoadingId === order.id ? 'Generating...' : 'Invoice'}
-                          </button>
-                          <button
-                            onClick={() => handleInvoice(order, true)}
-                            disabled={pdfLoadingId === order.id}
-                            title="Invoice with 18% sales tax"
-                            className="flex items-center gap-1.5 bg-[#E8841A] hover:bg-[#d1760f] disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
-                          >
-                            <FileDown size={14} />
-                            + Tax
-                          </button>
-                        </div>
+                        <button
+                          onClick={() => handleInvoice(order)}
+                          disabled={pdfLoadingId === order.id}
+                          className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                        >
+                          <FileDown size={14} />
+                          {pdfLoadingId === order.id ? 'Generating...' : 'Create Invoice'}
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -794,11 +686,37 @@ export default function Orders() {
         </Modal>
       )}
 
-      {invoiceRequest && (
-        <Modal
-          title={`Generate Invoice${invoiceRequest.withTax ? ' (with Tax)' : ''} — ${invoiceRequest.order.order_number}`}
-          onClose={() => setInvoiceRequest(null)}
-        >
+      {invoiceOrder && invoiceStep === 1 && (
+        <Modal title={`Create Invoice — ${invoiceOrder.order_number}`} onClose={() => setInvoiceOrder(null)}>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">Include the 18% sales tax on this invoice?</p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => chooseTax('with')}
+                className="border-2 border-navy/20 hover:border-navy hover:bg-navy-chip/30 rounded-xl px-4 py-4 text-center transition-colors"
+              >
+                <p className="font-semibold text-navy text-sm">With Tax</p>
+                <p className="text-xs text-gray-400 mt-1">Adds 18% sales tax</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => chooseTax('without')}
+                className="border-2 border-navy/20 hover:border-navy hover:bg-navy-chip/30 rounded-xl px-4 py-4 text-center transition-colors"
+              >
+                <p className="font-semibold text-navy text-sm">Without Tax</p>
+                <p className="text-xs text-gray-400 mt-1">Order total only</p>
+              </button>
+            </div>
+            <div className="flex justify-end pt-2">
+              <Button type="button" variant="secondary" onClick={() => setInvoiceOrder(null)}>Cancel</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {invoiceOrder && invoiceStep === 2 && (
+        <Modal title={`Create Invoice${taxChoice === 'with' ? ' (with Tax)' : ''} — ${invoiceOrder.order_number}`} onClose={() => setInvoiceOrder(null)}>
           <div className="space-y-4">
             <label className="flex items-center gap-2.5 border border-gray-200 rounded-lg px-3.5 py-3 cursor-pointer hover:bg-gray-50">
               <input
@@ -829,12 +747,12 @@ export default function Orders() {
                   }`}
                 />
                 {conveyanceError && <p className="text-xs text-red-600 mt-1.5">{conveyanceError}</p>}
-                <p className="text-xs text-gray-400 mt-1.5">Added as its own line on the invoice, on top of the order total{invoiceRequest.withTax ? ' and tax' : ''}.</p>
+                <p className="text-xs text-gray-400 mt-1.5">Added as its own line on the invoice, on top of the order total{taxChoice === 'with' ? ' and tax' : ''}.</p>
               </div>
             )}
 
             <div className="flex justify-end gap-3 pt-2">
-              <Button type="button" variant="secondary" onClick={() => setInvoiceRequest(null)}>Cancel</Button>
+              <Button type="button" variant="secondary" onClick={() => setInvoiceStep(1)}>Back</Button>
               <Button type="button" variant="accent" onClick={confirmGenerateInvoice} disabled={generatingInvoice} className="flex items-center gap-2">
                 <FileDown size={15} /> {generatingInvoice ? 'Generating...' : 'Generate Invoice'}
               </Button>
