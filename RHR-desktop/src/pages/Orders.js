@@ -617,7 +617,7 @@ export default function Orders() {
                     <select
                       value={item.product_id}
                       onChange={(e) => updateItem(i, 'product_id', e.target.value)}
-                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                      className="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
                     >
                       <option value="">Select product...</option>
                       {products.map((p) => (
@@ -631,13 +631,13 @@ export default function Orders() {
                       min="1"
                       value={item.quantity}
                       onChange={(e) => updateItem(i, 'quantity', e.target.value)}
-                      className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+                      className="w-20 flex-shrink-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
                     />
                     <button
                       type="button"
                       onClick={() => removeItemRow(i)}
                       disabled={orderForm.items.length === 1}
-                      className="text-gray-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed px-2"
+                      className="flex-shrink-0 text-gray-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed px-2"
                     >
                       <Trash2 size={16} />
                     </button>
