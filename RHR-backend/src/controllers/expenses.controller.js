@@ -22,19 +22,27 @@ const getExpenses = async (req, res) => {
     if (to)   filters.push(`expense_date=lte.${to}`);
     const filterStr = filters.length ? `&${filters.join('&')}` : '';
 
-    // method/bank_account_id are a phase24 addition — fall back to the
-    // plain select if that migration hasn't run yet, same pattern used
-    // for the other phase18 bank_account_id columns.
+    // method/bank_account_id (phase24) and driver_id (phase25) are
+    // separate additions — fall back a level at a time if either hasn't
+    // run yet, same pattern used for the other phase18 bank_account_id
+    // columns, so this never breaks mid-migration.
     try {
       const data = await pgrestGetRaw(
-        `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),created_at&order=expense_date.desc${filterStr}`
+        `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),created_at&order=expense_date.desc${filterStr}`
       );
       return success(res, data);
     } catch (e) {
-      const data = await pgrestGetRaw(
-        `expenses?select=id,company_id,category,amount,description,expense_date,created_at&order=expense_date.desc${filterStr}`
-      );
-      return success(res, data);
+      try {
+        const data = await pgrestGetRaw(
+          `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),created_at&order=expense_date.desc${filterStr}`
+        );
+        return success(res, data);
+      } catch (e2) {
+        const data = await pgrestGetRaw(
+          `expenses?select=id,company_id,category,amount,description,expense_date,created_at&order=expense_date.desc${filterStr}`
+        );
+        return success(res, data);
+      }
     }
   } catch (err) { return error(res, err.message); }
 };
@@ -42,7 +50,7 @@ const getExpenses = async (req, res) => {
 // POST /api/v1/expenses
 const createExpense = async (req, res) => {
   try {
-    const { category, amount, description, expense_date, company_id, method, bank_account_id } = req.body;
+    const { category, amount, description, expense_date, company_id, method, bank_account_id, driver_id } = req.body;
     if (!category || !amount || Number(amount) <= 0)
       return error(res, 'category and a positive amount are required', 400);
     if (!EXPENSE_CATEGORIES.includes(category))
@@ -63,18 +71,29 @@ const createExpense = async (req, res) => {
       created_by:   req.user.id,
     };
 
-    // method/bank_account_id are a phase24 addition — fall back to
-    // inserting without them if that migration hasn't run yet.
+    // method/bank_account_id (phase24) and driver_id (phase25) are
+    // separate additions — fall back a level at a time if either hasn't
+    // run yet, mirroring getExpenses above.
     try {
       const [data] = await pgrestPost('expenses', {
         ...baseRow,
         method: method === 'bank' ? 'bank' : 'cash',
         bank_account_id: method === 'bank' ? bank_account_id : null,
+        driver_id: driver_id || null,
       });
       return success(res, data, 'Expense recorded', 201);
     } catch (e) {
-      const [data] = await pgrestPost('expenses', baseRow);
-      return success(res, data, 'Expense recorded', 201);
+      try {
+        const [data] = await pgrestPost('expenses', {
+          ...baseRow,
+          method: method === 'bank' ? 'bank' : 'cash',
+          bank_account_id: method === 'bank' ? bank_account_id : null,
+        });
+        return success(res, data, 'Expense recorded', 201);
+      } catch (e2) {
+        const [data] = await pgrestPost('expenses', baseRow);
+        return success(res, data, 'Expense recorded', 201);
+      }
     }
   } catch (err) { return error(res, err.message); }
 };
