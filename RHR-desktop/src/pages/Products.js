@@ -632,13 +632,17 @@ export default function Products() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Unit</label>
-                <input
-                  type="text"
-                  placeholder="e.g. bag, kg, litre"
+                <select
                   value={form.unit}
                   onChange={(e) => setForm({ ...form, unit: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-                />
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                >
+                  <option value="">-- Select Unit --</option>
+                  <option value="bag">Bag</option>
+                  <option value="kg">Kg</option>
+                  <option value="dozen">Dozen</option>
+                  <option value="pcs">Pcs</option>
+                </select>
               </div>
             </div>
 
