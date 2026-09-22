@@ -15,6 +15,19 @@ import { fetchAllCities } from '../utils/multiCityFetch';
 // Matches the backend's validStatuses in orders.service.js
 const STATUS_OPTIONS = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered', 'cancelled'];
 const TABS = ['all', ...STATUS_OPTIONS];
+
+// Forward-only progression, mirrored from orders.service.js's
+// isValidTransition — the Update dropdown only offers stages ahead of
+// where the order already is (plus Cancel), never a passed stage like
+// re-selecting "confirmed" after it's already confirmed. 'delivered' and
+// 'cancelled' are terminal — nothing to update from there.
+const STATUS_PROGRESSION = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered'];
+function availableNextStatuses(currentStatus) {
+  if (currentStatus === 'delivered' || currentStatus === 'cancelled') return [];
+  const idx = STATUS_PROGRESSION.indexOf(currentStatus);
+  if (idx === -1) return [];
+  return [...STATUS_PROGRESSION.slice(idx + 1), 'cancelled'];
+}
 const PAGE_SIZE = 10;
 const EMPTY_ORDER_FORM = { customer_id: '', items: [{ product_id: '', quantity: 1 }], delivery_address: '', notes: '' };
 const PAYMENT_METHODS = [
@@ -532,18 +545,24 @@ export default function Orders() {
                         </button>
                       </td>
                       <td className="px-6 py-3.5">
-                        <select
-                          value={order.status}
-                          disabled={updatingId === order.id}
-                          onChange={(e) => handleStatusChange(order, e.target.value)}
-                          className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
-                        >
-                          {STATUS_OPTIONS.map((status) => (
-                            <option key={status} value={status} disabled={status === 'pending'}>
-                              {status}
-                            </option>
-                          ))}
-                        </select>
+                        {(() => {
+                          const nextOptions = availableNextStatuses(order.status);
+                          return nextOptions.length === 0 ? (
+                            <span className="text-xs text-gray-400 italic">No further changes</span>
+                          ) : (
+                            <select
+                              value={order.status}
+                              disabled={updatingId === order.id}
+                              onChange={(e) => handleStatusChange(order, e.target.value)}
+                              className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
+                            >
+                              <option value={order.status}>{order.status}</option>
+                              {nextOptions.map((status) => (
+                                <option key={status} value={status}>{status}</option>
+                              ))}
+                            </select>
+                          );
+                        })()}
                       </td>
                       <td className="px-6 py-3.5">
                         <button

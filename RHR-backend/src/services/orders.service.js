@@ -93,14 +93,10 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
 
   if (iErr) throw new Error(iErr.message);
 
-  // Step 5: Deduct stock for each product
-  for (const item of items) {
-    const product = products.find(p => p.id === item.product_id);
-    await supabaseAdmin
-      .from('products')
-      .update({ stock_quantity: product.stock_quantity - item.quantity })
-      .eq('id', item.product_id);
-  }
+  // Stock is no longer deducted here — it leaves inventory when the
+  // order is actually marked delivered (see deductDeliveredStock below),
+  // not the moment it's placed. The stock_quantity check above still
+  // guards against ordering more than what's currently on hand.
 
   return order;
 }
@@ -176,6 +172,20 @@ async function getOrderById(id, user) {
   return data;
 }
 
+// Forward-only progression — an order can only move ahead (or to
+// 'cancelled' from any non-terminal state), never back to an
+// already-passed stage. 'delivered' and 'cancelled' are terminal: once
+// there, no further status changes. Enforced here (not just hidden in
+// the Orders.js dropdown) so a direct API call can't skip it either.
+const STATUS_PROGRESSION = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered'];
+
+function isValidTransition(from, to) {
+  if (to === 'cancelled') return from !== 'delivered' && from !== 'cancelled';
+  const fromIdx = STATUS_PROGRESSION.indexOf(from);
+  const toIdx = STATUS_PROGRESSION.indexOf(to);
+  return fromIdx !== -1 && toIdx !== -1 && toIdx > fromIdx;
+}
+
 // dispatchInfo: { driverId, carNumber, deliveryAddress } — optional,
 // only meaningful when status is 'dispatched' (see the Orders.js dispatch
 // popup). driver_id/car_number are a phase20 addition on orders — the
@@ -188,6 +198,9 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
 
   const existingRows = await pgrestGet('orders', { select: 'id,status,company_id', id: `eq.${id}` });
   if (!existingRows?.[0]) throw new Error('Order not found');
+
+  if (!isValidTransition(existingRows[0].status, status))
+    throw new Error(`Cannot move an order from "${existingRows[0].status}" to "${status}"`);
 
   const { driverId, carNumber, deliveryAddress } = dispatchInfo;
   if (driverId) {
@@ -223,7 +236,38 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
     );
   }
 
+  // Stock leaves inventory when the order actually goes out the door, not
+  // when it's placed — createOrder above only checks availability now, it
+  // doesn't deduct. This also means a cancelled order never needs stock
+  // restored, since nothing was taken from it in the first place. Awaited
+  // (unlike the invoice generation above) since inventory correctness
+  // matters more than this one request staying fast — a failure here
+  // still doesn't undo the status change already saved, just gets logged.
+  if (status === 'delivered') {
+    try {
+      await deductDeliveredStock(id);
+    } catch (err) {
+      console.error(`Stock deduction for delivered order ${id} failed:`, err.message);
+    }
+  }
+
   return updated;
+}
+
+async function deductDeliveredStock(orderId) {
+  const items = await pgrestGet('order_items', {
+    select: 'product_id,quantity',
+    order_id: `eq.${orderId}`,
+  });
+  for (const item of items || []) {
+    if (!item.product_id) continue;
+    const products = await pgrestGet('products', { select: 'id,stock_quantity', id: `eq.${item.product_id}` });
+    const product = products?.[0];
+    if (!product) continue;
+    await pgrestPatch('products', { id: `eq.${item.product_id}` }, {
+      stock_quantity: Math.max(0, Number(product.stock_quantity) - Number(item.quantity)),
+    });
+  }
 }
 
 module.exports = { createOrder, getOrders, getOrderById, updateOrderStatus };
