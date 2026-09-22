@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ShoppingCart, FileDown, Search, Plus, Trash2, Eye, Truck } from 'lucide-react';
+import { ShoppingCart, FileDown, Search, Plus, Trash2, Eye, Truck, Printer } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
@@ -514,14 +514,26 @@ export default function Orders() {
                       </td>
                       <td className="px-6 py-3.5">
                         {order.invoice_generated_at ? (
-                          <button
-                            onClick={() => openEditInvoice(order)}
-                            disabled={editInvoiceLoadingId === order.id}
-                            className="flex items-center gap-1.5 bg-orange hover:bg-orange/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
-                          >
-                            <FileDown size={14} />
-                            {editInvoiceLoadingId === order.id ? 'Loading...' : 'Edit Invoice'}
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleInvoice(order)}
+                              disabled={pdfLoadingId === order.id}
+                              title="Print / re-generate this invoice"
+                              className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                            >
+                              <Printer size={14} />
+                              {pdfLoadingId === order.id ? 'Generating...' : 'Print'}
+                            </button>
+                            <button
+                              onClick={() => openEditInvoice(order)}
+                              disabled={editInvoiceLoadingId === order.id}
+                              title="Record a return and download an updated invoice"
+                              className="flex items-center gap-1.5 bg-orange hover:bg-orange/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                            >
+                              <FileDown size={14} />
+                              {editInvoiceLoadingId === order.id ? 'Loading...' : 'Edit Invoice'}
+                            </button>
+                          </div>
                         ) : (
                           <button
                             onClick={() => handleInvoice(order)}

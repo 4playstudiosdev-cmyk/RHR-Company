@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Users, UserCheck, BookOpen, Search, Phone, Mail, AlertTriangle, User, Tag, DollarSign, RotateCcw, Plus, Pencil, Trash2 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
@@ -66,8 +66,7 @@ export default function Customers({ onViewLedger }) {
   const user = getCurrentUser();
   const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId; // KHI default
   const [selectedCity, setSelectedCity] = useState(defaultCity);
-  const pendingRef = useRef(null);
-  const allRef = useRef(null);
+  const [tab, setTab] = useState('pending');
   const [pending, setPending] = useState([]);
   const [all, setAll] = useState([]);
   const [ordersByCustomer, setOrdersByCustomer] = useState({});
@@ -286,7 +285,8 @@ export default function Customers({ onViewLedger }) {
       phone:        customer.phone || '',
       email:        customer.email || '',
       shop_name:    customer.shop_name || '',
-      shop_address: customer.shop_address || ''
+      shop_address: customer.shop_address || '',
+      salesman_id:  customer.salesman_id || ''
     });
     setShowCustomerModal(true);
   };
@@ -300,7 +300,11 @@ export default function Customers({ onViewLedger }) {
     setSavingCustomer(true);
     try {
       if (editingCustomer) {
-        await api.patch(`/customers/${editingCustomer.id}`, customerForm);
+        const { salesman_id, ...rest } = customerForm;
+        await api.patch(`/customers/${editingCustomer.id}`, rest);
+        if (salesman_id !== (editingCustomer.salesman_id || '')) {
+          await api.patch(`/customers/${editingCustomer.id}/assign-salesman`, { salesman_id: salesman_id || null });
+        }
         toast.success('Customer updated.');
       } else {
         const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
@@ -363,8 +367,6 @@ export default function Customers({ onViewLedger }) {
     setPage(1);
   }, [search]);
 
-  const scrollTo = (ref) => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
   return (
     <div className="p-6">
       <div className="flex justify-between items-start flex-wrap gap-3 mb-6">
@@ -380,11 +382,12 @@ export default function Customers({ onViewLedger }) {
         </div>
       </div>
 
-      {/* Both sections are always visible below — these just jump-scroll to them */}
       <div className="flex gap-6 border-b border-gray-200 mb-6">
         <button
-          onClick={() => scrollTo(pendingRef)}
-          className="pb-3 text-sm font-semibold transition-colors flex items-center gap-1.5 -mb-px border-b-2 text-navy border-navy hover:border-navy"
+          onClick={() => setTab('pending')}
+          className={`pb-3 text-sm font-semibold transition-colors flex items-center gap-1.5 -mb-px border-b-2 ${
+            tab === 'pending' ? 'text-navy border-navy' : 'text-gray-400 border-transparent hover:text-navy'
+          }`}
         >
           Pending Approval
           {pending.length > 0 && (
@@ -392,8 +395,10 @@ export default function Customers({ onViewLedger }) {
           )}
         </button>
         <button
-          onClick={() => scrollTo(allRef)}
-          className="pb-3 text-sm font-semibold transition-colors flex items-center gap-1.5 -mb-px border-b-2 text-gray-400 border-transparent hover:text-navy"
+          onClick={() => setTab('all')}
+          className={`pb-3 text-sm font-semibold transition-colors flex items-center gap-1.5 -mb-px border-b-2 ${
+            tab === 'all' ? 'text-navy border-navy' : 'text-gray-400 border-transparent hover:text-navy'
+          }`}
         >
           All Customers
         </button>
@@ -407,8 +412,8 @@ export default function Customers({ onViewLedger }) {
 
       {loading ? (
         <SkeletonTable rows={5} cols={4} />
-      ) : (
-        <section ref={pendingRef} className="mb-8 scroll-mt-6">
+      ) : tab === 'pending' ? (
+        <section className="mb-8">
           {pending.length === 0 ? (
             <div className="bg-white rounded-2xl shadow-card border border-gray-100">
               <EmptyState icon={UserCheck} title="No customers awaiting approval" subtitle="New signups will show up here" />
@@ -471,10 +476,8 @@ export default function Customers({ onViewLedger }) {
             </>
           )}
         </section>
-      )}
-
-      {!loading && (
-        <section ref={allRef} className="scroll-mt-6">
+      ) : (
+        <section>
           <div className="flex justify-between items-center mb-4 gap-3 flex-wrap">
             <h3 className="font-semibold text-navy">Active Customer Database</h3>
             <div className="relative w-full sm:w-64">
@@ -554,19 +557,10 @@ export default function Customers({ onViewLedger }) {
                               </select>
                             </div>
                           </td>
-                          <td className="py-3 px-4">
-                            <select
-                              value={customer.salesman_id || ''}
-                              onChange={(e) => handleAssignSalesman(customer, e.target.value)}
-                              className="border border-gray-200 rounded-md px-1.5 py-1 text-[11px] text-gray-600 focus:outline-none focus:ring-1 focus:ring-navy-chip focus:border-navy bg-white cursor-pointer max-w-[130px]"
-                            >
-                              <option value="">— None —</option>
-                              {salesmenList
-                                .filter((s) => !customer.company_id || s.company_id === customer.company_id)
-                                .map((s) => (
-                                  <option key={s.id} value={s.id}>{s.full_name}</option>
-                                ))}
-                            </select>
+                          <td className="py-3 px-4 text-gray-600 text-[13px]">
+                            {salesmenList.find((s) => s.id === customer.salesman_id)?.full_name || (
+                              <span className="text-gray-300">— None —</span>
+                            )}
                           </td>
                           <td className="py-3 px-4">
                             <select
@@ -844,36 +838,37 @@ export default function Customers({ onViewLedger }) {
               />
             </div>
             {!editingCustomer && (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Rate Tier</label>
-                  <select
-                    value={customerForm.rate_tier}
-                    onChange={(e) => setCustomerForm({ ...customerForm, rate_tier: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-                  >
-                    {RATE_TIERS.map((t) => (
-                      <option key={t.value} value={t.value}>{t.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Assign Salesman (optional)</label>
-                  <select
-                    value={customerForm.salesman_id}
-                    onChange={(e) => setCustomerForm({ ...customerForm, salesman_id: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-                  >
-                    <option value="">— No Salesman —</option>
-                    {salesmenList
-                      .filter((s) => selectedCity === 'all' || s.company_id === selectedCity)
-                      .map((s) => (
-                        <option key={s.id} value={s.id}>{s.full_name}</option>
-                      ))}
-                  </select>
-                </div>
-              </>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Rate Tier</label>
+                <select
+                  value={customerForm.rate_tier}
+                  onChange={(e) => setCustomerForm({ ...customerForm, rate_tier: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                >
+                  {RATE_TIERS.map((t) => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                </select>
+              </div>
             )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Assign Salesman (optional)</label>
+              <select
+                value={customerForm.salesman_id}
+                onChange={(e) => setCustomerForm({ ...customerForm, salesman_id: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+              >
+                <option value="">— No Salesman —</option>
+                {salesmenList
+                  .filter((s) => {
+                    const targetCompanyId = editingCustomer ? editingCustomer.company_id : selectedCity;
+                    return targetCompanyId === 'all' || !targetCompanyId || s.company_id === targetCompanyId;
+                  })
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>{s.full_name}</option>
+                  ))}
+              </select>
+            </div>
             {!editingCustomer && (
               <p className="text-xs text-gray-400">
                 Creates the account directly (auto-approved) — most customers should instead self-register from the mobile app and be approved from the Pending Approval section above.
