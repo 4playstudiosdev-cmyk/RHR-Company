@@ -27,7 +27,6 @@ import ProductionDashboard from './pages/production/ProductionDashboard';
 import RawMaterials from './pages/production/RawMaterials';
 import ProductionOrders from './pages/production/ProductionOrders';
 import ProductionLog from './pages/production/ProductionLog';
-import Dispatch from './pages/production/Dispatch';
 import ProductionReports from './pages/production/ProductionReports';
 import RecipesPage from './pages/production/RecipesPage';
 import StockTransfers from './pages/StockTransfers';
@@ -53,7 +52,6 @@ const PAGES = {
   'production-materials': RawMaterials,
   'production-orders': ProductionOrders,
   'production-log': ProductionLog,
-  'production-dispatch': Dispatch,
   'production-reports': ProductionReports,
   'production-recipes': RecipesPage,
   'stock-transfers': StockTransfers,
@@ -83,7 +81,6 @@ const PAGE_ACCESS = {
   'production-dashboard': { requiredPermission: 'can_manage_production' },
   'production-orders': { requiredPermission: 'can_manage_production' },
   'production-log': { requiredPermission: 'can_manage_production' },
-  'production-dispatch': { requiredPermission: 'can_manage_production' },
   'production-reports': { requiredPermission: 'can_manage_production' },
   'production-recipes': { requiredPermission: 'can_manage_production' }
 };

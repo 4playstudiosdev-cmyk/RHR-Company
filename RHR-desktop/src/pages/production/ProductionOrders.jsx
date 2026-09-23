@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, ClipboardList, Check, Circle } from 'lucide-react';
+import { Plus, ClipboardList, Check, Circle, Pencil } from 'lucide-react';
 import api, { getCurrentUser } from '../../services/api';
 import PageHeader from '../../components/PageHeader';
 import Modal from '../../components/Modal';
@@ -10,15 +10,14 @@ import { useToast } from '../../components/Toast';
 import CityFilter from '../../components/CityFilter';
 import { fetchAllCities } from '../../utils/multiCityFetch';
 
-const STATUS_FLOW = ['pending', 'in_production', 'ready', 'dispatched'];
-const STATUS_LABEL = { pending: 'Pending', in_production: 'In Production', ready: 'Ready', dispatched: 'Dispatched' };
+const STATUS_FLOW = ['pending', 'in_production', 'ready'];
+const STATUS_LABEL = { pending: 'Pending', in_production: 'In Production', ready: 'Ready' };
 const STATUS_TABS = ['All', ...STATUS_FLOW];
 
 const STATUS_BADGE = {
   pending: 'bg-yellow-100 text-yellow-800',
   in_production: 'bg-blue-100 text-blue-800',
-  ready: 'bg-green-100 text-green-800',
-  dispatched: 'bg-gray-200 text-gray-600'
+  ready: 'bg-green-100 text-green-800'
 };
 
 const NEXT_ACTION = {
@@ -26,7 +25,7 @@ const NEXT_ACTION = {
   in_production: { label: 'Mark Ready', next: 'ready', className: 'bg-green-600 hover:bg-green-700' }
 };
 
-const EMPTY_FORM = { product_id: '', qty: '', batches: '1', priority: 'normal', notes: '', start_date: new Date().toISOString().split('T')[0] };
+const EMPTY_FORM = { product_id: '', qty: '', priority: 'normal', notes: '', start_date: new Date().toISOString().split('T')[0] };
 
 export default function ProductionOrders() {
   const toast = useToast();
@@ -43,6 +42,13 @@ export default function ProductionOrders() {
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [detailOrder, setDetailOrder] = useState(null);
+
+  // Correcting the actual quantity produced — e.g. planned in the
+  // morning, then by evening the batch came out short/over. Separate
+  // from the pending→in_production→ready status flow above.
+  const [editOrder, setEditOrder] = useState(null);
+  const [editQty, setEditQty] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     loadOrders();
@@ -89,7 +95,6 @@ export default function ProductionOrders() {
       await api.post('/production/orders', {
         product_id: form.product_id,
         qty: Number(form.qty),
-        batches: Number(form.batches) || 1,
         priority: form.priority,
         notes: form.notes,
         start_date: form.start_date
@@ -117,6 +122,28 @@ export default function ProductionOrders() {
       toast.error(err.response?.data?.message || 'Failed to update status.');
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const openEdit = (order) => {
+    setEditOrder(order);
+    setEditQty(String(order.qty));
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    const qty = Number(editQty);
+    if (!editQty || qty <= 0) { toast.error('Enter a valid quantity.'); return; }
+    setSavingEdit(true);
+    try {
+      await api.patch(`/production/orders/${editOrder.id}/qty`, { qty });
+      toast.success(`${editOrder.order_number} quantity updated — raw materials and stock adjusted.`);
+      setEditOrder(null);
+      loadOrders();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update quantity.');
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -154,7 +181,7 @@ export default function ProductionOrders() {
       )}
 
       {loading ? (
-        <SkeletonTable rows={6} cols={7} />
+        <SkeletonTable rows={6} cols={6} />
       ) : (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           {filtered.length === 0 ? (
@@ -167,7 +194,6 @@ export default function ProductionOrders() {
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Order #</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Product</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Qty</th>
-                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Batches</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Started</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
@@ -187,7 +213,6 @@ export default function ProductionOrders() {
                       <td className="px-6 py-3.5 font-medium text-navy">{o.order_number}</td>
                       <td className="px-6 py-3.5 text-gray-700">{o.product_name}</td>
                       <td className="px-6 py-3.5 text-gray-600">{o.qty} {o.unit}</td>
-                      <td className="px-6 py-3.5 text-gray-600">{o.batches} batches</td>
                       <td className="px-6 py-3.5 text-gray-500">{o.start_date}</td>
                       <td className="px-6 py-3.5">
                         <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${STATUS_BADGE[o.status]}`}>
@@ -195,19 +220,24 @@ export default function ProductionOrders() {
                         </span>
                       </td>
                       <td className="px-6 py-3.5" onClick={(e) => e.stopPropagation()}>
-                        {action ? (
+                        <div className="flex items-center gap-2">
+                          {action && (
+                            <button
+                              onClick={() => advanceStatus(o)}
+                              disabled={busyId === o.id}
+                              className={`text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60 ${action.className}`}
+                            >
+                              {busyId === o.id ? 'Updating...' : action.label}
+                            </button>
+                          )}
                           <button
-                            onClick={() => advanceStatus(o)}
-                            disabled={busyId === o.id}
-                            className={`text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60 ${action.className}`}
+                            onClick={() => openEdit(o)}
+                            title="Correct the actual quantity produced"
+                            className="inline-flex items-center gap-1 text-xs text-navy hover:underline font-medium px-1.5 py-1.5"
                           >
-                            {busyId === o.id ? 'Updating...' : action.label}
+                            <Pencil size={13} /> Edit
                           </button>
-                        ) : o.status === 'ready' ? (
-                          <span className="text-xs text-gray-400">Dispatch from Dispatch page</span>
-                        ) : (
-                          <span className="text-xs text-gray-400">—</span>
-                        )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -235,28 +265,16 @@ export default function ProductionOrders() {
                 ))}
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Quantity Needed *</label>
-                <input
-                  type="number"
-                  min="1"
-                  required
-                  value={form.qty}
-                  onChange={(e) => setForm({ ...form, qty: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Batches</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={form.batches}
-                  onChange={(e) => setForm({ ...form, batches: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-                />
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Quantity Needed *</label>
+              <input
+                type="number"
+                min="1"
+                required
+                value={form.qty}
+                onChange={(e) => setForm({ ...form, qty: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Priority</label>
@@ -299,12 +317,41 @@ export default function ProductionOrders() {
         </Modal>
       )}
 
+      {editOrder && (
+        <Modal title={`Edit Quantity — ${editOrder.order_number}`} onClose={() => setEditOrder(null)}>
+          <form onSubmit={handleSaveEdit} className="space-y-4">
+            <p className="text-sm text-gray-500">
+              {editOrder.product_name} — planned {editOrder.qty} {editOrder.unit}.
+              {editOrder.status !== 'pending'
+                ? ' Changing this adjusts the raw materials already deducted and the finished stock credited, to match what was actually produced.'
+                : ' Production hasn\'t started yet, so this just changes the plan.'}
+            </p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Actual Quantity Produced *</label>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                required
+                autoFocus
+                value={editQty}
+                onChange={(e) => setEditQty(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setEditOrder(null)}>Cancel</Button>
+              <Button type="submit" variant="accent" disabled={savingEdit}>{savingEdit ? 'Saving...' : 'Save'}</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
       {detailOrder && (
         <Modal title={`${detailOrder.order_number} — ${detailOrder.product_name}`} onClose={() => setDetailOrder(null)}>
           <div className="space-y-5">
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div><p className="text-gray-400 text-xs">Quantity</p><p className="font-medium text-navy">{detailOrder.qty} {detailOrder.unit}</p></div>
-              <div><p className="text-gray-400 text-xs">Batches</p><p className="font-medium text-navy">{detailOrder.batches}</p></div>
               <div><p className="text-gray-400 text-xs">Started</p><p className="font-medium text-navy">{detailOrder.start_date}</p></div>
               <div><p className="text-gray-400 text-xs">Priority</p><p className="font-medium text-navy capitalize">{detailOrder.priority}</p></div>
             </div>

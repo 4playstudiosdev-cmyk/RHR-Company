@@ -20,6 +20,7 @@ router.get('/demand',              authenticate, isAdmin, production.getProducti
 router.get('/orders',              authenticate, isAdmin, production.getProductionOrders);
 router.post('/orders',             authenticate, isAdmin, production.createProductionOrder);
 router.patch('/orders/:id/status', authenticate, isAdmin, production.updateProductionOrderStatus);
+router.patch('/orders/:id/qty',    authenticate, isAdmin, production.updateProductionOrderQty);
 
 router.get('/materials',           authenticate, isAdmin, materials.getMaterials);
 router.get('/materials/stock-report', authenticate, isAdmin, materials.getStockReport);

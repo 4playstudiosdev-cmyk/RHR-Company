@@ -2,28 +2,31 @@ const express = require('express');
 const router  = express.Router();
 const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin }      = require('../middleware/role.middleware');
-const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
-const { pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 
 // Plain HR directory records — no login account, no auth.users row.
 // See sql/phase9_employees_directory.sql. Contrast with /salesmen,
 // which creates a real Supabase Auth account for the mobile app.
 
 // GET /api/v1/employees — active employees in this admin's company
+// Routed through the raw-https bypass (see utils/directQuery.js) — this
+// read was still going through plain supabase-js and hitting the same
+// Railway silent-empty-response bug documented there: POST /employees
+// (already on the bypass) succeeded every time, but the list stayed
+// empty because this GET wasn't.
 router.get('/', authenticate, isAdmin, async (req, res) => {
   try {
-    let query = supabaseAdmin
-      .from('employees')
-      .select('id, full_name, phone, email, address, city, salary, is_active, created_at')
-      .eq('is_active', true)
-      .order('full_name');
+    const params = {
+      select: 'id,full_name,phone,email,address,city,salary,is_active,created_at',
+      is_active: 'eq.true',
+      order: 'full_name.asc',
+    };
     const companyId = resolveCompanyId(req);
-    if (companyId) query = query.eq('company_id', companyId);
+    if (companyId) params.company_id = `eq.${companyId}`;
 
-    const { data, error: dbErr } = await query;
-    if (dbErr) throw new Error(dbErr.message);
+    const data = await pgrestGet('employees', params);
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 });
@@ -54,14 +57,13 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
 // GET /api/v1/employees/:id
 router.get('/:id', authenticate, isAdmin, async (req, res) => {
   try {
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('employees')
-      .select('id, full_name, phone, email, address, city, salary, is_active, created_at')
-      .eq('id', req.params.id)
-      .eq('company_id', req.user.company_id)
-      .single();
-    if (dbErr) return error(res, 'Employee not found', 404);
-    return success(res, data);
+    const rows = await pgrestGet('employees', {
+      select: 'id,full_name,phone,email,address,city,salary,is_active,created_at',
+      id: `eq.${req.params.id}`,
+      company_id: `eq.${req.user.company_id}`,
+    });
+    if (!rows?.[0]) return error(res, 'Employee not found', 404);
+    return success(res, rows[0]);
   } catch (err) { return error(res, err.message); }
 });
 

@@ -148,7 +148,7 @@ export default function Returns() {
     if (!lastReturn) return;
     try {
       const res = await api.get(`/orders/${lastReturn.order.id}`);
-      buildInvoicePdf(res.data.data, { returnAmount: lastReturn.amountReturned });
+      buildInvoicePdf(res.data.data);
       toast.success('Updated invoice downloaded.');
     } catch (err) {
       toast.error('Failed to generate updated invoice.');

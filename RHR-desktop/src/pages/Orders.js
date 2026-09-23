@@ -249,22 +249,17 @@ export default function Orders() {
     setConveyanceError('');
   };
 
-  // Print — reprints the invoice as it stands right now (order total minus
-  // any recorded returns), with no tax/conveyance prompts. Those were
-  // already decided and posted to the ledger the first time the invoice
-  // was created; reprinting just needs the current numbers.
+  // Print — reprints the invoice as it stands right now, with no
+  // tax/conveyance prompts. Those were already decided and posted to the
+  // ledger the first time the invoice was created; any returns recorded
+  // since already shrank the order/item quantity and total directly
+  // (see confirmGenerateUpdatedInvoice), so this just needs the current
+  // order data — no separate return line to re-subtract.
   const handlePrintInvoice = async (order) => {
     setPdfLoadingId(order.id);
     try {
-      const [orderRes, returnsRes] = await Promise.all([
-        api.get(`/orders/${order.id}`),
-        api.get('/returns/orders', { params: { order_id: order.id } }).catch(() => ({ data: { data: [] } }))
-      ]);
-      const detail = orderRes.data.data;
-      const returns = returnsRes.data.data || [];
-      const returnAmount = returns.reduce((sum, r) => sum + Number(r.amount_returned || 0), 0);
-
-      buildInvoicePdf(detail, returnAmount > 0 ? { returnAmount } : {});
+      const res = await api.get(`/orders/${order.id}`);
+      buildInvoicePdf(res.data.data);
       toast.success(`Invoice for ${order.order_number} downloaded.`);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to download invoice.');
@@ -380,15 +375,25 @@ export default function Orders() {
     setSavingReturn(true);
     try {
       // Same order-return endpoint the Returns page uses — credits the
-      // customer's ledger and records the return, so this stays the one
-      // place that logic lives.
+      // customer's ledger and records the return. Passing the item and
+      // quantity along with it shrinks the actual order_item/order total
+      // in the database, so the order (and any future reprint) just
+      // reflects what's left — not the original amount minus a separate
+      // "Returned" line.
       await api.post('/returns/orders', {
         order_id: order.id,
         amount_returned: returnAmount,
+        order_item_id: item.id,
+        quantity_returned: qty,
         notes: `${qty} ${item.products?.unit || 'unit'}(s) of "${item.product_name}" returned`
       });
 
-      buildInvoicePdf(order, { returnAmount });
+      // Re-fetch — the order/item now reflect the reduced quantity and
+      // total, so the PDF is built from the current, already-updated data.
+      const res = await api.get(`/orders/${order.id}`);
+      const updated = res.data.data;
+      buildInvoicePdf(updated);
+      setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, total_amount: updated.total_amount } : o)));
 
       toast.success(`Updated invoice downloaded — ${order.users?.full_name || 'the customer'}'s ledger credited PKR ${returnAmount.toLocaleString()}.`);
       setEditInvoiceOrder(null);

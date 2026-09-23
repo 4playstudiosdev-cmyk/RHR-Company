@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, UserCog, Wallet, LogOut,
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
-  Gauge, Boxes, ClipboardList, Truck, FileBarChart2, ChevronDown, X, CarFront,
+  Gauge, Boxes, ClipboardList, FileBarChart2, ChevronDown, X, CarFront,
   PackageCheck, ArrowLeftRight, PackageSearch, Landmark, Receipt, Store, RotateCcw
 } from 'lucide-react';
 import api, { hasPermission } from '../services/api';
@@ -37,7 +37,6 @@ const NAV_ITEMS = [
       { key: 'production-dashboard', label: 'Production Dashboard', icon: Gauge },
       { key: 'production-orders', label: 'Production Orders', icon: ClipboardList },
       { key: 'production-log', label: 'Production History', icon: PackageCheck },
-      { key: 'production-dispatch', label: 'Dispatch', icon: Truck },
       { key: 'production-reports', label: 'Production Reports', icon: FileBarChart2 },
       { key: 'production-recipes', label: 'Recipes', icon: ClipboardList }
     ]

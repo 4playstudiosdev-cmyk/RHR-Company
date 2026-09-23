@@ -94,14 +94,16 @@ const getOrderReturns = async (req, res) => {
   }
 };
 
-// POST /api/v1/returns/orders — order_id + amount_returned. Credits the
+// POST /api/v1/returns/orders — order_id + amount_returned (+ optionally
+// order_item_id/quantity_returned so the actual line item and order
+// total shrink by the return, not just a ledger credit). Credits the
 // customer's ledger for the returned amount (a credit lowers what they
-// owe, same as an approved payment) and records the return. The frontend
-// then downloads an "updated invoice" reflecting order total minus this
-// return — see Orders.js buildInvoicePdf.
+// owe, same as an approved payment) and records the return. Once the
+// item/order total are updated here, a later Print/reprint just shows
+// the order as it now stands — no separate "Returned: -Rs X" line needed.
 const createOrderReturn = async (req, res) => {
   try {
-    const { order_id, amount_returned, notes } = req.body;
+    const { order_id, amount_returned, notes, order_item_id, quantity_returned } = req.body;
     if (!order_id || !amount_returned || Number(amount_returned) <= 0)
       return error(res, 'order_id and a positive amount_returned are required', 400);
 
@@ -115,8 +117,8 @@ const createOrderReturn = async (req, res) => {
       return error(res, 'Return amount cannot exceed the order total', 400);
 
     // order_returns first (fails immediately if phase22 hasn't run) —
-    // deliberately before the ledger credit below, so a request that
-    // errors out never silently credits the customer's ledger with no
+    // deliberately before the item/total/ledger mutations below, so a
+    // request that errors out never silently changes anything with no
     // record of the return that caused it.
     const [data] = await pgrestPost('order_returns', {
       company_id: order.company_id,
@@ -126,6 +128,25 @@ const createOrderReturn = async (req, res) => {
       amount_returned: Number(amount_returned),
       notes: notes || null,
       created_by: req.user.id,
+    });
+
+    // Shrink the line item's quantity/subtotal and the order total by
+    // the return, so the order — and any future reprint of it — reflects
+    // what was actually kept, not the original pre-return sale.
+    if (order_item_id && quantity_returned) {
+      const items = await pgrestGet('order_items', { select: 'id,quantity,unit_price', id: `eq.${order_item_id}` });
+      const item = items?.[0];
+      if (item) {
+        const newQty = Math.max(0, Number(item.quantity) - Number(quantity_returned));
+        await pgrestPatch('order_items', { id: `eq.${order_item_id}` }, {
+          quantity: newQty,
+          subtotal: newQty * Number(item.unit_price),
+        });
+      }
+    }
+
+    await pgrestPatch('orders', { id: `eq.${order.id}` }, {
+      total_amount: Number(order.total_amount) - Number(amount_returned),
     });
 
     // Ledger credit — same running-balance computation as POST
@@ -151,7 +172,7 @@ const createOrderReturn = async (req, res) => {
       created_by: req.user.id,
     });
 
-    return success(res, { ...data, order_number: order.order_number }, 'Return recorded — customer ledger updated', 201);
+    return success(res, { ...data, order_number: order.order_number }, 'Return recorded — order and customer ledger updated', 201);
   } catch (err) { return error(res, err.message); }
 };
 

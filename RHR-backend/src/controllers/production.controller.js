@@ -312,15 +312,156 @@ const updateProductionOrderStatus = async (req, res) => {
       }
     }
 
-    const updated = await pgrestPatch(
-      'production_orders',
-      { id: `eq.${req.params.id}`, company_id: `eq.${req.user.company_id}` },
-      { status, updated_at: new Date().toISOString() }
-    );
+    const patchFilter = { id: `eq.${req.params.id}`, company_id: `eq.${req.user.company_id}` };
+    const patchBody = { status, updated_at: new Date().toISOString() };
+
+    // production_id is a phase26 addition — fall back to patching status
+    // alone if that migration hasn't run yet (the qty-correction endpoint
+    // below just won't be able to adjust materials for orders started
+    // before then).
+    let updated;
+    if (productionResult) {
+      try {
+        updated = await pgrestPatch('production_orders', patchFilter, { ...patchBody, production_id: productionResult.production_id });
+      } catch (e) {
+        updated = await pgrestPatch('production_orders', patchFilter, patchBody);
+      }
+    } else {
+      updated = await pgrestPatch('production_orders', patchFilter, patchBody);
+    }
     if (!updated?.[0]) return error(res, 'Production order not found', 404);
 
     return success(res, { ...updated[0], production: productionResult }, `Order marked ${status}`);
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getProductionDemand, getProductionOrders, createProductionOrder, updateProductionOrderStatus, runProduction };
+// PATCH /api/v1/production/orders/:id/qty — corrects the actual quantity
+// produced (e.g. planned 50 in the morning, only 40 actually came out by
+// evening). If the order hasn't started production yet, this is just a
+// plan change. If it has (production_id is set — "Start Production"
+// already ran runProduction and deducted materials), this re-derives
+// what each raw material line SHOULD have used for the corrected qty
+// (qty_required from the recipe × new qty) and adjusts stock by the
+// delta against what was actually deducted, rather than re-running the
+// whole deduction — so a correction never double-counts.
+const updateProductionOrderQty = async (req, res) => {
+  try {
+    const { qty } = req.body;
+    if (!qty || Number(qty) <= 0) return error(res, 'A positive qty is required', 400);
+    const newQty = Number(qty);
+
+    const orders = await pgrestGet('production_orders', {
+      select: '*',
+      id: `eq.${req.params.id}`,
+      company_id: `eq.${req.user.company_id}`,
+    });
+    const order = orders?.[0];
+    if (!order) return error(res, 'Production order not found', 404);
+
+    // Not started yet — nothing was deducted, so this is just a plan edit.
+    if (!order.production_id) {
+      const updated = await pgrestPatch(
+        'production_orders',
+        { id: `eq.${req.params.id}`, company_id: `eq.${req.user.company_id}` },
+        { qty: newQty, updated_at: new Date().toISOString() }
+      );
+      return success(res, updated[0], 'Production order quantity updated');
+    }
+
+    const { data: run } = await supabaseAdmin
+      .from('productions')
+      .select('*, production_lines(id, qty_used, raw_material_id, unit)')
+      .eq('id', order.production_id)
+      .maybeSingle();
+    if (!run) return error(res, 'Linked production run not found', 404);
+
+    const { data: bomRecipe } = await supabaseAdmin
+      .from('production_bom')
+      .select('production_bom_items(raw_material_id, qty_required)')
+      .eq('id', run.recipe_id)
+      .maybeSingle();
+    if (!bomRecipe) return error(res, 'Recipe for this production run no longer exists', 404);
+
+    const oldQty = Number(run.qty_produced);
+    const deltas = []; // { raw_material_id, line_id, delta, neededNew }
+
+    for (const bomItem of bomRecipe.production_bom_items || []) {
+      const line = (run.production_lines || []).find((l) => l.raw_material_id === bomItem.raw_material_id);
+      const neededNew = Number(bomItem.qty_required) * newQty;
+      const oldUsed = line ? Number(line.qty_used) : 0;
+      deltas.push({ raw_material_id: bomItem.raw_material_id, line_id: line?.id, neededNew, delta: neededNew - oldUsed });
+    }
+
+    // A positive delta means the correction needs MORE of that material
+    // than was already deducted — confirm there's enough left before
+    // touching anything.
+    const materialIds = deltas.map((d) => d.raw_material_id);
+    const materials = materialIds.length
+      ? await pgrestGet('raw_materials', { select: 'id,name,unit,stock', id: `in.(${materialIds.join(',')})` })
+      : [];
+    const materialById = Object.fromEntries((materials || []).map((m) => [m.id, m]));
+
+    const shortfalls = deltas
+      .filter((d) => d.delta > 0)
+      .map((d) => ({ ...d, material: materialById[d.raw_material_id] }))
+      .filter((d) => d.material && Number(d.material.stock) < d.delta);
+    if (shortfalls.length > 0) {
+      return error(res, 'Insufficient raw materials for this correction: ' +
+        shortfalls.map((s) => `${s.material.name} (need ${s.delta.toFixed(2)} more ${s.material.unit})`).join(', '),
+        400);
+    }
+
+    for (const d of deltas) {
+      const material = materialById[d.raw_material_id];
+      if (!material) continue;
+
+      await supabaseAdmin
+        .from('raw_materials')
+        .update({ stock: Number(material.stock) - d.delta })
+        .eq('id', d.raw_material_id);
+
+      if (d.line_id) {
+        await supabaseAdmin.from('production_lines').update({ qty_used: d.neededNew }).eq('id', d.line_id);
+      }
+
+      if (d.delta !== 0) {
+        await supabaseAdmin.from('raw_material_stock_logs').insert({
+          material_id: d.raw_material_id,
+          company_id: req.user.company_id,
+          quantity: -d.delta,
+          logged_date: new Date().toISOString().split('T')[0],
+          created_by: req.user.id,
+          note: `Quantity correction on production order ${order.order_number} (${oldQty} → ${newQty} ${order.unit})`,
+        });
+      }
+    }
+
+    // Finished product stock moves by the same delta as the order qty.
+    const { data: finishedProduct } = await supabaseAdmin
+      .from('products')
+      .select('stock_quantity')
+      .eq('id', run.finished_item_id)
+      .maybeSingle();
+    if (finishedProduct) {
+      await supabaseAdmin
+        .from('products')
+        .update({ stock_quantity: Math.max(0, Number(finishedProduct.stock_quantity) + (newQty - oldQty)) })
+        .eq('id', run.finished_item_id);
+    }
+
+    await supabaseAdmin.from('productions').update({ qty_produced: newQty }).eq('id', run.id);
+
+    const updated = await pgrestPatch(
+      'production_orders',
+      { id: `eq.${req.params.id}`, company_id: `eq.${req.user.company_id}` },
+      { qty: newQty, updated_at: new Date().toISOString() }
+    );
+
+    invalidate(`materials:${req.user.company_id}`);
+
+    return success(res, updated[0],
+      `Production order updated — ${oldQty} → ${newQty} ${order.unit}, raw materials and finished stock adjusted`);
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { getProductionDemand, getProductionOrders, createProductionOrder, updateProductionOrderStatus, updateProductionOrderQty, runProduction };
