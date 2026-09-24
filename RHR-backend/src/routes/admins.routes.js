@@ -68,4 +68,21 @@ router.patch('/:id/toggle', authenticate, isSuperAdmin, async (req, res) => {
   } catch (err) { return error(res, err.message); }
 });
 
+// PATCH /api/v1/admins/:id/force-logout — clears the single-session lock
+// (see auth.service.js#loginWithCredentials) for an admin whose browser
+// was closed without logging out, so their next login isn't blocked by
+// their own stale session. The lock also self-expires after 8h on its
+// own; this is just for when the super_admin wants it cleared sooner.
+router.patch('/:id/force-logout', authenticate, isSuperAdmin, async (req, res) => {
+  try {
+    const data = await pgrestPatch(
+      'users',
+      { id: `eq.${req.params.id}` },
+      { active_session_token: null, active_session_started_at: null }
+    );
+    if (!data?.[0]) return error(res, 'Admin not found', 404);
+    return success(res, data[0], 'Session cleared — they can log in again now');
+  } catch (err) { return error(res, err.message); }
+});
+
 module.exports = router;

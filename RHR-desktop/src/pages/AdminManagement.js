@@ -47,6 +47,29 @@ export default function AdminManagement() {
     }
   };
 
+  // Clears the single-session lock — needed whenever an admin's browser
+  // was closed without clicking Logout, which leaves them locked out of
+  // their own account until the lock self-expires (8h). Rather than wait
+  // that out (or have me clear it by hand), the super_admin can do this.
+  const forceLogout = async (adminId, name) => {
+    if (!window.confirm(`Clear ${name}'s active session so they can log in again?`)) return;
+    try {
+      await api.patch(`/admins/${adminId}/force-logout`);
+      toast.success(`${name}'s session cleared.`);
+      loadAdmins();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to clear session.');
+    }
+  };
+
+  const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+  const sessionInfo = (admin) => {
+    if (!admin.active_session_token || !admin.active_session_started_at) return null;
+    const age = Date.now() - new Date(admin.active_session_started_at).getTime();
+    if (age > SESSION_MAX_AGE_MS) return null; // expired — treat as not locked
+    return { since: new Date(admin.active_session_started_at).toLocaleString() };
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -81,22 +104,38 @@ export default function AdminManagement() {
                     }`}>
                       {admin.role === 'super_admin' ? 'Super Admin' : 'Branch Admin'}
                     </span>
+                    {sessionInfo(admin) && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-emerald-100 text-emerald-700">
+                        🟢 Session active since {sessionInfo(admin).since}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {admin.role !== 'super_admin' && (
-                <button
-                  onClick={() => toggleActive(admin.id, admin.is_active)}
-                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                    admin.is_active
-                      ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                      : 'bg-red-100 text-red-700 hover:bg-red-200'
-                  }`}
-                >
-                  {admin.is_active ? '✅ Active' : '❌ Disabled'}
-                </button>
-              )}
+              <div className="flex items-center gap-2 flex-wrap">
+                {sessionInfo(admin) && (
+                  <button
+                    onClick={() => forceLogout(admin.id, admin.full_name)}
+                    title="Clear their active session so they can log in elsewhere"
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all"
+                  >
+                    🔓 Force Logout
+                  </button>
+                )}
+                {admin.role !== 'super_admin' && (
+                  <button
+                    onClick={() => toggleActive(admin.id, admin.is_active)}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                      admin.is_active
+                        ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                        : 'bg-red-100 text-red-700 hover:bg-red-200'
+                    }`}
+                  >
+                    {admin.is_active ? '✅ Active' : '❌ Disabled'}
+                  </button>
+                )}
+              </div>
             </div>
 
             {admin.role === 'super_admin' ? (
