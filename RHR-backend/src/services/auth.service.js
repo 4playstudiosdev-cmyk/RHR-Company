@@ -126,14 +126,14 @@ async function loginWithCredentials({ email, password, latitude, longitude }) {
 
   if (!signInOk) throw new Error('Invalid email or password');
 
-  // Branch admins (Hyderabad/Sukkur) must share their location on every
-  // login so Karachi's super_admin can see where they're logging in from
-  // — checked only after credentials are confirmed correct, so a bad
-  // password attempt never reveals whether an account is location-gated.
+  // Branch admins (Hyderabad/Sukkur) share their location on login when
+  // the browser grants it, so Karachi's super_admin can see where they
+  // logged in from — best-effort only. This used to hard-block login
+  // entirely when location wasn't available (denied permission, no GPS
+  // signal, traveling on a network that blocks it, etc.), which locked
+  // legitimate admins out of their own account; logging in should never
+  // depend on whether geolocation happens to succeed.
   const hasLocation = latitude != null && longitude != null && !Number.isNaN(Number(latitude)) && !Number.isNaN(Number(longitude));
-  if (user.role === 'branch_admin' && !hasLocation) {
-    throw new Error('Location access is required to log in — please allow location access in your browser and try again.');
-  }
   if (hasLocation) {
     // Best-effort — a failed location ping should never block an
     // otherwise-valid login. Routed through the raw-https bypass (see
