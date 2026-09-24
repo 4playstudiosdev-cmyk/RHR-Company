@@ -4,6 +4,7 @@ const {
   sendOTPHandler,
   verifyOTPHandler,
   loginHandler,
+  logoutHandler,
   approveCustomerHandler,
   approveSalesmanHandler,
   approveDriverHandler,
@@ -22,6 +23,7 @@ router.get('/whatsapp-status',           whatsappStatusHandler);
 router.get('/whatsapp-qr',               whatsappQRHandler);
 
 // Protected routes
+router.post('/logout', authenticate, logoutHandler);
 router.patch('/approve-customer/:id', authenticate, isAdmin, approveCustomerHandler);
 router.patch('/approve-salesman/:id', authenticate, isAdmin, approveSalesmanHandler);
 router.patch('/approve-driver/:id',   authenticate, isAdmin, approveDriverHandler);

@@ -2,7 +2,11 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { supabaseAdmin } = require('../config/supabase');
 const { withRetry } = require('../utils/withRetry');
-const { pgrestGet, pgrestPost } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+
+// Matches the frontend's own SESSION_MAX_AGE_MS (App.js) — a session is
+// considered abandoned (not actively locking the account) past this age.
+const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 
 // Same company IDs the desktop's CityFilter dropdown uses.
 const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
@@ -126,6 +130,47 @@ async function loginWithCredentials({ email, password, latitude, longitude }) {
 
   if (!signInOk) throw new Error('Invalid email or password');
 
+  // Single-session lock — the same admin account (super_admin or
+  // branch_admin) can't be active on two desktops at once. A lock
+  // self-expires after SESSION_MAX_AGE_MS so a browser closed without
+  // explicitly logging out never locks the account out forever; POST
+  // /auth/logout also clears it immediately on an explicit logout.
+  if (user.active_session_token && user.active_session_started_at) {
+    const lockAgeMs = Date.now() - new Date(user.active_session_started_at).getTime();
+    if (lockAgeMs < SESSION_MAX_AGE_MS) {
+      const lastLoc = await pgrestGet('admin_locations', {
+        select: 'latitude,longitude,recorded_at',
+        user_id: `eq.${user.id}`,
+        order: 'recorded_at.desc',
+        limit: '1',
+      }).catch(() => []);
+      const loc = lastLoc?.[0];
+      const locText = loc
+        ? ` Last known location: ${Number(loc.latitude).toFixed(4)}, ${Number(loc.longitude).toFixed(4)} (${new Date(loc.recorded_at).toLocaleString()}).`
+        : '';
+
+      // Logged as a notification to super_admin, same pattern as the
+      // login/location-skip notifications elsewhere in this function —
+      // this is the audit trail for a blocked duplicate-login attempt.
+      try {
+        await pgrestPost('notifications', {
+          company_id:     KARACHI_COMPANY_ID,
+          recipient_role: 'super_admin',
+          title:          `Blocked duplicate login — ${user.full_name}`,
+          body:           `Someone tried to log into ${user.full_name}'s account (${user.email}) while it was already active on another device.${locText}`,
+          type:           'admin_login',
+        });
+      } catch (e) {
+        console.error('[login] duplicate-login notification insert failed:', e.message);
+      }
+
+      throw new Error(
+        `This account is already logged in on another device (since ${new Date(user.active_session_started_at).toLocaleString()}).` +
+        ` Contact ${user.full_name} at ${user.phone || 'their registered number'} to log out there first.${locText}`
+      );
+    }
+  }
+
   // Branch admins (Hyderabad/Sukkur) share their location on login when
   // the browser grants it, so Karachi's super_admin can see where they
   // logged in from — best-effort only. This used to hard-block login
@@ -176,6 +221,18 @@ async function loginWithCredentials({ email, password, latitude, longitude }) {
   }
 
   const token = generateToken(user);
+
+  // Claim the session lock — best-effort like the location/notification
+  // writes above; if this insert fails, the worst case is the lock
+  // doesn't take for this login, not that the login itself fails.
+  try {
+    await pgrestPatch('users', { id: `eq.${user.id}` }, {
+      active_session_token: token,
+      active_session_started_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error('[login] session lock write failed:', e.message);
+  }
 
   return {
     token,
@@ -387,9 +444,23 @@ async function approveDriver(driverId, adminUser) {
   return data;
 }
 
+// Releases the single-session lock loginWithCredentials sets — called on
+// an explicit logout so the account can be logged into elsewhere right
+// away instead of waiting out the full SESSION_MAX_AGE_MS.
+async function releaseSessionLock(userId) {
+  try {
+    await pgrestPatch('users', { id: `eq.${userId}` }, {
+      active_session_token: null,
+      active_session_started_at: null,
+    });
+  } catch (e) {
+    console.error('[logout] session lock release failed:', e.message);
+  }
+}
+
 module.exports = {
   registerCustomer, registerSalesman, registerDriver,
-  loginWithCredentials,
+  loginWithCredentials, releaseSessionLock,
   approveCustomer, approveSalesman, approveDriver,
   generateToken,
   findCustomerByPhone, findSalesmanByPhone, findDriverByPhone

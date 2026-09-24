@@ -5,6 +5,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import SessionWarning from './components/SessionWarning';
 import LocationGate from './components/LocationGate';
 import AdminLocationService from './services/adminLocationService';
+import api from './services/api';
 import { ToastProvider } from './components/Toast';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -144,6 +145,10 @@ function AppShell() {
   };
 
   const handleLogout = () => {
+    // Releases the single-session lock so this account can be logged
+    // into elsewhere right away — best-effort, the client-side logout
+    // below always proceeds regardless of whether this call succeeds.
+    api.post('/auth/logout').catch(() => {});
     localStorage.removeItem('rhr_token');
     localStorage.removeItem('rhr_user');
     localStorage.removeItem('rhr_login_time');

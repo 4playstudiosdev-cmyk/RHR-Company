@@ -1,7 +1,7 @@
 const { sendOTP, verifyOTP } = require('../services/otp.service');
 const {
   registerCustomer, registerSalesman, registerDriver,
-  loginWithCredentials,
+  loginWithCredentials, releaseSessionLock,
   approveCustomer, approveSalesman, approveDriver,
   findCustomerByPhone, findSalesmanByPhone, findDriverByPhone,
   generateToken
@@ -103,6 +103,17 @@ const loginHandler = async (req, res) => {
   }
 };
 
+// Clears the single-session lock so this account can be logged into
+// elsewhere right away, instead of waiting for the lock to self-expire.
+const logoutHandler = async (req, res) => {
+  try {
+    await releaseSessionLock(req.user.id);
+    return success(res, { loggedOut: true }, 'Logged out');
+  } catch (err) {
+    return error(res, err.message, 400);
+  }
+};
+
 const approveCustomerHandler = async (req, res) => {
   try {
     const { id } = req.params;
@@ -149,6 +160,7 @@ module.exports = {
   sendOTPHandler,
   verifyOTPHandler,
   loginHandler,
+  logoutHandler,
   approveCustomerHandler,
   approveSalesmanHandler,
   approveDriverHandler,

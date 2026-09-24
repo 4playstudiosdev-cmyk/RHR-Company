@@ -1,9 +1,13 @@
-const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
-const { pgrestGet } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost } = require('../utils/directQuery');
 
 // POST /api/v1/admin-location/ping
-// Admin desktop app sends its location while logged in
+// Admin desktop app sends its location while logged in. Routed through
+// the raw-https bypass (see utils/directQuery.js) — this was still a
+// plain supabaseAdmin insert and hitting the same Railway-only
+// RLS-looking write failure documented there (confirmed: the identical
+// insert succeeds instantly run locally), which is why this endpoint was
+// intermittently 500ing for admins trying to grant location on login.
 const pingAdminLocation = async (req, res) => {
   try {
     const { latitude, longitude, accuracy, status } = req.body;
@@ -11,21 +15,16 @@ const pingAdminLocation = async (req, res) => {
     if (!latitude || !longitude)
       return error(res, 'latitude and longitude are required', 400);
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('admin_locations')
-      .insert({
-        company_id:  req.user.company_id,
-        user_id:     req.user.id,
-        latitude:    Number(latitude),
-        longitude:   Number(longitude),
-        accuracy:    accuracy || null,
-        status:      status || 'active',
-        recorded_at: new Date().toISOString()
-      })
-      .select()
-      .single();
+    const [data] = await pgrestPost('admin_locations', {
+      company_id:  req.user.company_id,
+      user_id:     req.user.id,
+      latitude:    Number(latitude),
+      longitude:   Number(longitude),
+      accuracy:    accuracy || null,
+      status:      status || 'active',
+      recorded_at: new Date().toISOString()
+    });
 
-    if (dbErr) throw new Error(dbErr.message);
     return success(res, data, 'Admin location recorded');
   } catch (err) { return error(res, err.message); }
 };
@@ -46,7 +45,7 @@ const BRANCH_CITY_NAMES = {
 // super_admin it happened, so the visibility goal isn't silently lost.
 const skipLocationCheck = async (req, res) => {
   try {
-    await supabaseAdmin.from('notifications').insert({
+    await pgrestPost('notifications', {
       company_id:     KARACHI_COMPANY_ID,
       recipient_role: 'super_admin',
       title:          `${BRANCH_CITY_NAMES[req.user.company_id] || 'An'} Admin — Location Not Shared`,
@@ -60,21 +59,25 @@ const skipLocationCheck = async (req, res) => {
 };
 
 // GET /api/v1/admin-location/live
-// super_admin sees every branch's admins at once; branch_admin only ever
-// sees admins in their own branch (which in practice is just themselves).
+// super_admin only — a branch_admin's own company_id is Karachi's (same
+// as the super_admin's), so filtering by company_id alone used to leak
+// the super_admin's (and any other Karachi admin's) live location to a
+// branch_admin instead of scoping to just themselves. No admin should be
+// able to see any other admin's location, so this is locked to
+// super_admin entirely rather than trying to filter it correctly.
 // Routed through the raw-https bypass (see utils/directQuery.js) — plain
 // supabaseAdmin reads on this exact shape of query were confirmed to
 // silently come back empty on Railway even for real, existing rows.
 const getAdminLiveLocations = async (req, res) => {
   try {
-    const companyFilter = req.user.role !== 'super_admin' ? { company_id: `eq.${req.user.company_id}` } : {};
+    if (req.user.role !== 'super_admin')
+      return error(res, 'Only the super admin can view other admins\' locations', 403);
 
     const [admins, companies] = await Promise.all([
       pgrestGet('users', {
         select: 'id,full_name,phone,role,company_id',
         role: 'in.(super_admin,branch_admin)',
         is_active: 'eq.true',
-        ...companyFilter,
       }),
       pgrestGet('companies', { select: 'id,name,city' }),
     ]);
@@ -95,18 +98,14 @@ const getAdminLiveLocations = async (req, res) => {
 };
 
 // GET /api/v1/admin-location/history/:adminId
-// Today's location history for one admin
+// Today's location history for one admin — super_admin only, same
+// reasoning as getAdminLiveLocations above.
 const getAdminLocationHistory = async (req, res) => {
   try {
+    if (req.user.role !== 'super_admin')
+      return error(res, 'Only the super admin can view other admins\' locations', 403);
+
     const { adminId } = req.params;
-
-    if (req.user.role !== 'super_admin') {
-      const targetRows = await pgrestGet('users', { select: 'company_id', id: `eq.${adminId}` });
-      const target = targetRows?.[0];
-      if (!target || target.company_id !== req.user.company_id)
-        return error(res, 'Access denied — that admin is not in your branch', 403);
-    }
-
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
