@@ -3,6 +3,7 @@ import { Menu } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import ProtectedRoute from './components/ProtectedRoute';
 import SessionWarning from './components/SessionWarning';
+import LocationGate from './components/LocationGate';
 import AdminLocationService from './services/adminLocationService';
 import { ToastProvider } from './components/Toast';
 import Login from './pages/Login';
@@ -212,6 +213,7 @@ function AppShell() {
         </main>
       </div>
       <SessionWarning />
+      <LocationGate user={user} />
     </div>
   );
 }

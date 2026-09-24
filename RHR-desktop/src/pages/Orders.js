@@ -74,6 +74,8 @@ export default function Orders() {
   // delivery/invoicing.
   const [editOrderItems, setEditOrderItems] = useState([]);
   const [savingOrderEdit, setSavingOrderEdit] = useState(false);
+  const [addProductId, setAddProductId] = useState('');
+  const [addProductQty, setAddProductQty] = useState(1);
 
   // "Edit Invoice" — shown once an order already has an invoice
   // (order.invoice_generated_at set). Lets the admin record bags
@@ -265,9 +267,17 @@ export default function Orders() {
     }
   };
 
-  const startEditOrder = () => {
+  const startEditOrder = async () => {
     setEditOrderItems((invoiceOrder.order_items || []).map((it) => ({ ...it })));
+    setAddProductId('');
+    setAddProductQty(1);
     setInvoiceStep('edit');
+    if (products.length === 0) {
+      try {
+        const res = await api.get('/products', { params: { limit: 500 } });
+        setProducts(res.data.data?.products || []);
+      } catch (err) { /* add-product picker just stays empty */ }
+    }
   };
 
   const updateEditItemQty = (itemId, qty) => {
@@ -276,6 +286,30 @@ export default function Orders() {
 
   const removeEditItem = (itemId) => {
     setEditOrderItems((prev) => prev.filter((it) => it.id !== itemId));
+  };
+
+  const addEditItem = () => {
+    if (!addProductId || !addProductQty || Number(addProductQty) <= 0) {
+      toast.error('Select a product and a valid quantity.');
+      return;
+    }
+    const product = products.find((p) => p.id === addProductId);
+    if (!product) return;
+    if (editOrderItems.some((it) => it.product_id === addProductId)) {
+      toast.error('That product is already on this order — edit its quantity instead.');
+      return;
+    }
+    setEditOrderItems((prev) => [...prev, {
+      id: `new-${addProductId}`,
+      isNew: true,
+      product_id: addProductId,
+      product_name: product.name,
+      unit_price: product.price,
+      quantity: Number(addProductQty),
+      products: { unit: product.unit },
+    }]);
+    setAddProductId('');
+    setAddProductQty(1);
   };
 
   const editOrderTotal = editOrderItems.reduce((sum, it) => sum + Number(it.unit_price) * (Number(it.quantity) || 0), 0);
@@ -290,14 +324,15 @@ export default function Orders() {
       return;
     }
     const originalIds = (invoiceOrder.order_items || []).map((it) => it.id);
-    const keptIds = editOrderItems.map((it) => it.id);
+    const keptIds = editOrderItems.filter((it) => !it.isNew).map((it) => it.id);
     const removedIds = originalIds.filter((id) => !keptIds.includes(id));
 
     setSavingOrderEdit(true);
     try {
       await api.patch(`/orders/${invoiceOrder.id}/items`, {
-        items: editOrderItems.map((it) => ({ item_id: it.id, quantity: Number(it.quantity) })),
+        items: editOrderItems.filter((it) => !it.isNew).map((it) => ({ item_id: it.id, quantity: Number(it.quantity) })),
         removed_ids: removedIds,
+        added_items: editOrderItems.filter((it) => it.isNew).map((it) => ({ product_id: it.product_id, quantity: Number(it.quantity) })),
       });
       const res = await api.get(`/orders/${invoiceOrder.id}`);
       setInvoiceOrder(res.data.data);
@@ -960,6 +995,32 @@ export default function Orders() {
               {editOrderItems.length === 0 && (
                 <p className="text-sm text-gray-400 text-center py-4">No items left — an order needs at least one.</p>
               )}
+            </div>
+
+            <div className="flex gap-2 items-end border-t border-gray-100 pt-3">
+              <div className="flex-1 min-w-0">
+                <label className="block text-xs font-medium text-gray-700 mb-1">Add Product</label>
+                <select
+                  value={addProductId}
+                  onChange={(e) => setAddProductId(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                >
+                  <option value="">Select product...</option>
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name} — PKR {Number(p.price).toLocaleString()}</option>
+                  ))}
+                </select>
+              </div>
+              <input
+                type="number"
+                min="1"
+                value={addProductQty}
+                onChange={(e) => setAddProductQty(e.target.value)}
+                className="w-20 flex-shrink-0 border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+              />
+              <Button type="button" variant="secondary" onClick={addEditItem} className="flex-shrink-0 flex items-center gap-1.5">
+                <Plus size={14} /> Add
+              </Button>
             </div>
 
             <div className="bg-navy-chip/40 border border-navy-chip rounded-lg px-3.5 py-2.5 flex items-center justify-between">

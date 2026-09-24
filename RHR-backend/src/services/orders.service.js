@@ -278,10 +278,10 @@ async function deductDeliveredStock(orderId) {
 // the product stock is adjusted by the delta so it stays correct either
 // way; for any earlier status nothing has been deducted yet, so editing
 // here just changes what deduction will happen later.
-async function updateOrderItems(orderId, companyId, { items = [], removedIds = [] }) {
+async function updateOrderItems(orderId, companyId, { items = [], removedIds = [], addedItems = [] }) {
   const filter = { id: `eq.${orderId}` };
   if (companyId) filter.company_id = `eq.${companyId}`;
-  const orders = await pgrestGet('orders', { select: 'id,status', ...filter });
+  const orders = await pgrestGet('orders', { select: 'id,status,customer_id,company_id', ...filter });
   const order = orders?.[0];
   if (!order) throw new Error('Order not found or access denied');
 
@@ -332,6 +332,42 @@ async function updateOrderItems(orderId, companyId, { items = [], removedIds = [
     });
     itemById[item_id] = { ...existing, quantity: newQty };
     if (isDelivered) await applyStockDelta(existing.product_id, delta);
+  }
+
+  // New lines the customer added at the last minute — priced the same
+  // way createOrder does (custom price override, else rate-tier
+  // adjustment on the catalog price), so an added item isn't charged
+  // differently than if it had been on the order from the start.
+  if (addedItems.length > 0) {
+    const productIds = addedItems.map((i) => i.product_id);
+    const [{ data: products }, { data: customer }, { data: customPrices }] = await Promise.all([
+      supabaseAdmin.from('products').select('id,name,price,stock_quantity').in('id', productIds).eq('company_id', order.company_id),
+      supabaseAdmin.from('users').select('rate_tier').eq('id', order.customer_id).maybeSingle(),
+      supabaseAdmin.from('customer_product_prices').select('product_id,price').eq('customer_id', order.customer_id).in('product_id', productIds),
+    ]);
+    const tierAdjustment = RATE_TIER_ADJUSTMENT[customer?.rate_tier] || 0;
+    const customPriceByProduct = Object.fromEntries((customPrices || []).map((c) => [c.product_id, Number(c.price)]));
+
+    for (const { product_id, quantity } of addedItems) {
+      const product = (products || []).find((p) => p.id === product_id);
+      if (!product || !quantity || Number(quantity) <= 0) continue;
+      if (isDelivered && Number(product.stock_quantity) < Number(quantity))
+        throw new Error(`Insufficient stock for ${product.name} — only ${product.stock_quantity} available`);
+
+      const hasCustomPrice = product_id in customPriceByProduct;
+      const unitPrice = hasCustomPrice ? customPriceByProduct[product_id] : Math.max(0, Number(product.price) + tierAdjustment);
+      const qty = Number(quantity);
+
+      await supabaseAdmin.from('order_items').insert({
+        order_id: orderId,
+        product_id,
+        product_name: product.name,
+        unit_price: unitPrice,
+        quantity: qty,
+        subtotal: unitPrice * qty,
+      });
+      if (isDelivered) await applyStockDelta(product_id, qty);
+    }
   }
 
   const remaining = await pgrestGet('order_items', { select: 'subtotal', order_id: `eq.${orderId}` });

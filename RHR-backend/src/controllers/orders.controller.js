@@ -66,11 +66,11 @@ const updateOrderStatus = async (req, res) => {
 
 const updateOrderItems = async (req, res) => {
   try {
-    const { items, removed_ids } = req.body;
+    const { items, removed_ids, added_items } = req.body;
     const data = await svc.updateOrderItems(
       req.params.id,
       req.user.role === 'super_admin' ? null : req.user.company_id,
-      { items: items || [], removedIds: removed_ids || [] }
+      { items: items || [], removedIds: removed_ids || [], addedItems: added_items || [] }
     );
     return success(res, data, 'Order updated');
   } catch (err) { return error(res, err.message, 400); }

@@ -230,7 +230,7 @@ export default function GPS({ user }) {
 
       adminMarkersRef.current[a.id] = L.circleMarker(pos, {
         radius: 10,
-        fillColor: '#8E44AD',
+        fillColor: getMarkerColor(a),
         fillOpacity: 1,
         color: '#FFFFFF',
         weight: 2
@@ -495,25 +495,39 @@ export default function GPS({ user }) {
                 <EmptyState icon={ShieldCheck} title="No admins found" subtitle="Admin accounts will appear here" />
               </div>
             ) : (
-              visibleAdmins.map((a) => (
-                <div key={a.id} className="bg-white rounded-2xl shadow-card border border-gray-100 p-4 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 text-white" style={{ backgroundColor: '#8E44AD' }}>
-                    {getInitials(a.full_name)}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-sm text-navy truncate">{a.full_name}</p>
-                    <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">
-                      {a.role === 'super_admin' ? 'Super Admin' : 'Branch Admin'}{a.company ? ` · ${a.company.city}` : ''}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {a.location ? `Updated ${timeAgo(a.location.recorded_at)}` : 'No location reported yet'}
-                    </p>
-                  </div>
-                  {a.location && (
-                    <span className="text-[10px] font-bold uppercase px-2 py-1 rounded-full text-white flex-shrink-0" style={{ backgroundColor: '#8E44AD' }}>
-                      Online
-                    </span>
-                  )}
+              Object.entries(
+                visibleAdmins.reduce((groups, a) => {
+                  const key = a.company?.city || 'Other';
+                  (groups[key] = groups[key] || []).push(a);
+                  return groups;
+                }, {})
+              ).map(([city, admins]) => (
+                <div key={city} className="flex flex-col gap-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 px-1">{city} ({admins.length})</p>
+                  {admins.map((a) => {
+                    const color = getMarkerColor(a);
+                    return (
+                      <div key={a.id} className="bg-white rounded-2xl shadow-card border border-gray-100 p-4 flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 text-white" style={{ backgroundColor: color }}>
+                          {getInitials(a.full_name)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-sm text-navy truncate">{a.full_name}</p>
+                          <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">
+                            {a.role === 'super_admin' ? 'Super Admin' : 'Branch Admin'}{a.company ? ` · ${a.company.city}` : ''}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {a.location ? `Updated ${timeAgo(a.location.recorded_at)}` : 'No location reported yet'}
+                          </p>
+                        </div>
+                        {a.location && (
+                          <span className="text-[10px] font-bold uppercase px-2 py-1 rounded-full text-white flex-shrink-0" style={{ backgroundColor: color }}>
+                            Online
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ))
             )
@@ -571,17 +585,19 @@ export default function GPS({ user }) {
         {/* Map — real Leaflet + OpenStreetMap, no API key required */}
         <div className="flex-1 relative rounded-2xl overflow-hidden border border-gray-100 shadow-card">
           <div ref={mapContainerRef} className="w-full h-full min-h-[500px]" />
-          {view === 'live' && (
+          {(view === 'live' || view === 'admin') && (
             <div className="absolute left-3 bottom-3 z-[1000] bg-white/95 backdrop-blur border border-gray-200 rounded-xl shadow-card px-3.5 py-2.5 text-xs text-gray-600 flex flex-col gap-1.5">
               <div className="flex items-center gap-3">
                 <span className="flex items-center gap-1 font-medium">🔵 Karachi</span>
                 <span className="flex items-center gap-1 font-medium">🔴 Hyderabad</span>
                 <span className="flex items-center gap-1 font-medium">🟢 Sukkur</span>
               </div>
-              <div className="flex items-center gap-3 border-t border-gray-100 pt-1.5">
-                <span className="flex items-center gap-1 font-medium">👤 Salesman</span>
-                <span className="flex items-center gap-1 font-medium">🚗 Driver</span>
-              </div>
+              {view === 'live' && (
+                <div className="flex items-center gap-3 border-t border-gray-100 pt-1.5">
+                  <span className="flex items-center gap-1 font-medium">👤 Salesman</span>
+                  <span className="flex items-center gap-1 font-medium">🚗 Driver</span>
+                </div>
+              )}
             </div>
           )}
         </div>
