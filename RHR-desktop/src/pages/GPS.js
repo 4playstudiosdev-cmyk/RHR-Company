@@ -43,6 +43,19 @@ const COMPANY_COLORS = {
 const getMarkerColor = (user) => COMPANY_COLORS[user.company_id] || '#888888';
 const getMarkerLabel = (user) => (user.staffType === 'driver' ? '🚗' : '👤');
 
+// Per-admin color-coding for the Admin view — branch color alone isn't
+// enough there, since more than one admin can share a branch (Riaz
+// Hussain the super_admin and KHI Admin are both Karachi) and their
+// stale/overlapping pins would then be visually indistinguishable.
+// Deterministic (hashed from the admin's own id) so the same admin
+// always gets the same color across reloads, rather than a random one.
+const ADMIN_COLOR_PALETTE = ['#1B2E6B', '#C0392B', '#1A7A4A', '#D97706', '#7C3AED', '#0891B2', '#BE185D', '#4D7C0F'];
+function getAdminColor(admin) {
+  let hash = 0;
+  for (let i = 0; i < admin.id.length; i++) hash = (hash * 31 + admin.id.charCodeAt(i)) >>> 0;
+  return ADMIN_COLOR_PALETTE[hash % ADMIN_COLOR_PALETTE.length];
+}
+
 // Drivers get a rotated-square (diamond) divIcon; salesmen/delivery keep
 // the plain circleMarker. Dimmed when offline so a stale pin still reads
 // as stale even though color now encodes branch, not status.
@@ -224,13 +237,13 @@ export default function GPS({ user }) {
       if (!a.location) return;
       const pos = [a.location.latitude, a.location.longitude];
       const branchLabel = a.company ? ` · ${a.company.city}` : '';
-      const popupHtml = `<div style="font-size:12px"><strong>${a.full_name}</strong><br/>${a.role === 'super_admin' ? 'Super Admin' : 'Branch Admin'}${branchLabel}<br/>Last seen: ${new Date(
+      const popupHtml = `<div style="font-size:12px"><strong>${a.full_name}</strong><br/>${a.phone ? `${a.phone}<br/>` : ''}${a.role === 'super_admin' ? 'Super Admin' : 'Branch Admin'}${branchLabel}<br/>Last seen: ${new Date(
         a.location.recorded_at
       ).toLocaleTimeString()}</div>`;
 
       adminMarkersRef.current[a.id] = L.circleMarker(pos, {
         radius: 10,
-        fillColor: getMarkerColor(a),
+        fillColor: getAdminColor(a),
         fillOpacity: 1,
         color: '#FFFFFF',
         weight: 2
@@ -323,7 +336,11 @@ export default function GPS({ user }) {
     setPinging(true);
     try {
       await AdminLocationService.pingNow();
-      toast.success('Location updated.');
+      // Explicitly names whose location this was — this button only ever
+      // updates the currently logged-in browser's own account (browser
+      // geolocation can't read another device's location), so it's worth
+      // being unambiguous about that here rather than a generic message.
+      toast.success(`Location updated for ${user?.fullName || 'your account'}.`);
       if (view === 'admin') loadAdminLive(true);
     } catch (err) {
       toast.error(err.response?.data?.message || err.message || 'Failed to update location.');
@@ -505,7 +522,7 @@ export default function GPS({ user }) {
                 <div key={city} className="flex flex-col gap-2">
                   <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 px-1">{city} ({admins.length})</p>
                   {admins.map((a) => {
-                    const color = getMarkerColor(a);
+                    const color = getAdminColor(a);
                     return (
                       <div key={a.id} className="bg-white rounded-2xl shadow-card border border-gray-100 p-4 flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 text-white" style={{ backgroundColor: color }}>
@@ -585,19 +602,28 @@ export default function GPS({ user }) {
         {/* Map — real Leaflet + OpenStreetMap, no API key required */}
         <div className="flex-1 relative rounded-2xl overflow-hidden border border-gray-100 shadow-card">
           <div ref={mapContainerRef} className="w-full h-full min-h-[500px]" />
-          {(view === 'live' || view === 'admin') && (
+          {view === 'live' && (
             <div className="absolute left-3 bottom-3 z-[1000] bg-white/95 backdrop-blur border border-gray-200 rounded-xl shadow-card px-3.5 py-2.5 text-xs text-gray-600 flex flex-col gap-1.5">
               <div className="flex items-center gap-3">
                 <span className="flex items-center gap-1 font-medium">🔵 Karachi</span>
                 <span className="flex items-center gap-1 font-medium">🔴 Hyderabad</span>
                 <span className="flex items-center gap-1 font-medium">🟢 Sukkur</span>
               </div>
-              {view === 'live' && (
-                <div className="flex items-center gap-3 border-t border-gray-100 pt-1.5">
-                  <span className="flex items-center gap-1 font-medium">👤 Salesman</span>
-                  <span className="flex items-center gap-1 font-medium">🚗 Driver</span>
-                </div>
-              )}
+              <div className="flex items-center gap-3 border-t border-gray-100 pt-1.5">
+                <span className="flex items-center gap-1 font-medium">👤 Salesman</span>
+                <span className="flex items-center gap-1 font-medium">🚗 Driver</span>
+              </div>
+            </div>
+          )}
+          {view === 'admin' && visibleAdmins.length > 0 && (
+            <div className="absolute left-3 bottom-3 z-[1000] bg-white/95 backdrop-blur border border-gray-200 rounded-xl shadow-card px-3.5 py-2.5 text-xs text-gray-600 flex flex-col gap-1">
+              <p className="font-semibold text-gray-400 uppercase tracking-wide text-[10px] mb-0.5">Admin — each account is its own color</p>
+              {visibleAdmins.map((a) => (
+                <span key={a.id} className="flex items-center gap-1.5 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: getAdminColor(a) }} />
+                  {a.full_name}
+                </span>
+              ))}
             </div>
           )}
         </div>
