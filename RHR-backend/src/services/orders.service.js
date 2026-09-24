@@ -270,19 +270,102 @@ async function deductDeliveredStock(orderId) {
   }
 }
 
+// Lets an admin correct an order's line items before invoicing — some
+// customers change their mind on quantity right before delivery. `items`
+// is [{ item_id, quantity }] for lines to update; `removedIds` are line
+// items to drop entirely. If the order's already 'delivered' (stock was
+// already deducted at that transition — see deductDeliveredStock above),
+// the product stock is adjusted by the delta so it stays correct either
+// way; for any earlier status nothing has been deducted yet, so editing
+// here just changes what deduction will happen later.
+async function updateOrderItems(orderId, companyId, { items = [], removedIds = [] }) {
+  const filter = { id: `eq.${orderId}` };
+  if (companyId) filter.company_id = `eq.${companyId}`;
+  const orders = await pgrestGet('orders', { select: 'id,status', ...filter });
+  const order = orders?.[0];
+  if (!order) throw new Error('Order not found or access denied');
+
+  const existingItems = await pgrestGet('order_items', {
+    select: 'id,product_id,quantity,unit_price',
+    order_id: `eq.${orderId}`,
+  });
+  const itemById = Object.fromEntries((existingItems || []).map((it) => [it.id, it]));
+  const isDelivered = order.status === 'delivered';
+
+  const applyStockDelta = async (productId, delta) => {
+    if (!productId || !delta) return;
+    const products = await pgrestGet('products', { select: 'id,stock_quantity', id: `eq.${productId}` });
+    const product = products?.[0];
+    if (!product) return;
+    await pgrestPatch('products', { id: `eq.${productId}` }, {
+      stock_quantity: Math.max(0, Number(product.stock_quantity) - delta),
+    });
+  };
+
+  for (const id of removedIds) {
+    const existing = itemById[id];
+    if (!existing) continue;
+    // Removing a line means it's no longer sold — give the full quantity
+    // back to stock if it had already been deducted at delivery.
+    if (isDelivered) await applyStockDelta(existing.product_id, -Number(existing.quantity));
+    await supabaseAdmin.from('order_items').delete().eq('id', id);
+    delete itemById[id];
+  }
+
+  for (const { item_id, quantity } of items) {
+    const existing = itemById[item_id];
+    if (!existing || quantity == null || Number(quantity) < 0) continue;
+    const newQty = Number(quantity);
+    const delta = newQty - Number(existing.quantity);
+    if (delta === 0) continue;
+
+    if (isDelivered && delta > 0) {
+      const products = await pgrestGet('products', { select: 'stock_quantity', id: `eq.${existing.product_id}` });
+      const available = Number(products?.[0]?.stock_quantity || 0);
+      if (available < delta)
+        throw new Error(`Insufficient stock to increase this line — only ${available} more available`);
+    }
+
+    await pgrestPatch('order_items', { id: `eq.${item_id}` }, {
+      quantity: newQty,
+      subtotal: newQty * Number(existing.unit_price),
+    });
+    itemById[item_id] = { ...existing, quantity: newQty };
+    if (isDelivered) await applyStockDelta(existing.product_id, delta);
+  }
+
+  const remaining = await pgrestGet('order_items', { select: 'subtotal', order_id: `eq.${orderId}` });
+  const newTotal = (remaining || []).reduce((sum, it) => sum + Number(it.subtotal), 0);
+  await pgrestPatch('orders', { id: `eq.${orderId}` }, { total_amount: newTotal });
+
+  return getOrderById(orderId, { role: 'super_admin', id: null, company_id: null });
+}
+
 // Marks that an invoice now exists for this order — the Orders.js
 // "Create Invoice" button switches to "Edit Invoice" once this is set,
 // falling back to no-op if invoice_generated_at (a phase23 addition)
 // hasn't been migrated yet, so invoice generation itself never breaks.
-async function markInvoiceGenerated(id, companyId) {
+async function markInvoiceGenerated(id, companyId, { withTax, conveyance } = {}) {
   const filter = { id: `eq.${id}` };
   if (companyId) filter.company_id = `eq.${companyId}`;
+  const baseBody = { invoice_generated_at: new Date().toISOString() };
+  // invoice_with_tax/invoice_conveyance are a phase28 addition — fall
+  // back to just the timestamp if that migration hasn't run yet.
   try {
-    const rows = await pgrestPatch('orders', filter, { invoice_generated_at: new Date().toISOString() });
+    const rows = await pgrestPatch('orders', filter, {
+      ...baseBody,
+      invoice_with_tax: !!withTax,
+      invoice_conveyance: Number(conveyance) || 0,
+    });
     return rows?.[0] || null;
   } catch (e) {
-    return null;
+    try {
+      const rows = await pgrestPatch('orders', filter, baseBody);
+      return rows?.[0] || null;
+    } catch (e2) {
+      return null;
+    }
   }
 }
 
-module.exports = { createOrder, getOrders, getOrderById, updateOrderStatus, markInvoiceGenerated };
+module.exports = { createOrder, getOrders, getOrderById, updateOrderStatus, updateOrderItems, markInvoiceGenerated };

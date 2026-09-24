@@ -61,12 +61,19 @@ export default function Orders() {
   const [dispatching, setDispatching] = useState(false);
 
   const [invoiceOrder, setInvoiceOrder] = useState(null);
-  const [invoiceStep, setInvoiceStep] = useState(1); // 1 = tax question, 2 = conveyance question
+  // 0 = confirm order is right, 'edit' = editing line items, 1 = tax question, 2 = conveyance question
+  const [invoiceStep, setInvoiceStep] = useState(0);
   const [taxChoice, setTaxChoice] = useState(null); // 'with' | 'without'
   const [wantsConveyance, setWantsConveyance] = useState(false);
   const [conveyanceAmount, setConveyanceAmount] = useState('');
   const [conveyanceError, setConveyanceError] = useState('');
   const [generatingInvoice, setGeneratingInvoice] = useState(false);
+
+  // Order edit — reached from the "Is this order right?" confirm step
+  // when the customer changed their mind on quantity right before
+  // delivery/invoicing.
+  const [editOrderItems, setEditOrderItems] = useState([]);
+  const [savingOrderEdit, setSavingOrderEdit] = useState(false);
 
   // "Edit Invoice" — shown once an order already has an invoice
   // (order.invoice_generated_at set). Lets the admin record bags
@@ -238,28 +245,85 @@ export default function Orders() {
     }
   };
 
-  // One "Create Invoice" entry point — a 2-step modal asks tax first,
-  // then conveyance, instead of two separate Invoice/+Tax buttons.
-  const handleInvoice = (order) => {
-    setInvoiceOrder(order);
-    setInvoiceStep(1);
-    setTaxChoice(null);
-    setWantsConveyance(false);
-    setConveyanceAmount('');
-    setConveyanceError('');
+  // One "Create Invoice" entry point — first confirms the order is
+  // correct (some customers change their mind on quantity right before
+  // delivery), then a 2-step modal asks tax, then conveyance.
+  const handleInvoice = async (order) => {
+    setPdfLoadingId(order.id);
+    try {
+      const res = await api.get(`/orders/${order.id}`);
+      setInvoiceOrder(res.data.data);
+      setInvoiceStep(0);
+      setTaxChoice(null);
+      setWantsConveyance(false);
+      setConveyanceAmount('');
+      setConveyanceError('');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load order details.');
+    } finally {
+      setPdfLoadingId(null);
+    }
+  };
+
+  const startEditOrder = () => {
+    setEditOrderItems((invoiceOrder.order_items || []).map((it) => ({ ...it })));
+    setInvoiceStep('edit');
+  };
+
+  const updateEditItemQty = (itemId, qty) => {
+    setEditOrderItems((prev) => prev.map((it) => (it.id === itemId ? { ...it, quantity: qty } : it)));
+  };
+
+  const removeEditItem = (itemId) => {
+    setEditOrderItems((prev) => prev.filter((it) => it.id !== itemId));
+  };
+
+  const editOrderTotal = editOrderItems.reduce((sum, it) => sum + Number(it.unit_price) * (Number(it.quantity) || 0), 0);
+
+  const saveOrderEdit = async () => {
+    if (editOrderItems.length === 0) {
+      toast.error('An order needs at least one item.');
+      return;
+    }
+    if (editOrderItems.some((it) => !it.quantity || Number(it.quantity) <= 0)) {
+      toast.error('Every item needs a quantity greater than 0.');
+      return;
+    }
+    const originalIds = (invoiceOrder.order_items || []).map((it) => it.id);
+    const keptIds = editOrderItems.map((it) => it.id);
+    const removedIds = originalIds.filter((id) => !keptIds.includes(id));
+
+    setSavingOrderEdit(true);
+    try {
+      await api.patch(`/orders/${invoiceOrder.id}/items`, {
+        items: editOrderItems.map((it) => ({ item_id: it.id, quantity: Number(it.quantity) })),
+        removed_ids: removedIds,
+      });
+      const res = await api.get(`/orders/${invoiceOrder.id}`);
+      setInvoiceOrder(res.data.data);
+      setOrders((prev) => prev.map((o) => (o.id === invoiceOrder.id ? { ...o, total_amount: res.data.data.total_amount } : o)));
+      toast.success('Order updated.');
+      setInvoiceStep(0);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update order.');
+    } finally {
+      setSavingOrderEdit(false);
+    }
   };
 
   // Print — reprints the invoice as it stands right now, with no
-  // tax/conveyance prompts. Those were already decided and posted to the
-  // ledger the first time the invoice was created; any returns recorded
-  // since already shrank the order/item quantity and total directly
-  // (see confirmGenerateUpdatedInvoice), so this just needs the current
-  // order data — no separate return line to re-subtract.
+  // tax/conveyance prompts. Those were already decided (and posted to
+  // the ledger) the first time the invoice was created — reapplied here
+  // from what was saved then, rather than asking again or dropping them.
+  // Any returns recorded since already shrank the order/item quantity
+  // and total directly (see confirmGenerateUpdatedInvoice), so this just
+  // needs the current order data — no separate return line to re-subtract.
   const handlePrintInvoice = async (order) => {
     setPdfLoadingId(order.id);
     try {
       const res = await api.get(`/orders/${order.id}`);
-      buildInvoicePdf(res.data.data);
+      const detail = res.data.data;
+      buildInvoicePdf(detail, { withTax: !!detail.invoice_with_tax, conveyance: Number(detail.invoice_conveyance) || 0 });
       toast.success(`Invoice for ${order.order_number} downloaded.`);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to download invoice.');
@@ -317,8 +381,10 @@ export default function Orders() {
       }
 
       // First invoice for this order — flips the button to "Edit
-      // Invoice" from here on (no-ops quietly pre-migration).
-      api.patch(`/orders/${order.id}/mark-invoiced`)
+      // Invoice" from here on, and remembers the tax/conveyance choice
+      // so Print/Edit Invoice reprints reapply it automatically instead
+      // of dropping it (no-ops quietly pre-migration).
+      api.patch(`/orders/${order.id}/mark-invoiced`, { with_tax: withTax, conveyance })
         .then((r) => {
           if (r.data.data?.invoice_generated_at) {
             setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, invoice_generated_at: r.data.data.invoice_generated_at } : o)));
@@ -390,9 +456,11 @@ export default function Orders() {
 
       // Re-fetch — the order/item now reflect the reduced quantity and
       // total, so the PDF is built from the current, already-updated data.
+      // Tax/conveyance are reapplied from what was chosen on the original
+      // invoice, same as Print — editing a return shouldn't silently drop them.
       const res = await api.get(`/orders/${order.id}`);
       const updated = res.data.data;
-      buildInvoicePdf(updated);
+      buildInvoicePdf(updated, { withTax: !!updated.invoice_with_tax, conveyance: Number(updated.invoice_conveyance) || 0 });
       setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, total_amount: updated.total_amount } : o)));
 
       toast.success(`Updated invoice downloaded — ${order.users?.full_name || 'the customer'}'s ledger credited PKR ${returnAmount.toLocaleString()}.`);
@@ -812,6 +880,97 @@ export default function Orders() {
               <Button type="button" variant="secondary" onClick={() => setShowDispatchModal(false)}>Cancel</Button>
               <Button type="button" variant="accent" onClick={confirmDispatch} disabled={dispatching} className="flex items-center gap-2">
                 <Truck size={15} /> {dispatching ? 'Dispatching...' : 'Confirm Dispatch'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {invoiceOrder && invoiceStep === 0 && (
+        <Modal title={`Confirm Order — ${invoiceOrder.order_number}`} onClose={() => setInvoiceOrder(null)}>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">Is this order correct before generating the invoice?</p>
+
+            <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 space-y-1 text-sm">
+              <p className="text-gray-600">Customer: <span className="font-semibold text-navy">{invoiceOrder.users?.full_name || '—'}</span></p>
+              <p className="text-gray-600">Total: <span className="font-semibold text-navy">PKR {Number(invoiceOrder.total_amount).toLocaleString()}</span></p>
+            </div>
+
+            <div className="overflow-x-auto border border-gray-100 rounded-xl">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                    <th className="px-4 py-2 font-semibold text-xs uppercase tracking-wide">Product</th>
+                    <th className="px-4 py-2 font-semibold text-xs uppercase tracking-wide">Qty</th>
+                    <th className="px-4 py-2 font-semibold text-xs uppercase tracking-wide">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(invoiceOrder.order_items || []).map((item, i) => (
+                    <tr key={item.id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                      <td className="px-4 py-2 text-navy font-medium">{item.product_name}</td>
+                      <td className="px-4 py-2 text-gray-600">{item.quantity} {item.products?.unit || ''}</td>
+                      <td className="px-4 py-2 text-gray-600">PKR {Number(item.subtotal).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={startEditOrder}>Edit Order</Button>
+              <Button type="button" variant="accent" onClick={() => setInvoiceStep(1)}>Yes, It's Right</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {invoiceOrder && invoiceStep === 'edit' && (
+        <Modal title={`Edit Order — ${invoiceOrder.order_number}`} onClose={() => setInvoiceStep(0)}>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-500">Adjust quantities or remove items the customer changed at the last minute.</p>
+
+            <div className="space-y-2">
+              {editOrderItems.map((item) => (
+                <div key={item.id} className="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-navy truncate">{item.product_name}</p>
+                    <p className="text-xs text-gray-400">PKR {Number(item.unit_price).toLocaleString()} / {item.products?.unit || 'unit'}</p>
+                  </div>
+                  <input
+                    type="number"
+                    min="1"
+                    value={item.quantity}
+                    onChange={(e) => updateEditItemQty(item.id, e.target.value)}
+                    className="w-20 flex-shrink-0 border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+                  />
+                  <span className="text-sm font-semibold text-navy w-24 text-right flex-shrink-0">
+                    PKR {(Number(item.unit_price) * (Number(item.quantity) || 0)).toLocaleString()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeEditItem(item.id)}
+                    disabled={editOrderItems.length === 1}
+                    className="flex-shrink-0 text-gray-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed px-1"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+              {editOrderItems.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-4">No items left — an order needs at least one.</p>
+              )}
+            </div>
+
+            <div className="bg-navy-chip/40 border border-navy-chip rounded-lg px-3.5 py-2.5 flex items-center justify-between">
+              <span className="text-sm font-semibold text-navy">New Order Total</span>
+              <span className="text-base font-bold text-navy">PKR {editOrderTotal.toLocaleString()}</span>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setInvoiceStep(0)}>Cancel</Button>
+              <Button type="button" variant="accent" onClick={saveOrderEdit} disabled={savingOrderEdit}>
+                {savingOrderEdit ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>
           </div>

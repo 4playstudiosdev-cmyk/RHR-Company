@@ -64,11 +64,28 @@ const updateOrderStatus = async (req, res) => {
   }
 };
 
+const updateOrderItems = async (req, res) => {
+  try {
+    const { items, removed_ids } = req.body;
+    const data = await svc.updateOrderItems(
+      req.params.id,
+      req.user.role === 'super_admin' ? null : req.user.company_id,
+      { items: items || [], removedIds: removed_ids || [] }
+    );
+    return success(res, data, 'Order updated');
+  } catch (err) { return error(res, err.message, 400); }
+};
+
 const markInvoiceGenerated = async (req, res) => {
   try {
-    const data = await svc.markInvoiceGenerated(req.params.id, req.user.role === 'super_admin' ? null : req.user.company_id);
+    const { with_tax, conveyance } = req.body;
+    const data = await svc.markInvoiceGenerated(
+      req.params.id,
+      req.user.role === 'super_admin' ? null : req.user.company_id,
+      { withTax: with_tax, conveyance }
+    );
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { createOrder, getOrders, getOrderById, updateOrderStatus, markInvoiceGenerated };
+module.exports = { createOrder, getOrders, getOrderById, updateOrderStatus, updateOrderItems, markInvoiceGenerated };

@@ -47,6 +47,21 @@ export function buildInvoicePdf(order, { withTax = false, conveyance = 0, invoic
   doc.setTextColor(20, 20, 30);
   doc.text(customer.shop_name || customer.full_name || 'Customer', M, 67);
 
+  let billToY = 67;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.setTextColor(90, 90, 90);
+  if (customer.phone) {
+    billToY += 6;
+    doc.text(`Phone: ${customer.phone}`, M, billToY);
+  }
+  const address = order.delivery_address || customer.shop_address;
+  if (address) {
+    billToY += 6;
+    doc.text(`Address: ${address}`, M, billToY);
+  }
+  const tableStartY = Math.max(78, billToY + 11);
+
   const rows = items.map((item) => [
     item.product_name,
     `${item.quantity} ${item.products?.unit || ''}`.trim(),
@@ -55,7 +70,7 @@ export function buildInvoicePdf(order, { withTax = false, conveyance = 0, invoic
   ]);
 
   autoTable(doc, {
-    startY: 78,
+    startY: tableStartY,
     head: [['Item Description', 'Qty', 'Rate', 'Amount']],
     body: rows,
     margin: { left: M, right: M },

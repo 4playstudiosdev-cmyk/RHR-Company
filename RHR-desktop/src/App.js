@@ -11,6 +11,7 @@ import Products from './pages/Products';
 import Orders from './pages/Orders';
 import Customers from './pages/Customers';
 import Salesmen from './pages/Salesmen';
+import SalesmanRecovery from './pages/SalesmanRecovery';
 import Drivers from './pages/Drivers';
 import Suppliers from './pages/Suppliers';
 import Returns from './pages/Returns';
@@ -38,6 +39,7 @@ const PAGES = {
   orders: Orders,
   customers: Customers,
   salesmen: Salesmen,
+  recovery: SalesmanRecovery,
   drivers: Drivers,
   suppliers: Suppliers,
   returns: Returns,
@@ -67,6 +69,7 @@ const PAGES = {
 const PAGE_ACCESS = {
   dashboard: { requiredRole: 'super_admin' },
   payments: { requiredPermission: 'can_view_payments' },
+  recovery: { requiredPermission: 'can_view_payments' },
   bank: { requiredPermission: 'can_view_payments' },
   expenses: { requiredPermission: 'can_view_payments' },
   reports: { requiredPermission: 'can_export_reports' },
