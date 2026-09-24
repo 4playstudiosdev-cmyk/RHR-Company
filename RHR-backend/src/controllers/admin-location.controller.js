@@ -30,6 +30,35 @@ const pingAdminLocation = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
+const BRANCH_CITY_NAMES = {
+  '1e5962c6-33a7-460b-913e-9e08db46973a': 'Karachi',
+  '09a1fda3-7ac0-406a-8f42-75d973dc3b7e': 'Hyderabad',
+  '00f79d89-0d36-4704-8865-fc7bbd662267': 'Sukkur',
+};
+
+// POST /api/v1/admin-location/skip
+// The post-login LocationGate escape hatch — browser location can be
+// permanently denied at the OS/browser level with no in-page way to
+// re-prompt (only a manual permission change fixes that), so a hard
+// block would lock a legitimate admin out of their own account with no
+// recovery path. This unlocks the desktop anyway but tells the
+// super_admin it happened, so the visibility goal isn't silently lost.
+const skipLocationCheck = async (req, res) => {
+  try {
+    await supabaseAdmin.from('notifications').insert({
+      company_id:     KARACHI_COMPANY_ID,
+      recipient_role: 'super_admin',
+      title:          `${BRANCH_CITY_NAMES[req.user.company_id] || 'An'} Admin — Location Not Shared`,
+      body:           `${req.user.full_name} logged in but could not grant location access (denied or unavailable) and continued without it.`,
+      type:           'admin_login',
+    });
+  } catch (e) {
+    console.error('[admin-location] skip notification failed:', e.message);
+  }
+  return success(res, { skipped: true }, 'Continuing without location');
+};
+
 // GET /api/v1/admin-location/live
 // super_admin sees every branch's admins at once; branch_admin only ever
 // sees admins in their own branch (which in practice is just themselves).
@@ -92,4 +121,4 @@ const getAdminLocationHistory = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { pingAdminLocation, getAdminLiveLocations, getAdminLocationHistory };
+module.exports = { pingAdminLocation, skipLocationCheck, getAdminLiveLocations, getAdminLocationHistory };

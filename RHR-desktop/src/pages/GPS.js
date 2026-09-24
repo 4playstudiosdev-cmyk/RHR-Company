@@ -233,9 +233,36 @@ export default function GPS({ user }) {
   useEffect(() => {
     if (view !== 'admin' || !mapRef.current) return;
     clearAdminMarkers();
-    visibleAdmins.forEach((a) => {
-      if (!a.location) return;
-      const pos = [a.location.latitude, a.location.longitude];
+
+    // Two problems admins hit when several accounts' pings land at
+    // nearly the same spot (e.g. everyone testing from the same office):
+    // 1) whichever draws last visually covers the others — sorting
+    //    oldest-first so the most recently updated admin draws (and
+    //    therefore sits) on top means the "live" one is never hidden
+    //    under a stale test pin.
+    // 2) even on top, an exact-overlap pin makes the one(s) underneath
+    //    unclickable — nudging near-duplicate coordinates apart by a
+    //    small deterministic offset keeps every admin's pin visible and
+    //    selectable instead of silently merging into one dot.
+    const sorted = [...visibleAdmins]
+      .filter((a) => a.location)
+      .sort((a, b) => new Date(a.location.recorded_at) - new Date(b.location.recorded_at));
+
+    const placedKeys = new Map(); // rounded "lat,lng" -> how many already placed there
+    sorted.forEach((a) => {
+      const key = `${a.location.latitude.toFixed(3)},${a.location.longitude.toFixed(3)}`;
+      const clashIndex = placedKeys.get(key) || 0;
+      placedKeys.set(key, clashIndex + 1);
+
+      // Fan out around the true point for the 2nd+ admin sharing it —
+      // ~30m per step, in a different direction each time.
+      const angle = clashIndex * (Math.PI / 3);
+      const offsetDeg = clashIndex === 0 ? 0 : 0.00025 * clashIndex;
+      const pos = [
+        a.location.latitude + offsetDeg * Math.sin(angle),
+        a.location.longitude + offsetDeg * Math.cos(angle),
+      ];
+
       const branchLabel = a.company ? ` · ${a.company.city}` : '';
       const popupHtml = `<div style="font-size:12px"><strong>${a.full_name}</strong><br/>${a.phone ? `${a.phone}<br/>` : ''}${a.role === 'super_admin' ? 'Super Admin' : 'Branch Admin'}${branchLabel}<br/>Last seen: ${new Date(
         a.location.recorded_at

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { MapPin, Loader2 } from 'lucide-react';
 import AdminLocationService from '../services/adminLocationService';
+import api from '../services/api';
 
 // Blocks the whole desktop app behind a full-screen overlay right after
 // login until the browser hands over a location — separate from the
@@ -14,6 +15,8 @@ export default function LocationGate({ user }) {
   const [confirmed, setConfirmed] = useState(() => (storageKey ? sessionStorage.getItem(storageKey) === '1' : true));
   const [requesting, setRequesting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [failedOnce, setFailedOnce] = useState(false);
+  const [skipping, setSkipping] = useState(false);
 
   if (!user || confirmed) return null;
 
@@ -26,9 +29,26 @@ export default function LocationGate({ user }) {
       setConfirmed(true);
     } catch (err) {
       setErrorMsg(err.message || 'Could not read your location. Please allow location access and try again.');
+      setFailedOnce(true);
     } finally {
       setRequesting(false);
     }
+  };
+
+  // A denied browser permission can't be re-prompted from the page —
+  // only a manual change in the browser's own site settings fixes it
+  // (that's what the error message above already points at). Without
+  // this, that admin would be permanently locked out of their own
+  // account with no recovery path, so after one failed attempt they can
+  // continue anyway — it's logged to the super_admin instead of silently
+  // dropping the visibility this gate exists for.
+  const handleSkip = async () => {
+    setSkipping(true);
+    try {
+      await api.post('/admin-location/skip');
+    } catch (e) { /* best-effort — still unlock either way */ }
+    if (storageKey) sessionStorage.setItem(storageKey, '1');
+    setConfirmed(true);
   };
 
   return (
@@ -60,6 +80,15 @@ export default function LocationGate({ user }) {
             'Allow Location Access'
           )}
         </button>
+        {failedOnce && (
+          <button
+            onClick={handleSkip}
+            disabled={skipping}
+            className="w-full mt-2.5 text-xs text-gray-400 hover:text-gray-600 disabled:opacity-60 py-1.5"
+          >
+            {skipping ? 'Continuing...' : "Can't grant this right now — continue anyway (this will be logged)"}
+          </button>
+        )}
       </div>
     </div>
   );
