@@ -59,25 +59,24 @@ const skipLocationCheck = async (req, res) => {
 };
 
 // GET /api/v1/admin-location/live
-// super_admin only — a branch_admin's own company_id is Karachi's (same
-// as the super_admin's), so filtering by company_id alone used to leak
-// the super_admin's (and any other Karachi admin's) live location to a
-// branch_admin instead of scoping to just themselves. No admin should be
-// able to see any other admin's location, so this is locked to
-// super_admin entirely rather than trying to filter it correctly.
+// super_admin sees every admin; a branch_admin sees only their own
+// account (never another admin's — company_id can't be used to scope
+// this since a branch_admin's own company_id is Karachi's, same as the
+// super_admin's, which used to leak the super_admin's live location to
+// them). Filtered by user id instead, which is unambiguous either way.
 // Routed through the raw-https bypass (see utils/directQuery.js) — plain
 // supabaseAdmin reads on this exact shape of query were confirmed to
 // silently come back empty on Railway even for real, existing rows.
 const getAdminLiveLocations = async (req, res) => {
   try {
-    if (req.user.role !== 'super_admin')
-      return error(res, 'Only the super admin can view other admins\' locations', 403);
+    const selfOnly = req.user.role !== 'super_admin';
 
     const [admins, companies] = await Promise.all([
       pgrestGet('users', {
         select: 'id,full_name,phone,role,company_id',
         role: 'in.(super_admin,branch_admin)',
         is_active: 'eq.true',
+        ...(selfOnly ? { id: `eq.${req.user.id}` } : {}),
       }),
       pgrestGet('companies', { select: 'id,name,city' }),
     ]);
@@ -98,14 +97,15 @@ const getAdminLiveLocations = async (req, res) => {
 };
 
 // GET /api/v1/admin-location/history/:adminId
-// Today's location history for one admin — super_admin only, same
-// reasoning as getAdminLiveLocations above.
+// Today's location history for one admin — super_admin can view anyone;
+// a branch_admin can only view their own, same reasoning as
+// getAdminLiveLocations above.
 const getAdminLocationHistory = async (req, res) => {
   try {
-    if (req.user.role !== 'super_admin')
-      return error(res, 'Only the super admin can view other admins\' locations', 403);
-
     const { adminId } = req.params;
+    if (req.user.role !== 'super_admin' && adminId !== req.user.id)
+      return error(res, 'You can only view your own location history', 403);
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
