@@ -14,6 +14,8 @@ export default function Login({ onLogin }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showForceLogin, setShowForceLogin] = useState(false);
+  const [forcing, setForcing] = useState(false);
 
   // Best-effort location capture — backend only actually requires it for
   // branch_admin accounts (super_admin logins aren't gated on it), but we
@@ -28,25 +30,35 @@ export default function Login({ onLogin }) {
     );
   });
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const attemptLogin = async ({ force = false } = {}) => {
     setError('');
-    setLoading(true);
+    setShowForceLogin(false);
+    (force ? setForcing : setLoading)(true);
     try {
       const location = await captureLocation();
-      const res = await api.post('/auth/login', { email, password, ...location });
+      const res = await api.post('/auth/login', { email, password, force, ...location });
       const { token, user } = res.data.data;
       if (!['super_admin', 'branch_admin'].includes(user.role)) {
         setError('This account does not have admin access.');
-        setLoading(false);
         return;
       }
       onLogin(token, user);
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed. Please try again.');
+      const message = err.response?.data?.message || 'Login failed. Please try again.';
+      setError(message);
+      // Only offer this once the password itself has already proven
+      // correct — the "already logged in on another device" message is
+      // the one case where that's true but login was still refused.
+      if (message.includes('already logged in on another device')) setShowForceLogin(true);
     } finally {
       setLoading(false);
+      setForcing(false);
     }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    attemptLogin();
   };
 
   return (
@@ -65,6 +77,16 @@ export default function Login({ onLogin }) {
           {error && (
             <div className="mb-4 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-2.5 rounded-lg">
               {error}
+              {showForceLogin && (
+                <button
+                  type="button"
+                  onClick={() => attemptLogin({ force: true })}
+                  disabled={forcing}
+                  className="mt-2.5 w-full text-xs font-semibold text-red-700 underline underline-offset-2 hover:text-red-800 disabled:opacity-60"
+                >
+                  {forcing ? 'Logging in...' : "It's really me — force login (logs out the other device)"}
+                </button>
+              )}
             </div>
           )}
 

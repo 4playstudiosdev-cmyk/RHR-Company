@@ -101,7 +101,7 @@ async function registerCustomer({ phone, fullName, companyId, shopName, shopAddr
   return newUser;
 }
 
-async function loginWithCredentials({ email, password, latitude, longitude }) {
+async function loginWithCredentials({ email, password, latitude, longitude, force }) {
   // Salesmen log in via phone + OTP now (see findSalesmanByPhone /
   // registerSalesman) — only admin/delivery roles still use email+password.
   // Same supabase-js-on-Railway issue documented in utils/directQuery.js
@@ -135,7 +135,15 @@ async function loginWithCredentials({ email, password, latitude, longitude }) {
   // self-expires after SESSION_MAX_AGE_MS so a browser closed without
   // explicitly logging out never locks the account out forever; POST
   // /auth/logout also clears it immediately on an explicit logout.
-  if (user.active_session_token && user.active_session_started_at) {
+  //
+  // `force` lets the account holder self-recover from their own stale
+  // lock (e.g. the browser that set it was closed without logging out)
+  // without needing a *different* super_admin to clear it for them —
+  // credentials are already verified correct by this point, so knowing
+  // the password is the proof this really is the account owner. Only
+  // reachable from a second, explicit login attempt (see Login.js) after
+  // the plain attempt above already surfaced the lock — never silent.
+  if (user.active_session_token && user.active_session_started_at && !force) {
     const lockAgeMs = Date.now() - new Date(user.active_session_started_at).getTime();
     if (lockAgeMs < SESSION_MAX_AGE_MS) {
       const lastLoc = await pgrestGet('admin_locations', {
@@ -217,6 +225,27 @@ async function loginWithCredentials({ email, password, latitude, longitude }) {
       });
     } catch (e) {
       console.error('[login] admin_login notification insert failed:', e.message);
+    }
+  }
+
+  // A forced login that actually overrode a live lock invalidates
+  // whatever session was active elsewhere (its token gets overwritten
+  // below) — logged the same way a blocked attempt is, so this is never
+  // silent even though it was allowed through.
+  if (force && user.active_session_token && user.active_session_started_at) {
+    const lockAgeMs = Date.now() - new Date(user.active_session_started_at).getTime();
+    if (lockAgeMs < SESSION_MAX_AGE_MS) {
+      try {
+        await pgrestPost('notifications', {
+          company_id:     KARACHI_COMPANY_ID,
+          recipient_role: 'super_admin',
+          title:          `Forced login override — ${user.full_name}`,
+          body:           `${user.full_name} logged in with "force" while their account was already active elsewhere (since ${new Date(user.active_session_started_at).toLocaleString()}) — that other session is now logged out.`,
+          type:           'admin_login',
+        });
+      } catch (e) {
+        console.error('[login] forced-override notification insert failed:', e.message);
+      }
     }
   }
 
