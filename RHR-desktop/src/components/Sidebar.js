@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, UserCog, Wallet, LogOut,
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
-  Gauge, Boxes, ClipboardList, FileBarChart2, ChevronDown, X, CarFront,
+  Gauge, Boxes, ClipboardList, FileBarChart2, ChevronDown, X,
   PackageCheck, ArrowLeftRight, PackageSearch, Landmark, Receipt, Store, RotateCcw,
   HandCoins, Car
 } from 'lucide-react';
@@ -22,7 +22,6 @@ const NAV_ITEMS = [
   { key: 'customers', label: 'Customers', icon: Users, requiredPermission: 'can_manage_customers' },
   { key: 'salesmen', label: 'Salesmen', icon: UserCog },
   { key: 'recovery', label: 'Salesman Recovery', icon: HandCoins, requiredPermission: 'can_view_payments' },
-  { key: 'drivers', label: 'Drivers', icon: CarFront },
   { key: 'vehicles', label: 'Vehicles', icon: Car, requiredPermission: 'can_view_payments' },
   { key: 'payments', label: 'Payments', icon: Wallet, requiredPermission: 'can_view_payments' },
   { key: 'bank', label: 'Bank', icon: Landmark, requiredPermission: 'can_view_payments' },

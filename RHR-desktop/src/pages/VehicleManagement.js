@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Car, Gauge, Fuel, BarChart3, Plus, Download } from 'lucide-react';
+import { Car, Gauge, Fuel, BarChart3, Plus, Download, User, Trash2 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import PageHeader from '../components/PageHeader';
 import Button from '../components/Button';
@@ -14,6 +14,7 @@ const TABS = [
   { key: 'vehicles', label: 'Vehicles', icon: Car },
   { key: 'reading', label: 'Meter Reading', icon: Gauge },
   { key: 'fuel', label: 'Fuel & Expenses', icon: Fuel },
+  { key: 'drivers', label: 'Drivers', icon: User },
   { key: 'report', label: 'Report', icon: BarChart3 },
 ];
 
@@ -28,8 +29,9 @@ const todayISO = () => new Date().toISOString().split('T')[0];
 const monthStartISO = () => todayISO().slice(0, 7) + '-01';
 
 const EMPTY_VEHICLE_FORM = { name: '', plate_number: '', type: 'delivery' };
-const EMPTY_READING_FORM = { vehicle_id: '', reading_date: todayISO(), reading_type: 'morning', meter_reading: '', notes: '' };
-const EMPTY_FUEL_FORM = { vehicle_id: '', expense_date: todayISO(), amount: '', fuel_price_per_liter: '', fuel_liters: '', bags_delivered: '' };
+const EMPTY_READING_FORM = { vehicle_id: '', reading_date: todayISO(), meter_reading: '', notes: '' };
+const EMPTY_FUEL_FORM = { vehicle_id: '', expense_date: todayISO(), amount: '', fuel_price_per_liter: '', fuel_liters: '' };
+const EMPTY_DRIVER_FORM = { full_name: '', phone: '', car_number: '', vehicle_id: '' };
 
 export default function VehicleManagement() {
   const toast = useToast();
@@ -51,6 +53,13 @@ export default function VehicleManagement() {
   const [fuelForm, setFuelForm] = useState(EMPTY_FUEL_FORM);
   const [savingFuel, setSavingFuel] = useState(false);
 
+  const [drivers, setDrivers] = useState([]);
+  const [driversLoading, setDriversLoading] = useState(true);
+  const [showAddDriver, setShowAddDriver] = useState(false);
+  const [driverForm, setDriverForm] = useState(EMPTY_DRIVER_FORM);
+  const [savingDriver, setSavingDriver] = useState(false);
+  const [deletingDriverId, setDeletingDriverId] = useState(null);
+
   const [reportFrom, setReportFrom] = useState(monthStartISO());
   const [reportTo, setReportTo] = useState(todayISO());
   const [report, setReport] = useState([]);
@@ -61,8 +70,68 @@ export default function VehicleManagement() {
 
   useEffect(() => {
     loadVehicles();
+    loadDrivers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
+
+  const loadDrivers = async () => {
+    setDriversLoading(true);
+    try {
+      const data = companyFilter
+        ? (await api.get('/drivers', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/drivers');
+      setDrivers(data);
+    } catch (err) {
+      toast.error('Failed to load drivers.');
+    } finally {
+      setDriversLoading(false);
+    }
+  };
+
+  const handleAddDriver = async (e) => {
+    e.preventDefault();
+    if (!driverForm.full_name || !driverForm.phone) {
+      toast.error('Full name and phone are required.');
+      return;
+    }
+    setSavingDriver(true);
+    try {
+      const targetCompanyId = selectedCity === 'all' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : selectedCity;
+      await api.post('/drivers', { ...driverForm, company_id: targetCompanyId });
+      toast.success('Driver added.');
+      setDriverForm(EMPTY_DRIVER_FORM);
+      setShowAddDriver(false);
+      loadDrivers();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to add driver.');
+    } finally {
+      setSavingDriver(false);
+    }
+  };
+
+  const handleAssignDriverVehicle = async (driverId, vehicleId) => {
+    try {
+      await api.patch(`/drivers/${driverId}`, { vehicle_id: vehicleId || null });
+      setDrivers((prev) => prev.map((d) => (d.id === driverId ? { ...d, vehicle_id: vehicleId || null } : d)));
+      toast.success(vehicleId ? 'Vehicle assigned.' : 'Vehicle unassigned.');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to assign vehicle.');
+    }
+  };
+
+  const handleDeleteDriver = async (driver) => {
+    if (!window.confirm(`Delete driver "${driver.full_name}"?`)) return;
+    setDeletingDriverId(driver.id);
+    try {
+      await api.delete(`/drivers/${driver.id}`);
+      toast.success('Driver deleted.');
+      loadDrivers();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete driver.');
+    } finally {
+      setDeletingDriverId(null);
+    }
+  };
 
   const loadVehicles = async () => {
     setVehiclesLoading(true);
@@ -159,7 +228,6 @@ export default function VehicleManagement() {
         vehicle_id: fuelForm.vehicle_id,
         fuel_price_per_liter: fuelForm.fuel_price_per_liter || null,
         fuel_liters: fuelForm.fuel_liters || null,
-        bags_delivered: fuelForm.bags_delivered || null,
       });
       toast.success('Fuel expense recorded.');
       setFuelForm({ ...EMPTY_FUEL_FORM, vehicle_id: fuelForm.vehicle_id });
@@ -324,18 +392,6 @@ export default function VehicleManagement() {
           )}
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Reading Type</label>
-            <select
-              value={readingForm.reading_type}
-              onChange={(e) => setReadingForm({ ...readingForm, reading_type: e.target.value })}
-              className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-            >
-              <option value="morning">Morning (Start)</option>
-              <option value="evening">Evening (End)</option>
-            </select>
-          </div>
-
-          <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Current Meter Reading (km) *</label>
             <input
               type="number"
@@ -441,22 +497,132 @@ export default function VehicleManagement() {
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Bags Delivered (optional)</label>
-            <input
-              type="number"
-              min="0"
-              value={fuelForm.bags_delivered}
-              onChange={(e) => setFuelForm({ ...fuelForm, bags_delivered: e.target.value })}
-              placeholder="e.g. 50"
-              className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-            />
-          </div>
-
           <Button type="submit" variant="accent" disabled={savingFuel} className="w-full">
             {savingFuel ? 'Saving...' : 'Save Fuel Expense'}
           </Button>
         </form>
+      )}
+
+      {tab === 'drivers' && (
+        <div>
+          <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
+            <h3 className="font-semibold text-navy text-sm">Drivers ({drivers.length})</h3>
+            <Button variant="accent" onClick={() => setShowAddDriver(true)} className="flex items-center gap-2">
+              <Plus size={15} /> Add Driver
+            </Button>
+          </div>
+
+          {showAddDriver && (
+            <form onSubmit={handleAddDriver} className="bg-white rounded-2xl shadow-card border border-gray-100 p-5 mb-5 space-y-3">
+              <h4 className="font-semibold text-navy text-sm">Add New Driver</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Full Name *</label>
+                  <input
+                    type="text"
+                    value={driverForm.full_name}
+                    onChange={(e) => setDriverForm({ ...driverForm, full_name: e.target.value })}
+                    placeholder="Driver name"
+                    className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Phone *</label>
+                  <input
+                    type="text"
+                    value={driverForm.phone}
+                    onChange={(e) => setDriverForm({ ...driverForm, phone: e.target.value })}
+                    placeholder="03001234567"
+                    className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Car Number</label>
+                  <input
+                    type="text"
+                    value={driverForm.car_number}
+                    onChange={(e) => setDriverForm({ ...driverForm, car_number: e.target.value })}
+                    placeholder="KHI-1234"
+                    className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Vehicle (optional)</label>
+                  <select
+                    value={driverForm.vehicle_id}
+                    onChange={(e) => setDriverForm({ ...driverForm, vehicle_id: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                  >
+                    <option value="">— None —</option>
+                    {vehicles.map((v) => (
+                      <option key={v.id} value={v.id}>{v.name} ({v.plate_number})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <Button type="button" variant="secondary" onClick={() => setShowAddDriver(false)}>Cancel</Button>
+                <Button type="submit" variant="accent" disabled={savingDriver}>{savingDriver ? 'Saving...' : 'Save Driver'}</Button>
+              </div>
+            </form>
+          )}
+
+          <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+            {driversLoading ? (
+              <SkeletonTable rows={5} cols={5} />
+            ) : drivers.length === 0 ? (
+              <EmptyState icon={User} title="No drivers added yet" />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Name</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Phone</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Car Number</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Vehicle</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {drivers.map((d, i) => (
+                      <tr key={d.id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                        <td className="px-6 py-3.5 font-medium text-navy">{d.full_name}</td>
+                        <td className="px-6 py-3.5 text-gray-600">{d.phone || '—'}</td>
+                        <td className="px-6 py-3.5 text-gray-600">{d.car_number || '—'}</td>
+                        <td className="px-6 py-3.5">
+                          <select
+                            value={d.vehicle_id || ''}
+                            onChange={(e) => handleAssignDriverVehicle(d.id, e.target.value)}
+                            className="border border-gray-200 rounded-md px-1.5 py-1 text-[11px] text-gray-600 focus:outline-none focus:ring-1 focus:ring-navy-chip focus:border-navy bg-white cursor-pointer max-w-[150px]"
+                          >
+                            <option value="">— None —</option>
+                            {vehicles.map((v) => (
+                              <option key={v.id} value={v.id}>{v.name} ({v.plate_number})</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-6 py-3.5">
+                          <span className="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700">Active</span>
+                        </td>
+                        <td className="px-6 py-3.5">
+                          <button
+                            onClick={() => handleDeleteDriver(d)}
+                            disabled={deletingDriverId === d.id}
+                            className="inline-flex items-center gap-1.5 text-xs text-red-600 hover:underline font-medium disabled:opacity-50"
+                          >
+                            <Trash2 size={13} /> Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {tab === 'report' && (

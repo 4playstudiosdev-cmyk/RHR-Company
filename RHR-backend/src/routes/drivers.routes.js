@@ -21,13 +21,20 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
   try {
     const companyId = resolveCompanyId(req);
     const params = {
-      select: 'id,company_id,full_name,phone,car_number,is_approved,is_active,created_at',
+      select: 'id,company_id,full_name,phone,car_number,vehicle_id,is_approved,is_active,created_at',
       is_active: 'eq.true',
       order: 'full_name.asc',
     };
     if (companyId) params.company_id = `eq.${companyId}`;
 
-    const data = await pgrestGet('drivers', params);
+    // vehicle_id is a phase32 addition — fall back to the plain column
+    // list if that migration hasn't run yet.
+    let data;
+    try {
+      data = await pgrestGet('drivers', params);
+    } catch (e) {
+      data = await pgrestGet('drivers', { ...params, select: 'id,company_id,full_name,phone,car_number,is_approved,is_active,created_at' });
+    }
 
     const driverIds = (data || []).map((d) => d.id);
     let countByDriver = {};
@@ -84,7 +91,7 @@ router.get('/pending', authenticate, isAdmin, async (req, res) => {
 // branch regardless of what's sent.
 router.post('/', authenticate, isAdmin, async (req, res) => {
   try {
-    const { full_name, phone, car_number, company_id } = req.body;
+    const { full_name, phone, car_number, company_id, vehicle_id } = req.body;
     if (!full_name || !phone)
       return error(res, 'full_name, phone are required', 400);
 
@@ -103,7 +110,7 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
     });
     if (authErr) throw new Error(authErr.message);
 
-    const [data] = await pgrestPost('drivers', {
+    const baseRow = {
       id:          authData.user.id,
       company_id:  targetCompanyId,
       full_name,
@@ -111,7 +118,16 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
       car_number:  car_number || null,
       is_approved: true,
       is_active:   true
-    });
+    };
+
+    // vehicle_id is a phase32 addition — fall back to inserting without
+    // it if that migration hasn't run yet.
+    let data;
+    try {
+      [data] = await pgrestPost('drivers', { ...baseRow, vehicle_id: vehicle_id || null });
+    } catch (e) {
+      [data] = await pgrestPost('drivers', baseRow);
+    }
 
     return success(res, data, 'Driver account created', 201);
   } catch (err) { return error(res, err.message); }
@@ -158,10 +174,18 @@ router.get('/:id/customers', authenticate, isAdmin, async (req, res) => {
 // branch_admin stays locked to their own.
 router.patch('/:id', authenticate, isAdmin, async (req, res) => {
   try {
-    const { full_name, phone, car_number, is_active } = req.body;
+    const { full_name, phone, car_number, is_active, vehicle_id } = req.body;
     const filter = { id: `eq.${req.params.id}` };
     if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
-    const data = await pgrestPatch('drivers', filter, { full_name, phone, car_number, is_active });
+
+    // vehicle_id is a phase32 addition — fall back to patching without it
+    // if that migration hasn't run yet.
+    let data;
+    try {
+      data = await pgrestPatch('drivers', filter, { full_name, phone, car_number, is_active, vehicle_id });
+    } catch (e) {
+      data = await pgrestPatch('drivers', filter, { full_name, phone, car_number, is_active });
+    }
     if (!data?.[0]) return error(res, 'Driver not found', 404);
     return success(res, data[0], 'Driver updated');
   } catch (err) { return error(res, err.message); }

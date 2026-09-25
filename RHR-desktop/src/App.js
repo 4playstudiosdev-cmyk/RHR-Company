@@ -14,7 +14,6 @@ import Orders from './pages/Orders';
 import Customers from './pages/Customers';
 import Salesmen from './pages/Salesmen';
 import SalesmanRecovery from './pages/SalesmanRecovery';
-import Drivers from './pages/Drivers';
 import VehicleManagement from './pages/VehicleManagement';
 import Suppliers from './pages/Suppliers';
 import Returns from './pages/Returns';
@@ -43,7 +42,6 @@ const PAGES = {
   customers: Customers,
   salesmen: Salesmen,
   recovery: SalesmanRecovery,
-  drivers: Drivers,
   vehicles: VehicleManagement,
   suppliers: Suppliers,
   returns: Returns,

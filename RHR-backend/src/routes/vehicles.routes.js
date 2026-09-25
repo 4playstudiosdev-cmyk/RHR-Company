@@ -106,8 +106,35 @@ router.get('/report', authenticate, isAdmin, async (req, res) => {
       const totalFuelAmt  = fuelExpenses.reduce((s, e) => s + Number(e.amount), 0);
       const totalFuelLtrs = fuelExpenses.reduce((s, e) => s + Number(e.fuel_liters || 0), 0);
       const totalMaintAmt = otherExpenses.reduce((s, e) => s + Number(e.amount), 0);
-      const totalBags     = filteredExpenses.reduce((s, e) => s + Number(e.bags_delivered || 0), 0);
       const totalExpenses = totalFuelAmt + totalMaintAmt;
+
+      // Bags delivered is derived from actually-delivered customer
+      // orders, not typed in by hand — found via whichever driver(s) are
+      // assigned to this vehicle (drivers.vehicle_id, phase32), then
+      // summing order_items.quantity for that driver's delivered orders.
+      // Filtered by order creation date — orders has no separate
+      // delivered-at timestamp to filter on instead.
+      const vehicleDrivers = await pgrestGet('drivers', {
+        select: 'id',
+        vehicle_id: `eq.${v.id}`,
+      }).catch(() => []);
+      const driverIds = (vehicleDrivers || []).map((d) => d.id);
+
+      let totalBags = 0;
+      if (driverIds.length > 0) {
+        const deliveredOrders = await pgrestGet('orders', {
+          select: 'id,created_at,order_items(quantity)',
+          driver_id: `in.(${driverIds.join(',')})`,
+          status: 'eq.delivered',
+        }).catch(() => []);
+        totalBags = (deliveredOrders || [])
+          .filter((o) => {
+            if (from && o.created_at < from) return false;
+            if (to && o.created_at > `${to}T23:59:59`) return false;
+            return true;
+          })
+          .reduce((sum, o) => sum + (o.order_items || []).reduce((s, it) => s + Number(it.quantity || 0), 0), 0);
+      }
 
       const fuelAverage   = totalFuelLtrs > 0 ? Number((totalKm / totalFuelLtrs).toFixed(2)) : 0;
       const perBagExpense = totalBags > 0 ? Number((totalExpenses / totalBags).toFixed(2)) : 0;
@@ -145,10 +172,12 @@ router.get('/:id/readings', authenticate, isAdmin, async (req, res) => {
 });
 
 // POST /api/v1/vehicles/:id/readings — km_driven is computed here from
-// the previous reading, not trusted from the client.
+// the previous reading, not trusted from the client. reading_type used
+// to be a morning/evening choice from the client — now just one reading
+// a day ('daily'), so it's no longer client-controlled.
 router.post('/:id/readings', authenticate, isAdmin, async (req, res) => {
   try {
-    const { reading_date, reading_type, meter_reading, notes } = req.body;
+    const { reading_date, meter_reading, notes } = req.body;
     if (meter_reading == null || Number(meter_reading) < 0)
       return error(res, 'A valid meter_reading is required', 400);
 
@@ -171,7 +200,7 @@ router.post('/:id/readings', authenticate, isAdmin, async (req, res) => {
       company_id: vehicle.company_id,
       vehicle_id: req.params.id,
       reading_date: reading_date || new Date().toISOString().split('T')[0],
-      reading_type: reading_type === 'evening' ? 'evening' : 'morning',
+      reading_type: 'daily',
       meter_reading: Number(meter_reading),
       km_driven: kmDriven > 0 ? kmDriven : 0,
       notes: notes || null,
