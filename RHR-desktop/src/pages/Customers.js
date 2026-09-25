@@ -25,7 +25,7 @@ const RATE_BADGE = {
 // same default the Products/Raw Materials pages use, since there's no
 // single real branch a "combined view" create action could target.
 const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
-const EMPTY_CUSTOMER_FORM = { full_name: '', phone: '', email: '', shop_name: '', shop_address: '', rate_tier: 'manual', salesman_id: '' };
+const EMPTY_CUSTOMER_FORM = { full_name: '', phone: '', email: '', shop_name: '', shop_address: '', city: '', area: '', rate_tier: 'manual', salesman_id: '' };
 
 const PAGE_SIZE = 10;
 
@@ -77,6 +77,9 @@ export default function Customers({ onViewLedger }) {
   const [approvingCustomer, setApprovingCustomer] = useState(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [filterCity, setFilterCity] = useState('');
+  const [filterArea, setFilterArea] = useState('');
+  const [filterSalesman, setFilterSalesman] = useState('');
 
   // Outstanding balance per customer — fetched lazily, only for the rows
   // actually visible on the current page (avoids an N+1 ledger call for
@@ -271,6 +274,8 @@ export default function Customers({ onViewLedger }) {
       email:        customer.email || '',
       shop_name:    customer.shop_name || '',
       shop_address: customer.shop_address || '',
+      city:         customer.city || '',
+      area:         customer.area || '',
       salesman_id:  customer.salesman_id || ''
     });
     setShowCustomerModal(true);
@@ -309,7 +314,12 @@ export default function Customers({ onViewLedger }) {
     }
   };
 
-  const filtered = filterCustomers(all, search);
+  const filtered = filterCustomers(all, search).filter((c) => {
+    if (filterCity && !c.city?.toLowerCase().includes(filterCity.toLowerCase())) return false;
+    if (filterArea && !c.area?.toLowerCase().includes(filterArea.toLowerCase())) return false;
+    if (filterSalesman && c.salesman_id !== filterSalesman) return false;
+    return true;
+  });
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageCustomers = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -350,7 +360,7 @@ export default function Customers({ onViewLedger }) {
 
   useEffect(() => {
     setPage(1);
-  }, [search]);
+  }, [search, filterCity, filterArea, filterSalesman]);
 
   return (
     <div className="p-6">
@@ -477,6 +487,41 @@ export default function Customers({ onViewLedger }) {
             </div>
           </div>
 
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            <input
+              type="text"
+              value={filterCity}
+              onChange={(e) => setFilterCity(e.target.value)}
+              placeholder="Filter by city..."
+              className="w-36 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
+            />
+            <input
+              type="text"
+              value={filterArea}
+              onChange={(e) => setFilterArea(e.target.value)}
+              placeholder="Filter by area..."
+              className="w-36 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
+            />
+            <select
+              value={filterSalesman}
+              onChange={(e) => setFilterSalesman(e.target.value)}
+              className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy"
+            >
+              <option value="">All Salesmen</option>
+              {salesmenList.map((s) => (
+                <option key={s.id} value={s.id}>{s.full_name}</option>
+              ))}
+            </select>
+            {(filterCity || filterArea || filterSalesman) && (
+              <button
+                onClick={() => { setFilterCity(''); setFilterArea(''); setFilterSalesman(''); }}
+                className="text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                ✕ Clear Filters
+              </button>
+            )}
+          </div>
+
           {filtered.length === 0 ? (
             <div className="bg-white rounded-2xl shadow-card border border-gray-100">
               <EmptyState icon={Users} title="No customers found" subtitle={search ? 'Try a different search' : undefined} />
@@ -491,6 +536,8 @@ export default function Customers({ onViewLedger }) {
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Phone</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Rate</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Salesman</th>
+                      <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">City</th>
+                      <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Area</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Orders</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Outstanding</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-center">Status</th>
@@ -546,6 +593,8 @@ export default function Customers({ onViewLedger }) {
                               <span className="text-gray-300">— None —</span>
                             )}
                           </td>
+                          <td className="py-3 px-4 text-gray-600 text-[13px]">{customer.city || '—'}</td>
+                          <td className="py-3 px-4 text-gray-600 text-[13px]">{customer.area || '—'}</td>
                           <td className="py-3 px-4 text-right text-navy font-medium">
                             {ordersByCustomer[customer.id] || 0}
                           </td>
@@ -806,6 +855,28 @@ export default function Customers({ onViewLedger }) {
                 onChange={(e) => setCustomerForm({ ...customerForm, shop_address: e.target.value })}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
               />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">City</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Karachi"
+                  value={customerForm.city}
+                  onChange={(e) => setCustomerForm({ ...customerForm, city: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Area</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Gulshan, Saddar, DHA"
+                  value={customerForm.area}
+                  onChange={(e) => setCustomerForm({ ...customerForm, area: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+              </div>
             </div>
             {!editingCustomer && (
               <div>

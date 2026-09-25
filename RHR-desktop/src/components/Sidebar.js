@@ -4,7 +4,7 @@ import {
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
   Gauge, Boxes, ClipboardList, FileBarChart2, ChevronDown, X, CarFront,
   PackageCheck, ArrowLeftRight, PackageSearch, Landmark, Receipt, Store, RotateCcw,
-  HandCoins
+  HandCoins, Car
 } from 'lucide-react';
 import api, { hasPermission } from '../services/api';
 
@@ -23,6 +23,7 @@ const NAV_ITEMS = [
   { key: 'salesmen', label: 'Salesmen', icon: UserCog },
   { key: 'recovery', label: 'Salesman Recovery', icon: HandCoins, requiredPermission: 'can_view_payments' },
   { key: 'drivers', label: 'Drivers', icon: CarFront },
+  { key: 'vehicles', label: 'Vehicles', icon: Car, requiredPermission: 'can_view_payments' },
   { key: 'payments', label: 'Payments', icon: Wallet, requiredPermission: 'can_view_payments' },
   { key: 'bank', label: 'Bank', icon: Landmark, requiredPermission: 'can_view_payments' },
   { key: 'expenses', label: 'Expenses', icon: Receipt, requiredPermission: 'can_view_payments' },

@@ -9,24 +9,31 @@ function normalizePhone(phone) {
   return '+' + digits;
 }
 
+// city/area are a phase31 addition — the named-column select below 400s
+// outright if that migration hasn't run (unlike select('*'), which just
+// omits missing columns), so this tries with them first and falls back
+// to the old column list rather than breaking the whole Customers page.
+const CUSTOMER_COLUMNS = 'id, company_id, full_name, phone, email, is_approved, salesman_id, driver_id, shop_name, shop_address, shop_latitude, shop_longitude, rate_tier, city, area, created_at';
+const CUSTOMER_COLUMNS_FALLBACK = 'id, company_id, full_name, phone, email, is_approved, salesman_id, driver_id, shop_name, shop_address, shop_latitude, shop_longitude, rate_tier, created_at';
+
 const getCustomers = async (req, res) => {
   try {
     const user = req.user;
-    let query  = supabaseAdmin
-      .from('users')
-      .select('id, company_id, full_name, phone, email, is_approved, salesman_id, driver_id, shop_name, shop_address, shop_latitude, shop_longitude, rate_tier, created_at')
-      .eq('role', 'customer')
-      .eq('is_active', true);
-
-    // Salesman sees only his assigned customers
-    if (user.role === 'salesman') {
-      query = query.eq('salesman_id', user.id);
-    } else {
+    const applyFilters = (query) => {
+      if (user.role === 'salesman') return query.eq('salesman_id', user.id);
       const companyId = resolveCompanyId(req);
-      if (companyId) query = query.eq('company_id', companyId);
-    }
+      return companyId ? query.eq('company_id', companyId) : query;
+    };
 
-    const { data, error: dbError } = await query.order('full_name');
+    let { data, error: dbError } = await applyFilters(
+      supabaseAdmin.from('users').select(CUSTOMER_COLUMNS).eq('role', 'customer').eq('is_active', true)
+    ).order('full_name');
+
+    if (dbError) {
+      ({ data, error: dbError } = await applyFilters(
+        supabaseAdmin.from('users').select(CUSTOMER_COLUMNS_FALLBACK).eq('role', 'customer').eq('is_active', true)
+      ).order('full_name'));
+    }
     if (dbError) throw new Error(dbError.message);
     return success(res, data);
   } catch (err) { return error(res, err.message); }
@@ -79,7 +86,7 @@ const getCustomerById = async (req, res) => {
 // that queue since an admin is entering it by hand.
 const createCustomer = async (req, res) => {
   try {
-    const { full_name, phone, email, shop_name, shop_address, company_id, rate_tier, driver_id, salesman_id } = req.body;
+    const { full_name, phone, email, shop_name, shop_address, city, area, company_id, rate_tier, driver_id, salesman_id } = req.body;
     if (!full_name || !phone)
       return error(res, 'full_name and phone are required', 400);
 
@@ -127,7 +134,7 @@ const createCustomer = async (req, res) => {
     });
     if (authErr) throw new Error(authErr.message);
 
-    const [data] = await pgrestPost('users', {
+    const baseRow = {
       id:           authData.user.id,
       company_id:   targetCompanyId,
       role:         'customer',
@@ -141,7 +148,17 @@ const createCustomer = async (req, res) => {
       salesman_id:  salesman_id || null,
       is_approved:  true,
       is_active:    true
-    });
+    };
+
+    // city/area are a phase31 addition — fall back to inserting without
+    // them if that migration hasn't run yet, same pattern used elsewhere
+    // in this codebase for new columns on an already-live table.
+    let data;
+    try {
+      [data] = await pgrestPost('users', { ...baseRow, city: city || null, area: area || null });
+    } catch (e) {
+      [data] = await pgrestPost('users', baseRow);
+    }
 
     return success(res, data, 'Customer account created', 201);
   } catch (err) { return error(res, err.message); }
@@ -150,18 +167,27 @@ const createCustomer = async (req, res) => {
 // PATCH /api/v1/customers/:id — edit an existing customer's details
 const updateCustomer = async (req, res) => {
   try {
-    const { full_name, phone, email, shop_name, shop_address } = req.body;
+    const { full_name, phone, email, shop_name, shop_address, city, area } = req.body;
 
     const filter = { id: `eq.${req.params.id}`, role: 'eq.customer' };
     if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
 
-    const data = await pgrestPatch('users', filter, {
+    const baseBody = {
       full_name,
       phone: phone ? normalizePhone(phone) : undefined,
       email,
       shop_name,
       shop_address
-    });
+    };
+
+    // city/area are a phase31 addition — fall back to patching without
+    // them if that migration hasn't run yet.
+    let data;
+    try {
+      data = await pgrestPatch('users', filter, { ...baseBody, city, area });
+    } catch (e) {
+      data = await pgrestPatch('users', filter, baseBody);
+    }
     if (!data?.[0]) return error(res, 'Customer not found or access denied', 404);
     return success(res, data[0], 'Customer updated');
   } catch (err) { return error(res, err.message); }
