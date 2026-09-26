@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -11,18 +12,26 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await HiveService.init();
   await GPSService().initialize();
-  await _resumeGpsIfFieldStaff();
   runApp(const ProviderScope(child: RHRApp()));
+  // Deliberately NOT awaited before runApp: startTracking() can wait on the
+  // Android location-permission dialog, which can't appear until the UI
+  // exists. Awaiting it here left the phone stuck on the loading screen
+  // forever whenever a salesman/driver session was already saved.
+  unawaited(_resumeGpsIfFieldStaff());
 }
 
 /// If the app was killed and relaunched while a salesman/driver was still
 /// logged in, resume GPS tracking automatically instead of waiting for a
 /// fresh login.
 Future<void> _resumeGpsIfFieldStaff() async {
-  final token = await SecureStorage.getToken();
-  final role = await SecureStorage.getRole();
-  if (token != null && (role == 'salesman' || role == 'driver')) {
-    await GPSService().startTracking();
+  try {
+    final token = await SecureStorage.getToken();
+    final role = await SecureStorage.getRole();
+    if (token != null && (role == 'salesman' || role == 'driver')) {
+      await GPSService().startTracking();
+    }
+  } catch (_) {
+    // Tracking is a background nicety; it must never break app startup.
   }
 }
 

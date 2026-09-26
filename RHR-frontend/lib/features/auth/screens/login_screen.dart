@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
@@ -101,12 +102,15 @@ class _LoginScreenState extends State<LoginScreen> {
           if (data['user']?['id'] != null) await SecureStorage.saveUserId(data['user']['id'] as String);
           final carNumber = data['user']?['carNumber'] as String?;
           if (carNumber != null && carNumber.isNotEmpty) await SecureStorage.saveCarNumber(carNumber);
+          // Navigate first, start GPS after: startTracking() can sit waiting
+          // on the location-permission dialog, and awaiting it here kept the
+          // button spinner spinning with the user stuck on the login screen.
           if (loggedInRole == 'salesman') {
-            await GPSService().startTracking();
             if (mounted) context.go('/salesman-dashboard');
+            unawaited(GPSService().startTracking());
           } else if (loggedInRole == 'driver') {
-            await GPSService().startTracking();
             if (mounted) context.go('/driver-dashboard');
+            unawaited(GPSService().startTracking());
           } else {
             if (mounted) context.go('/home');
           }

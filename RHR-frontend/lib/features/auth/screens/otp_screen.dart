@@ -176,12 +176,14 @@ class _OtpScreenState extends State<OtpScreen> {
           if (loggedInCarNumber != null && loggedInCarNumber.isNotEmpty) {
             await SecureStorage.saveCarNumber(loggedInCarNumber);
           }
+          // Navigate first, start GPS after (see login_screen.dart): waiting
+          // on the location-permission dialog must not block the login.
           if (role == 'salesman') {
-            await GPSService().startTracking();
             if (mounted) context.go('/salesman-dashboard');
+            unawaited(GPSService().startTracking());
           } else if (role == 'driver') {
-            await GPSService().startTracking();
             if (mounted) context.go('/driver-dashboard');
+            unawaited(GPSService().startTracking());
           } else {
             if (mounted) context.go('/home');
           }

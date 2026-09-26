@@ -43,12 +43,19 @@ class GPSService {
 
     await initialize();
 
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return false;
+      }
+    } catch (e) {
+      // e.g. a permission request already in flight, or location services
+      // unavailable — tracking just doesn't start; never an app error.
+      debugPrint('GPS permission check failed: $e');
       return false;
     }
 

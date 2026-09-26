@@ -380,47 +380,38 @@ async function approveCustomer(customerId, adminUser, rateTier) {
 // sends an existing, approved user down the registration branch instead
 // (surfacing as a confusing "fullName is required" error). Same class of
 // flakiness withRetry already papers over in loginWithCredentials above.
-async function findCustomerByPhone(phone) {
+// Phone lookup shared by the three find*ByPhone functions below. Routed
+// through the raw-https bypass (see utils/directQuery.js) instead of
+// supabase-js: on Railway, supabase-js silently returned "no row" for
+// these exact queries even though the account exists, which made the
+// server treat every existing customer/salesman/driver as a brand-new
+// registration ("fullName is required for new registration") and blocked
+// all app logins. Matches either stored phone format (+92... or 92...).
+async function lookupByPhone(table, phone, extraFilters = {}) {
   const canonical = normalizePhone(phone);          // +923001234567
   const bare      = canonical.replace('+', '');    // 923001234567
-
-  // Match either storage format — whatever was used at registration time
-  const user = await withRetry(async () => {
-    const { data, error } = await supabaseAdmin
-      .from('users')
-      .select('*')
-      .or(`phone.eq.${canonical},phone.eq.${bare}`)
-      .eq('role', 'customer')
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    return data;
-  }).catch((err) => {
-    console.error('findCustomerByPhone error:', err.message);
+  try {
+    const rows = await pgrestGet(table, {
+      select: '*',
+      or: `(phone.eq.${canonical},phone.eq.${bare})`,
+      limit: '1',
+      ...extraFilters,
+    });
+    return rows?.[0] || null;
+  } catch (err) {
+    console.error(`lookupByPhone(${table}) error:`, err.message);
     return null;
-  });
+  }
+}
 
-  return user || null;
+async function findCustomerByPhone(phone) {
+  return lookupByPhone('users', phone, { role: 'eq.customer' });
 }
 
 async function findSalesmanByPhone(phone) {
-  const canonical = normalizePhone(phone);
-  const bare      = canonical.replace('+', '');
-
-  const salesman = await withRetry(async () => {
-    const { data, error } = await supabaseAdmin
-      .from('salesmen')
-      .select('*')
-      .or(`phone.eq.${canonical},phone.eq.${bare}`)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    return data;
-  }).catch((err) => {
-    console.error('findSalesmanByPhone error:', err.message);
-    return null;
-  });
-
+  const salesman = await lookupByPhone('salesmen', phone);
   if (!salesman) return null;
-  // salesmen has no `role` column (the table itself is the discriminator) —
+  // salesmen has no `role` column (the table itself is the discriminator);
   // callers (sendOTPHandler/verifyOTPHandler/generateToken) expect one.
   return { ...salesman, role: 'salesman' };
 }
@@ -439,24 +430,9 @@ async function approveSalesman(salesmanId, adminUser) {
 }
 
 async function findDriverByPhone(phone) {
-  const canonical = normalizePhone(phone);
-  const bare      = canonical.replace('+', '');
-
-  const driver = await withRetry(async () => {
-    const { data, error } = await supabaseAdmin
-      .from('drivers')
-      .select('*')
-      .or(`phone.eq.${canonical},phone.eq.${bare}`)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    return data;
-  }).catch((err) => {
-    console.error('findDriverByPhone error:', err.message);
-    return null;
-  });
-
+  const driver = await lookupByPhone('drivers', phone);
   if (!driver) return null;
-  // drivers has no `role` column — the table itself is the discriminator
+  // drivers has no `role` column; the table itself is the discriminator
   return { ...driver, role: 'driver' };
 }
 
