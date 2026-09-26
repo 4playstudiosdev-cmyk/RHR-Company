@@ -37,7 +37,9 @@ class DioClient {
         // so this — not onError — is where an expired/invalid session
         // actually needs to be caught and force a fresh login.
         if (response.statusCode == 401) {
-          await GPSService().stopTracking();
+          // sync: false — the session is already invalid, so uploading
+          // queued GPS points would just 401 again and re-trigger this.
+          await GPSService().stopTracking(sync: false);
           await SecureStorage.clearAll();
           if (appRouter.state.matchedLocation != '/login') {
             appRouter.go('/login');
@@ -48,7 +50,7 @@ class DioClient {
       onError: (error, handler) async {
         debugPrint('ERROR: ${error.response?.statusCode} ${error.message}');
         if (error.response?.statusCode == 401) {
-          await GPSService().stopTracking();
+          await GPSService().stopTracking(sync: false);
           await SecureStorage.clearToken();
         }
         return handler.next(error);

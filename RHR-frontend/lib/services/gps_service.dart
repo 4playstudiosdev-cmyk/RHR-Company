@@ -65,7 +65,7 @@ class GPSService {
       // Stop pinging the moment the session goes away instead of quietly
       // hitting /gps/ping with a stale/cleared token every 2 minutes.
       if (!await SecureStorage.isLoggedIn()) {
-        await stopTracking();
+        await stopTracking(sync: false); // no session — nothing can upload
         return;
       }
       await _captureAndSend();
@@ -73,11 +73,16 @@ class GPSService {
     return true;
   }
 
-  Future<void> stopTracking() async {
+  /// [sync] = false skips uploading queued offline points. The 401 handler in
+  /// dio_client.dart must use that: uploading needs a valid session, and the
+  /// upload itself returns 401 again, which called stopTracking() again ...
+  /// an endless request loop that starved the UI and froze the app on its
+  /// loading screen whenever a stale (expired) session was saved.
+  Future<void> stopTracking({bool sync = true}) async {
     _timer?.cancel();
     _timer = null;
     _isTracking = false;
-    await _syncOfflinePoints();
+    if (sync) await _syncOfflinePoints();
   }
 
   Future<void> _captureAndSend() async {
@@ -120,9 +125,14 @@ class GPSService {
     debugPrint('GPS saved offline. Pending: ${_offlineBox?.length}');
   }
 
+  bool _isSyncing = false;
+
   Future<void> _syncOfflinePoints() async {
     final box = _offlineBox;
     if (box == null || box.isEmpty) return;
+    // Never run two uploads at once, and never re-enter from inside one.
+    if (_isSyncing) return;
+    _isSyncing = true;
 
     final keys = box.keys.toList();
     final pings = keys
@@ -130,7 +140,10 @@ class GPSService {
         .where((raw) => raw != null)
         .map((raw) => Map<String, dynamic>.from(raw!))
         .toList();
-    if (pings.isEmpty) return;
+    if (pings.isEmpty) {
+      _isSyncing = false;
+      return;
+    }
 
     try {
       final response = await DioClient.instance.post(
@@ -145,6 +158,8 @@ class GPSService {
       }
     } catch (e) {
       debugPrint('GPS batch sync failed: $e');
+    } finally {
+      _isSyncing = false;
     }
   }
 }
