@@ -4,7 +4,7 @@ import {
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
   Gauge, Boxes, ClipboardList, FileBarChart2, ChevronDown, X,
   PackageCheck, ArrowLeftRight, PackageSearch, Landmark, Receipt, Store, RotateCcw,
-  HandCoins, Car
+  HandCoins, Car, CalendarCheck, WalletCards
 } from 'lucide-react';
 import api, { hasPermission } from '../services/api';
 
@@ -40,11 +40,13 @@ const NAV_ITEMS = [
       { key: 'production-orders', label: 'Production Orders', icon: ClipboardList },
       { key: 'production-log', label: 'Production History', icon: PackageCheck },
       { key: 'production-reports', label: 'Production Reports', icon: FileBarChart2 },
-      { key: 'production-recipes', label: 'Recipes', icon: ClipboardList }
+      { key: 'production-recipes', label: 'Recipes', icon: ClipboardList },
+      { key: 'production-daily', label: 'Daily Production Entry', icon: CalendarCheck }
     ]
   },
   { key: 'stock-transfers', label: 'Stock Transfers', icon: ArrowLeftRight },
   { key: 'stock-reports', label: 'Stock Reports', icon: PackageSearch, requiredPermission: 'can_export_reports' },
+  { key: 'opening-balances', label: 'Opening Balances', icon: WalletCards, requiredRole: 'super_admin' },
   { key: 'hrm', label: 'HRM', icon: Briefcase, requiredPermission: 'can_manage_hrm' },
   { key: 'admins', label: 'Admin Roles', icon: KeyRound, requiredRole: 'super_admin' }
 ];

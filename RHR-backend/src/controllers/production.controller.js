@@ -205,15 +205,39 @@ const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, r
 
   if (pErr) throw new Error(pErr.message);
 
-  for (const mat of materialNeeds) {
-    await supabaseAdmin
-      .from('production_lines')
-      .insert({
-        production_id:   newProduction.id,
-        raw_material_id: mat.raw_material_id,
-        qty_used:        mat.needed,
-        unit:            mat.unit,
+  // Per-material bag-equivalent (see sql/phase35_unit_conversions.sql) —
+  // best-effort: a material with no conversion rule just gets a null
+  // bags_used, same as before this feature existed.
+  let conversionByMaterial = {};
+  try {
+    const materialIds = materialNeeds.map((m) => m.raw_material_id);
+    if (materialIds.length) {
+      const conversions = await pgrestGet('unit_conversions', {
+        select: 'raw_material_id,bag_weight',
+        raw_material_id: `in.(${materialIds.join(',')})`,
       });
+      conversionByMaterial = Object.fromEntries((conversions || []).map((c) => [c.raw_material_id, c]));
+    }
+  } catch (e) { /* unit_conversions is a phase35 addition — ignore until it's run */ }
+
+  for (const mat of materialNeeds) {
+    const conversion = conversionByMaterial[mat.raw_material_id];
+    const bagsUsed = conversion?.bag_weight ? Number((mat.needed / Number(conversion.bag_weight)).toFixed(3)) : null;
+
+    const lineRow = {
+      production_id:   newProduction.id,
+      raw_material_id: mat.raw_material_id,
+      qty_used:        mat.needed,
+      unit:            mat.unit,
+    };
+    try {
+      // bags_used is a separately-run ALTER (see the "sql is already run"
+      // note on this feature) — fall back to the plain row if it hasn't
+      // landed on this environment yet.
+      await pgrestPost('production_lines', { ...lineRow, bags_used: bagsUsed });
+    } catch (e) {
+      await supabaseAdmin.from('production_lines').insert(lineRow);
+    }
 
     const { data: current } = await supabaseAdmin
       .from('raw_materials')

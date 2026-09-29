@@ -147,6 +147,87 @@ router.delete('/recipes/:id', authenticate, isAdmin, async (req, res) => {
   } catch (err) { return error(res, err.message); }
 });
 
+// ─────────────────────────────────────
+// Unit conversions — one row per raw material (see sql/phase35), lets
+// stock display in both purchase and consumption units and lets
+// production runs log bags_used alongside qty_used (see /produce below).
+// ─────────────────────────────────────
+
+// GET /api/v1/production/unit-conversions
+router.get('/unit-conversions', authenticate, isAdmin, async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const params = { select: '*', order: 'created_at.desc' };
+    if (companyId) params.company_id = `eq.${companyId}`;
+    const data = await pgrestGet('unit_conversions', params);
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
+});
+
+// POST /api/v1/production/unit-conversions — upsert by raw_material_id
+router.post('/unit-conversions', authenticate, isAdmin, async (req, res) => {
+  try {
+    const { raw_material_id, purchase_unit, consumption_unit, bag_weight, bag_weight_unit } = req.body;
+    if (!raw_material_id || !purchase_unit || !consumption_unit || !bag_weight || !bag_weight_unit) {
+      return error(res, 'raw_material_id, purchase_unit, consumption_unit, bag_weight and bag_weight_unit are all required', 400);
+    }
+
+    const body = {
+      company_id:       req.user.company_id,
+      raw_material_id,
+      purchase_unit,
+      consumption_unit,
+      bag_weight:       Number(bag_weight),
+      bag_weight_unit,
+      updated_at:       new Date().toISOString(),
+    };
+
+    const existing = await pgrestGet('unit_conversions', {
+      select: 'id',
+      raw_material_id: `eq.${raw_material_id}`,
+    });
+
+    let data;
+    if (existing?.[0]) {
+      [data] = await pgrestPatch('unit_conversions', { id: `eq.${existing[0].id}` }, body);
+    } else {
+      [data] = await pgrestPost('unit_conversions', body);
+    }
+
+    return success(res, data, 'Unit conversion saved');
+  } catch (err) { return error(res, err.message); }
+});
+
+// GET /api/v1/production/bom-recipes — Daily Production Entry's source
+// list: each active recipe (production_bom) matched to its real product,
+// with nested ingredient lines including each raw material's live stock,
+// so the frontend can preview shortages before submitting.
+router.get('/bom-recipes', authenticate, isAdmin, async (req, res) => {
+  try {
+    const boms = await pgrestGet('production_bom', {
+      select: '*,production_bom_items(id,qty_required,unit,raw_material_id,raw_materials(id,name,unit,stock))',
+      company_id: `eq.${req.user.company_id}`,
+      is_active: 'eq.true',
+      order: 'product_name.asc',
+    });
+
+    const products = await pgrestGet('products', {
+      select: 'id,name,unit,stock_quantity',
+      company_id: `eq.${req.user.company_id}`,
+    });
+    const productByName = new Map(
+      (products || []).map((p) => [p.name.trim().toLowerCase(), p])
+    );
+
+    const data = (boms || []).map((bom) => ({
+      ...bom,
+      product: productByName.get((bom.product_name || '').trim().toLowerCase()) || null,
+    }));
+
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
+});
+
 router.get('/dispatch',            authenticate, isAdmin, dispatch.getDispatches);
 router.post('/dispatch',           authenticate, isAdmin, dispatch.createDispatch);
 router.patch('/dispatch/:id/deliver', authenticate, isAdmin, dispatch.markDelivered);

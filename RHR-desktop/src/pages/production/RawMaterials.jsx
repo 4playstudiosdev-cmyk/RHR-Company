@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, AlertCircle, PackagePlus, Pencil, Trash2, ShoppingCart, X, ScanLine } from 'lucide-react';
+import { Plus, AlertCircle, PackagePlus, Pencil, Trash2, ShoppingCart, X, ScanLine, Repeat } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import api, { getCurrentUser } from '../../services/api';
@@ -30,6 +30,7 @@ const UNITS = ['kg', 'litre', 'piece', 'bag'];
 const EMPTY_FORM = { name: '', category: MATERIAL_CATEGORIES[0].value, unit: UNITS[0], stock: '', min_level: '' };
 const EMPTY_STOCK_FORM = { quantity: '', date: new Date().toISOString().split('T')[0], note: '' };
 const EMPTY_PURCHASE_ROW = { raw_material_id: '', qty: '', price_per_unit: '' };
+const EMPTY_CONVERSION_FORM = { purchase_unit: 'bag', consumption_unit: 'kg', bag_weight: '', bag_weight_unit: 'kg' };
 
 export default function RawMaterials() {
   const toast = useToast();
@@ -55,12 +56,70 @@ export default function RawMaterials() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [suppliersList, setSuppliersList] = useState([]);
   const [showSupplierDropdown, setShowSupplierDropdown] = useState(false);
+  const [conversions, setConversions] = useState([]);
+  const [conversionTarget, setConversionTarget] = useState(null);
+  const [conversionForm, setConversionForm] = useState(EMPTY_CONVERSION_FORM);
+  const [savingConversion, setSavingConversion] = useState(false);
 
   useEffect(() => {
     setTab('All');
     loadMaterials();
+    loadConversions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
+
+  const loadConversions = async () => {
+    try {
+      const companyFilter = selectedCity === 'all' ? null : selectedCity;
+      const res = await api.get('/production/unit-conversions', { params: companyFilter ? { company_id: companyFilter } : {} });
+      setConversions(res.data.data || []);
+    } catch (err) {
+      setConversions([]);
+    }
+  };
+
+  const conversionByMaterial = useMemo(
+    () => Object.fromEntries(conversions.map((c) => [c.raw_material_id, c])),
+    [conversions]
+  );
+
+  const openConversionModal = (material) => {
+    const existing = conversionByMaterial[material.id];
+    setConversionTarget(material);
+    setConversionForm(existing
+      ? {
+          purchase_unit: existing.purchase_unit,
+          consumption_unit: existing.consumption_unit,
+          bag_weight: existing.bag_weight,
+          bag_weight_unit: existing.bag_weight_unit,
+        }
+      : { ...EMPTY_CONVERSION_FORM, consumption_unit: material.unit || 'kg', bag_weight_unit: material.unit || 'kg' });
+  };
+
+  const handleSaveConversion = async (e) => {
+    e.preventDefault();
+    if (!conversionForm.bag_weight || Number(conversionForm.bag_weight) <= 0) {
+      toast.error('Enter a valid bag weight.');
+      return;
+    }
+    setSavingConversion(true);
+    try {
+      await api.post('/production/unit-conversions', {
+        raw_material_id: conversionTarget.id,
+        purchase_unit: conversionForm.purchase_unit,
+        consumption_unit: conversionForm.consumption_unit,
+        bag_weight: Number(conversionForm.bag_weight),
+        bag_weight_unit: conversionForm.bag_weight_unit,
+      });
+      toast.success('Unit conversion saved.');
+      setConversionTarget(null);
+      loadConversions();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to save unit conversion.');
+    } finally {
+      setSavingConversion(false);
+    }
+  };
 
   const loadMaterials = async () => {
     setLoading(true);
@@ -418,7 +477,14 @@ export default function RawMaterials() {
                       <td className="px-6 py-3.5 font-medium text-navy">{m.name}</td>
                       <td className="px-6 py-3.5 text-gray-600">{CATEGORY_LABEL[m.category] || m.category}</td>
                       <td className="px-6 py-3.5 text-gray-600">{m.unit}</td>
-                      <td className="px-6 py-3.5 text-right text-gray-700">{Number(m.stock).toLocaleString()}</td>
+                      <td className="px-6 py-3.5 text-right text-gray-700">
+                        {Number(m.stock).toLocaleString()}
+                        {conversionByMaterial[m.id] && (
+                          <span className="block text-xs text-gray-400">
+                            ≈ {(Number(m.stock) / Number(conversionByMaterial[m.id].bag_weight)).toFixed(1)} {conversionByMaterial[m.id].purchase_unit}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-6 py-3.5 text-right text-gray-500">{Number(m.min_level).toLocaleString()}</td>
                       <td className="px-6 py-3.5">
                         {low ? (
@@ -443,6 +509,13 @@ export default function RawMaterials() {
                               className="text-xs font-medium text-navy hover:underline"
                             >
                               + Add Stock
+                            </button>
+                            <button
+                              onClick={() => openConversionModal(m)}
+                              className="text-navy hover:bg-navy/10 p-1.5 rounded-lg transition-colors"
+                              title="Unit Conversion"
+                            >
+                              <Repeat size={13} />
                             </button>
                             <button
                               onClick={() => openEditModal(m)}
@@ -588,6 +661,69 @@ export default function RawMaterials() {
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={() => setStockTarget(null)}>Cancel</Button>
               <Button type="submit" variant="accent" disabled={savingStock}>{savingStock ? 'Saving...' : 'Save'}</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {conversionTarget && (
+        <Modal title={`Unit Conversion — ${conversionTarget.name}`} onClose={() => setConversionTarget(null)}>
+          <form onSubmit={handleSaveConversion} className="space-y-4">
+            <p className="text-xs text-gray-400">
+              Lets stock show in both units (e.g. "1250 kg ≈ 25 bags") and logs bags used per production run.
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Purchase Unit</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="bag"
+                  value={conversionForm.purchase_unit}
+                  onChange={(e) => setConversionForm({ ...conversionForm, purchase_unit: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Consumption Unit</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="kg"
+                  value={conversionForm.consumption_unit}
+                  onChange={(e) => setConversionForm({ ...conversionForm, consumption_unit: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Weight per {conversionForm.purchase_unit || 'unit'} *</label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  required
+                  value={conversionForm.bag_weight}
+                  onChange={(e) => setConversionForm({ ...conversionForm, bag_weight: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Weight Unit</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="kg"
+                  value={conversionForm.bag_weight_unit}
+                  onChange={(e) => setConversionForm({ ...conversionForm, bag_weight_unit: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setConversionTarget(null)}>Cancel</Button>
+              <Button type="submit" variant="accent" disabled={savingConversion}>{savingConversion ? 'Saving...' : 'Save'}</Button>
             </div>
           </form>
         </Modal>

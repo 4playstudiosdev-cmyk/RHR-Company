@@ -32,8 +32,10 @@ import ProductionOrders from './pages/production/ProductionOrders';
 import ProductionLog from './pages/production/ProductionLog';
 import ProductionReports from './pages/production/ProductionReports';
 import RecipesPage from './pages/production/RecipesPage';
+import DailyProduction from './pages/production/DailyProduction';
 import StockTransfers from './pages/StockTransfers';
 import StockReports from './pages/StockReports';
+import OpeningBalances from './pages/OpeningBalances';
 
 const PAGES = {
   dashboard: Dashboard,
@@ -58,10 +60,12 @@ const PAGES = {
   'production-log': ProductionLog,
   'production-reports': ProductionReports,
   'production-recipes': RecipesPage,
+  'production-daily': DailyProduction,
   'stock-transfers': StockTransfers,
   'stock-reports': StockReports,
   hrm: HRM,
-  admins: AdminManagement
+  admins: AdminManagement,
+  'opening-balances': OpeningBalances
 };
 
 // Dashboard and Admin Roles are the only super_admin-exclusive pages now —
@@ -88,7 +92,9 @@ const PAGE_ACCESS = {
   'production-orders': { requiredPermission: 'can_manage_production' },
   'production-log': { requiredPermission: 'can_manage_production' },
   'production-reports': { requiredPermission: 'can_manage_production' },
-  'production-recipes': { requiredPermission: 'can_manage_production' }
+  'production-recipes': { requiredPermission: 'can_manage_production' },
+  'production-daily': { requiredPermission: 'can_manage_production' },
+  'opening-balances': { requiredRole: 'super_admin' }
 };
 
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 hours
@@ -145,11 +151,20 @@ function AppShell() {
     setPage(newUser.role === 'super_admin' ? 'dashboard' : 'products');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     // Releases the single-session lock so this account can be logged
-    // into elsewhere right away — best-effort, the client-side logout
-    // below always proceeds regardless of whether this call succeeds.
-    api.post('/auth/logout').catch(() => {});
+    // into elsewhere right away. Must be AWAITED before clearing
+    // localStorage below — api.js's request interceptor reads the token
+    // out of localStorage at send time, not at call time, so clearing it
+    // first (as this used to do, firing the request without awaiting)
+    // meant /auth/logout went out with no Authorization header, always
+    // 401'd, and the lock never actually cleared — which is why logging
+    // back in kept saying "already logged in on another device" even
+    // right after a real logout. Best-effort past this point: the
+    // client-side logout below always proceeds either way.
+    try {
+      await api.post('/auth/logout');
+    } catch (e) { /* still log out locally either way */ }
     localStorage.removeItem('rhr_token');
     localStorage.removeItem('rhr_user');
     localStorage.removeItem('rhr_login_time');
