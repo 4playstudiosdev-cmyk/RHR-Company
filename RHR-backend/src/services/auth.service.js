@@ -8,6 +8,30 @@ const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 // considered abandoned (not actively locking the account) past this age.
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 
+// Closes whichever admin_login_sessions row is still open (logout_at IS
+// NULL) for this user — i.e. the row the current active_session_token
+// corresponds to. Best-effort, same as every other audit write in this
+// file: a failure here must never block login/logout itself.
+async function closeOpenSession(userId, reason) {
+  try {
+    const openRows = await pgrestGet('admin_login_sessions', {
+      select: 'id',
+      user_id: `eq.${userId}`,
+      logout_at: 'is.null',
+      order: 'login_at.desc',
+      limit: '1',
+    });
+    if (openRows?.[0]) {
+      await pgrestPatch('admin_login_sessions', { id: `eq.${openRows[0].id}` }, {
+        logout_at: new Date().toISOString(),
+        ended_reason: reason,
+      });
+    }
+  } catch (e) {
+    console.error('[session] closeOpenSession failed:', e.message);
+  }
+}
+
 // Same company IDs the desktop's CityFilter dropdown uses.
 const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
 const BRANCH_CITY_NAMES = {
@@ -177,6 +201,12 @@ async function loginWithCredentials({ email, password, latitude, longitude, forc
         ` Contact ${user.full_name} at ${user.phone || 'their registered number'} to log out there first.${locText}`
       );
     }
+    // Lock is older than SESSION_MAX_AGE_MS — treated as abandoned, so
+    // login proceeds below, but the old session row is still open in the
+    // history table and needs closing out as 'expired' rather than being
+    // left open forever (which would make it look like that device is
+    // still logged in when it queried).
+    await closeOpenSession(user.id, 'expired');
   }
 
   // Branch admins (Hyderabad/Sukkur) share their location on login when
@@ -246,6 +276,7 @@ async function loginWithCredentials({ email, password, latitude, longitude, forc
       } catch (e) {
         console.error('[login] forced-override notification insert failed:', e.message);
       }
+      await closeOpenSession(user.id, 'force_login_override');
     }
   }
 
@@ -261,6 +292,21 @@ async function loginWithCredentials({ email, password, latitude, longitude, forc
     });
   } catch (e) {
     console.error('[login] session lock write failed:', e.message);
+  }
+
+  // Full login history row — separate from the lock above, this is what
+  // answers "when did X log in, from where, and when did they log out"
+  // (see admin_login_sessions, phase33). Best-effort like everything else.
+  try {
+    await pgrestPost('admin_login_sessions', {
+      user_id:         user.id,
+      company_id:      user.company_id,
+      login_at:        new Date().toISOString(),
+      login_latitude:  hasLocation ? Number(latitude) : null,
+      login_longitude: hasLocation ? Number(longitude) : null,
+    });
+  } catch (e) {
+    console.error('[login] session history insert failed:', e.message);
   }
 
   return {
@@ -461,11 +507,12 @@ async function releaseSessionLock(userId) {
   } catch (e) {
     console.error('[logout] session lock release failed:', e.message);
   }
+  await closeOpenSession(userId, 'logout');
 }
 
 module.exports = {
   registerCustomer, registerSalesman, registerDriver,
-  loginWithCredentials, releaseSessionLock,
+  loginWithCredentials, releaseSessionLock, closeOpenSession,
   approveCustomer, approveSalesman, approveDriver,
   generateToken,
   findCustomerByPhone, findSalesmanByPhone, findDriverByPhone

@@ -4,6 +4,7 @@ const { authenticate } = require('../middleware/auth.middleware');
 const { isSuperAdmin } = require('../middleware/role.middleware');
 const { success, error } = require('../utils/response');
 const { pgrestGet, pgrestPatch } = require('../utils/directQuery');
+const { closeOpenSession } = require('../services/auth.service');
 
 // GET /api/v1/admins — list super_admin + branch_admin accounts.
 // select('*') deliberately, not a named column list — this must keep
@@ -81,7 +82,23 @@ router.patch('/:id/force-logout', authenticate, isSuperAdmin, async (req, res) =
       { active_session_token: null, active_session_started_at: null }
     );
     if (!data?.[0]) return error(res, 'Admin not found', 404);
+    await closeOpenSession(req.params.id, 'force_logout_by_admin');
     return success(res, data[0], 'Session cleared — they can log in again now');
+  } catch (err) { return error(res, err.message); }
+});
+
+// GET /api/v1/admins/:id/sessions — login/logout history for one admin
+// (see admin_login_sessions, phase33): when they logged in, from where
+// (if location was shared), and when/why that session ended.
+router.get('/:id/sessions', authenticate, isSuperAdmin, async (req, res) => {
+  try {
+    const data = await pgrestGet('admin_login_sessions', {
+      select: '*',
+      user_id: `eq.${req.params.id}`,
+      order: 'login_at.desc',
+      limit: '20',
+    });
+    return success(res, data);
   } catch (err) { return error(res, err.message); }
 });
 
