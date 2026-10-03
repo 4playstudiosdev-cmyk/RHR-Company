@@ -58,21 +58,28 @@ export default function DailyProduction() {
         const lines = (recipe.production_bom_items || []).map((item) => {
           const needed = Number(item.qty_required) * qty;
           const available = Number(item.raw_materials?.stock || 0);
+          const rate = Number(item.last_price || 0);
           return {
             name: item.raw_materials?.name || 'Unknown material',
             unit: item.unit,
             needed,
             available,
             shortage: Math.max(0, needed - available),
+            cost: needed * rate,
+            hasRate: item.last_price != null,
           };
         });
         const hasShortage = lines.some((l) => l.shortage > 0);
-        return { recipe, qty, lines, hasShortage };
+        const cost = lines.reduce((sum, l) => sum + l.cost, 0);
+        const costIsPartial = lines.some((l) => !l.hasRate);
+        return { recipe, qty, lines, hasShortage, cost, costIsPartial };
       })
       .filter(Boolean);
   }, [recipes, qtyByRecipe]);
 
   const anyShortage = previewRows.some((r) => r.hasShortage);
+  const totalCost = previewRows.reduce((sum, r) => sum + r.cost, 0);
+  const anyCostPartial = previewRows.some((r) => r.costIsPartial);
 
   const handleSubmit = async () => {
     if (!previewRows.length) {
@@ -174,13 +181,19 @@ export default function DailyProduction() {
 
           {previewRows.length > 0 && (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-6">
-              <h3 className="text-sm font-semibold text-navy mb-4">Raw Material Deduction Preview</h3>
+              <h3 className="text-sm font-semibold text-navy mb-4">Raw Material Deduction & Cost Preview</h3>
               <div className="space-y-4">
                 {previewRows.map((row) => (
-                  <div key={row.recipe.id}>
-                    <p className="text-sm font-medium text-gray-700 mb-2">
-                      {row.recipe.product_name} — {row.qty} {row.recipe.batch_unit}
-                    </p>
+                  <div key={row.recipe.id} className="bg-navy-chip/30 rounded-lg px-3.5 py-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium text-gray-700">
+                        {row.recipe.product_name} — {row.qty} {row.recipe.batch_unit}
+                      </p>
+                      <span className="text-sm font-semibold text-orange">
+                        Cost: PKR {row.cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        {row.costIsPartial && <span className="text-gray-400 font-normal"> (partial)</span>}
+                      </span>
+                    </div>
                     <div className="space-y-1.5">
                       {row.lines.map((l, idx) => (
                         <div key={idx} className="flex items-center justify-between text-xs pl-3">
@@ -191,7 +204,7 @@ export default function DailyProduction() {
                                 <AlertTriangle size={12} /> Need {l.needed.toFixed(2)} {l.unit}, have {l.available.toFixed(2)}
                               </>
                             ) : (
-                              <>Need {l.needed.toFixed(2)} {l.unit} (have {l.available.toFixed(2)})</>
+                              <>Need {l.needed.toFixed(2)} {l.unit} (have {l.available.toFixed(2)}){!l.hasRate && ' — no purchase price on record'}</>
                             )}
                           </span>
                         </div>
@@ -199,6 +212,13 @@ export default function DailyProduction() {
                     </div>
                   </div>
                 ))}
+              </div>
+              <div className="flex items-center justify-between bg-navy rounded-lg px-4 py-3 mt-4">
+                <span className="text-sm font-semibold text-white">Total Production Cost</span>
+                <span className="text-base font-bold text-orange">
+                  PKR {totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  {anyCostPartial && <span className="text-blue-200/70 font-normal text-xs"> (based on last known purchase price per material)</span>}
+                </span>
               </div>
             </div>
           )}

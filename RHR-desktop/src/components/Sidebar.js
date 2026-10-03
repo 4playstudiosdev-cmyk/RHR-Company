@@ -4,7 +4,7 @@ import {
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
   Gauge, Boxes, ClipboardList, FileBarChart2, ChevronDown, X,
   PackageCheck, ArrowLeftRight, PackageSearch, Landmark, Receipt, Store, RotateCcw,
-  HandCoins, Car, CalendarCheck, WalletCards
+  HandCoins, Car, CalendarCheck, WalletCards, LayoutPanelTop
 } from 'lucide-react';
 import api, { hasPermission } from '../services/api';
 
@@ -13,6 +13,7 @@ import api, { hasPermission } from '../services/api';
 // (e.g. an old bookmarked page state); this just keeps the menu itself
 // from showing links a user can't use.
 const NAV_ITEMS = [
+  { key: 'daily-dashboard', label: 'Daily Report', icon: LayoutPanelTop },
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiredRole: 'super_admin' },
   { key: 'products', label: 'Products', icon: Package },
   { key: 'production-materials', label: 'Raw Materials', icon: Boxes, requiredPermission: 'can_manage_production' },

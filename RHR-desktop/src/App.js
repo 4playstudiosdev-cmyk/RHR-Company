@@ -9,6 +9,7 @@ import api from './services/api';
 import { ToastProvider } from './components/Toast';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import DailyDashboard from './pages/DailyDashboard';
 import Products from './pages/Products';
 import Orders from './pages/Orders';
 import Customers from './pages/Customers';
@@ -39,6 +40,7 @@ import OpeningBalances from './pages/OpeningBalances';
 
 const PAGES = {
   dashboard: Dashboard,
+  'daily-dashboard': DailyDashboard,
   products: Products,
   orders: Orders,
   customers: Customers,

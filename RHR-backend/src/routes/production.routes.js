@@ -201,7 +201,11 @@ router.post('/unit-conversions', authenticate, isAdmin, async (req, res) => {
 // GET /api/v1/production/bom-recipes — Daily Production Entry's source
 // list: each active recipe (production_bom) matched to its real product,
 // with nested ingredient lines including each raw material's live stock,
-// so the frontend can preview shortages before submitting.
+// so the frontend can preview shortages before submitting. Also attaches
+// each material's most recent purchase price (raw_material_stock_logs —
+// see purchaseMaterials in rawMaterials.controller.js) as last_price, for
+// the production cost preview — there's no cost_per_unit column on
+// raw_materials itself, only a price recorded at time of purchase.
 router.get('/bom-recipes', authenticate, isAdmin, async (req, res) => {
   try {
     const boms = await pgrestGet('production_bom', {
@@ -219,9 +223,31 @@ router.get('/bom-recipes', authenticate, isAdmin, async (req, res) => {
       (products || []).map((p) => [p.name.trim().toLowerCase(), p])
     );
 
+    const materialIds = [...new Set(
+      (boms || []).flatMap((b) => (b.production_bom_items || []).map((i) => i.raw_material_id))
+    )];
+    let lastPriceByMaterial = {};
+    if (materialIds.length) {
+      try {
+        const logs = await pgrestGet('raw_material_stock_logs', {
+          select: 'material_id,price_per_unit,created_at',
+          material_id: `in.(${materialIds.join(',')})`,
+          price_per_unit: 'not.is.null',
+          order: 'created_at.desc',
+        });
+        (logs || []).forEach((l) => {
+          if (!(l.material_id in lastPriceByMaterial)) lastPriceByMaterial[l.material_id] = Number(l.price_per_unit);
+        });
+      } catch (e) { /* price_per_unit is a phase18 addition — ignore until it's run */ }
+    }
+
     const data = (boms || []).map((bom) => ({
       ...bom,
       product: productByName.get((bom.product_name || '').trim().toLowerCase()) || null,
+      production_bom_items: (bom.production_bom_items || []).map((item) => ({
+        ...item,
+        last_price: lastPriceByMaterial[item.raw_material_id] ?? null,
+      })),
     }));
 
     return success(res, data);
