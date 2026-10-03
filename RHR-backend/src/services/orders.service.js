@@ -104,7 +104,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
 async function getOrders(user, companyIdOverride) {
   let query = supabaseAdmin
     .from('orders')
-    .select('*, order_items(product_name, quantity, unit_price, subtotal), users!customer_id(full_name, phone, salesman_id)')
+    .select('*, order_items(id, product_id, product_name, quantity, unit_price, subtotal), users!customer_id(full_name, phone, salesman_id)')
     .order('created_at', { ascending: false });
 
   if (user.role === 'customer') {

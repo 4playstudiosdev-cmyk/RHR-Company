@@ -16,7 +16,12 @@ const TABS = [
   { key: 'order', label: 'Order Return', icon: ShoppingCart },
 ];
 const EMPTY_MATERIAL_FORM = { raw_material_id: '', quantity: '', notes: '' };
-const EMPTY_ORDER_FORM = { order_id: '', amount_returned: '', notes: '' };
+const EMPTY_ORDER_FORM = { order_id: '', order_item_id: '', quantity_returned: '', item_condition: 'good', amount_returned: '', notes: '' };
+const CONDITIONS = [
+  { value: 'good', label: 'Good — resellable' },
+  { value: 'damaged', label: 'Damaged' },
+  { value: 'expired', label: 'Expired' },
+];
 
 export default function Returns() {
   const toast = useToast();
@@ -108,9 +113,23 @@ export default function Returns() {
   };
 
   const selectedOrder = orders.find((o) => o.id === orderForm.order_id);
+  const selectedItem = (selectedOrder?.order_items || []).find((it) => it.id === orderForm.order_item_id);
   const updatedTotal = selectedOrder
     ? Number(selectedOrder.total_amount) - (Number(orderForm.amount_returned) || 0)
     : 0;
+
+  // Picking a line item auto-fills amount_returned from unit_price × qty
+  // (still editable — a damaged/partial return might not be the full
+  // line value), so quantity and the refund amount stay consistent.
+  const handleSelectOrderItem = (itemId) => {
+    const item = (selectedOrder?.order_items || []).find((it) => it.id === itemId);
+    setOrderForm((prev) => ({
+      ...prev,
+      order_item_id: itemId,
+      quantity_returned: item ? item.quantity : '',
+      amount_returned: item ? (Number(item.quantity) * Number(item.unit_price)).toFixed(2) : prev.amount_returned,
+    }));
+  };
 
   const handleSaveOrderReturn = async (e) => {
     e.preventDefault();
@@ -125,6 +144,9 @@ export default function Returns() {
     try {
       const res = await api.post('/returns/orders', {
         order_id: orderForm.order_id,
+        order_item_id: orderForm.order_item_id || null,
+        quantity_returned: orderForm.quantity_returned ? Number(orderForm.quantity_returned) : null,
+        item_condition: orderForm.order_item_id ? orderForm.item_condition : null,
         amount_returned: amount,
         notes: orderForm.notes || null
       });
@@ -277,7 +299,7 @@ export default function Returns() {
                 <label className="block text-xs font-medium text-gray-700 mb-1">Order</label>
                 <select
                   value={orderForm.order_id}
-                  onChange={(e) => setOrderForm({ ...orderForm, order_id: e.target.value, amount_returned: '' })}
+                  onChange={(e) => setOrderForm({ ...EMPTY_ORDER_FORM, order_id: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
                 >
                   <option value="">— Select Order —</option>
@@ -291,6 +313,51 @@ export default function Returns() {
                 <div className="bg-gray-50 border border-gray-100 rounded-xl px-3.5 py-3 space-y-1 text-sm">
                   <p className="text-gray-600">Customer: <span className="font-semibold text-navy">{selectedOrder.users?.full_name || '—'}</span></p>
                   <p className="text-gray-600">Amount Total: <span className="font-semibold text-navy">PKR {Number(selectedOrder.total_amount).toLocaleString()}</span></p>
+                </div>
+              )}
+
+              {selectedOrder && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Product Returned (optional)</label>
+                  <select
+                    value={orderForm.order_item_id}
+                    onChange={(e) => handleSelectOrderItem(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                  >
+                    <option value="">— Whole order / not product-specific —</option>
+                    {(selectedOrder.order_items || []).map((it) => (
+                      <option key={it.id} value={it.id}>{it.product_name} (qty {it.quantity})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {selectedOrder && orderForm.order_item_id && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Quantity Returned</label>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      max={selectedItem?.quantity}
+                      value={orderForm.quantity_returned}
+                      onChange={(e) => setOrderForm({ ...orderForm, quantity_returned: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Condition</label>
+                    <select
+                      value={orderForm.item_condition}
+                      onChange={(e) => setOrderForm({ ...orderForm, item_condition: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                    >
+                      {CONDITIONS.map((c) => (
+                        <option key={c.value} value={c.value}>{c.label}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               )}
 
@@ -347,7 +414,7 @@ export default function Returns() {
 
           <div className="lg:col-span-8 bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
             {loading ? (
-              <SkeletonTable rows={6} cols={5} />
+              <SkeletonTable rows={6} cols={8} />
             ) : orderReturns.length === 0 ? (
               <EmptyState icon={RotateCcw} title="No order returns recorded yet" />
             ) : (
@@ -358,6 +425,9 @@ export default function Returns() {
                       <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
                       <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Order #</th>
                       <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Product</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Qty</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Condition</th>
                       <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount Total</th>
                       <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Returned</th>
                     </tr>
@@ -368,6 +438,9 @@ export default function Returns() {
                         <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(r.created_at).toLocaleDateString('en-GB')}</td>
                         <td className="px-6 py-3.5 font-medium text-navy">{r.orders?.order_number || '—'}</td>
                         <td className="px-6 py-3.5 text-gray-600">{r.users?.full_name || '—'}</td>
+                        <td className="px-6 py-3.5 text-gray-600">{r.product_name || '—'}</td>
+                        <td className="px-6 py-3.5 text-right text-gray-700">{r.quantity_returned ?? '—'}</td>
+                        <td className="px-6 py-3.5 text-gray-600 capitalize">{r.item_condition || '—'}</td>
                         <td className="px-6 py-3.5 text-right text-gray-700">PKR {Number(r.amount_total).toLocaleString()}</td>
                         <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(r.amount_returned).toLocaleString()}</td>
                       </tr>

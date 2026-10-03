@@ -19,22 +19,26 @@ const CUSTOMER_COLUMNS_FALLBACK = 'id, company_id, full_name, phone, email, is_a
 const getCustomers = async (req, res) => {
   try {
     const user = req.user;
-    const applyFilters = (query) => {
-      if (user.role === 'salesman') return query.eq('salesman_id', user.id);
+    const baseParams = { role: 'eq.customer', is_active: 'eq.true', order: 'full_name.asc' };
+    if (user.role === 'salesman') {
+      baseParams.salesman_id = `eq.${user.id}`;
+    } else {
       const companyId = resolveCompanyId(req);
-      return companyId ? query.eq('company_id', companyId) : query;
-    };
-
-    let { data, error: dbError } = await applyFilters(
-      supabaseAdmin.from('users').select(CUSTOMER_COLUMNS).eq('role', 'customer').eq('is_active', true)
-    ).order('full_name');
-
-    if (dbError) {
-      ({ data, error: dbError } = await applyFilters(
-        supabaseAdmin.from('users').select(CUSTOMER_COLUMNS_FALLBACK).eq('role', 'customer').eq('is_active', true)
-      ).order('full_name'));
+      if (companyId) baseParams.company_id = `eq.${companyId}`;
     }
-    if (dbError) throw new Error(dbError.message);
+
+    // Routed through the pgrestGet raw-https bypass (see
+    // utils/directQuery.js) — this read was still on plain supabase-js,
+    // which is what let a super_admin with no company_id query param
+    // silently see every branch's customers blended together on a page
+    // (e.g. Create Order) that forgot to pass one, instead of erroring
+    // or being obviously wrong.
+    let data;
+    try {
+      data = await pgrestGet('users', { ...baseParams, select: CUSTOMER_COLUMNS });
+    } catch (e) {
+      data = await pgrestGet('users', { ...baseParams, select: CUSTOMER_COLUMNS_FALLBACK });
+    }
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 };
@@ -98,34 +102,36 @@ const createCustomer = async (req, res) => {
     if (rate_tier && !VALID_RATE_TIERS.includes(rate_tier))
       return error(res, `rate_tier must be one of: ${VALID_RATE_TIERS.join(', ')}`, 400);
 
+    // Routed through the pgrestGet raw-https bypass (see
+    // utils/directQuery.js) — this lookup was still on plain supabase-js,
+    // the exact pattern that's intermittently returned a spurious empty
+    // result on Railway elsewhere in this codebase, which is what made a
+    // real salesman in the right branch come back as "not found".
     if (driver_id) {
-      const { data: dr } = await supabaseAdmin
-        .from('drivers')
-        .select('id')
-        .eq('id', driver_id)
-        .eq('company_id', targetCompanyId)
-        .maybeSingle();
-      if (!dr) return error(res, 'Driver not found in this branch', 404);
+      const drivers = await pgrestGet('drivers', {
+        select: 'id',
+        id: `eq.${driver_id}`,
+        company_id: `eq.${targetCompanyId}`,
+      });
+      if (!drivers?.[0]) return error(res, 'Driver not found in this branch', 404);
     }
 
     if (salesman_id) {
-      const { data: sm } = await supabaseAdmin
-        .from('salesmen')
-        .select('id')
-        .eq('id', salesman_id)
-        .eq('company_id', targetCompanyId)
-        .maybeSingle();
-      if (!sm) return error(res, 'Salesman not found in this branch', 404);
+      const salesmenRows = await pgrestGet('salesmen', {
+        select: 'id',
+        id: `eq.${salesman_id}`,
+        company_id: `eq.${targetCompanyId}`,
+      });
+      if (!salesmenRows?.[0]) return error(res, 'Salesman not found in this branch', 404);
     }
 
     const canonical = normalizePhone(phone);
     const bare = canonical.replace('+', '');
-    const { data: existing } = await supabaseAdmin
-      .from('users')
-      .select('id')
-      .or(`phone.eq.${canonical},phone.eq.${bare}`)
-      .maybeSingle();
-    if (existing) return error(res, 'A customer with this phone number already exists', 400);
+    const existingRows = await pgrestGet('users', {
+      select: 'id',
+      or: `(phone.eq.${canonical},phone.eq.${bare})`,
+    });
+    if (existingRows?.[0]) return error(res, 'A customer with this phone number already exists', 400);
 
     const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({
       phone: canonical,

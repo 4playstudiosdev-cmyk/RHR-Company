@@ -95,9 +95,15 @@ export default function Orders() {
   const openCreateOrder = async () => {
     setShowCreateOrder(true);
     try {
+      // Scoped to whichever branch the CityFilter is currently on — not
+      // the admin's own home branch, which is what the backend falls
+      // back to with no company_id param. Without this, creating an
+      // order while viewing Hyderabad/Sukkur showed Karachi's customers
+      // and products instead (admin's home branch is Karachi).
+      const companyFilter = selectedCity === 'all' ? defaultCity : selectedCity;
       const [customersRes, productsRes] = await Promise.all([
-        api.get('/customers'),
-        api.get('/products', { params: { limit: 500 } })
+        api.get('/customers', { params: { company_id: companyFilter } }),
+        api.get('/products', { params: { company_id: companyFilter, limit: 500 } })
       ]);
       setCustomers(customersRes.data.data || []);
       setProducts(productsRes.data.data?.products || []);

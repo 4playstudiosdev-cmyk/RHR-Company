@@ -1,69 +1,66 @@
-const { supabaseAdmin } = require('../config/supabase');
+const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 
-async function getProducts({ companyId, categoryId, search, page=1, limit=20 }) {
-  let query = supabaseAdmin
-    .from('products')
-    .select('*, categories(name)', { count: 'exact' })
-    .or('is_active.eq.true,is_active.is.null')
-    .order('name');
+// Routed entirely through the pgrestGet/pgrestPost/pgrestPatch raw-https
+// bypass (see utils/directQuery.js) instead of plain supabase-js — this
+// file was never migrated for the documented Railway/supabase-js bug
+// (silent empty reads, "RLS violation"-looking write failures), which is
+// what made product creation and the category dropdown work for Karachi
+// (presumably by chance/timing) and fail for Hyderabad/Sukkur.
 
-  if (companyId)  query = query.eq('company_id', companyId);
-  if (categoryId) query = query.eq('category_id', categoryId);
-  if (search)     query = query.ilike('name', `%${search}%`);
+async function getProducts({ companyId, categoryId, search, page = 1, limit = 20 }) {
+  const params = {
+    select: '*,categories(name)',
+    or: '(is_active.eq.true,is_active.is.null)',
+    order: 'name.asc',
+    offset: String((page - 1) * limit),
+    limit: String(limit),
+  };
+  if (companyId)  params.company_id = `eq.${companyId}`;
+  if (categoryId) params.category_id = `eq.${categoryId}`;
+  if (search)     params.name = `ilike.*${search}*`;
 
-  // Pagination
-  const from = (page - 1) * limit;
-  const to   = from + limit - 1;
-  query = query.range(from, to);
-
-  const { data, error, count } = await query;
-  if (error) throw new Error(error.message);
-  return { products: data, total: count, page, limit };
+  const data = await pgrestGet('products', params);
+  return { products: data || [], total: (data || []).length, page, limit };
 }
 
 async function getProductById(id, companyId) {
-  let query = supabaseAdmin
-    .from('products')
-    .select('*, categories(name)')
-    .eq('id', id)
-    .or('is_active.eq.true,is_active.is.null');
-  if (companyId) query = query.eq('company_id', companyId);
-  const { data, error } = await query.single();
-  if (error) throw new Error('Product not found');
-  return data;
+  const params = {
+    select: '*,categories(name)',
+    id: `eq.${id}`,
+    or: '(is_active.eq.true,is_active.is.null)',
+  };
+  if (companyId) params.company_id = `eq.${companyId}`;
+  const rows = await pgrestGet('products', params);
+  if (!rows?.[0]) throw new Error('Product not found');
+  return rows[0];
 }
 
 async function createProduct(productData) {
-  const { data, error } = await supabaseAdmin
-    .from('products')
-    .insert({ ...productData, is_active: true })
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
+  const [data] = await pgrestPost('products', { ...productData, is_active: true });
   return data;
 }
 
 async function updateProduct(id, companyId, updates) {
-  let query = supabaseAdmin.from('products').update(updates).eq('id', id);
-  if (companyId) query = query.eq('company_id', companyId);
-  const { data, error } = await query.select().single();
-  if (error) throw new Error('Product not found or access denied');
-  return data;
+  const filter = { id: `eq.${id}` };
+  if (companyId) filter.company_id = `eq.${companyId}`;
+  const data = await pgrestPatch('products', filter, updates);
+  if (!data?.[0]) throw new Error('Product not found or access denied');
+  return data[0];
 }
 
 async function updateStock(id, companyId, quantity) {
-  let query = supabaseAdmin.from('products').update({ stock_quantity: quantity }).eq('id', id);
-  if (companyId) query = query.eq('company_id', companyId);
-  const { data, error } = await query.select().single();
-  if (error) throw new Error('Product not found');
-  return data;
+  const filter = { id: `eq.${id}` };
+  if (companyId) filter.company_id = `eq.${companyId}`;
+  const data = await pgrestPatch('products', filter, { stock_quantity: quantity });
+  if (!data?.[0]) throw new Error('Product not found');
+  return data[0];
 }
 
 async function deleteProduct(id, companyId) {
-  let query = supabaseAdmin.from('products').update({ is_active: false }).eq('id', id);
-  if (companyId) query = query.eq('company_id', companyId);
-  const { error } = await query;
-  if (error) throw new Error('Product not found');
+  const filter = { id: `eq.${id}` };
+  if (companyId) filter.company_id = `eq.${companyId}`;
+  const data = await pgrestPatch('products', filter, { is_active: false });
+  if (!data?.[0]) throw new Error('Product not found');
   return { deleted: true };
 }
 
@@ -77,22 +74,20 @@ async function deleteProduct(id, companyId) {
 // derived by summing history, so it's always correct even if in/out
 // logging gaps ever existed.
 async function getStockReport({ companyId, from, to }) {
-  const { data: products, error: pErr } = await supabaseAdmin
-    .from('products')
-    .select('id, name, unit, stock_quantity, categories(name)')
-    .eq('company_id', companyId)
-    .or('is_active.eq.true,is_active.is.null')
-    .order('name');
-  if (pErr) throw new Error(pErr.message);
+  const products = await pgrestGet('products', {
+    select: 'id,name,unit,stock_quantity,categories(name)',
+    company_id: `eq.${companyId}`,
+    or: '(is_active.eq.true,is_active.is.null)',
+    order: 'name.asc',
+  });
 
-  let ordersQuery = supabaseAdmin
-    .from('orders')
-    .select('created_at, order_items(product_id, quantity)')
-    .eq('company_id', companyId);
-  if (from) ordersQuery = ordersQuery.gte('created_at', from);
-  if (to)   ordersQuery = ordersQuery.lte('created_at', `${to}T23:59:59`);
-  const { data: orders, error: oErr } = await ordersQuery;
-  if (oErr) throw new Error(oErr.message);
+  const orderParams = {
+    select: 'created_at,order_items(product_id,quantity)',
+    company_id: `eq.${companyId}`,
+  };
+  if (from) orderParams.created_at = `gte.${from}`;
+  let orders = await pgrestGet('orders', orderParams);
+  if (to) orders = (orders || []).filter((o) => o.created_at <= `${to}T23:59:59`);
 
   const outByProduct = {};
   (orders || []).forEach((o) => {
@@ -101,14 +96,13 @@ async function getStockReport({ companyId, from, to }) {
     });
   });
 
-  let runsQuery = supabaseAdmin
-    .from('productions')
-    .select('finished_item_id, qty_produced, date')
-    .eq('company_id', companyId);
-  if (from) runsQuery = runsQuery.gte('date', from);
-  if (to)   runsQuery = runsQuery.lte('date', to);
-  const { data: runs, error: rErr } = await runsQuery;
-  if (rErr) throw new Error(rErr.message);
+  const runParams = {
+    select: 'finished_item_id,qty_produced,date',
+    company_id: `eq.${companyId}`,
+  };
+  if (from) runParams.date = `gte.${from}`;
+  let runs = await pgrestGet('productions', runParams);
+  if (to) runs = (runs || []).filter((r) => r.date <= to);
 
   const inByProduct = {};
   (runs || []).forEach((r) => {
@@ -116,7 +110,7 @@ async function getStockReport({ companyId, from, to }) {
     inByProduct[r.finished_item_id] = (inByProduct[r.finished_item_id] || 0) + Number(r.qty_produced);
   });
 
-  return products.map((p) => ({
+  return (products || []).map((p) => ({
     id: p.id,
     name: p.name,
     unit: p.unit,

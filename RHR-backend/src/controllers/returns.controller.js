@@ -78,7 +78,7 @@ const getOrderReturns = async (req, res) => {
   try {
     const companyId = resolveCompanyId(req);
     const params = {
-      select: 'id,order_id,amount_total,amount_returned,notes,created_at,orders(order_number),users:customer_id(full_name)',
+      select: 'id,order_id,amount_total,amount_returned,product_name,quantity_returned,item_condition,notes,created_at,orders(order_number),users:customer_id(full_name)',
       order: 'created_at.desc',
     };
     if (req.query.order_id) {
@@ -87,7 +87,17 @@ const getOrderReturns = async (req, res) => {
       params.company_id = `eq.${companyId}`;
     }
 
-    const data = await pgrestGet('order_returns', params);
+    // product_name/quantity_returned/item_condition are a phase39
+    // addition — fall back to the plain select if it hasn't run yet.
+    let data;
+    try {
+      data = await pgrestGet('order_returns', params);
+    } catch (e) {
+      data = await pgrestGet('order_returns', {
+        ...params,
+        select: 'id,order_id,amount_total,amount_returned,notes,created_at,orders(order_number),users:customer_id(full_name)',
+      });
+    }
     return success(res, data);
   } catch (err) {
     return success(res, []);
@@ -103,7 +113,7 @@ const getOrderReturns = async (req, res) => {
 // the order as it now stands — no separate "Returned: -Rs X" line needed.
 const createOrderReturn = async (req, res) => {
   try {
-    const { order_id, amount_returned, notes, order_item_id, quantity_returned } = req.body;
+    const { order_id, amount_returned, notes, order_item_id, quantity_returned, item_condition } = req.body;
     if (!order_id || !amount_returned || Number(amount_returned) <= 0)
       return error(res, 'order_id and a positive amount_returned are required', 400);
 
@@ -116,11 +126,22 @@ const createOrderReturn = async (req, res) => {
     if (Number(amount_returned) > Number(order.total_amount))
       return error(res, 'Return amount cannot exceed the order total', 400);
 
+    // Which product was returned (if the admin picked a specific line
+    // item) — looked up here so order_returns can record the product's
+    // name directly, not just a bare line-item id.
+    let returnedItem = null;
+    if (order_item_id) {
+      const items = await pgrestGet('order_items', { select: 'id,product_name,quantity,unit_price', id: `eq.${order_item_id}` });
+      returnedItem = items?.[0] || null;
+    }
+
     // order_returns first (fails immediately if phase22 hasn't run) —
     // deliberately before the item/total/ledger mutations below, so a
     // request that errors out never silently changes anything with no
-    // record of the return that caused it.
-    const [data] = await pgrestPost('order_returns', {
+    // record of the return that caused it. product_name/quantity_returned/
+    // item_condition are a phase39 addition — fall back to the plain row
+    // if that migration hasn't run yet.
+    const baseReturnRow = {
       company_id: order.company_id,
       order_id: order.id,
       customer_id: order.customer_id,
@@ -128,21 +149,29 @@ const createOrderReturn = async (req, res) => {
       amount_returned: Number(amount_returned),
       notes: notes || null,
       created_by: req.user.id,
-    });
+    };
+    let data;
+    try {
+      [data] = await pgrestPost('order_returns', {
+        ...baseReturnRow,
+        order_item_id: order_item_id || null,
+        product_name: returnedItem?.product_name || null,
+        quantity_returned: quantity_returned ? Number(quantity_returned) : null,
+        item_condition: item_condition || null,
+      });
+    } catch (e) {
+      [data] = await pgrestPost('order_returns', baseReturnRow);
+    }
 
     // Shrink the line item's quantity/subtotal and the order total by
     // the return, so the order — and any future reprint of it — reflects
     // what was actually kept, not the original pre-return sale.
-    if (order_item_id && quantity_returned) {
-      const items = await pgrestGet('order_items', { select: 'id,quantity,unit_price', id: `eq.${order_item_id}` });
-      const item = items?.[0];
-      if (item) {
-        const newQty = Math.max(0, Number(item.quantity) - Number(quantity_returned));
-        await pgrestPatch('order_items', { id: `eq.${order_item_id}` }, {
-          quantity: newQty,
-          subtotal: newQty * Number(item.unit_price),
-        });
-      }
+    if (returnedItem && quantity_returned) {
+      const newQty = Math.max(0, Number(returnedItem.quantity) - Number(quantity_returned));
+      await pgrestPatch('order_items', { id: `eq.${order_item_id}` }, {
+        quantity: newQty,
+        subtotal: newQty * Number(returnedItem.unit_price),
+      });
     }
 
     await pgrestPatch('orders', { id: `eq.${order.id}` }, {
