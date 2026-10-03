@@ -27,7 +27,7 @@ const MATERIAL_CATEGORIES = [
 ];
 const CATEGORY_LABEL = Object.fromEntries(MATERIAL_CATEGORIES.map((c) => [c.value, c.label]));
 const UNITS = ['kg', 'litre', 'piece', 'bag'];
-const EMPTY_FORM = { name: '', category: MATERIAL_CATEGORIES[0].value, unit: UNITS[0], stock: '', min_level: '' };
+const EMPTY_FORM = { name: '', category: MATERIAL_CATEGORIES[0].value, unit: UNITS[0], stock: '', min_level: '', cost_per_unit: '' };
 const EMPTY_STOCK_FORM = { quantity: '', date: new Date().toISOString().split('T')[0], note: '' };
 const EMPTY_PURCHASE_ROW = { raw_material_id: '', qty: '', price_per_unit: '' };
 const EMPTY_CONVERSION_FORM = { purchase_unit: 'bag', consumption_unit: 'kg', bag_weight: '', bag_weight_unit: 'kg' };
@@ -167,7 +167,8 @@ export default function RawMaterials() {
       category: material.category || MATERIAL_CATEGORIES[0].value,
       unit: material.unit || UNITS[0],
       stock: material.stock ?? '',
-      min_level: material.min_level ?? ''
+      min_level: material.min_level ?? '',
+      cost_per_unit: material.cost_per_unit ?? ''
     });
     setShowAddModal(true);
   };
@@ -186,7 +187,8 @@ export default function RawMaterials() {
           category: form.category,
           unit: form.unit,
           stock: Number(form.stock),
-          min_level: Number(form.min_level)
+          min_level: Number(form.min_level),
+          cost_per_unit: Number(form.cost_per_unit) || 0
         });
         toast.success('Material updated.');
       } else {
@@ -195,7 +197,8 @@ export default function RawMaterials() {
           category: form.category,
           unit: form.unit,
           stock: Number(form.stock),
-          min_level: Number(form.min_level)
+          min_level: Number(form.min_level),
+          cost_per_unit: Number(form.cost_per_unit) || 0
         });
         toast.success('Material added.');
       }
@@ -445,7 +448,7 @@ export default function RawMaterials() {
       )}
 
       {loading ? (
-        <SkeletonTable rows={6} cols={7} />
+        <SkeletonTable rows={6} cols={8} />
       ) : (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           {filtered.length === 0 ? (
@@ -460,6 +463,7 @@ export default function RawMaterials() {
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Unit</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">In Stock</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Min Level</th>
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Cost/Unit</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
                 </tr>
@@ -486,6 +490,7 @@ export default function RawMaterials() {
                         )}
                       </td>
                       <td className="px-6 py-3.5 text-right text-gray-500">{Number(m.min_level).toLocaleString()}</td>
+                      <td className="px-6 py-3.5 text-right text-gray-700">PKR {Number(m.cost_per_unit || 0).toLocaleString()}</td>
                       <td className="px-6 py-3.5">
                         {low ? (
                           <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">
@@ -607,6 +612,19 @@ export default function RawMaterials() {
                 />
                 <p className="text-xs text-gray-400 mt-1">Alerts when stock falls below this.</p>
               </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Cost per Unit (PKR)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0"
+                value={form.cost_per_unit}
+                onChange={(e) => setForm({ ...form, cost_per_unit: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+              <p className="text-xs text-gray-400 mt-1">Used to calculate production cost (COGS) when this material is consumed.</p>
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={() => { setShowAddModal(false); setEditingMaterial(null); }}>Cancel</Button>

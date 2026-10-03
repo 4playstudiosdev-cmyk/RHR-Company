@@ -200,20 +200,31 @@ router.post('/unit-conversions', authenticate, isAdmin, async (req, res) => {
 
 // GET /api/v1/production/bom-recipes — Daily Production Entry's source
 // list: each active recipe (production_bom) matched to its real product,
-// with nested ingredient lines including each raw material's live stock,
-// so the frontend can preview shortages before submitting. Also attaches
-// each material's most recent purchase price (raw_material_stock_logs —
-// see purchaseMaterials in rawMaterials.controller.js) as last_price, for
-// the production cost preview — there's no cost_per_unit column on
-// raw_materials itself, only a price recorded at time of purchase.
+// with nested ingredient lines including each raw material's live stock
+// and cost_per_unit (phase36 — the same rate runProduction multiplies
+// against quantity consumed for real COGS), so the frontend can preview
+// both shortages and production cost before submitting. Falls back to
+// the most recent purchase price (raw_material_stock_logs) as last_price
+// when a material has no cost_per_unit set yet.
 router.get('/bom-recipes', authenticate, isAdmin, async (req, res) => {
   try {
-    const boms = await pgrestGet('production_bom', {
-      select: '*,production_bom_items(id,qty_required,unit,raw_material_id,raw_materials(id,name,unit,stock))',
-      company_id: `eq.${req.user.company_id}`,
-      is_active: 'eq.true',
-      order: 'product_name.asc',
-    });
+    let boms;
+    try {
+      boms = await pgrestGet('production_bom', {
+        select: '*,production_bom_items(id,qty_required,unit,raw_material_id,raw_materials(id,name,unit,stock,cost_per_unit))',
+        company_id: `eq.${req.user.company_id}`,
+        is_active: 'eq.true',
+        order: 'product_name.asc',
+      });
+    } catch (e) {
+      // cost_per_unit is a phase36 addition — fall back if it hasn't run yet.
+      boms = await pgrestGet('production_bom', {
+        select: '*,production_bom_items(id,qty_required,unit,raw_material_id,raw_materials(id,name,unit,stock))',
+        company_id: `eq.${req.user.company_id}`,
+        is_active: 'eq.true',
+        order: 'product_name.asc',
+      });
+    }
 
     const products = await pgrestGet('products', {
       select: 'id,name,unit,stock_quantity',
@@ -246,7 +257,7 @@ router.get('/bom-recipes', authenticate, isAdmin, async (req, res) => {
       product: productByName.get((bom.product_name || '').trim().toLowerCase()) || null,
       production_bom_items: (bom.production_bom_items || []).map((item) => ({
         ...item,
-        last_price: lastPriceByMaterial[item.raw_material_id] ?? null,
+        last_price: item.raw_materials?.cost_per_unit || lastPriceByMaterial[item.raw_material_id] || null,
       })),
     }));
 

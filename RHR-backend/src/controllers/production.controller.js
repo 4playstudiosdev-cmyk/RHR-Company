@@ -119,18 +119,40 @@ const createProductionOrder = async (req, res) => {
 // Throws Error with .statusCode set for expected failures (no recipe,
 // insufficient stock) so callers can map them to the right HTTP status.
 const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, remarks }) => {
-  const { data: bomRecipe } = await supabaseAdmin
-    .from('production_bom')
-    .select(`
-      *,
-      production_bom_items(
-        id, qty_required, unit, raw_material_id,
-        raw_materials(id, name, stock, unit)
-      )
-    `)
-    .eq('id', recipeId)
-    .eq('company_id', companyId)
-    .maybeSingle();
+  // cost_per_unit is a phase36 addition — fall back to the plain embed
+  // (and effectively $0 cost, same as before this feature existed) if
+  // that migration hasn't run yet on this environment.
+  let bomRecipe;
+  try {
+    const res = await supabaseAdmin
+      .from('production_bom')
+      .select(`
+        *,
+        production_bom_items(
+          id, qty_required, unit, raw_material_id,
+          raw_materials(id, name, stock, unit, cost_per_unit)
+        )
+      `)
+      .eq('id', recipeId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    if (res.error) throw new Error(res.error.message);
+    bomRecipe = res.data;
+  } catch (e) {
+    const res = await supabaseAdmin
+      .from('production_bom')
+      .select(`
+        *,
+        production_bom_items(
+          id, qty_required, unit, raw_material_id,
+          raw_materials(id, name, stock, unit)
+        )
+      `)
+      .eq('id', recipeId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    bomRecipe = res.data;
+  }
 
   if (!bomRecipe) {
     throw Object.assign(new Error(
@@ -155,7 +177,7 @@ const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, r
     quantity: i.qty_required,
     unit: i.unit,
     raw_material_id: i.raw_material_id,
-    rate_per_unit: 0,
+    rate_per_unit: Number(i.raw_materials?.cost_per_unit || 0),
     raw_materials: i.raw_materials,
   }));
   const finishedProductId = matchedProduct.id;

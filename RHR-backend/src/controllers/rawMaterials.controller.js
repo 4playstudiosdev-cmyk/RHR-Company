@@ -48,18 +48,27 @@ const getMaterials = async (req, res) => {
 // writes elsewhere in the codebase.
 const createMaterial = async (req, res) => {
   try {
-    const { name, category, unit, stock, min_level } = req.body;
+    const { name, category, unit, stock, min_level, cost_per_unit } = req.body;
     if (!name || !category || !unit)
       return error(res, 'name, category, unit are required', 400);
 
-    const [data] = await pgrestPost('raw_materials', {
+    const row = {
       company_id: req.user.company_id,
       name,
       category,
       unit,
       stock:     Number(stock) || 0,
       min_level: Number(min_level) || 0
-    });
+    };
+
+    let data;
+    try {
+      // cost_per_unit is a phase36 addition — fall back to the plain
+      // insert if that migration hasn't run yet on this environment.
+      [data] = await pgrestPost('raw_materials', { ...row, cost_per_unit: Number(cost_per_unit) || 0 });
+    } catch (e) {
+      [data] = await pgrestPost('raw_materials', row);
+    }
 
     invalidate('materials:');
     return success(res, data, 'Material added', 201);
@@ -69,17 +78,29 @@ const createMaterial = async (req, res) => {
 // PATCH /api/v1/production/materials/:id — edit name/category/unit/stock/min_level
 const updateMaterial = async (req, res) => {
   try {
-    const { name, category, unit, stock, min_level } = req.body;
+    const { name, category, unit, stock, min_level, cost_per_unit } = req.body;
     const filter = { id: `eq.${req.params.id}` };
     if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
 
-    const data = await pgrestPatch('raw_materials', filter, {
+    const body = {
       name,
       category,
       unit,
       stock:     stock !== undefined ? Number(stock) : undefined,
       min_level: min_level !== undefined ? Number(min_level) : undefined
-    });
+    };
+
+    let data;
+    try {
+      // cost_per_unit is a phase36 addition — fall back to the plain
+      // patch if that migration hasn't run yet on this environment.
+      data = await pgrestPatch('raw_materials', filter, {
+        ...body,
+        cost_per_unit: cost_per_unit !== undefined ? Number(cost_per_unit) : undefined,
+      });
+    } catch (e) {
+      data = await pgrestPatch('raw_materials', filter, body);
+    }
     if (!data?.[0]) return error(res, 'Material not found or access denied', 404);
 
     invalidate('materials:');
