@@ -118,7 +118,7 @@ const createProductionOrder = async (req, res) => {
 // recipe (production_bom), credits the finished product, records the run.
 // Throws Error with .statusCode set for expected failures (no recipe,
 // insufficient stock) so callers can map them to the right HTTP status.
-const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, remarks }) => {
+const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, remarks, wastageQty, wastageUnit }) => {
   // cost_per_unit is a phase36 addition — fall back to the plain embed
   // (and effectively $0 cost, same as before this feature existed) if
   // that migration hasn't run yet on this environment.
@@ -210,22 +210,36 @@ const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, r
     0
   );
 
-  const { data: newProduction, error: pErr } = await supabaseAdmin
-    .from('productions')
-    .insert({
-      company_id:       companyId,
-      recipe_id:        recipeId,
-      finished_item_id: finishedProductId,
-      date:             date || new Date().toISOString().split('T')[0],
-      qty_produced:     Number(qtyProduced),
-      remarks:          remarks || null,
-      created_by:       userId,
-      total_cost:       Number(totalCost.toFixed(2)),
-    })
-    .select()
-    .single();
+  const productionRow = {
+    company_id:       companyId,
+    recipe_id:        recipeId,
+    finished_item_id: finishedProductId,
+    date:             date || new Date().toISOString().split('T')[0],
+    qty_produced:     Number(qtyProduced),
+    remarks:          remarks || null,
+    created_by:       userId,
+    total_cost:       Number(totalCost.toFixed(2)),
+  };
 
-  if (pErr) throw new Error(pErr.message);
+  // wastage_qty/wastage_unit are a phase37 addition — fall back to the
+  // plain insert if that migration hasn't run yet on this environment.
+  let newProduction;
+  if (wastageQty && Number(wastageQty) > 0) {
+    const withWastage = await supabaseAdmin.from('productions')
+      .insert({ ...productionRow, wastage_qty: Number(wastageQty), wastage_unit: wastageUnit || 'kg' })
+      .select().single();
+    if (withWastage.error) {
+      const plain = await supabaseAdmin.from('productions').insert(productionRow).select().single();
+      if (plain.error) throw new Error(plain.error.message);
+      newProduction = plain.data;
+    } else {
+      newProduction = withWastage.data;
+    }
+  } else {
+    const { data, error: pErr } = await supabaseAdmin.from('productions').insert(productionRow).select().single();
+    if (pErr) throw new Error(pErr.message);
+    newProduction = data;
+  }
 
   // Per-material bag-equivalent (see sql/phase35_unit_conversions.sql) —
   // best-effort: a material with no conversion rule just gets a null
@@ -303,6 +317,8 @@ const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, r
     qty_produced:   Number(qtyProduced),
     batch_unit:     batchUnit,
     total_cost:     Number(totalCost.toFixed(2)),
+    wastage_qty:    newProduction.wastage_qty ?? null,
+    wastage_unit:   newProduction.wastage_unit ?? null,
     materials_used: materialNeeds.map(m => ({ name: m.name, qty_used: m.needed, unit: m.unit })),
   };
 };

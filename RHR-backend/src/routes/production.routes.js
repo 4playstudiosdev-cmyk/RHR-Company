@@ -50,12 +50,25 @@ router.get('/recipes', authenticate, isAdmin, async (req, res) => {
     // Same supabase-js-on-Railway issue as materials (see
     // src/utils/directQuery.js and rawMaterials.controller.js) — routed
     // through the same raw-https bypass instead of supabase-js.
-    const data = await pgrestGet('production_bom', {
-      select: '*,recipe_ingredients:production_bom_items(id,qty_required,unit,raw_materials(id,name,unit))',
-      company_id: `eq.${req.user.company_id}`,
-      is_active: 'eq.true',
-      order: 'created_at.desc',
-    });
+    // cost_per_unit is a phase36 addition — fall back to the plain embed
+    // if that migration hasn't run yet (the per-bag cost preview just
+    // won't have a rate to multiply against until then).
+    let data;
+    try {
+      data = await pgrestGet('production_bom', {
+        select: '*,recipe_ingredients:production_bom_items(id,qty_required,unit,raw_materials(id,name,unit,cost_per_unit))',
+        company_id: `eq.${req.user.company_id}`,
+        is_active: 'eq.true',
+        order: 'created_at.desc',
+      });
+    } catch (e) {
+      data = await pgrestGet('production_bom', {
+        select: '*,recipe_ingredients:production_bom_items(id,qty_required,unit,raw_materials(id,name,unit))',
+        company_id: `eq.${req.user.company_id}`,
+        is_active: 'eq.true',
+        order: 'created_at.desc',
+      });
+    }
 
     if (data && data.length > 0) setCached(cacheKey, data, CACHE_TTL_MS);
     return success(res, data);
@@ -332,7 +345,7 @@ router.get('/history', authenticate, isAdmin, async (req, res) => {
 // ─────────────────────────────────────
 router.post('/produce', authenticate, isAdmin, async (req, res) => {
   try {
-    const { recipe_id, qty_produced, date, remarks } = req.body;
+    const { recipe_id, qty_produced, date, remarks, wastage_qty, wastage_unit } = req.body;
 
     if (!recipe_id || !qty_produced)
       return error(res, 'recipe_id and qty_produced are required', 400);
@@ -346,6 +359,8 @@ router.post('/produce', authenticate, isAdmin, async (req, res) => {
       qtyProduced: qty_produced,
       date,
       remarks,
+      wastageQty:  wastage_qty,
+      wastageUnit: wastage_unit,
     });
 
     return success(res, result,

@@ -36,6 +36,7 @@ export default function StockReports() {
   const [dateTo, setDateTo] = useState('');
   const [products, setProducts] = useState([]);
   const [materials, setMaterials] = useState([]);
+  const [conversions, setConversions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -43,6 +44,18 @@ export default function StockReports() {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity, activeTab, dateFrom, dateTo]);
+
+  // Per-material purchase/consumption unit rule (see
+  // production/RawMaterials.jsx's Unit Conversion modal) — lets the
+  // Raw Materials tab show stock in both units, same as that page does.
+  useEffect(() => {
+    if (activeTab !== 'materials' || selectedCity === 'all') { setConversions([]); return; }
+    api.get('/production/unit-conversions', { params: { company_id: selectedCity } })
+      .then((r) => setConversions(r.data.data || []))
+      .catch(() => setConversions([]));
+  }, [activeTab, selectedCity]);
+
+  const conversionByMaterial = Object.fromEntries(conversions.map((c) => [c.raw_material_id, c]));
 
   const loadData = async () => {
     setLoading(true);
@@ -176,7 +189,7 @@ export default function StockReports() {
       ) : activeTab === 'products' ? (
         <ProductsStockTable products={products} />
       ) : (
-        <MaterialsStockTable materials={materials} />
+        <MaterialsStockTable materials={materials} conversionByMaterial={conversionByMaterial} />
       )}
     </div>
   );
@@ -244,7 +257,7 @@ function ProductsStockTable({ products }) {
   );
 }
 
-function MaterialsStockTable({ materials }) {
+function MaterialsStockTable({ materials, conversionByMaterial = {} }) {
   if (materials.length === 0) {
     return (
       <div className="bg-white rounded-2xl shadow-card border border-gray-100">
@@ -282,7 +295,14 @@ function MaterialsStockTable({ materials }) {
                   <td className="px-6 py-3.5 text-gray-600">{m.unit}</td>
                   <td className="px-6 py-3.5 text-right text-emerald-700 font-medium">+{Number(m.stockIn).toLocaleString()}</td>
                   <td className="px-6 py-3.5 text-right text-red-600 font-medium">−{Number(m.stockOut).toLocaleString()}</td>
-                  <td className="px-6 py-3.5 text-right font-bold text-navy">{Number(m.closingBalance).toLocaleString()} {m.unit}</td>
+                  <td className="px-6 py-3.5 text-right font-bold text-navy">
+                    {Number(m.closingBalance).toLocaleString()} {m.unit}
+                    {conversionByMaterial[m.id] && (
+                      <span className="block text-[11px] font-normal text-gray-400">
+                        ≈ {(Number(m.closingBalance) / Number(conversionByMaterial[m.id].bag_weight)).toFixed(1)} {conversionByMaterial[m.id].purchase_unit}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-6 py-3.5 text-right text-gray-500">{Number(m.minLevel).toLocaleString()} {m.unit}</td>
                   <td className="px-6 py-3.5">
                     <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-semibold ${status.classes}`}>

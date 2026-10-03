@@ -22,6 +22,7 @@ export default function DailyProduction() {
   const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [qtyByRecipe, setQtyByRecipe] = useState({});
+  const [wastageByRecipe, setWastageByRecipe] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
 
@@ -46,6 +47,10 @@ export default function DailyProduction() {
   };
 
   const setQty = (recipeId, value) => setQtyByRecipe((prev) => ({ ...prev, [recipeId]: value }));
+  const setWastage = (recipeId, field, value) => setWastageByRecipe((prev) => ({
+    ...prev,
+    [recipeId]: { ...prev[recipeId], [field]: value },
+  }));
 
   // Rows with a qty entered, each carrying a shortage preview computed
   // from the recipe's own ingredient lines (already embedded with live
@@ -93,14 +98,18 @@ export default function DailyProduction() {
     setSubmitting(true);
     try {
       for (const row of previewRows) {
+        const wastage = wastageByRecipe[row.recipe.id];
         await api.post('/production/produce', {
           recipe_id: row.recipe.id,
           qty_produced: row.qty,
           date,
+          wastage_qty: wastage?.qty ? Number(wastage.qty) : undefined,
+          wastage_unit: wastage?.unit || 'kg',
         });
       }
       toast.success(`Production logged for ${previewRows.length} product${previewRows.length > 1 ? 's' : ''}.`);
       setQtyByRecipe({});
+      setWastageByRecipe({});
       loadRecipes();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to log production.');
@@ -122,7 +131,7 @@ export default function DailyProduction() {
           <EmptyState icon={Factory} title="Select a specific city to enter production" />
         </div>
       ) : loading ? (
-        <SkeletonTable rows={5} cols={4} />
+        <SkeletonTable rows={5} cols={5} />
       ) : (
         <>
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-6 flex items-center gap-4">
@@ -148,6 +157,7 @@ export default function DailyProduction() {
                       <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Product</th>
                       <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Batch Unit</th>
                       <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Qty Produced Today</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Wastage (optional)</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -170,6 +180,27 @@ export default function DailyProduction() {
                             onChange={(e) => setQty(recipe.id, e.target.value)}
                             className="w-28 border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
                           />
+                        </td>
+                        <td className="px-6 py-3.5 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="0"
+                              value={wastageByRecipe[recipe.id]?.qty || ''}
+                              onChange={(e) => setWastage(recipe.id, 'qty', e.target.value)}
+                              className="w-20 border border-amber-300 rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-amber-400"
+                            />
+                            <select
+                              value={wastageByRecipe[recipe.id]?.unit || 'kg'}
+                              onChange={(e) => setWastage(recipe.id, 'unit', e.target.value)}
+                              className="border border-gray-300 rounded-lg px-1.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-navy"
+                            >
+                              <option value="kg">kg</option>
+                              <option value="gm">gm</option>
+                            </select>
+                          </div>
                         </td>
                       </tr>
                     ))}

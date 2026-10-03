@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Plus, ListPlus, PencilLine, Trash2, Save, X, FlaskConical, ClipboardList } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Plus, ListPlus, PencilLine, Trash2, Save, X, FlaskConical, ClipboardList, Coins } from 'lucide-react';
 import api from '../../services/api';
 import PageHeader from '../../components/PageHeader';
 import Button from '../../components/Button';
@@ -25,6 +25,7 @@ export default function RecipesPage() {
   const [saving, setSaving]             = useState(false);
   const [savingRow, setSavingRow]       = useState(null);
   const [loading, setLoading]           = useState(true);
+  const [expandedRecipeId, setExpandedRecipeId] = useState(null);
 
   useEffect(() => {
     loadProducts();
@@ -76,6 +77,35 @@ export default function RecipesPage() {
       unit:             ing.unit,
       isNew:            false,
     }));
+
+  // Live per-bag cost of the ingredients currently in the form — looks
+  // each row's rate up against rawMaterials.cost_per_unit (phase36), the
+  // same rate production.controller.js#runProduction actually multiplies
+  // against quantity consumed, so this preview matches the real COGS.
+  const costOfIngredients = (rows) =>
+    rows.reduce((sum, row) => {
+      const mat = rawMaterials.find((m) => m.id === row.raw_material_id);
+      const rate = Number(mat?.cost_per_unit || 0);
+      return sum + Number(row.quantity || 0) * rate;
+    }, 0);
+
+  const formCost = useMemo(() => costOfIngredients(ingredients), [ingredients, rawMaterials]);
+
+  // Saved recipes grouped by their product's category — product_name is
+  // free text on production_bom (no FK), so the category comes from
+  // matching it against the loaded products list by name.
+  const groupedRecipes = useMemo(() => {
+    const categoryByProductName = new Map(
+      products.map((p) => [p.name.trim().toLowerCase(), p.categories?.name || 'Uncategorized'])
+    );
+    const groups = new Map();
+    recipes.forEach((recipe) => {
+      const cat = categoryByProductName.get(recipe.product_name?.trim().toLowerCase()) || 'Uncategorized';
+      if (!groups.has(cat)) groups.set(cat, []);
+      groups.get(cat).push(recipe);
+    });
+    return Array.from(groups.entries());
+  }, [recipes, products]);
 
   const handleProductSelect = (e) => {
     const productId = e.target.value;
@@ -369,6 +399,13 @@ export default function RecipesPage() {
               </div>
             </div>
 
+            <div className="bg-navy rounded-lg px-4 py-3 flex items-center justify-between">
+              <span className="text-sm font-semibold text-white flex items-center gap-1.5">
+                <Coins size={14} /> Total Cost per Bag
+              </span>
+              <span className="text-lg font-bold text-orange">PKR {formCost.toFixed(2)}</span>
+            </div>
+
             <Button
               variant="primary"
               onClick={handleSave}
@@ -380,7 +417,7 @@ export default function RecipesPage() {
           </div>
         </div>
 
-        {/* ── RIGHT — Saved Recipes ── */}
+        {/* ── RIGHT — Saved Recipes, grouped by category ── */}
         <div>
           <h2 className="text-base font-bold text-navy mb-3 flex items-center gap-1.5">
             <ClipboardList size={16} /> Saved Recipes ({recipes.length})
@@ -391,49 +428,72 @@ export default function RecipesPage() {
           ) : recipes.length === 0 ? (
             <EmptyState icon={FlaskConical} title="No recipes yet" subtitle="Create your first recipe on the left" />
           ) : (
-            <div className="flex flex-col gap-4">
-              {recipes.map((recipe) => (
-                <div key={recipe.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-card">
-                  <div className="bg-navy px-4 py-3 flex justify-between items-center">
-                    <div>
-                      <p className="text-white font-bold text-sm">{recipe.product_name}</p>
-                      <p className="text-blue-200 text-xs mt-0.5">{recipe.recipe_ingredients?.length || 0} materials</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleEdit(recipe)}
-                        className="flex items-center gap-1 text-xs font-semibold text-navy bg-white hover:bg-gray-100 px-2.5 py-1.5 rounded-md"
-                      >
-                        <PencilLine size={12} /> Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(recipe.id, recipe.product_name)}
-                        className="flex items-center gap-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 px-2.5 py-1.5 rounded-md"
-                      >
-                        <Trash2 size={12} /> Delete
-                      </button>
-                    </div>
+            <div className="flex flex-col gap-5">
+              {groupedRecipes.map(([category, catRecipes]) => (
+                <div key={category}>
+                  <h4 className="text-gray-400 text-[11px] font-bold uppercase tracking-wider mb-2 px-1">{category}</h4>
+                  <div className="flex flex-col gap-2">
+                    {catRecipes.map((recipe) => {
+                      const expanded = expandedRecipeId === recipe.id;
+                      const cost = costOfIngredients(
+                        (recipe.recipe_ingredients || []).map((ing) => ({
+                          raw_material_id: ing.raw_materials?.id,
+                          quantity: ing.qty_required,
+                        }))
+                      );
+                      return (
+                        <div key={recipe.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden shadow-card">
+                          <button
+                            onClick={() => setExpandedRecipeId(expanded ? null : recipe.id)}
+                            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50/60"
+                          >
+                            <div>
+                              <p className="font-semibold text-navy text-sm">{recipe.product_name}</p>
+                              <p className="text-gray-400 text-xs mt-0.5">
+                                {recipe.recipe_ingredients?.length || 0} ingredients • PKR {cost.toFixed(2)}/bag
+                              </p>
+                            </div>
+                            <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                onClick={() => handleEdit(recipe)}
+                                className="flex items-center gap-1 text-xs font-semibold text-navy bg-navy-chip hover:bg-navy-chip/70 px-2.5 py-1.5 rounded-md"
+                              >
+                                <PencilLine size={12} /> Edit
+                              </button>
+                              <button
+                                onClick={() => handleDelete(recipe.id, recipe.product_name)}
+                                className="flex items-center gap-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 px-2.5 py-1.5 rounded-md"
+                              >
+                                <Trash2 size={12} /> Delete
+                              </button>
+                            </div>
+                          </button>
+                          {expanded && (
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="bg-gray-50 text-left text-gray-500">
+                                  <th className="px-4 py-2 text-xs font-semibold uppercase">#</th>
+                                  <th className="px-4 py-2 text-xs font-semibold uppercase">Raw Material</th>
+                                  <th className="px-4 py-2 text-xs font-semibold uppercase text-right">Qty Required</th>
+                                  <th className="px-4 py-2 text-xs font-semibold uppercase text-right">Unit</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {recipe.recipe_ingredients?.map((ing, i) => (
+                                  <tr key={ing.id} className={`border-t border-gray-50 ${i % 2 === 1 ? 'bg-gray-50/60' : ''}`}>
+                                    <td className="px-4 py-2.5 text-gray-400">{i + 1}</td>
+                                    <td className="px-4 py-2.5 font-medium text-navy">{ing.raw_materials?.name}</td>
+                                    <td className="px-4 py-2.5 text-right font-bold text-navy">{ing.qty_required}</td>
+                                    <td className="px-4 py-2.5 text-right text-gray-500">{ing.unit}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 text-left text-gray-500">
-                        <th className="px-4 py-2 text-xs font-semibold uppercase">#</th>
-                        <th className="px-4 py-2 text-xs font-semibold uppercase">Raw Material</th>
-                        <th className="px-4 py-2 text-xs font-semibold uppercase text-right">Qty Required</th>
-                        <th className="px-4 py-2 text-xs font-semibold uppercase text-right">Unit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {recipe.recipe_ingredients?.map((ing, i) => (
-                        <tr key={ing.id} className={`border-t border-gray-50 ${i % 2 === 1 ? 'bg-gray-50/60' : ''}`}>
-                          <td className="px-4 py-2.5 text-gray-400">{i + 1}</td>
-                          <td className="px-4 py-2.5 font-medium text-navy">{ing.raw_materials?.name}</td>
-                          <td className="px-4 py-2.5 text-right font-bold text-navy">{ing.qty_required}</td>
-                          <td className="px-4 py-2.5 text-right text-gray-500">{ing.unit}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 </div>
               ))}
             </div>
