@@ -4,7 +4,7 @@ import {
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
   Gauge, Boxes, ClipboardList, FileBarChart2, ChevronDown, X,
   PackageCheck, ArrowLeftRight, PackageSearch, Landmark, Receipt, Store, RotateCcw,
-  HandCoins, Car, CalendarCheck, WalletCards, LayoutPanelTop, Trash2
+  HandCoins, Car, CalendarCheck, WalletCards, LayoutPanelTop
 } from 'lucide-react';
 import api, { hasPermission } from '../services/api';
 
@@ -20,7 +20,6 @@ const NAV_ITEMS = [
   { key: 'suppliers', label: 'Suppliers', icon: Store, requiredPermission: 'can_manage_production' },
   { key: 'returns', label: 'Returns', icon: RotateCcw, requiredPermission: 'can_manage_production' },
   { key: 'orders', label: 'Orders', icon: ShoppingCart },
-  { key: 'deleted-invoices', label: 'Deleted Invoices', icon: Trash2, requiredRole: 'super_admin' },
   { key: 'customers', label: 'Customers', icon: Users, requiredPermission: 'can_manage_customers' },
   { key: 'salesmen', label: 'Salesmen', icon: UserCog },
   { key: 'recovery', label: 'Salesman Recovery', icon: HandCoins, requiredPermission: 'can_view_payments' },

@@ -45,6 +45,8 @@ export default function Orders() {
   const [tab, setTab] = useState('all');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [deletedInvoices, setDeletedInvoices] = useState([]);
+  const [loadingDeleted, setLoadingDeleted] = useState(false);
 
   const [showCreateOrder, setShowCreateOrder] = useState(false);
   const [customers, setCustomers] = useState([]);
@@ -92,6 +94,26 @@ export default function Orders() {
     loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
+
+  // Fetched lazily the first time the "Deleted Invoices" tab is opened,
+  // instead of a separate sidebar page — this is an audit sub-view of
+  // Orders, not its own destination.
+  useEffect(() => {
+    if (tab === 'deleted-invoices' && isSuperAdmin) loadDeletedInvoices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  const loadDeletedInvoices = async () => {
+    setLoadingDeleted(true);
+    try {
+      const res = await api.get('/orders/deleted-invoices');
+      setDeletedInvoices(res.data.data || []);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load deleted invoices.');
+    } finally {
+      setLoadingDeleted(false);
+    }
+  };
 
   const openCreateOrder = async () => {
     setShowCreateOrder(true);
@@ -193,6 +215,7 @@ export default function Orders() {
       await api.delete(`/orders/${order.id}/invoice`, { data: { reason } });
       toast.success('Invoice deleted — moved to Deleted Invoices.');
       loadOrders();
+      if (tab === 'deleted-invoices') loadDeletedInvoices();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to delete invoice.');
     }
@@ -602,9 +625,60 @@ export default function Orders() {
               </span>
             </button>
           ))}
+          {isSuperAdmin && (
+            <button
+              onClick={() => { setTab('deleted-invoices'); setPage(1); }}
+              className={`pb-3 pt-2 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors flex items-center gap-1.5 ${
+                tab === 'deleted-invoices' ? 'text-red-600 border-red-600' : 'text-gray-400 border-transparent hover:text-red-600'
+              }`}
+            >
+              <Trash2 size={13} />
+              <span>Deleted Invoices</span>
+              <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium ${
+                tab === 'deleted-invoices' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'
+              }`}>
+                {deletedInvoices.length}
+              </span>
+            </button>
+          )}
         </div>
 
-        {loading ? (
+        {tab === 'deleted-invoices' ? (
+          loadingDeleted ? (
+            <SkeletonTable rows={6} cols={5} />
+          ) : deletedInvoices.length === 0 ? (
+            <EmptyState icon={Trash2} title="No deleted invoices" />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Order #</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Deleted At</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Deleted By</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deletedInvoices.map((inv, i) => (
+                    <tr key={inv.id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                      <td className="px-6 py-3.5 font-medium text-navy">{inv.order_number || '—'}</td>
+                      <td className="px-6 py-3.5 text-gray-600">{inv.customer_name || '—'}</td>
+                      <td className="px-6 py-3.5 text-right font-semibold text-red-600">
+                        PKR {Number(inv.total_amount || 0).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(inv.deleted_at).toLocaleString()}</td>
+                      <td className="px-6 py-3.5 text-gray-600">{inv.deleted_by_user?.full_name || '—'}</td>
+                      <td className={`px-6 py-3.5 text-gray-500 ${!inv.reason ? 'italic' : ''}`}>{inv.reason || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : loading ? (
           <SkeletonTable rows={6} cols={8} />
         ) : filtered.length === 0 ? (
           <EmptyState icon={ShoppingCart} title="No orders here" subtitle={search ? 'Try a different search' : 'Orders placed by customers will appear here'} />
