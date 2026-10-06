@@ -126,20 +126,33 @@ const deleteInvoice = async (req, res) => {
       original_data: order,
     });
 
-    // invoice_with_tax/invoice_conveyance are a phase28 addition — fall
-    // back to just the core fields if that migration hasn't run yet.
+    // invoice_deleted_at (phase41) is what the frontend actually keys off
+    // to show a locked "Deleted" status instead of letting "Create
+    // Invoice" reappear right after deletion — invoice_with_tax/
+    // invoice_conveyance are an older, phase28 addition. Both fall back
+    // progressively if their migration hasn't run yet on this environment.
+    const deletedAt = new Date().toISOString();
     try {
       await pgrestPatch('orders', { id: `eq.${order.id}` }, {
         invoice_url: null,
         invoice_generated_at: null,
         invoice_with_tax: false,
         invoice_conveyance: 0,
+        invoice_deleted_at: deletedAt,
       });
     } catch (e) {
-      await pgrestPatch('orders', { id: `eq.${order.id}` }, {
-        invoice_url: null,
-        invoice_generated_at: null,
-      });
+      try {
+        await pgrestPatch('orders', { id: `eq.${order.id}` }, {
+          invoice_url: null,
+          invoice_generated_at: null,
+          invoice_deleted_at: deletedAt,
+        });
+      } catch (e2) {
+        await pgrestPatch('orders', { id: `eq.${order.id}` }, {
+          invoice_url: null,
+          invoice_generated_at: null,
+        });
+      }
     }
 
     return success(res, { deleted: true }, 'Invoice deleted and moved to deleted invoices record');

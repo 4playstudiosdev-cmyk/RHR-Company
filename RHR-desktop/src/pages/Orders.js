@@ -673,7 +673,14 @@ export default function Orders() {
                         })()}
                       </td>
                       <td className="px-6 py-3.5">
-                        {order.invoice_generated_at ? (
+                        {order.invoice_deleted_at ? (
+                          <span
+                            title={`Deleted ${new Date(order.invoice_deleted_at).toLocaleString()}`}
+                            className="inline-block px-3 py-1 rounded-full text-xs font-semibold capitalize bg-red-100 text-red-800"
+                          >
+                            Deleted
+                          </span>
+                        ) : order.invoice_generated_at ? (
                           <div className="flex items-center gap-1.5">
                             <button
                               onClick={() => handlePrintInvoice(order)}
