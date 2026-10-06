@@ -1,6 +1,6 @@
 const { supabaseAdmin }    = require('../config/supabase');
 const { generateInvoice }  = require('./invoice.service');
-const { pgrestGet, pgrestPatch } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 
 // Flat PKR 10 adjustment set on the customer's rate_tier at approval time
 // (see the Rate Tier dialog on Customers.js / auth.service.js's
@@ -10,32 +10,36 @@ const { pgrestGet, pgrestPatch } = require('../utils/directQuery');
 const RATE_TIER_ADJUSTMENT = { manual: 0, discount: -10, premium: 10 };
 
 async function createOrder({ customerId, salesmanId, companyId, items, notes, deliveryAddress }) {
-  // Step 1: Validate all products exist and have enough stock
+  // Step 1: Validate all products exist and have enough stock. Routed
+  // through the pgrestGet raw-https bypass (see utils/directQuery.js) —
+  // these three reads were still on plain supabase-js, the exact pattern
+  // that's intermittently returned a spurious empty result on Railway
+  // elsewhere in this codebase; for customPrices specifically, an empty
+  // result here silently fell through to the rate-tier price instead of
+  // the customer's actual custom price, which is what looked like "custom
+  // pricing isn't working" even though it had been saved correctly.
   const productIds = items.map(i => i.product_id);
-  const [{ data: products, error: pErr }, { data: customer }, { data: customPrices }] = await Promise.all([
-    supabaseAdmin
-      .from('products')
-      .select('id, name, price, stock_quantity')
-      .in('id', productIds)
-      .eq('company_id', companyId)
-      .eq('is_active', true),
-    supabaseAdmin
-      .from('users')
-      .select('rate_tier')
-      .eq('id', customerId)
-      .maybeSingle(),
+  const [products, customerRows, customPrices] = await Promise.all([
+    pgrestGet('products', {
+      select: 'id,name,price,stock_quantity',
+      id: `in.(${productIds.join(',')})`,
+      company_id: `eq.${companyId}`,
+      is_active: 'eq.true',
+    }),
+    pgrestGet('users', { select: 'rate_tier', id: `eq.${customerId}` }),
     // Per-customer, per-product override (Customers page → Set Custom
     // Pricing) — takes precedence over rate_tier for whichever products
     // it covers; anything not overridden still falls through to the
     // tier adjustment below.
-    supabaseAdmin
-      .from('customer_product_prices')
-      .select('product_id, price')
-      .eq('customer_id', customerId)
-      .in('product_id', productIds)
+    pgrestGet('customer_product_prices', {
+      select: 'product_id,price',
+      customer_id: `eq.${customerId}`,
+      product_id: `in.(${productIds.join(',')})`,
+    }),
   ]);
+  const customer = customerRows?.[0];
 
-  if (pErr || products.length !== items.length) {
+  if (!products || products.length !== items.length) {
     throw new Error('One or more products not found');
   }
 
@@ -340,11 +344,14 @@ async function updateOrderItems(orderId, companyId, { items = [], removedIds = [
   // differently than if it had been on the order from the start.
   if (addedItems.length > 0) {
     const productIds = addedItems.map((i) => i.product_id);
-    const [{ data: products }, { data: customer }, { data: customPrices }] = await Promise.all([
-      supabaseAdmin.from('products').select('id,name,price,stock_quantity').in('id', productIds).eq('company_id', order.company_id),
-      supabaseAdmin.from('users').select('rate_tier').eq('id', order.customer_id).maybeSingle(),
-      supabaseAdmin.from('customer_product_prices').select('product_id,price').eq('customer_id', order.customer_id).in('product_id', productIds),
+    // Same raw-https bypass as createOrder above, and for the same reason
+    // — these were still on plain supabase-js.
+    const [products, customerRows, customPrices] = await Promise.all([
+      pgrestGet('products', { select: 'id,name,price,stock_quantity', id: `in.(${productIds.join(',')})`, company_id: `eq.${order.company_id}` }),
+      pgrestGet('users', { select: 'rate_tier', id: `eq.${order.customer_id}` }),
+      pgrestGet('customer_product_prices', { select: 'product_id,price', customer_id: `eq.${order.customer_id}`, product_id: `in.(${productIds.join(',')})` }),
     ]);
+    const customer = customerRows?.[0];
     const tierAdjustment = RATE_TIER_ADJUSTMENT[customer?.rate_tier] || 0;
     const customPriceByProduct = Object.fromEntries((customPrices || []).map((c) => [c.product_id, Number(c.price)]));
 
@@ -358,7 +365,7 @@ async function updateOrderItems(orderId, companyId, { items = [], removedIds = [
       const unitPrice = hasCustomPrice ? customPriceByProduct[product_id] : Math.max(0, Number(product.price) + tierAdjustment);
       const qty = Number(quantity);
 
-      await supabaseAdmin.from('order_items').insert({
+      await pgrestPost('order_items', {
         order_id: orderId,
         product_id,
         product_name: product.name,

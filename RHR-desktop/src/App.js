@@ -37,6 +37,7 @@ import DailyProduction from './pages/production/DailyProduction';
 import StockTransfers from './pages/StockTransfers';
 import StockReports from './pages/StockReports';
 import OpeningBalances from './pages/OpeningBalances';
+import DeletedInvoices from './pages/DeletedInvoices';
 
 const PAGES = {
   dashboard: Dashboard,
@@ -67,7 +68,8 @@ const PAGES = {
   'stock-reports': StockReports,
   hrm: HRM,
   admins: AdminManagement,
-  'opening-balances': OpeningBalances
+  'opening-balances': OpeningBalances,
+  'deleted-invoices': DeletedInvoices
 };
 
 // Dashboard and Admin Roles are the only super_admin-exclusive pages now —
@@ -85,6 +87,7 @@ const PAGE_ACCESS = {
   'stock-reports': { requiredPermission: 'can_export_reports' },
   gps: { requiredPermission: 'can_view_gps' },
   admins: { requiredRole: 'super_admin' },
+  'deleted-invoices': { requiredRole: 'super_admin' },
   customers: { requiredPermission: 'can_manage_customers' },
   hrm: { requiredPermission: 'can_manage_hrm' },
   'production-materials': { requiredPermission: 'can_manage_production' },

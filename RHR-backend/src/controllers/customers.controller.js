@@ -313,20 +313,24 @@ const getCustomerPricing = async (req, res) => {
     const customer = await findScopedCustomer(req);
     if (!customer) return error(res, 'Customer not found or access denied', 404);
 
-    const [{ data: products, error: pErr }, { data: overrides, error: oErr }] = await Promise.all([
-      supabaseAdmin
-        .from('products')
-        .select('id, name, unit, price, categories(name)')
-        .eq('company_id', customer.company_id)
-        .or('is_active.eq.true,is_active.is.null')
-        .order('name'),
-      supabaseAdmin
-        .from('customer_product_prices')
-        .select('product_id, price')
-        .eq('customer_id', customer.id)
+    // Routed through the pgrestGet raw-https bypass (see
+    // utils/directQuery.js) — this was still on plain supabase-js, which
+    // is what made a custom price look like it "didn't save": the write
+    // (setCustomerPricing below) already used this bypass and genuinely
+    // succeeded, but reopening the pricing panel re-read overrides via
+    // the flaky plain-supabase-js path above and could come back empty.
+    const [products, overrides] = await Promise.all([
+      pgrestGet('products', {
+        select: 'id,name,unit,price,categories(name)',
+        company_id: `eq.${customer.company_id}`,
+        or: '(is_active.eq.true,is_active.is.null)',
+        order: 'name.asc',
+      }),
+      pgrestGet('customer_product_prices', {
+        select: 'product_id,price',
+        customer_id: `eq.${customer.id}`,
+      }),
     ]);
-    if (pErr) throw new Error(pErr.message);
-    if (oErr) throw new Error(oErr.message);
 
     const overrideByProduct = Object.fromEntries((overrides || []).map((o) => [o.product_id, Number(o.price)]));
     const data = (products || []).map((p) => ({

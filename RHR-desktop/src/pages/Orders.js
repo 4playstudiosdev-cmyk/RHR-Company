@@ -34,6 +34,7 @@ const EMPTY_ORDER_FORM = { customer_id: '', items: [{ product_id: '', quantity: 
 export default function Orders() {
   const toast = useToast();
   const user = getCurrentUser();
+  const isSuperAdmin = user?.role === 'super_admin';
   const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId; // KHI default
   const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [orders, setOrders] = useState([]);
@@ -173,6 +174,27 @@ export default function Orders() {
       setError(err.response?.data?.message || 'Failed to load orders.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Super-admin-only — removes the invoice state from an order (order
+  // itself is kept) after archiving a full snapshot server-side to
+  // deleted_invoices (see DELETE /orders/:id/invoice).
+  const handleDeleteInvoice = async (order) => {
+    const reason = window.prompt(`Delete invoice for Order #${order.order_number}?\n\nEnter reason (optional):`);
+    if (reason === null) return; // cancelled
+    const confirmed = window.confirm(
+      `Are you sure you want to delete the invoice for Order #${order.order_number}?\n` +
+      `It will be moved to Deleted Invoices.`
+    );
+    if (!confirmed) return;
+
+    try {
+      await api.delete(`/orders/${order.id}/invoice`, { data: { reason } });
+      toast.success('Invoice deleted — moved to Deleted Invoices.');
+      loadOrders();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete invoice.');
     }
   };
 
@@ -671,6 +693,15 @@ export default function Orders() {
                               <FileDown size={14} />
                               {editInvoiceLoadingId === order.id ? 'Loading...' : 'Edit Invoice'}
                             </button>
+                            {isSuperAdmin && (
+                              <button
+                                onClick={() => handleDeleteInvoice(order)}
+                                title="Delete this invoice (super admin only)"
+                                className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium px-2.5 py-2 rounded-lg transition-colors"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
                           </div>
                         ) : (
                           <button
