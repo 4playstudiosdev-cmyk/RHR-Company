@@ -31,6 +31,13 @@ const PAGE_SIZE = 10;
 const TAX_RATE = 0.18; // 18% sales tax
 const EMPTY_ORDER_FORM = { customer_id: '', items: [{ product_id: '', quantity: 1 }], delivery_address: '', notes: '' };
 
+// Mirrors RATE_TIER_ADJUSTMENT in orders.service.js — used here only to
+// preview the price a customer will actually be charged (custom price >
+// rate tier > catalog) while building an order, so the dropdown and
+// running total don't show the catalog price for a customer who has a
+// custom price or a discount/premium tier set.
+const RATE_TIER_ADJUSTMENT = { manual: 0, discount: -10, premium: 10 };
+
 export default function Orders() {
   const toast = useToast();
   const user = getCurrentUser();
@@ -53,6 +60,9 @@ export default function Orders() {
   const [products, setProducts] = useState([]);
   const [orderForm, setOrderForm] = useState(EMPTY_ORDER_FORM);
   const [creating, setCreating] = useState(false);
+  // product_id -> custom price, for whichever customer is selected in the
+  // Create Order form — see loadCustomerPricing below.
+  const [customerCustomPrices, setCustomerCustomPrices] = useState({});
 
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [viewLoadingId, setViewLoadingId] = useState(null);
@@ -135,6 +145,36 @@ export default function Orders() {
     }
   };
 
+  // Called whenever a customer is picked in the Create Order form — pulls
+  // their per-product custom price overrides (Customers page → Set Custom
+  // Pricing) so the product dropdown/running total preview what they'll
+  // actually be charged, same as GET /customers/:id/pricing already
+  // shows on that page. Order creation itself always computes the real
+  // price server-side regardless of this preview.
+  const loadCustomerPricing = async (customerId) => {
+    if (!customerId) { setCustomerCustomPrices({}); return; }
+    try {
+      const res = await api.get(`/customers/${customerId}/pricing`);
+      const map = {};
+      (res.data.data || []).forEach((row) => {
+        if (row.custom_price != null) map[row.product_id] = Number(row.custom_price);
+      });
+      setCustomerCustomPrices(map);
+    } catch (err) {
+      setCustomerCustomPrices({});
+    }
+  };
+
+  // custom price > rate tier > catalog price — mirrors orders.service.js
+  // exactly, for an accurate preview before the order is actually created.
+  const getEffectivePrice = (product, customerId = orderForm.customer_id) => {
+    if (!product) return 0;
+    if (product.id in customerCustomPrices) return customerCustomPrices[product.id];
+    const customer = customers.find((c) => c.id === customerId);
+    const tierAdjustment = RATE_TIER_ADJUSTMENT[customer?.rate_tier] || 0;
+    return Math.max(0, Number(product.price) + tierAdjustment);
+  };
+
   const updateItem = (index, field, value) => {
     setOrderForm((prev) => ({
       ...prev,
@@ -153,7 +193,7 @@ export default function Orders() {
   const orderFormTotal = orderForm.items.reduce((sum, it) => {
     const product = products.find((p) => p.id === it.product_id);
     if (!product) return sum;
-    return sum + Number(product.price || 0) * Number(it.quantity || 0);
+    return sum + getEffectivePrice(product) * Number(it.quantity || 0);
   }, 0);
 
   const handleCreateOrder = async (e) => {
@@ -175,6 +215,7 @@ export default function Orders() {
       toast.success('Order created.');
       setShowCreateOrder(false);
       setOrderForm(EMPTY_ORDER_FORM);
+      setCustomerCustomPrices({});
       loadOrders();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to create order.');
@@ -329,6 +370,9 @@ export default function Orders() {
         setProducts(res.data.data?.products || []);
       } catch (err) { /* add-product picker just stays empty */ }
     }
+    // So the "Add Product" picker below previews this customer's custom
+    // price instead of the catalog price, same as the Create Order form.
+    if (invoiceOrder.customer_id) loadCustomerPricing(invoiceOrder.customer_id);
   };
 
   const updateEditItemQty = (itemId, qty) => {
@@ -355,7 +399,7 @@ export default function Orders() {
       isNew: true,
       product_id: addProductId,
       product_name: product.name,
-      unit_price: product.price,
+      unit_price: getEffectivePrice(product, invoiceOrder.customer_id),
       quantity: Number(addProductQty),
       products: { unit: product.unit },
     }]);
@@ -843,13 +887,16 @@ export default function Orders() {
       </div>
 
       {showCreateOrder && (
-        <Modal title="Create Order" onClose={() => setShowCreateOrder(false)}>
+        <Modal title="Create Order" onClose={() => { setShowCreateOrder(false); setCustomerCustomPrices({}); }}>
           <form onSubmit={handleCreateOrder} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Customer *</label>
               <select
                 value={orderForm.customer_id}
-                onChange={(e) => setOrderForm({ ...orderForm, customer_id: e.target.value })}
+                onChange={(e) => {
+                  setOrderForm({ ...orderForm, customer_id: e.target.value });
+                  loadCustomerPricing(e.target.value);
+                }}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
               >
                 <option value="">Select customer...</option>
@@ -870,11 +917,14 @@ export default function Orders() {
                       className="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
                     >
                       <option value="">Select product...</option>
-                      {products.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} — PKR {Number(p.price).toLocaleString()} (Stock: {p.stock_quantity} {p.unit})
-                        </option>
-                      ))}
+                      {products.map((p) => {
+                        const hasCustomPrice = p.id in customerCustomPrices;
+                        return (
+                          <option key={p.id} value={p.id}>
+                            {p.name} — PKR {getEffectivePrice(p).toLocaleString()}{hasCustomPrice ? ' (custom price)' : ''} (Stock: {p.stock_quantity} {p.unit})
+                          </option>
+                        );
+                      })}
                     </select>
                     <input
                       type="number"
@@ -930,7 +980,7 @@ export default function Orders() {
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
-              <Button type="button" variant="secondary" onClick={() => setShowCreateOrder(false)}>Cancel</Button>
+              <Button type="button" variant="secondary" onClick={() => { setShowCreateOrder(false); setCustomerCustomPrices({}); }}>Cancel</Button>
               <Button type="submit" variant="accent" disabled={creating}>{creating ? 'Creating...' : 'Create Order'}</Button>
             </div>
           </form>
@@ -1130,7 +1180,9 @@ export default function Orders() {
                 >
                   <option value="">Select product...</option>
                   {products.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name} — PKR {Number(p.price).toLocaleString()}</option>
+                    <option key={p.id} value={p.id}>
+                      {p.name} — PKR {getEffectivePrice(p, invoiceOrder?.customer_id).toLocaleString()}{p.id in customerCustomPrices ? ' (custom price)' : ''}
+                    </option>
                   ))}
                 </select>
               </div>
