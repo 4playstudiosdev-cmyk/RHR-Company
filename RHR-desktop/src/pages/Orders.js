@@ -558,14 +558,19 @@ export default function Orders() {
     }
   };
 
+  // An order whose invoice was deleted (see the "Deleted Invoices" tab)
+  // drops out of every normal status tab/count entirely — it only shows
+  // up there, not mixed in with All/Pending/.../Cancelled.
+  const visibleOrders = useMemo(() => orders.filter((o) => !o.invoice_deleted_at), [orders]);
+
   const counts = useMemo(() => {
-    const c = { all: orders.length };
-    STATUS_OPTIONS.forEach((s) => { c[s] = orders.filter((o) => o.status === s).length; });
+    const c = { all: visibleOrders.length };
+    STATUS_OPTIONS.forEach((s) => { c[s] = visibleOrders.filter((o) => o.status === s).length; });
     return c;
-  }, [orders]);
+  }, [visibleOrders]);
 
   const filtered = useMemo(() => {
-    let list = tab === 'all' ? orders : orders.filter((o) => o.status === tab);
+    let list = tab === 'all' ? visibleOrders : visibleOrders.filter((o) => o.status === tab);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(
@@ -573,7 +578,7 @@ export default function Orders() {
       );
     }
     return list;
-  }, [orders, tab, search]);
+  }, [visibleOrders, tab, search]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageOrders = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
