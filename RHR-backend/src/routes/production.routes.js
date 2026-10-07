@@ -23,6 +23,7 @@ router.patch('/orders/:id/status', authenticate, isAdmin, production.updateProdu
 router.patch('/orders/:id/qty',    authenticate, isAdmin, production.updateProductionOrderQty);
 
 router.get('/materials',           authenticate, isAdmin, materials.getMaterials);
+router.get('/materials/deleted',   authenticate, isAdmin, materials.getDeletedMaterials);
 router.get('/materials/stock-report', authenticate, isAdmin, materials.getStockReport);
 router.post('/materials',          authenticate, isAdmin, materials.createMaterial);
 router.post('/materials/purchase', authenticate, isAdmin, materials.purchaseMaterials);

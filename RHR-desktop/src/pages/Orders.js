@@ -244,21 +244,23 @@ export default function Orders() {
   // itself is kept) after archiving a full snapshot server-side to
   // deleted_invoices (see DELETE /orders/:id/invoice).
   const handleDeleteInvoice = async (order) => {
-    const reason = window.prompt(`Delete invoice for Order #${order.order_number}?\n\nEnter reason (optional):`);
+    const hasInvoice = !!order.invoice_generated_at;
+    const noun = hasInvoice ? 'invoice' : 'order';
+    const reason = window.prompt(`Delete this ${noun} — Order #${order.order_number}?\n\nEnter reason (optional):`);
     if (reason === null) return; // cancelled
     const confirmed = window.confirm(
-      `Are you sure you want to delete the invoice for Order #${order.order_number}?\n` +
-      `It will be moved to Deleted Invoices.`
+      `Are you sure you want to delete this ${noun} — Order #${order.order_number}?\n` +
+      `It will be moved to Deleted Items and removed from this list.`
     );
     if (!confirmed) return;
 
     try {
-      await api.delete(`/orders/${order.id}/invoice`, { data: { reason } });
-      toast.success('Invoice deleted — moved to Deleted Invoices.');
+      const res = await api.delete(`/orders/${order.id}/invoice`, { data: { reason } });
+      toast.success(res.data.message || 'Deleted — moved to Deleted Items.');
       loadOrders();
       if (tab === 'deleted-invoices') loadDeletedInvoices();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to delete invoice.');
+      toast.error(err.response?.data?.message || 'Failed to delete.');
     }
   };
 
@@ -834,14 +836,25 @@ export default function Orders() {
                             )}
                           </div>
                         ) : (
-                          <button
-                            onClick={() => handleInvoice(order)}
-                            disabled={pdfLoadingId === order.id}
-                            className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
-                          >
-                            <FileDown size={14} />
-                            {pdfLoadingId === order.id ? 'Generating...' : 'Create Invoice'}
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleInvoice(order)}
+                              disabled={pdfLoadingId === order.id}
+                              className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                            >
+                              <FileDown size={14} />
+                              {pdfLoadingId === order.id ? 'Generating...' : 'Create Invoice'}
+                            </button>
+                            {isSuperAdmin && (
+                              <button
+                                onClick={() => handleDeleteInvoice(order)}
+                                title="Delete this order (super admin only)"
+                                className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium px-2.5 py-2 rounded-lg transition-colors"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>

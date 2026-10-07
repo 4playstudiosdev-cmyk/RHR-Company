@@ -40,6 +40,21 @@ const getMaterials = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+// GET /api/v1/production/materials/deleted — soft-deleted materials
+// (is_active: false, set by deleteMaterial below), for the Deleted Items
+// audit page. Real history/recipes that reference a deleted material's id
+// are kept intact (see deleteMaterial's comment), so this is just
+// surfacing what was already happening silently.
+const getDeletedMaterials = async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const params = { select: '*', order: 'name.asc', is_active: 'eq.false' };
+    if (companyId) params.company_id = `eq.${companyId}`;
+    const data = await pgrestGet('raw_materials', params);
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
+};
+
 // POST /api/v1/production/materials
 // Routed through the raw-https bypass (see utils/directQuery.js) — this
 // write path was still on plain supabase-js, the exact pattern that's
@@ -407,4 +422,4 @@ const getStockReport = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getMaterials, createMaterial, updateMaterial, deleteMaterial, addStock, purchaseMaterials, extractInvoiceItems, getStockReport };
+module.exports = { getMaterials, getDeletedMaterials, createMaterial, updateMaterial, deleteMaterial, addStock, purchaseMaterials, extractInvoiceItems, getStockReport };

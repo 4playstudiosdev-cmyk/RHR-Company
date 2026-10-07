@@ -89,13 +89,16 @@ const markInvoiceGenerated = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-// DELETE /api/v1/orders/:id/invoice — super_admin only. Orders.js tracks
-// "has an invoice" via invoice_generated_at (set by markInvoiceGenerated
-// above, client-side jsPDF generation) — invoice_url/the Storage-backed
+// DELETE /api/v1/orders/:id/invoice — super_admin only. Doubles as both
+// "delete this order's invoice" (order kept visible, just loses its
+// invoice) and "delete this order outright" (no invoice existed yet) —
+// either way the order gets invoice_deleted_at set, which is what hides
+// it from every normal Orders tab and surfaces it only under Deleted
+// Invoices / the Deleted Items page. invoice_url/the Storage-backed
 // generateInvoice flow in invoice.service.js is a separate, unused-by-
 // the-desktop-UI mechanism, but is cleared too here for consistency since
-// the schema carries both. The order itself is kept; only the invoice
-// state is wiped, after being archived to deleted_invoices (sql/phase40).
+// the schema carries both. A full snapshot is archived to
+// deleted_invoices (sql/phase40) before any of this happens.
 const deleteInvoice = async (req, res) => {
   try {
     if (req.user.role !== 'super_admin') {
@@ -108,9 +111,6 @@ const deleteInvoice = async (req, res) => {
     });
     const order = orders?.[0];
     if (!order) return error(res, 'Order not found', 404);
-    if (!order.invoice_generated_at && !order.invoice_url) {
-      return error(res, 'This order has no invoice to delete', 400);
-    }
 
     // deleted_invoices first (fails immediately if phase40 hasn't run) —
     // so a request that errors out never silently wipes the invoice with
@@ -155,7 +155,10 @@ const deleteInvoice = async (req, res) => {
       }
     }
 
-    return success(res, { deleted: true }, 'Invoice deleted and moved to deleted invoices record');
+    const hadInvoice = !!(order.invoice_generated_at || order.invoice_url);
+    return success(res, { deleted: true }, hadInvoice
+      ? 'Invoice deleted and moved to Deleted Items'
+      : 'Order deleted and moved to Deleted Items');
   } catch (err) { return error(res, err.message); }
 };
 
