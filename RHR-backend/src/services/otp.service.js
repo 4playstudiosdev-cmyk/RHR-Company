@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const axios = require('axios');
-const { supabaseAdmin } = require('../config/supabase');
+const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 
 // OTPs are sent through the standalone RHR-whatsapp-bot service (separate
 // Railway deployment, keeps its own WhatsApp session) instead of a
@@ -16,18 +16,6 @@ async function sendWhatsAppMessage(phoneNumber, message) {
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
-
-// ⚠️ TEMP — GUEST TESTING BYPASS. Remove this block (and the matching
-// customer/salesmen/drivers rows for the three phones below) before the
-// real production launch — it exists only so testers can open the full
-// app, in any of the three roles, without waiting on a real WhatsApp OTP.
-// Scoped to exactly these fixed phone+code pairs; every other number
-// still goes through the real bcrypt-checked OTP record.
-const GUEST_ACCOUNTS = {
-  '923000000000': '999999', // customer
-  '923000000001': '999998', // salesman
-  '923000000002': '999997', // driver
-};
 
 // Normalize phone to always store without + and with 92 prefix
 function normalizePhone(phone) {
@@ -46,28 +34,22 @@ async function sendOTP(phoneNumber) {
   const hashedOTP = await bcrypt.hash(otp, 10);
 
   // Invalidate existing unused OTPs for this phone
-  const { error: invalidateError } = await supabaseAdmin
-    .from('otp_verifications')
-    .update({ is_used: true })
-    .eq('phone', phone)
-    .eq('is_used', false);
-
-  if (invalidateError) {
+  try {
+    await pgrestPatch('otp_verifications', { phone: `eq.${phone}`, is_used: 'eq.false' }, { is_used: true });
+  } catch (invalidateError) {
     console.error('OTP invalidate warning:', invalidateError.message);
   }
 
   // Insert new OTP
-  const { error: insertError } = await supabaseAdmin
-    .from('otp_verifications')
-    .insert({
+  try {
+    await pgrestPost('otp_verifications', {
       phone:      phone,
       otp_code:   hashedOTP,
       is_used:    false,
-      expires_at: expiresAt.toISOString()
+      expires_at: expiresAt.toISOString(),
     });
-
-  if (insertError) {
-    console.error('OTP insert failed:', insertError);
+  } catch (insertError) {
+    console.error('OTP insert failed:', insertError.message);
     throw new Error('OTP DB error: ' + insertError.message);
   }
 
@@ -86,46 +68,32 @@ async function sendOTP(phoneNumber) {
 async function verifyOTP(phoneNumber, submittedOTP) {
   const phone = normalizePhone(phoneNumber);
 
-  // ⚠️ TEMP guest bypass — see GUEST_ACCOUNTS comment above.
-  if (GUEST_ACCOUNTS[phone] && submittedOTP.toString() === GUEST_ACCOUNTS[phone]) {
-    return { valid: true };
+  let rows;
+  try {
+    rows = await pgrestGet('otp_verifications', {
+      select: '*',
+      phone: `eq.${phone}`,
+      is_used: 'eq.false',
+      expires_at: `gt.${new Date().toISOString()}`,
+      order: 'created_at.desc',
+      limit: '1',
+    });
+  } catch (err) {
+    console.error('OTP lookup failed:', err.message);
+    return { valid: false, message: 'OTP expired or not found' };
   }
 
-  console.log('=== OTP VERIFY DEBUG ===');
-  console.log('Raw phone:', phoneNumber);
-  console.log('Normalized phone:', phone);
-  console.log('Submitted OTP:', submittedOTP);
-  console.log('OTP type:', typeof submittedOTP);
-  console.log('========================');
-
-  const { data: otpRecord, error } = await supabaseAdmin
-    .from('otp_verifications')
-    .select('*')
-    .eq('phone', phone)
-    .eq('is_used', false)
-    .gt('expires_at', new Date().toISOString())
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single();
-
-  console.log('OTP Record found:', otpRecord ? 'YES' : 'NO');
-  console.log('DB Error:', error);
-
-  if (error || !otpRecord) {
+  const otpRecord = rows?.[0];
+  if (!otpRecord) {
     return { valid: false, message: 'OTP expired or not found' };
   }
 
   const isMatch = await bcrypt.compare(submittedOTP.toString(), otpRecord.otp_code);
-  console.log('OTP Match:', isMatch);
-
   if (!isMatch) {
     return { valid: false, message: 'Incorrect OTP' };
   }
 
-  await supabaseAdmin
-    .from('otp_verifications')
-    .update({ is_used: true })
-    .eq('id', otpRecord.id);
+  await pgrestPatch('otp_verifications', { id: `eq.${otpRecord.id}` }, { is_used: true });
 
   return { valid: true };
 }

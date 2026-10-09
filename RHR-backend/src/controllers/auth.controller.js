@@ -6,7 +6,6 @@ const {
   findCustomerByPhone, findSalesmanByPhone, findDriverByPhone,
   generateToken
 } = require('../services/auth.service');
-const { getWhatsAppStatus, getWhatsAppQR } = require('../config/whatsapp');
 const { success, error } = require('../utils/response');
 
 const sendOTPHandler = async (req, res) => {
@@ -144,18 +143,6 @@ const approveDriverHandler = async (req, res) => {
   }
 };
 
-const whatsappStatusHandler = (req, res) => {
-  return success(res, getWhatsAppStatus(), 'WhatsApp status');
-};
-
-const whatsappQRHandler = (req, res) => {
-  const qrImage = getWhatsAppQR();
-  if (!qrImage) {
-    return error(res, 'No QR code available — WhatsApp may already be connected or still loading', 404);
-  }
-  return success(res, { qr: qrImage }, 'QR code ready to scan');
-};
-
 module.exports = {
   sendOTPHandler,
   verifyOTPHandler,
@@ -164,6 +151,4 @@ module.exports = {
   approveCustomerHandler,
   approveSalesmanHandler,
   approveDriverHandler,
-  whatsappStatusHandler,
-  whatsappQRHandler,
 };

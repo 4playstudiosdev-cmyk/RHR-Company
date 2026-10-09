@@ -8,8 +8,6 @@ const {
   approveCustomerHandler,
   approveSalesmanHandler,
   approveDriverHandler,
-  whatsappStatusHandler,
-  whatsappQRHandler
 } = require('../controllers/auth.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin } = require('../middleware/role.middleware');
@@ -19,8 +17,6 @@ const { otpLimiter, loginLimiter } = require('../middleware/security.middleware'
 router.post('/send-otp',    otpLimiter,  sendOTPHandler);
 router.post('/verify-otp',               verifyOTPHandler);
 router.post('/login',       loginLimiter, loginHandler);
-router.get('/whatsapp-status',           whatsappStatusHandler);
-router.get('/whatsapp-qr',               whatsappQRHandler);
 
 // Protected routes
 router.post('/logout', authenticate, logoutHandler);

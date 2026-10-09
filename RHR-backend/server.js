@@ -3,7 +3,6 @@ const express = require('express');
 const { helmetMiddleware, corsMiddleware, generalLimiter } = require('./src/middleware/security.middleware');
 const { removeFingerprint, sanitizeRequest } = require('./src/middleware/api-security.middleware');
 const { logger, isProd } = require('./src/utils/logger');
-const { initWhatsApp } = require('./src/config/whatsapp');
 const authRoutes = require('./src/routes/auth.routes');
 
 const app = express();
@@ -103,11 +102,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server immediately, WhatsApp connects in background
 function start() {
-  console.log('🔄 Initializing WhatsApp bot in background...');
-  initWhatsApp(); // fire-and-forget — server starts while WA connects
-
   app.listen(PORT, () => {
     console.log(`🚀 RHR Backend running on port ${PORT}`);
     console.log(`📡 Health check: http://localhost:${PORT}/health`);
