@@ -555,7 +555,7 @@ export default function Reports() {
                       <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(p.date).toLocaleDateString('en-GB')}</td>
                       <td className="px-6 py-3.5 font-medium text-navy">{p.supplier_name}</td>
                       <td className="px-6 py-3.5 text-gray-600">
-                        {p.items.map((it) => `${it.material_name} (${it.quantity} ${it.unit})`).join(', ')}
+                        {(p.items || []).map((it) => `${it.material_name} (${it.quantity} ${it.unit})`).join(', ')}
                       </td>
                       <td className="px-6 py-3.5 text-right font-semibold text-navy">
                         {p.total_amount > 0 ? `PKR ${p.total_amount.toLocaleString()}` : '—'}

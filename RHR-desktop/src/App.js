@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Menu } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import ProtectedRoute from './components/ProtectedRoute';
+import ErrorBoundary from './components/ErrorBoundary';
 import SessionWarning from './components/SessionWarning';
 import LocationGate from './components/LocationGate';
 import AdminLocationService from './services/adminLocationService';
@@ -224,18 +225,20 @@ function AppShell() {
           <h1 className="text-base font-bold tracking-wide">RHR & Company</h1>
         </header>
         <main className="flex-1 overflow-y-auto">
-          <ProtectedRoute
-            user={user}
-            requiredRole={access?.requiredRole}
-            requiredPermission={access?.requiredPermission}
-          >
-            <PageComponent
+          <ErrorBoundary resetKey={page}>
+            <ProtectedRoute
               user={user}
-              setPage={setPage}
-              onViewLedger={goToLedger}
-              initialCustomerId={ledgerCustomerId}
-            />
-          </ProtectedRoute>
+              requiredRole={access?.requiredRole}
+              requiredPermission={access?.requiredPermission}
+            >
+              <PageComponent
+                user={user}
+                setPage={setPage}
+                onViewLedger={goToLedger}
+                initialCustomerId={ledgerCustomerId}
+              />
+            </ProtectedRoute>
+          </ErrorBoundary>
         </main>
       </div>
       <SessionWarning />
