@@ -90,6 +90,11 @@ class _OtpScreenState extends State<OtpScreen> {
     return null;
   }
 
+  String? get _area {
+    if (widget.extra is Map) return (widget.extra as Map)['area'] as String?;
+    return null;
+  }
+
   String? get _position {
     if (widget.extra is Map) return (widget.extra as Map)['position'] as String?;
     return null;
@@ -155,6 +160,7 @@ class _OtpScreenState extends State<OtpScreen> {
     if (_fullName != null) body['fullName'] = _fullName!;
     if (_businessName != null && _businessName!.isNotEmpty) body['shopName'] = _businessName;
     if (_address != null && _address!.isNotEmpty) body['shopAddress'] = _address;
+    if (_area != null && _area!.isNotEmpty) body['area'] = _area!;
     if (_role != null) body['role'] = _role!;
     if (_position != null && _position!.isNotEmpty) body['position'] = _position!;
     if (_carNumber != null && _carNumber!.isNotEmpty) body['carNumber'] = _carNumber!;

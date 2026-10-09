@@ -28,6 +28,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _emailController    = TextEditingController();
   final _nicController      = TextEditingController();
   final _whatsappController = TextEditingController();
+  final _areaController     = TextEditingController();
   String _selectedRole = 'customer';
   String _selectedCity = ApiEndpoints.khiId;
   bool _isLoading = false;
@@ -88,6 +89,7 @@ class _SignupScreenState extends State<SignupScreen> {
     _emailController.dispose();
     _nicController.dispose();
     _whatsappController.dispose();
+    _areaController.dispose();
     super.dispose();
   }
 
@@ -105,6 +107,7 @@ class _SignupScreenState extends State<SignupScreen> {
     if (_selectedRole == 'customer') {
       if (_businessController.text.trim().isEmpty ||
           _addressController.text.trim().isEmpty ||
+          _areaController.text.trim().isEmpty ||
           _emailController.text.trim().isEmpty ||
           _nicController.text.trim().isEmpty ||
           _whatsappController.text.trim().isEmpty) {
@@ -178,6 +181,7 @@ class _SignupScreenState extends State<SignupScreen> {
       else ...{
         'businessName':       _businessController.text.trim(),
         'address':            _addressController.text.trim(),
+        'area':               _areaController.text.trim(),
         'email':              _emailController.text.trim(),
         'nicNumber':          _nicController.text.trim(),
         'whatsappPhone':      _whatsappController.text.trim(),
@@ -389,6 +393,9 @@ class _SignupScreenState extends State<SignupScreen> {
                         const SizedBox(height: AppSpacing.sm),
                         _field(label: 'Address', icon: Icons.location_on, controller: _addressController,
                             hint: 'Shop address, area'),
+                        const SizedBox(height: AppSpacing.sm),
+                        _field(label: 'Area', icon: Icons.map_outlined, controller: _areaController,
+                            hint: 'e.g. Gulshan, Saddar'),
                         const SizedBox(height: AppSpacing.sm),
                         _field(label: 'Email', icon: Icons.email_outlined, controller: _emailController,
                             hint: 'you@example.com', keyboardType: TextInputType.emailAddress),
