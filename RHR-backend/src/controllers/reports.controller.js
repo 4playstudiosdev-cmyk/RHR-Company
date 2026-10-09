@@ -188,22 +188,37 @@ const getPurchasesReport = async (req, res) => {
 };
 
 // GET /api/v1/reports/expenses?from=&to=&company_id= — expense rows plus
-// a total, for the Reports page's Expense panel (the plain CRUD list
-// lives at /api/v1/expenses — see expenses.controller.js).
+// a total, for the Reports page's read-only Expense report tab (adding an
+// expense itself is Expenses.js's job, via /api/v1/expenses). Same full
+// select (vehicle/paid-from included) as expenses.controller.js#getExpenses,
+// with the same progressive migration fallback, so both pages show
+// identical detail.
 const getExpensesReport = async (req, res) => {
   try {
     const companyId = resolveCompanyId(req);
     const { from, to } = req.query;
 
-    const parts = [
-      'select=id,category,amount,description,expense_date',
-      'order=expense_date.desc',
-    ];
-    if (companyId) parts.push(`company_id=eq.${companyId}`);
-    if (from) parts.push(`expense_date=gte.${from}`);
-    if (to)   parts.push(`expense_date=lte.${to}`);
+    const filters = [];
+    if (companyId) filters.push(`company_id=eq.${companyId}`);
+    if (from) filters.push(`expense_date=gte.${from}`);
+    if (to)   filters.push(`expense_date=lte.${to}`);
+    const filterStr = filters.length ? `&${filters.join('&')}` : '';
 
-    const expenses = await pgrestGetRaw(`expenses?${parts.join('&')}`);
+    let expenses;
+    try {
+      expenses = await pgrestGetRaw(
+        `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),vehicle_id,vehicles(name,plate_number),created_at&order=expense_date.desc${filterStr}`
+      );
+    } catch (e) {
+      try {
+        expenses = await pgrestGetRaw(
+          `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),created_at&order=expense_date.desc${filterStr}`
+        );
+      } catch (e2) {
+        expenses = await pgrestGetRaw(`expenses?select=id,category,amount,description,expense_date&order=expense_date.desc${filterStr}`);
+      }
+    }
+
     const totalAmount = (expenses || []).reduce((s, e) => s + Number(e.amount), 0);
 
     return success(res, { expenses: expenses || [], total_amount: totalAmount });

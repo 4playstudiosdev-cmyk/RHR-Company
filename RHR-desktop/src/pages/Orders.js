@@ -758,7 +758,7 @@ export default function Orders() {
                       }`}
                     >
                       <td className="px-6 py-3.5 font-medium text-navy">{order.order_number}</td>
-                      <td className="px-6 py-3.5 text-gray-600">{order.users?.full_name || '—'}</td>
+                      <td className="px-6 py-3.5 text-gray-600 text-[15px]">{order.users?.full_name || '—'}</td>
                       <td className="px-6 py-3.5 text-gray-600 font-medium">
                         PKR {Number(order.total_amount).toLocaleString()}
                       </td>

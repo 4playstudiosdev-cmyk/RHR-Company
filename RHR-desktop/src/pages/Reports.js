@@ -1,14 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   TrendingUp, Wallet, ShoppingCart, Download, RefreshCw, ArrowUp, ArrowDown, Receipt,
-  Package, CreditCard, Plus, TrendingDown
+  Package, CreditCard, TrendingDown
 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
-import Button from '../components/Button';
 import { fetchAllCities } from '../utils/multiCityFetch';
 
 const REPORT_TABS = [
@@ -19,12 +18,9 @@ const REPORT_TABS = [
   { key: 'expenses', label: 'Expenses', icon: CreditCard }
 ];
 
-const EXPENSE_CATEGORIES = ['Rent', 'Salary', 'Utilities', 'Transport', 'Other'];
-
 const toISODate = (d) => d.toISOString().split('T')[0];
 const defaultFrom = () => { const d = new Date(); d.setDate(d.getDate() - 29); return toISODate(d); };
 const defaultTo = () => toISODate(new Date());
-const EMPTY_EXPENSE_FORM = { category: EXPENSE_CATEGORIES[0], amount: '', description: '', expense_date: defaultTo() };
 
 function pctChange(current, previous) {
   if (previous === 0) return current === 0 ? 0 : 100;
@@ -62,8 +58,7 @@ export default function Reports() {
   const [purchasesData, setPurchasesData] = useState({ purchases: [], grand_total: 0 });
   const [expensesData, setExpensesData] = useState({ expenses: [], total_amount: 0 });
   const [purchasesLoading, setPurchasesLoading] = useState(true);
-  const [expenseForm, setExpenseForm] = useState(EMPTY_EXPENSE_FORM);
-  const [savingExpense, setSavingExpense] = useState(false);
+  const [vehicleFilter, setVehicleFilter] = useState('all');
 
   useEffect(() => {
     loadData();
@@ -94,26 +89,30 @@ export default function Reports() {
     }
   };
 
-  const handleAddExpense = async (e) => {
-    e.preventDefault();
-    if (!expenseForm.amount || Number(expenseForm.amount) <= 0) {
-      toast.error('Enter a valid amount.');
-      return;
-    }
-    setSavingExpense(true);
-    try {
-      await api.post('/expenses', { ...expenseForm, amount: Number(expenseForm.amount) });
-      toast.success('Expense recorded.');
-      setExpenseForm({ ...EMPTY_EXPENSE_FORM, expense_date: expenseForm.expense_date });
-      loadPurchasesAndExpenses();
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to record expense.');
-    } finally {
-      setSavingExpense(false);
-    }
-  };
-
   const companyFilter = selectedCity === 'all' ? null : selectedCity;
+
+  // Distinct vehicles among the loaded expenses — "— All Vehicles —" plus
+  // one entry per driver_id actually present, so the filter only ever
+  // offers choices that exist in this date range/branch.
+  const vehicleOptions = useMemo(() => {
+    const byId = new Map();
+    (expensesData.expenses || []).forEach((e) => {
+      if (e.driver_id && e.drivers && !byId.has(e.driver_id)) {
+        byId.set(e.driver_id, e.drivers);
+      }
+    });
+    return Array.from(byId.entries()).map(([id, d]) => ({ id, ...d }));
+  }, [expensesData.expenses]);
+
+  const filteredExpenses = useMemo(() => {
+    if (vehicleFilter === 'all') return expensesData.expenses || [];
+    return (expensesData.expenses || []).filter((e) => e.driver_id === vehicleFilter);
+  }, [expensesData.expenses, vehicleFilter]);
+
+  const filteredExpensesTotal = useMemo(
+    () => filteredExpenses.reduce((s, e) => s + Number(e.amount), 0),
+    [filteredExpenses]
+  );
 
   const loadData = async () => {
     setLoading(true);
@@ -569,89 +568,59 @@ export default function Reports() {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          <div className="lg:col-span-4 bg-white rounded-2xl shadow-card border border-gray-100 p-5">
-            <h3 className="font-semibold text-navy text-sm mb-4">Record Expense</h3>
-            <form onSubmit={handleAddExpense} className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
-                <select
-                  value={expenseForm.category}
-                  onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-                >
-                  {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Amount *</label>
-                <input
-                  type="number"
-                  min="1"
-                  step="0.01"
-                  value={expenseForm.amount}
-                  onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Date</label>
-                <input
-                  type="date"
-                  value={expenseForm.expense_date}
-                  onChange={(e) => setExpenseForm({ ...expenseForm, expense_date: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Description</label>
-                <textarea
-                  rows={2}
-                  value={expenseForm.description}
-                  onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-                />
-              </div>
-              <Button type="submit" variant="accent" disabled={savingExpense} className="w-full flex items-center justify-center gap-1.5">
-                <Plus size={14} /> {savingExpense ? 'Saving...' : 'Add Expense'}
-              </Button>
-            </form>
-          </div>
-
-          <div className="lg:col-span-8 bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center flex-wrap gap-3 bg-gray-50/50">
+        <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center flex-wrap gap-3 bg-gray-50/50">
+            <div className="flex items-center gap-3 flex-wrap">
               <h3 className="font-semibold text-navy text-sm">Expenses</h3>
-              <span className="text-sm font-semibold text-red-600">Total: PKR {expensesData.total_amount.toLocaleString()}</span>
+              <select
+                value={vehicleFilter}
+                onChange={(e) => setVehicleFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+              >
+                <option value="all">— All Vehicles —</option>
+                {vehicleOptions.map((v) => (
+                  <option key={v.id} value={v.id}>{v.full_name}{v.car_number ? ` — ${v.car_number}` : ''}</option>
+                ))}
+              </select>
             </div>
-            {purchasesLoading ? (
-              <SkeletonTable rows={5} cols={4} />
-            ) : expensesData.expenses.length === 0 ? (
-              <EmptyState icon={CreditCard} title="No expenses in this period" />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
-                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
-                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>
-                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Description</th>
-                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {expensesData.expenses.map((e, i) => (
-                      <tr key={e.id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                        <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(e.expense_date).toLocaleDateString('en-GB')}</td>
-                        <td className="px-6 py-3.5 font-medium text-navy">{e.category}</td>
-                        <td className="px-6 py-3.5 text-gray-600">{e.description || '—'}</td>
-                        <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(e.amount).toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <span className="text-sm font-semibold text-red-600">Total: PKR {filteredExpensesTotal.toLocaleString()}</span>
           </div>
+          {purchasesLoading ? (
+            <SkeletonTable rows={5} cols={6} />
+          ) : filteredExpenses.length === 0 ? (
+            <EmptyState icon={CreditCard} title="No expenses in this period" />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Description</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Vehicle</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Paid From</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredExpenses.map((e, i) => (
+                    <tr key={e.id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                      <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(e.expense_date).toLocaleDateString('en-GB')}</td>
+                      <td className="px-6 py-3.5 font-medium text-navy">{e.category}</td>
+                      <td className="px-6 py-3.5 text-gray-600">{e.description || '—'}</td>
+                      <td className="px-6 py-3.5 text-gray-600 text-xs">
+                        {e.drivers ? `${e.drivers.full_name}${e.drivers.car_number ? ` — ${e.drivers.car_number}` : ''}` : '—'}
+                      </td>
+                      <td className="px-6 py-3.5 text-gray-600 text-xs">
+                        {e.method === 'bank' ? `Bank${e.bank_accounts ? ` — ${e.bank_accounts.account_name}` : ''}` : 'Cash'}
+                      </td>
+                      <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(e.amount).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
