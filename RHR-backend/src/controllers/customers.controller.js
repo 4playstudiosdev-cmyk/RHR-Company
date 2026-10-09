@@ -444,7 +444,8 @@ const updateMyShopLocation = async (req, res) => {
 // so it self-corrects if a field is ever cleared later.
 const REQUIRED_PROFILE_FIELDS = [
   'full_name', 'email', 'nic_number', 'shop_name',
-  'shop_address', 'whatsapp_phone', 'profile_photo_url', 'nic_image_url',
+  'shop_address', 'whatsapp_phone', 'profile_photo_url',
+  'nic_image_url', 'nic_back_image_url',
 ];
 
 function isProfileComplete(user) {
@@ -457,7 +458,7 @@ function isProfileComplete(user) {
 const getMyProfile = async (req, res) => {
   try {
     const rows = await pgrestGet('users', {
-      select: 'id,full_name,phone,email,nic_number,nic_image_url,whatsapp_phone,shop_name,shop_address,profile_photo_url',
+      select: 'id,full_name,phone,email,nic_number,nic_image_url,nic_back_image_url,whatsapp_phone,shop_name,shop_address,profile_photo_url',
       id: `eq.${req.user.id}`,
       role: 'eq.customer',
     });
@@ -476,18 +477,19 @@ const updateMyProfile = async (req, res) => {
   try {
     const {
       full_name, email, nic_number, whatsapp_phone,
-      shop_name, shop_address, profile_photo_url, nic_image_url,
+      shop_name, shop_address, profile_photo_url, nic_image_url, nic_back_image_url,
     } = req.body;
 
     const update = {};
-    if (full_name != null)         update.full_name = full_name;
-    if (email != null)             update.email = email;
-    if (nic_number != null)        update.nic_number = nic_number;
-    if (whatsapp_phone != null)    update.whatsapp_phone = whatsapp_phone;
-    if (shop_name != null)         update.shop_name = shop_name;
-    if (shop_address != null)      update.shop_address = shop_address;
-    if (profile_photo_url != null) update.profile_photo_url = profile_photo_url;
-    if (nic_image_url != null)     update.nic_image_url = nic_image_url;
+    if (full_name != null)          update.full_name = full_name;
+    if (email != null)              update.email = email;
+    if (nic_number != null)         update.nic_number = nic_number;
+    if (whatsapp_phone != null)     update.whatsapp_phone = whatsapp_phone;
+    if (shop_name != null)          update.shop_name = shop_name;
+    if (shop_address != null)       update.shop_address = shop_address;
+    if (profile_photo_url != null)  update.profile_photo_url = profile_photo_url;
+    if (nic_image_url != null)      update.nic_image_url = nic_image_url;
+    if (nic_back_image_url != null) update.nic_back_image_url = nic_back_image_url;
 
     if (Object.keys(update).length === 0) return error(res, 'No fields to update', 400);
 

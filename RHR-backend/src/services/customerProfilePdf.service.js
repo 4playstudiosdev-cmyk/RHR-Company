@@ -4,11 +4,11 @@ const path         = require('path');
 
 const LOGO_PATH = path.join(__dirname, '../../assets/rhr-logo.jpeg');
 
-// Both profile_photo_url and nic_image_url are plain https URLs (public
-// Supabase Storage URL or a signed URL) — pdfkit's doc.image() needs an
-// actual buffer/path, not a URL, so this downloads the bytes first.
-// Best-effort: a dead/missing image just renders as a placeholder box
-// below rather than failing the whole PDF.
+// profile_photo_url / nic_image_url / nic_back_image_url are all plain
+// https URLs (public Supabase Storage URL or a signed URL) — pdfkit's
+// doc.image() needs an actual buffer/path, not a URL, so this downloads
+// the bytes first. Best-effort: a dead/missing image just renders as a
+// placeholder box rather than failing the whole PDF.
 function fetchImageBuffer(url) {
   return new Promise((resolve) => {
     if (!url) return resolve(null);
@@ -21,101 +21,139 @@ function fetchImageBuffer(url) {
   });
 }
 
+const W   = 595;
+const M   = 40;
+const CW  = W - M * 2;           // content width
+const MID = M + CW / 2;          // vertical divider between the two columns
+
+const DARK_BLUE = '#1B2E6B';
+const ORANGE    = '#E8841A';
+const GRAY      = '#8A8A8A';
+const BLACK     = '#1A1A1A';
+const WHITE     = '#FFFFFF';
+const LINE_CLR  = '#D8DCE5';
+const ROW_BG    = '#F7F8FB';
+
 async function buildCustomerProfilePDF(customer, company) {
-  const [profileBuf, nicBuf] = await Promise.all([
+  const [profileBuf, nicFrontBuf, nicBackBuf] = await Promise.all([
     fetchImageBuffer(customer.profile_photo_url),
     fetchImageBuffer(customer.nic_image_url),
+    fetchImageBuffer(customer.nic_back_image_url),
   ]);
 
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 45 });
+    const doc = new PDFDocument({ size: 'A4', margin: 0 });
     const chunks = [];
     doc.on('data',  (c) => chunks.push(c));
     doc.on('end',   ()  => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
-    const W         = 595;
-    const M         = 45;
-    const DARK_BLUE = '#1B2E6B';
-    const ORANGE    = '#E8841A';
-    const GRAY      = '#888888';
-    const BLACK     = '#1A1A1A';
-    const WHITE     = '#FFFFFF';
-    const BORDER    = '#CCCCCC';
+    // ── TOP BANNER ──
+    const bannerH = 100;
+    doc.rect(0, 0, W, bannerH).fill(DARK_BLUE);
+    try { doc.image(LOGO_PATH, M, 18, { width: 60, height: 60 }); } catch (e) {}
+    doc.fillColor(WHITE).font('Helvetica-Bold').fontSize(19).text('RHR & COMPANY', M + 72, 24);
+    doc.fillColor(ORANGE).font('Helvetica-Bold').fontSize(8.5).text('THE SIGN OF QUALITY', M + 72, 46);
+    doc.fillColor(WHITE).font('Helvetica-Bold').fontSize(11).text('CUSTOMER PROFILE REPORT', M + 72, 62);
 
-    // ── HEADER ──
-    doc.rect(0, 0, W, 90).fill(DARK_BLUE);
-    try { doc.image(LOGO_PATH, M, 15, { width: 60, height: 60 }); } catch (e) {}
-    doc.fillColor(WHITE).font('Helvetica-Bold').fontSize(20).text('RHR & COMPANY', M + 72, 24);
-    doc.fillColor(ORANGE).font('Helvetica-Bold').fontSize(9).text('THE SIGN OF QUALITY', M + 72, 48);
-    doc.fillColor(WHITE).font('Helvetica-Bold').fontSize(20).text('CUSTOMER INFORMATION', 250, 34, { width: 300, align: 'right' });
-
-    let y = 112;
-
-    // ── PROFILE PHOTO + HEADLINE ──
+    // Photo box — top-right of the banner
+    const photoW = 70, photoH = 70;
+    const photoX = W - M - photoW, photoY = (bannerH - photoH) / 2;
+    doc.rect(photoX, photoY, photoW, photoH).fill(WHITE);
     if (profileBuf) {
-      try { doc.image(profileBuf, M, y, { fit: [90, 90], align: 'center', valign: 'center' }); } catch (e) {}
+      try { doc.image(profileBuf, photoX + 2, photoY + 2, { width: photoW - 4, height: photoH - 4, fit: [photoW - 4, photoH - 4] }); } catch (e) {}
     } else {
-      doc.rect(M, y, 90, 90).fillAndStroke('#EEEEEE', BORDER);
-      doc.fillColor(GRAY).font('Helvetica').fontSize(8).text('No Photo', M, y + 42, { width: 90, align: 'center' });
+      doc.fillColor(GRAY).font('Helvetica').fontSize(7.5).text('No Photo', photoX, photoY + photoH / 2 - 4, { width: photoW, align: 'center' });
     }
 
-    const infoX = M + 110;
-    doc.fillColor(BLACK).font('Helvetica-Bold').fontSize(17).text(customer.full_name || '-', infoX, y);
-    doc.fillColor(ORANGE).font('Helvetica-Bold').fontSize(10).text(customer.shop_name || '-', infoX, y + 22);
-    doc.fillColor(GRAY).font('Helvetica').fontSize(8.5).text(`Customer ID: ${customer.id}`, infoX, y + 40);
-    doc.fillColor(GRAY).font('Helvetica').fontSize(8.5)
-       .text(`Registered: ${customer.created_at ? new Date(customer.created_at).toLocaleDateString('en-GB') : '-'}`, infoX, y + 54);
+    // ── REG / DATE STRIP ──
+    let y = bannerH;
+    const stripH = 26;
+    doc.rect(0, y, W, stripH).fill(ROW_BG);
+    doc.fillColor(GRAY).font('Helvetica-Bold').fontSize(8).text('CUSTOMER ID', M, y + 8);
+    doc.fillColor(BLACK).font('Helvetica').fontSize(8).text(customer.id, M + 75, y + 8, { width: 250 });
+    doc.fillColor(GRAY).font('Helvetica-Bold').fontSize(8).text('DATE OF ISSUE', W - M - 160, y + 8, { width: 90, align: 'right' });
+    doc.fillColor(BLACK).font('Helvetica').fontSize(8)
+       .text(new Date().toLocaleDateString('en-GB'), W - M - 60, y + 8, { width: 60, align: 'right' });
+    y += stripH;
 
-    y += 112;
-    doc.moveTo(M, y).lineTo(W - M, y).strokeColor('#DDDDDD').lineWidth(1).stroke();
-    y += 18;
-
-    const field = (label, value, width) => {
-      doc.fillColor(GRAY).font('Helvetica-Bold').fontSize(8.5).text(label.toUpperCase(), M, y, { width });
-      doc.fillColor(BLACK).font('Helvetica').fontSize(10.5).text(value || '-', M, y + 13, { width });
+    // ── Section bar helper ──
+    const sectionBar = (title) => {
+      doc.rect(M, y, CW, 22).fill(DARK_BLUE);
+      doc.fillColor(WHITE).font('Helvetica-Bold').fontSize(10).text(title, M + 10, y + 6);
+      y += 22;
     };
 
-    const colW = (W - M * 2 - 20) / 2;
-    const col2X = M + colW + 20;
+    // ── Table row helpers (grid lines + label/value cells) ──
+    const rowH = 36;
+    const cellPad = 10;
 
-    field('Phone', customer.phone, colW);
-    doc.fillColor(GRAY).font('Helvetica-Bold').fontSize(8.5).text('WHATSAPP NUMBER', col2X, y);
-    doc.fillColor(BLACK).font('Helvetica').fontSize(10.5).text(customer.whatsapp_phone || '-', col2X, y + 13, { width: colW });
-    y += 38;
+    const tableRowTwoCol = (l1, v1, l2, v2, shade) => {
+      if (shade) doc.rect(M, y, CW, rowH).fill(ROW_BG);
+      doc.fillColor(GRAY).font('Helvetica-Bold').fontSize(7.5).text(l1.toUpperCase(), M + cellPad, y + 7);
+      doc.fillColor(BLACK).font('Helvetica-Bold').fontSize(10).text(v1 || '-', M + cellPad, y + 19, { width: CW / 2 - cellPad * 2 });
+      doc.fillColor(GRAY).font('Helvetica-Bold').fontSize(7.5).text(l2.toUpperCase(), MID + cellPad, y + 7);
+      doc.fillColor(BLACK).font('Helvetica-Bold').fontSize(10).text(v2 || '-', MID + cellPad, y + 19, { width: CW / 2 - cellPad * 2 });
+      doc.moveTo(MID, y).lineTo(MID, y + rowH).strokeColor(LINE_CLR).lineWidth(0.75).stroke();
+      doc.moveTo(M, y + rowH).lineTo(W - M, y + rowH).strokeColor(LINE_CLR).lineWidth(0.75).stroke();
+      y += rowH;
+    };
 
-    field('Email', customer.email, colW);
-    doc.fillColor(GRAY).font('Helvetica-Bold').fontSize(8.5).text('NIC NUMBER', col2X, y);
-    doc.fillColor(BLACK).font('Helvetica').fontSize(10.5).text(customer.nic_number || '-', col2X, y + 13, { width: colW });
-    y += 38;
+    const tableRowFull = (label, value, shade) => {
+      if (shade) doc.rect(M, y, CW, rowH).fill(ROW_BG);
+      doc.fillColor(GRAY).font('Helvetica-Bold').fontSize(7.5).text(label.toUpperCase(), M + cellPad, y + 7);
+      doc.fillColor(BLACK).font('Helvetica-Bold').fontSize(10).text(value || '-', M + cellPad, y + 19, { width: CW - cellPad * 2 });
+      doc.moveTo(M, y + rowH).lineTo(W - M, y + rowH).strokeColor(LINE_CLR).lineWidth(0.75).stroke();
+      y += rowH;
+    };
 
-    field('Shop Name', customer.shop_name, colW);
-    doc.fillColor(GRAY).font('Helvetica-Bold').fontSize(8.5).text('RATE TIER', col2X, y);
-    doc.fillColor(BLACK).font('Helvetica').fontSize(10.5).text((customer.rate_tier || '-').toUpperCase(), col2X, y + 13, { width: colW });
-    y += 38;
+    // ── CLIENT INFORMATION ──
+    sectionBar('CLIENT INFORMATION');
+    const tableTop = y;
+    tableRowTwoCol('Full Name', customer.full_name, 'Shop Name', customer.shop_name, false);
+    tableRowTwoCol('Phone Number', customer.phone, 'WhatsApp Number', customer.whatsapp_phone, true);
+    tableRowTwoCol('Email Address', customer.email, 'NIC Number', customer.nic_number, false);
+    tableRowTwoCol('City', company?.name || customer.city, 'Area', customer.area, true);
+    tableRowTwoCol('Rate Tier', (customer.rate_tier || '-').toUpperCase(), 'Registered On',
+      customer.created_at ? new Date(customer.created_at).toLocaleDateString('en-GB') : '-', false);
+    tableRowFull('Shop Address', customer.shop_address, true);
+    doc.rect(M, tableTop, CW, y - tableTop).strokeColor(LINE_CLR).lineWidth(1).stroke();
 
-    doc.fillColor(GRAY).font('Helvetica-Bold').fontSize(8.5).text('SHOP ADDRESS', M, y, { width: W - M * 2 });
-    doc.fillColor(BLACK).font('Helvetica').fontSize(10.5).text(customer.shop_address || '-', M, y + 13, { width: W - M * 2 });
-    y += 38;
+    y += 18;
 
-    field('City', company?.name || customer.city, colW);
-    doc.fillColor(GRAY).font('Helvetica-Bold').fontSize(8.5).text('AREA', col2X, y);
-    doc.fillColor(BLACK).font('Helvetica').fontSize(10.5).text(customer.area || '-', col2X, y + 13, { width: colW });
-    y += 50;
+    // ── IDENTIFICATION DOCUMENTS ──
+    sectionBar('IDENTIFICATION DOCUMENTS');
+    y += 10;
 
-    // ── NIC IMAGE ──
-    if (y > 560) { doc.addPage(); y = 45; }
-    doc.fillColor(GRAY).font('Helvetica-Bold').fontSize(8.5).text('NIC IMAGE', M, y);
-    y += 16;
-    if (nicBuf) {
-      try { doc.image(nicBuf, M, y, { fit: [280, 190] }); } catch (e) {}
-    } else {
-      doc.rect(M, y, 280, 170).fillAndStroke('#EEEEEE', BORDER);
-      doc.fillColor(GRAY).font('Helvetica').fontSize(9).text('No NIC Image', M, y + 78, { width: 280, align: 'center' });
-    }
+    const nicBoxW = (CW - 16) / 2;
+    const nicBoxH = 170;
+    const nicLabelH = 20;
 
+    const nicBox = (x, label, buf) => {
+      doc.rect(x, y, nicBoxW, nicLabelH).fill(ROW_BG);
+      doc.fillColor(DARK_BLUE).font('Helvetica-Bold').fontSize(8.5).text(label, x + 8, y + 6);
+      const imgY = y + nicLabelH;
+      const imgH = nicBoxH - nicLabelH;
+      doc.rect(x, imgY, nicBoxW, imgH).strokeColor(LINE_CLR).lineWidth(1).stroke();
+      if (buf) {
+        try { doc.image(buf, x + 4, imgY + 4, { fit: [nicBoxW - 8, imgH - 8], align: 'center', valign: 'center' }); } catch (e) {}
+      } else {
+        doc.fillColor(GRAY).font('Helvetica').fontSize(9).text('No Image', x, imgY + imgH / 2 - 5, { width: nicBoxW, align: 'center' });
+      }
+      doc.rect(x, y, nicBoxW, nicBoxH).strokeColor(LINE_CLR).lineWidth(1).stroke();
+    };
+
+    nicBox(M, 'NIC — FRONT', nicFrontBuf);
+    nicBox(MID + 8, 'NIC — BACK', nicBackBuf);
+    y += nicBoxH;
+
+    // ── FOOTER ──
+    const footerY = 800;
+    doc.moveTo(M, footerY).lineTo(W - M, footerY).strokeColor(LINE_CLR).lineWidth(0.75).stroke();
     doc.fillColor(GRAY).font('Helvetica').fontSize(7.5)
-       .text('Generated: ' + new Date().toLocaleString('en-GB'), M, 805, { width: W - M * 2, align: 'right' });
+       .text('RHR & Company — Internal Use Only', M, footerY + 6);
+    doc.fillColor(GRAY).font('Helvetica').fontSize(7.5)
+       .text('Generated: ' + new Date().toLocaleString('en-GB'), M, footerY + 6, { width: CW, align: 'right' });
 
     doc.end();
   });

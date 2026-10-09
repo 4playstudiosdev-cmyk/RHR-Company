@@ -69,7 +69,8 @@ const verifyOTPHandler = async (req, res) => {
       if (existingUser.role === 'customer') {
         const requiredFields = [
           'full_name', 'email', 'nic_number', 'shop_name',
-          'shop_address', 'whatsapp_phone', 'profile_photo_url', 'nic_image_url',
+          'shop_address', 'whatsapp_phone', 'profile_photo_url',
+          'nic_image_url', 'nic_back_image_url',
         ];
         responseUser.profileComplete = requiredFields.every(
           (f) => existingUser[f] != null && String(existingUser[f]).trim() !== ''
