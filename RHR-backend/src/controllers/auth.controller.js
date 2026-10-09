@@ -40,7 +40,7 @@ const sendOTPHandler = async (req, res) => {
 const verifyOTPHandler = async (req, res) => {
   try {
     const {
-      phone, otp, fullName, companyId, shopName, shopAddress, role, position, carNumber,
+      phone, otp, fullName, companyId, shopName, shopAddress, area, role, position, carNumber,
       email, nicNumber, whatsappPhone,
       profileImageBase64, profileImageMime,
       nicFrontBase64, nicFrontMime,
@@ -94,7 +94,7 @@ const verifyOTPHandler = async (req, res) => {
       await registerDriver({ phone, fullName, companyId, carNumber });
     } else {
       await registerCustomer({
-        phone, fullName, companyId, shopName, shopAddress,
+        phone, fullName, companyId, shopName, shopAddress, area,
         email, nicNumber, whatsappPhone,
         profileImageBase64, profileImageMime,
         nicFrontBase64, nicFrontMime,

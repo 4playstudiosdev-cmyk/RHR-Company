@@ -96,7 +96,7 @@ async function getOrCreateAuthUser({ canonical, bare, fullName, role }) {
 // JWT yet to call the authenticated /storage/upload endpoint with) and
 // are uploaded here directly via the service-role key.
 async function registerCustomer({
-  phone, fullName, companyId, shopName, shopAddress,
+  phone, fullName, companyId, shopName, shopAddress, area,
   email, nicNumber, whatsappPhone,
   profileImageBase64, profileImageMime,
   nicFrontBase64, nicFrontMime,
@@ -151,6 +151,7 @@ async function registerCustomer({
       whatsapp_phone:     whatsappPhone,
       shop_name:          shopName    || null,
       shop_address:       shopAddress || null,
+      area:               area        || null,
       profile_photo_url:  profileUpload.url,
       nic_image_url:      nicFrontUpload.url,
       nic_back_image_url: nicBackUpload.url,

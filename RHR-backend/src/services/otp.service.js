@@ -9,7 +9,17 @@ async function sendWhatsAppMessage(phoneNumber, message) {
   const serviceUrl = process.env.WHATSAPP_SERVICE_URL;
   if (!serviceUrl) throw new Error('WHATSAPP_SERVICE_URL is not configured');
 
-  const { data } = await axios.post(`${serviceUrl}/send-whatsapp`, { phone: phoneNumber, message });
+  // The bot returns a real 404/503 for expected failure cases ("not
+  // registered on WhatsApp", "not ready yet") with a useful message
+  // body — axios's default validateStatus throws on those before the
+  // body is ever read, which was surfacing as an opaque "Request failed
+  // with status code 404" instead of the actual reason. validateStatus
+  // here lets every response through so that message always comes back.
+  const { data } = await axios.post(
+    `${serviceUrl}/send-whatsapp`,
+    { phone: phoneNumber, message },
+    { validateStatus: () => true }
+  );
   if (!data?.success) throw new Error(data?.message || 'WhatsApp send failed');
 }
 
