@@ -4,7 +4,7 @@ import {
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
   Gauge, Boxes, ClipboardList, FileBarChart2, ChevronDown, X,
   PackageCheck, ArrowLeftRight, PackageSearch, Landmark, Receipt, Store, RotateCcw,
-  HandCoins, Car, CalendarCheck, WalletCards, LayoutPanelTop, Trash2
+  HandCoins, Car, CalendarCheck, WalletCards, LayoutPanelTop, Trash2, HardHat
 } from 'lucide-react';
 import api, { hasPermission } from '../services/api';
 
@@ -42,7 +42,8 @@ const NAV_ITEMS = [
       { key: 'production-log', label: 'Production History', icon: PackageCheck },
       { key: 'production-reports', label: 'Production Reports', icon: FileBarChart2 },
       { key: 'production-recipes', label: 'Recipes', icon: ClipboardList },
-      { key: 'production-daily', label: 'Daily Production Entry', icon: CalendarCheck }
+      { key: 'production-daily', label: 'Daily Production Entry', icon: CalendarCheck },
+      { key: 'manufacturing-employees', label: 'Manufacturing Employees', icon: HardHat }
     ]
   },
   { key: 'stock-transfers', label: 'Stock Transfers', icon: ArrowLeftRight },
@@ -72,7 +73,7 @@ function formatRole(role) {
 }
 
 export default function Sidebar({ page, setPage, user, onLogout, open, onClose }) {
-  const [productionOpen, setProductionOpen] = useState(page.startsWith('production-'));
+  const [productionOpen, setProductionOpen] = useState(page.startsWith('production-') || page === 'manufacturing-employees');
   const [pendingTransfers, setPendingTransfers] = useState(0);
   const [loginAlerts, setLoginAlerts] = useState(0);
 

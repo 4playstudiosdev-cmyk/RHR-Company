@@ -39,6 +39,7 @@ import StockTransfers from './pages/StockTransfers';
 import StockReports from './pages/StockReports';
 import OpeningBalances from './pages/OpeningBalances';
 import DeletedItems from './pages/DeletedItems';
+import ManufacturingEmployees from './pages/ManufacturingEmployees';
 
 const PAGES = {
   dashboard: Dashboard,
@@ -70,7 +71,8 @@ const PAGES = {
   hrm: HRM,
   admins: AdminManagement,
   'opening-balances': OpeningBalances,
-  'deleted-items': DeletedItems
+  'deleted-items': DeletedItems,
+  'manufacturing-employees': ManufacturingEmployees
 };
 
 // Dashboard and Admin Roles are the only super_admin-exclusive pages now —
@@ -99,6 +101,7 @@ const PAGE_ACCESS = {
   'production-reports': { requiredPermission: 'can_manage_production' },
   'production-recipes': { requiredPermission: 'can_manage_production' },
   'production-daily': { requiredPermission: 'can_manage_production' },
+  'manufacturing-employees': { requiredPermission: 'can_manage_production' },
   'opening-balances': { requiredRole: 'super_admin' }
 };
 

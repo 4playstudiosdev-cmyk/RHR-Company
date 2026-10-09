@@ -78,6 +78,7 @@ app.use('/api/v1/recovery',      require('./src/routes/recovery.routes'));
 app.use('/api/v1/vehicles',      require('./src/routes/vehicles.routes'));
 app.use('/api/v1/opening-balances', require('./src/routes/opening-balances.routes'));
 app.use('/api/v1/daily-dashboard', require('./src/routes/daily-dashboard.routes'));
+app.use('/api/v1/manufacturing', require('./src/routes/manufacturing.routes'));
 
 // 404 handler
 app.use((req, res) => {
