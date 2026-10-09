@@ -29,6 +29,7 @@ const monthStartISO = () => { const d = new Date(); return `${d.getFullYear()}-$
 const EMPTY_FORM = {
   category: EXPENSE_CATEGORIES[0], amount: '', description: '', expense_date: todayISO(),
   method: 'cash', bank_account_id: '', driver_id: '', salesman_id: '', manufacturing_worker_id: '',
+  supplier_id: '', splitPayment: false, cashAmount: '', onlineAmount: '',
 };
 
 export default function Expenses() {
@@ -43,6 +44,7 @@ export default function Expenses() {
   const [driversList, setDriversList] = useState([]);
   const [salesmenList, setSalesmenList] = useState([]);
   const [workersList, setWorkersList] = useState([]);
+  const [suppliersList, setSuppliersList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
@@ -113,6 +115,22 @@ export default function Expenses() {
     loadWorkers();
   }, [selectedCity]);
 
+  // Powers the "Vendor" picker shown when Category = Raw Material Purchase.
+  useEffect(() => {
+    const loadSuppliers = async () => {
+      try {
+        const companyFilter = selectedCity === 'all' ? null : selectedCity;
+        const data = companyFilter
+          ? (await api.get('/suppliers', { params: { company_id: companyFilter } })).data.data || []
+          : await fetchAllCities('/suppliers');
+        setSuppliersList(data);
+      } catch (err) {
+        setSuppliersList([]);
+      }
+    };
+    loadSuppliers();
+  }, [selectedCity]);
+
   const loadExpenses = async () => {
     setLoading(true);
     setError('');
@@ -130,15 +148,35 @@ export default function Expenses() {
     }
   };
 
+  const isSplit = form.category === 'Raw Material Purchase' && form.splitPayment;
+  const splitCash = Number(form.cashAmount) || 0;
+  const splitOnline = Number(form.onlineAmount) || 0;
+  const splitTotal = splitCash + splitOnline;
+
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.amount || Number(form.amount) <= 0 || !form.description.trim()) {
-      toast.error('Amount and description are required.');
+    if (!form.description.trim()) {
+      toast.error('Description is required.');
       return;
     }
-    if (form.method === 'bank' && !form.bank_account_id) {
-      toast.error('Select a bank account.');
-      return;
+    if (isSplit) {
+      if (splitCash <= 0 && splitOnline <= 0) {
+        toast.error('Enter a cash amount, an online amount, or both.');
+        return;
+      }
+      if (splitOnline > 0 && !form.bank_account_id) {
+        toast.error('Select a bank account for the online portion.');
+        return;
+      }
+    } else {
+      if (!form.amount || Number(form.amount) <= 0) {
+        toast.error('Amount is required.');
+        return;
+      }
+      if (form.method === 'bank' && !form.bank_account_id) {
+        toast.error('Select a bank account.');
+        return;
+      }
     }
     if (VEHICLE_CATEGORIES.includes(form.category) && !form.driver_id) {
       toast.error('Select which vehicle this expense was for.');
@@ -147,7 +185,37 @@ export default function Expenses() {
     setSaving(true);
     try {
       const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
-      await api.post('/expenses', { ...form, amount: Number(form.amount), company_id: targetCompanyId });
+      const baseRow = {
+        category: form.category,
+        expense_date: form.expense_date,
+        supplier_id: form.supplier_id || null,
+        company_id: targetCompanyId,
+      };
+      if (isSplit) {
+        // Two rows, one per payment method — this is what lets the online
+        // portion show up correctly in Bank → Transactions and the cash
+        // portion show as a normal cash expense, with no special-casing
+        // needed anywhere else in the app.
+        if (splitCash > 0) {
+          await api.post('/expenses', {
+            ...baseRow,
+            amount: splitCash,
+            method: 'cash',
+            description: `${form.description} (cash portion)`,
+          });
+        }
+        if (splitOnline > 0) {
+          await api.post('/expenses', {
+            ...baseRow,
+            amount: splitOnline,
+            method: 'bank',
+            bank_account_id: form.bank_account_id,
+            description: `${form.description} (online portion)`,
+          });
+        }
+      } else {
+        await api.post('/expenses', { ...form, ...baseRow, amount: Number(form.amount) });
+      }
       toast.success('Expense recorded.');
       setForm({ ...EMPTY_FORM, expense_date: form.expense_date });
       loadExpenses();
@@ -301,6 +369,12 @@ export default function Expenses() {
                   driver_id: VEHICLE_CATEGORIES.includes(e.target.value) ? form.driver_id : '',
                   salesman_id: '',
                   manufacturing_worker_id: '',
+                  supplier_id: '',
+                  splitPayment: false,
+                  cashAmount: '',
+                  onlineAmount: '',
+                  amount: '',
+                  bank_account_id: '',
                 })}
                 className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
               >
@@ -365,44 +439,119 @@ export default function Expenses() {
                 </select>
               </div>
             )}
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Paid From</label>
-              <select
-                value={form.method}
-                onChange={(e) => setForm({ ...form, method: e.target.value, bank_account_id: '' })}
-                className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-              >
-                <option value="cash">Cash</option>
-                <option value="bank">Bank Transfer</option>
-              </select>
-            </div>
-            {form.method === 'bank' && (
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Bank Account *</label>
-                <select
-                  value={form.bank_account_id}
-                  onChange={(e) => setForm({ ...form, bank_account_id: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-                >
-                  <option value="">— Select —</option>
-                  {bankAccounts.map((b) => (
-                    <option key={b.id} value={b.id}>{b.account_name} — {b.bank_name}</option>
-                  ))}
-                </select>
-              </div>
+            {form.category === 'Raw Material Purchase' && (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Vendor (optional)</label>
+                  <select
+                    value={form.supplier_id}
+                    onChange={(e) => setForm({ ...form, supplier_id: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                  >
+                    <option value="">— Select —</option>
+                    {suppliersList.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+                <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={form.splitPayment}
+                    onChange={(e) => setForm({ ...form, splitPayment: e.target.checked, amount: '', cashAmount: '', onlineAmount: '' })}
+                    className="rounded border-gray-300 text-navy focus:ring-navy"
+                  />
+                  Split between cash and online (e.g. 50/50)
+                </label>
+              </>
             )}
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Amount (PKR) *</label>
-              <input
-                type="number"
-                min="1"
-                step="0.01"
-                value={form.amount}
-                onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                placeholder="0"
-                className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-              />
-            </div>
+            {isSplit ? (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Cash Amount (PKR)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.cashAmount}
+                      onChange={(e) => setForm({ ...form, cashAmount: e.target.value })}
+                      placeholder="0"
+                      className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Online Amount (PKR)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.onlineAmount}
+                      onChange={(e) => setForm({ ...form, onlineAmount: e.target.value })}
+                      placeholder="0"
+                      className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                    />
+                  </div>
+                </div>
+                {splitOnline > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Bank Account (for online portion) *</label>
+                    <select
+                      value={form.bank_account_id}
+                      onChange={(e) => setForm({ ...form, bank_account_id: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                    >
+                      <option value="">— Select —</option>
+                      {bankAccounts.map((b) => (
+                        <option key={b.id} value={b.id}>{b.account_name} — {b.bank_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-2.5 py-2">
+                  Total: <span className="font-semibold text-navy">PKR {splitTotal.toLocaleString()}</span> — will be recorded as two separate expense entries.
+                </p>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Paid From</label>
+                  <select
+                    value={form.method}
+                    onChange={(e) => setForm({ ...form, method: e.target.value, bank_account_id: '' })}
+                    className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="bank">Bank Transfer</option>
+                  </select>
+                </div>
+                {form.method === 'bank' && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Bank Account *</label>
+                    <select
+                      value={form.bank_account_id}
+                      onChange={(e) => setForm({ ...form, bank_account_id: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                    >
+                      <option value="">— Select —</option>
+                      {bankAccounts.map((b) => (
+                        <option key={b.id} value={b.id}>{b.account_name} — {b.bank_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Amount (PKR) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    value={form.amount}
+                    onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                    placeholder="0"
+                    className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                  />
+                </div>
+              </>
+            )}
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Description *</label>
               <input
@@ -454,7 +603,10 @@ export default function Expenses() {
                       <td className="px-6 py-3.5">
                         <span className="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-navy-chip text-navy">{e.category}</span>
                       </td>
-                      <td className="px-6 py-3.5 text-gray-700">{e.description}</td>
+                      <td className="px-6 py-3.5 text-gray-700">
+                        {e.description}
+                        {e.suppliers?.name && <span className="block text-[11px] text-gray-400">Vendor: {e.suppliers.name}</span>}
+                      </td>
                       <td className="px-6 py-3.5 text-gray-600 text-xs">
                         {getEmployeeLabel(e)}
                       </td>
