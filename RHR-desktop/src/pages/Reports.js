@@ -586,7 +586,7 @@ export default function Reports() {
             <span className="text-sm font-semibold text-red-600">Total: PKR {filteredExpensesTotal.toLocaleString()}</span>
           </div>
           {purchasesLoading ? (
-            <SkeletonTable rows={5} cols={6} />
+            <SkeletonTable rows={5} cols={7} />
           ) : filteredExpenses.length === 0 ? (
             <EmptyState icon={CreditCard} title="No expenses in this period" />
           ) : (
@@ -598,6 +598,7 @@ export default function Reports() {
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Description</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Vehicle</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Employee</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Paid From</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
                   </tr>
@@ -610,6 +611,9 @@ export default function Reports() {
                       <td className="px-6 py-3.5 text-gray-600">{e.description || '—'}</td>
                       <td className="px-6 py-3.5 text-gray-600 text-xs">
                         {e.drivers ? `${e.drivers.full_name}${e.drivers.car_number ? ` — ${e.drivers.car_number}` : ''}` : '—'}
+                      </td>
+                      <td className="px-6 py-3.5 text-gray-600 text-xs">
+                        {e.salesmen?.full_name || e.manufacturing_workers?.full_name || '—'}
                       </td>
                       <td className="px-6 py-3.5 text-gray-600 text-xs">
                         {e.method === 'bank' ? `Bank${e.bank_accounts ? ` — ${e.bank_accounts.account_name}` : ''}` : 'Cash'}

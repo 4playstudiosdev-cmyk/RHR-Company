@@ -22,11 +22,17 @@ const getExpenses = async (req, res) => {
     if (to)   filters.push(`expense_date=lte.${to}`);
     const filterStr = filters.length ? `&${filters.join('&')}` : '';
 
-    // method/bank_account_id (phase24), driver_id (phase25) and
-    // vehicle_id/fuel_*/bags_delivered (phase30) are separate additions —
-    // fall back a level at a time if any hasn't run yet, same pattern
-    // used for the other phase18 bank_account_id columns, so this never
-    // breaks mid-migration.
+    // salesman_id/manufacturing_worker_id (phase44), method/bank_account_id
+    // (phase24), driver_id (phase25) and vehicle_id/fuel_*/bags_delivered
+    // (phase30) are separate additions — fall back a level at a time if
+    // any hasn't run yet, same pattern used for the other phase18
+    // bank_account_id columns, so this never breaks mid-migration.
+    try {
+      const data = await pgrestGetRaw(
+        `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),vehicle_id,vehicles(name,plate_number),fuel_price_per_liter,fuel_liters,bags_delivered,salesman_id,salesmen(full_name),manufacturing_worker_id,manufacturing_workers(full_name),created_at&order=expense_date.desc${filterStr}`
+      );
+      return success(res, data);
+    } catch (e0) {
     try {
       const data = await pgrestGetRaw(
         `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),vehicle_id,vehicles(name,plate_number),fuel_price_per_liter,fuel_liters,bags_delivered,created_at&order=expense_date.desc${filterStr}`
@@ -52,6 +58,7 @@ const getExpenses = async (req, res) => {
         }
       }
     }
+    }
   } catch (err) { return error(res, err.message); }
 };
 
@@ -61,6 +68,7 @@ const createExpense = async (req, res) => {
     const {
       category, amount, description, expense_date, company_id, method, bank_account_id, driver_id,
       vehicle_id, fuel_price_per_liter, fuel_liters, bags_delivered,
+      salesman_id, manufacturing_worker_id,
     } = req.body;
     if (!category || !amount || Number(amount) <= 0)
       return error(res, 'category and a positive amount are required', 400);
@@ -82,10 +90,25 @@ const createExpense = async (req, res) => {
       created_by:   req.user.id,
     };
 
-    // method/bank_account_id (phase24), driver_id (phase25) and
-    // vehicle_id/fuel_*/bags_delivered (phase30) are separate additions —
-    // fall back a level at a time if any hasn't run yet, mirroring
-    // getExpenses above.
+    // salesman_id/manufacturing_worker_id (phase44), method/bank_account_id
+    // (phase24), driver_id (phase25) and vehicle_id/fuel_*/bags_delivered
+    // (phase30) are separate additions — fall back a level at a time if
+    // any hasn't run yet, mirroring getExpenses above.
+    try {
+      const [data] = await pgrestPost('expenses', {
+        ...baseRow,
+        method: method === 'bank' ? 'bank' : 'cash',
+        bank_account_id: method === 'bank' ? bank_account_id : null,
+        driver_id: driver_id || null,
+        vehicle_id: vehicle_id || null,
+        fuel_price_per_liter: fuel_price_per_liter ? Number(fuel_price_per_liter) : null,
+        fuel_liters: fuel_liters ? Number(fuel_liters) : null,
+        bags_delivered: bags_delivered ? Number(bags_delivered) : null,
+        salesman_id: salesman_id || null,
+        manufacturing_worker_id: manufacturing_worker_id || null,
+      });
+      return success(res, data, 'Expense recorded', 201);
+    } catch (e0) {
     try {
       const [data] = await pgrestPost('expenses', {
         ...baseRow,
@@ -120,6 +143,7 @@ const createExpense = async (req, res) => {
           return success(res, data, 'Expense recorded', 201);
         }
       }
+    }
     }
   } catch (err) { return error(res, err.message); }
 };

@@ -26,7 +26,10 @@ const todayISO = () => new Date().toISOString().split('T')[0];
 // native date picker opens on a day, like Reports.js's date filters,
 // instead of only letting a whole month be picked at once.
 const monthStartISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; };
-const EMPTY_FORM = { category: EXPENSE_CATEGORIES[0], amount: '', description: '', expense_date: todayISO(), method: 'cash', bank_account_id: '', driver_id: '' };
+const EMPTY_FORM = {
+  category: EXPENSE_CATEGORIES[0], amount: '', description: '', expense_date: todayISO(),
+  method: 'cash', bank_account_id: '', driver_id: '', salesman_id: '', manufacturing_worker_id: '',
+};
 
 export default function Expenses() {
   const toast = useToast();
@@ -38,6 +41,8 @@ export default function Expenses() {
   const [expenses, setExpenses] = useState([]);
   const [bankAccounts, setBankAccounts] = useState([]);
   const [driversList, setDriversList] = useState([]);
+  const [salesmenList, setSalesmenList] = useState([]);
+  const [workersList, setWorkersList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
@@ -77,6 +82,35 @@ export default function Expenses() {
       }
     };
     loadDrivers();
+  }, [selectedCity]);
+
+  // Powers the "Employee" picker that appears when Category = Salaries —
+  // every driver, salesman and Manufacturing Worker in one list, so a
+  // salary paid to any of them lands in this same Expenses record.
+  useEffect(() => {
+    const companyFilter = selectedCity === 'all' ? null : selectedCity;
+    const loadSalesmen = async () => {
+      try {
+        const data = companyFilter
+          ? (await api.get('/salesmen', { params: { company_id: companyFilter } })).data.data || []
+          : await fetchAllCities('/salesmen');
+        setSalesmenList(data);
+      } catch (err) {
+        setSalesmenList([]);
+      }
+    };
+    const loadWorkers = async () => {
+      try {
+        const data = companyFilter
+          ? (await api.get('/manufacturing/workers', { params: { company_id: companyFilter } })).data.data || []
+          : await fetchAllCities('/manufacturing/workers');
+        setWorkersList(data);
+      } catch (err) {
+        setWorkersList([]);
+      }
+    };
+    loadSalesmen();
+    loadWorkers();
   }, [selectedCity]);
 
   const loadExpenses = async () => {
@@ -140,6 +174,17 @@ export default function Expenses() {
 
   const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0);
 
+  // Whichever employee this expense is tied to — a Fuel/Vehicle
+  // Maintenance expense always carries a driver (the vehicle operator);
+  // a Salaries expense may instead carry a salesman or Manufacturing
+  // Worker, see the Employee picker above.
+  const getEmployeeLabel = (e) => {
+    if (e.drivers) return `${e.drivers.full_name}${e.drivers.car_number ? ` — ${e.drivers.car_number}` : ''}`;
+    if (e.salesmen) return e.salesmen.full_name;
+    if (e.manufacturing_workers) return e.manufacturing_workers.full_name;
+    return '—';
+  };
+
   const exportToPdf = () => {
     if (expenses.length === 0) { toast.error('No expenses to export.'); return; }
     const doc = new jsPDF();
@@ -173,7 +218,7 @@ export default function Expenses() {
       new Date(e.expense_date).toLocaleDateString('en-GB'),
       e.category,
       e.description,
-      e.drivers ? `${e.drivers.full_name}${e.drivers.car_number ? ` — ${e.drivers.car_number}` : ''}` : '—',
+      getEmployeeLabel(e),
       e.method === 'bank' ? `Bank${e.bank_accounts ? ` — ${e.bank_accounts.account_name}` : ''}` : 'Cash',
       `Rs ${Number(e.amount).toLocaleString()}`
     ]);
@@ -250,7 +295,13 @@ export default function Expenses() {
               <label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
               <select
                 value={form.category}
-                onChange={(e) => setForm({ ...form, category: e.target.value, driver_id: VEHICLE_CATEGORIES.includes(e.target.value) ? form.driver_id : '' })}
+                onChange={(e) => setForm({
+                  ...form,
+                  category: e.target.value,
+                  driver_id: VEHICLE_CATEGORIES.includes(e.target.value) ? form.driver_id : '',
+                  salesman_id: '',
+                  manufacturing_worker_id: '',
+                })}
                 className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
               >
                 {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -272,6 +323,46 @@ export default function Expenses() {
                 {driversList.length === 0 && (
                   <p className="text-xs text-gray-400 mt-1">No drivers in this branch yet.</p>
                 )}
+              </div>
+            )}
+            {form.category === 'Salaries' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Employee (optional)</label>
+                <select
+                  value={
+                    form.driver_id ? `driver:${form.driver_id}`
+                    : form.salesman_id ? `salesman:${form.salesman_id}`
+                    : form.manufacturing_worker_id ? `worker:${form.manufacturing_worker_id}`
+                    : ''
+                  }
+                  onChange={(e) => {
+                    const [type, id] = e.target.value.split(':');
+                    setForm({
+                      ...form,
+                      driver_id: type === 'driver' ? id : '',
+                      salesman_id: type === 'salesman' ? id : '',
+                      manufacturing_worker_id: type === 'worker' ? id : '',
+                    });
+                  }}
+                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                >
+                  <option value="">— General / not person-specific —</option>
+                  {driversList.length > 0 && (
+                    <optgroup label="Drivers">
+                      {driversList.map((d) => <option key={d.id} value={`driver:${d.id}`}>{d.full_name}</option>)}
+                    </optgroup>
+                  )}
+                  {salesmenList.length > 0 && (
+                    <optgroup label="Salesmen">
+                      {salesmenList.map((s) => <option key={s.id} value={`salesman:${s.id}`}>{s.full_name}</option>)}
+                    </optgroup>
+                  )}
+                  {workersList.length > 0 && (
+                    <optgroup label="Manufacturing Workers">
+                      {workersList.map((w) => <option key={w.id} value={`worker:${w.id}`}>{w.full_name}</option>)}
+                    </optgroup>
+                  )}
+                </select>
               </div>
             )}
             <div>
@@ -350,7 +441,7 @@ export default function Expenses() {
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Description</th>
-                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Vehicle</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Employee</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Paid From</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
@@ -365,7 +456,7 @@ export default function Expenses() {
                       </td>
                       <td className="px-6 py-3.5 text-gray-700">{e.description}</td>
                       <td className="px-6 py-3.5 text-gray-600 text-xs">
-                        {e.drivers ? `${e.drivers.full_name}${e.drivers.car_number ? ` — ${e.drivers.car_number}` : ''}` : '—'}
+                        {getEmployeeLabel(e)}
                       </td>
                       <td className="px-6 py-3.5 text-gray-600 text-xs">
                         {e.method === 'bank'

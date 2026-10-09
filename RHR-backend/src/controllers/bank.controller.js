@@ -46,30 +46,55 @@ const createBankAccount = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-// GET /api/v1/bank/transactions?from=&to=&company_id= — approved
-// payments recorded against a bank account (Feature 7's Recovery form
-// writes these through the existing /payments endpoint with
-// method: 'bank' + bank_account_id) — this is a read-only view over
-// that same data, not a separate ledger.
+// GET /api/v1/bank/transactions?from=&to=&company_id= — every bank-method
+// movement on a bank account, both directions: money IN (approved
+// customer payments / salesman recoveries collected via bank transfer —
+// Feature 7's Recovery form, written through /payments) and money OUT
+// (expenses paid from a bank account, written through /expenses). Each
+// row carries a `type` of 'payment' or 'expense' so the UI can tell them
+// apart — this is a read-only view over those two tables, not a
+// separate ledger.
 const getBankTransactions = async (req, res) => {
   try {
     const companyId = resolveCompanyId(req);
     const { from, to } = req.query;
 
-    const parts = [
+    const paymentParts = [
       'select=id,amount,method,created_at,customer:users!customer_id(full_name),salesman:salesmen!salesman_id(full_name),bank_accounts(account_name,bank_name,account_number)',
       'bank_account_id=not.is.null',
       'status=eq.approved',
       'order=created_at.desc',
     ];
-    if (companyId) parts.push(`company_id=eq.${companyId}`);
-    if (from) parts.push(`created_at=gte.${from}T00:00:00`);
-    if (to)   parts.push(`created_at=lte.${to}T23:59:59`);
+    if (companyId) paymentParts.push(`company_id=eq.${companyId}`);
+    if (from) paymentParts.push(`created_at=gte.${from}T00:00:00`);
+    if (to)   paymentParts.push(`created_at=lte.${to}T23:59:59`);
 
-    const data = await pgrestGetRaw(`payments?${parts.join('&')}`);
-    return success(res, data);
+    let payments = [];
+    try {
+      payments = await pgrestGetRaw(`payments?${paymentParts.join('&')}`);
+    } catch (e) { /* bank_account_id is a phase18 addition */ }
+
+    const expenseParts = [
+      'select=id,amount,method,category,description,expense_date,bank_accounts(account_name,bank_name,account_number)',
+      'bank_account_id=not.is.null',
+      'order=expense_date.desc',
+    ];
+    if (companyId) expenseParts.push(`company_id=eq.${companyId}`);
+    if (from) expenseParts.push(`expense_date=gte.${from}`);
+    if (to)   expenseParts.push(`expense_date=lte.${to}`);
+
+    let expenses = [];
+    try {
+      expenses = await pgrestGetRaw(`expenses?${expenseParts.join('&')}`);
+    } catch (e) { /* bank_account_id is a phase24 addition */ }
+
+    const merged = [
+      ...(payments || []).map((p) => ({ ...p, type: 'payment' })),
+      ...(expenses || []).map((e) => ({ ...e, type: 'expense', created_at: e.expense_date })),
+    ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    return success(res, merged);
   } catch (err) {
-    // bank_account_id is a phase18 addition.
     return success(res, []);
   }
 };

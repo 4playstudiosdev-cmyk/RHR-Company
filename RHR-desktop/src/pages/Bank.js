@@ -76,7 +76,11 @@ export default function Bank() {
     }
   };
 
-  const totalTransactions = transactions.reduce((s, t) => s + Number(t.amount), 0);
+  // Net movement — payments add to the bank balance, expenses subtract.
+  const totalTransactions = transactions.reduce(
+    (s, t) => s + (t.type === 'expense' ? -Number(t.amount) : Number(t.amount)),
+    0
+  );
 
   return (
     <div className="p-6">
@@ -160,29 +164,39 @@ export default function Bank() {
             <span className="text-sm font-semibold text-navy">Total: PKR {totalTransactions.toLocaleString()}</span>
           </div>
           {transactions.length === 0 ? (
-            <EmptyState icon={ArrowLeftRight} title="No bank transactions yet" subtitle="Recoveries recorded with method 'Bank Transfer' will show up here" />
+            <EmptyState icon={ArrowLeftRight} title="No bank transactions yet" subtitle="Payments/recoveries and expenses recorded via a bank account will show up here" />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
-                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Salesman</th>
-                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Type</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Details</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Account</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
                   </tr>
                 </thead>
                 <tbody>
                   {transactions.map((t, i) => (
-                    <tr key={t.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                    <tr key={`${t.type}-${t.id}`} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                       <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(t.created_at).toLocaleDateString('en-GB')}</td>
-                      <td className="px-6 py-3.5 text-gray-700">{t.salesman?.full_name || '—'}</td>
-                      <td className="px-6 py-3.5 text-gray-700">{t.customer?.full_name || '—'}</td>
+                      <td className="px-6 py-3.5">
+                        <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-semibold ${t.type === 'expense' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                          {t.type === 'expense' ? 'Expense' : 'Payment'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3.5 text-gray-700">
+                        {t.type === 'expense'
+                          ? `${t.category}${t.description ? ` — ${t.description}` : ''}`
+                          : (t.salesman?.full_name || t.customer?.full_name || '—')}
+                      </td>
                       <td className="px-6 py-3.5 text-gray-600">
                         {t.bank_accounts ? `${t.bank_accounts.account_name} — ${t.bank_accounts.bank_name}` : '—'}
                       </td>
-                      <td className="px-6 py-3.5 text-right font-semibold text-navy">PKR {Number(t.amount).toLocaleString()}</td>
+                      <td className={`px-6 py-3.5 text-right font-semibold ${t.type === 'expense' ? 'text-red-600' : 'text-green-700'}`}>
+                        {t.type === 'expense' ? '−' : '+'}PKR {Number(t.amount).toLocaleString()}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

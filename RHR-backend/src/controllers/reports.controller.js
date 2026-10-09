@@ -207,6 +207,11 @@ const getExpensesReport = async (req, res) => {
     let expenses;
     try {
       expenses = await pgrestGetRaw(
+        `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),vehicle_id,vehicles(name,plate_number),salesman_id,salesmen(full_name),manufacturing_worker_id,manufacturing_workers(full_name),created_at&order=expense_date.desc${filterStr}`
+      );
+    } catch (e00) {
+    try {
+      expenses = await pgrestGetRaw(
         `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),vehicle_id,vehicles(name,plate_number),created_at&order=expense_date.desc${filterStr}`
       );
     } catch (e) {
@@ -217,6 +222,7 @@ const getExpensesReport = async (req, res) => {
       } catch (e2) {
         expenses = await pgrestGetRaw(`expenses?select=id,category,amount,description,expense_date&order=expense_date.desc${filterStr}`);
       }
+    }
     }
 
     const totalAmount = (expenses || []).reduce((s, e) => s + Number(e.amount), 0);
