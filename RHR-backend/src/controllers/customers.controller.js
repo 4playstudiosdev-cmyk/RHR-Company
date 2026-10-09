@@ -2,6 +2,7 @@ const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
+const { buildCustomerProfilePDF } = require('../services/customerProfilePdf.service');
 
 function normalizePhone(phone) {
   let digits = phone.replace(/\D/g, '');
@@ -13,7 +14,7 @@ function normalizePhone(phone) {
 // outright if that migration hasn't run (unlike select('*'), which just
 // omits missing columns), so this tries with them first and falls back
 // to the old column list rather than breaking the whole Customers page.
-const CUSTOMER_COLUMNS = 'id, company_id, full_name, phone, email, is_approved, salesman_id, driver_id, shop_name, shop_address, shop_latitude, shop_longitude, rate_tier, city, area, created_at';
+const CUSTOMER_COLUMNS = 'id, company_id, full_name, phone, email, is_approved, salesman_id, driver_id, shop_name, shop_address, shop_latitude, shop_longitude, rate_tier, city, area, profile_photo_url, created_at';
 const CUSTOMER_COLUMNS_FALLBACK = 'id, company_id, full_name, phone, email, is_approved, salesman_id, driver_id, shop_name, shop_address, shop_latitude, shop_longitude, rate_tier, created_at';
 
 const getCustomers = async (req, res) => {
@@ -497,9 +498,35 @@ const updateMyProfile = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+// GET /api/v1/customers/:id/profile-pdf — super_admin only (every city).
+// Full customer dossier — every field, profile picture, NIC image — as a
+// downloadable PDF for the new "Customer Information" panel.
+const downloadCustomerProfilePDF = async (req, res) => {
+  try {
+    const rows = await pgrestGet('users', {
+      select: '*',
+      id: `eq.${req.params.id}`,
+      role: 'eq.customer',
+    });
+    const customer = rows?.[0];
+    if (!customer) return error(res, 'Customer not found', 404);
+
+    let company = null;
+    try {
+      const companies = await pgrestGet('companies', { select: 'name', id: `eq.${customer.company_id}` });
+      company = companies?.[0] || null;
+    } catch (e) { /* best-effort — PDF still works without the company name */ }
+
+    const pdfBuffer = await buildCustomerProfilePDF(customer, company);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="customer-${customer.id}.pdf"`);
+    return res.send(pdfBuffer);
+  } catch (err) { return error(res, err.message); }
+};
+
 module.exports = {
   getCustomers, getPendingCustomers, getCustomerById, updateMyShopLocation, updateRateTier,
   getCustomerPricing, setCustomerPricing, deleteCustomerPricing,
   createCustomer, updateCustomer, assignSalesman, assignDriver, deleteCustomer,
-  getMyProfile, updateMyProfile,
+  getMyProfile, updateMyProfile, downloadCustomerProfilePDF,
 };
