@@ -597,10 +597,10 @@ export default function Customers({ onViewLedger }) {
                                 <img
                                   src={customer.profile_photo_url}
                                   alt={customer.full_name}
-                                  className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+                                  className="w-10 h-10 rounded-full object-cover flex-shrink-0"
                                 />
                               ) : (
-                                <div className="w-10 h-10 rounded-lg bg-navy-chip text-navy flex items-center justify-center font-semibold flex-shrink-0">
+                                <div className="w-10 h-10 rounded-full bg-navy-chip text-navy flex items-center justify-center font-semibold flex-shrink-0">
                                   {getInitials(customer.full_name)}
                                 </div>
                               )}
@@ -769,10 +769,10 @@ export default function Customers({ onViewLedger }) {
                       <img
                         src={customer.profile_photo_url}
                         alt={customer.full_name}
-                        className="w-11 h-11 rounded-lg object-cover flex-shrink-0"
+                        className="w-11 h-11 rounded-full object-cover flex-shrink-0"
                       />
                     ) : (
-                      <div className="w-11 h-11 rounded-lg bg-navy-chip text-navy flex items-center justify-center font-semibold flex-shrink-0">
+                      <div className="w-11 h-11 rounded-full bg-navy-chip text-navy flex items-center justify-center font-semibold flex-shrink-0">
                         {getInitials(customer.full_name)}
                       </div>
                     )}
