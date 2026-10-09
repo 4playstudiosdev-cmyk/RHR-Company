@@ -17,6 +17,8 @@ class SecureStorage {
   static const _positionKey  = 'user_position';
   static const _carNumberKey = 'user_car_number';
   static const _loginTimeKey = 'login_time';
+  static const _locationConsentKey = 'location_disclosure_accepted';
+  static const _profileCompleteKey = 'customer_profile_complete';
 
   // Session lifetime — a stored token older than this is treated as
   // expired even if the backend JWT itself hasn't expired yet, and forces
@@ -88,6 +90,30 @@ class SecureStorage {
 
   static Future<String?> getCarNumber() async {
     return await _storage.read(key: _carNumberKey);
+  }
+
+  // Whether the user has already tapped "I Understand & Allow" on the
+  // Google-Play-required location disclosure dialog (see
+  // widgets/location_disclosure_dialog.dart) — cleared on logout like
+  // everything else here, so it's shown again on the next login, not
+  // just once per app install.
+  static Future<void> saveLocationConsent(bool accepted) async {
+    await _storage.write(key: _locationConsentKey, value: accepted.toString());
+  }
+
+  static Future<bool> getLocationConsent() async {
+    return (await _storage.read(key: _locationConsentKey)) == 'true';
+  }
+
+  // Whether this customer has filled in every required "Complete Your
+  // Profile" field (see customers.controller.js's isProfileComplete) —
+  // drives the forced redirect to /profile-setup on login/app-restore.
+  static Future<void> saveProfileComplete(bool complete) async {
+    await _storage.write(key: _profileCompleteKey, value: complete.toString());
+  }
+
+  static Future<bool> getProfileComplete() async {
+    return (await _storage.read(key: _profileCompleteKey)) == 'true';
   }
 
   // Clear everything on logout

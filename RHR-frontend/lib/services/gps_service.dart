@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../core/network/dio_client.dart';
 import '../core/storage/secure_storage.dart';
+import '../widgets/location_disclosure_dialog.dart';
 
 /// Sends a GPS ping every [_interval] while tracking is active, and queues
 /// pings in Hive when offline or when a send fails — flushing the whole
@@ -26,6 +27,31 @@ class GPSService {
 
   Future<void> initialize() async {
     _offlineBox ??= await Hive.openBox(_boxName);
+  }
+
+  /// Google Play policy requires a prominent in-app disclosure BEFORE the
+  /// OS location-permission prompt. Call this instead of [startTracking]
+  /// directly from any screen that still has a valid [context] right
+  /// after login (see login_screen.dart/otp_screen.dart) — it shows the
+  /// disclosure dialog once (skips it if already accepted this session),
+  /// then only proceeds to the real permission request/tracking if the
+  /// user tapped "I Understand & Allow".
+  Future<bool> startTrackingWithConsent(BuildContext context) async {
+    final alreadyConsented = await SecureStorage.getLocationConsent();
+    if (!alreadyConsented) {
+      if (!context.mounted) return false;
+      final accepted = await showLocationDisclosureDialog(context);
+      if (!accepted) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location access is required for salesman features')),
+          );
+        }
+        return false;
+      }
+      await SecureStorage.saveLocationConsent(true);
+    }
+    return startTracking();
   }
 
   Future<bool> startTracking() async {

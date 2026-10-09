@@ -8,6 +8,7 @@ import '../../features/auth/screens/otp_screen.dart';
 import '../../features/auth/screens/signup_screen.dart';
 import '../../features/auth/screens/pending_approval_screen.dart';
 import '../../features/customer/screens/home_screen.dart';
+import '../../features/customer/screens/profile_setup_screen.dart';
 import '../../features/customer/screens/catalogue_screen.dart';
 import '../../features/customer/screens/product_detail_screen.dart';
 import '../../features/customer/screens/cart_screen.dart';
@@ -51,6 +52,7 @@ final appRouter = GoRouter(
     final role = await SecureStorage.getRole();
     if (role == 'salesman') return '/salesman-dashboard';
     if (role == 'driver') return '/driver-dashboard';
+    if (!await SecureStorage.getProfileComplete()) return '/profile-setup';
     return '/home';
   },
   routes: [
@@ -60,6 +62,7 @@ final appRouter = GoRouter(
     GoRoute(path: '/signup',           pageBuilder: (c, s) => slidePage(s, SignupScreen(phone: s.extra as String?))),
     GoRoute(path: '/pending-approval', pageBuilder: (c, s) => slidePage(s, const PendingApprovalScreen())),
     GoRoute(path: '/home',             pageBuilder: (c, s) => slidePage(s, const HomeScreen())),
+    GoRoute(path: '/profile-setup',    pageBuilder: (c, s) => slidePage(s, ProfileSetupScreen(forced: s.extra == true))),
     GoRoute(path: '/catalogue',        pageBuilder: (c, s) => slidePage(s, const CatalogueScreen())),
     GoRoute(
       path: '/product-detail',

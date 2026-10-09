@@ -176,16 +176,19 @@ class _OtpScreenState extends State<OtpScreen> {
           if (loggedInCarNumber != null && loggedInCarNumber.isNotEmpty) {
             await SecureStorage.saveCarNumber(loggedInCarNumber);
           }
-          // Navigate first, start GPS after (see login_screen.dart): waiting
-          // on the location-permission dialog must not block the login.
-          if (role == 'salesman') {
-            if (mounted) context.go('/salesman-dashboard');
-            unawaited(GPSService().startTracking());
-          } else if (role == 'driver') {
-            if (mounted) context.go('/driver-dashboard');
-            unawaited(GPSService().startTracking());
+          // Google Play requires the in-app disclosure dialog to be shown
+          // and resolved BEFORE the location-permission prompt (see
+          // login_screen.dart) — awaited here, on the OTP screen, before
+          // navigating away to the dashboard.
+          if (role == 'salesman' || role == 'driver') {
+            if (mounted) await GPSService().startTrackingWithConsent(context);
+            if (mounted) {
+              context.go(role == 'salesman' ? '/salesman-dashboard' : '/driver-dashboard');
+            }
           } else {
-            if (mounted) context.go('/home');
+            final profileComplete = data['user']?['profileComplete'] == true;
+            await SecureStorage.saveProfileComplete(profileComplete);
+            if (mounted) context.go(profileComplete ? '/home' : '/profile-setup', extra: true);
           }
         } else {
           if (mounted) { context.go('/pending-approval'); }

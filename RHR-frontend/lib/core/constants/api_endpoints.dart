@@ -15,7 +15,6 @@ class ApiEndpoints {
   static const String verifyOtp       = '/api/v1/auth/verify-otp';
   static const String login           = '/api/v1/auth/login';
   static const String approveCustomer = '/api/v1/auth/approve-customer/';
-  static const String whatsappStatus  = '/api/v1/auth/whatsapp-status';
 
   // COMPANIES
   static const String companies       = '/api/v1/companies';
@@ -26,6 +25,7 @@ class ApiEndpoints {
   // CUSTOMERS
   static const String customers       = '/api/v1/customers';
   static const String pendingCustomers = '/api/v1/customers/pending';
+  static const String myProfile       = '/api/v1/customers/me/profile';
 
   // ORDERS
   static const String orders          = '/api/v1/orders';

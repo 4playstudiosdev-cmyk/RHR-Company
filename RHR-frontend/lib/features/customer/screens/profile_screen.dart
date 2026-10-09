@@ -234,6 +234,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                         const Divider(height: 1, color: AppColors.outlineVariant),
+                        _menuItem(Icons.edit_outlined, 'Edit Profile', () => context.push('/profile-setup')),
+                        const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
                         _menuItem(Icons.receipt_long, 'My Orders', () => context.go('/orders')),
                         const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
                         _menuItem(Icons.account_balance_wallet_outlined, 'Account Ledger', () => context.go('/ledger')),
