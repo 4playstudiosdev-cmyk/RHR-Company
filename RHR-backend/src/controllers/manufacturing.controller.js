@@ -10,6 +10,43 @@ const RATE_PER_BAG = 10;
 const HEAD_SHARE_PER_BAG = 1;
 const WORKER_POOL_PER_BAG = RATE_PER_BAG - HEAD_SHARE_PER_BAG;
 
+// Shared by getProductionBags (API) and calculatePayout below — the
+// single source of truth for "bags produced that day" is the real
+// production log (Daily Production Entry → production.controller.js#
+// runProduction), never a hand-typed number, so a payout can never drift
+// from what was actually produced and deducted.
+async function sumTileBondBags(companyId, date) {
+  const runs = await pgrestGet('productions', {
+    select: 'id,qty_produced,date,products:finished_item_id(name,categories(name))',
+    company_id: `eq.${companyId}`,
+    date: `eq.${date}`,
+  });
+  const tileBondRuns = (runs || []).filter((r) =>
+    (r.products?.categories?.name || '').toLowerCase().includes('tile bond')
+  );
+  return {
+    totalBags: tileBondRuns.reduce((sum, r) => sum + Number(r.qty_produced || 0), 0),
+    runs: tileBondRuns.map((r) => ({ product_name: r.products?.name, qty_produced: r.qty_produced })),
+  };
+}
+
+// GET /manufacturing/production-bags?date=&company_id= — total bags
+// already logged as produced that day for any product whose category
+// name contains "tile bond", so the payout tab can show what it's about
+// to use before calculating (read-only preview — the actual payout always
+// re-derives this itself server-side, see calculatePayout below).
+const getProductionBags = async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const { date } = req.query;
+    if (!date) return error(res, 'date is required', 400);
+    if (!companyId) return error(res, 'company_id is required', 400);
+
+    const { totalBags, runs } = await sumTileBondBags(companyId, date);
+    return success(res, { total_bags: totalBags, runs });
+  } catch (err) { return error(res, err.message); }
+};
+
 // ───────────────────────────── Heads ─────────────────────────────
 
 const getHeads = async (req, res) => {
@@ -192,10 +229,9 @@ const saveAttendance = async (req, res) => {
 // correction to bags_produced or attendance can just be re-run.
 const calculatePayout = async (req, res) => {
   try {
-    const { head_id, date, bags_produced } = req.body;
-    const bags = Number(bags_produced);
-    if (!head_id || !date || !bags || bags <= 0) {
-      return error(res, 'head_id, date and a positive bags_produced are required', 400);
+    const { head_id, date } = req.body;
+    if (!head_id || !date) {
+      return error(res, 'head_id and date are required', 400);
     }
 
     const heads = await pgrestGet('manufacturing_heads', { select: 'id,company_id,full_name', id: `eq.${head_id}` });
@@ -203,6 +239,15 @@ const calculatePayout = async (req, res) => {
     if (!head) return error(res, 'Head not found', 404);
     if (req.user.role === 'branch_admin' && head.company_id !== req.user.company_id) {
       return error(res, 'Access denied', 403);
+    }
+
+    // Bags produced is never taken from the request — it's always
+    // re-derived from the real production log for that day/branch, so the
+    // payout can't drift from what Daily Production Entry actually
+    // recorded (see sumTileBondBags above).
+    const { totalBags: bags } = await sumTileBondBags(head.company_id, date);
+    if (!bags || bags <= 0) {
+      return error(res, 'No Tile Bond production logged for this date yet — log it in Daily Production Entry first', 400);
     }
 
     const workers = await pgrestGet('manufacturing_workers', {
@@ -292,5 +337,5 @@ module.exports = {
   getHeads, createHead, updateHead, deleteHead,
   getWorkers, createWorker, updateWorker, deleteWorker,
   getAttendance, saveAttendance,
-  calculatePayout, getEarnings,
+  getProductionBags, calculatePayout, getEarnings,
 };

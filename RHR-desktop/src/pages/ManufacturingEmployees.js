@@ -55,7 +55,11 @@ export default function ManufacturingEmployees() {
   const [payoutDate, setPayoutDate] = useState(todayISO());
   const [attendance, setAttendance] = useState([]); // [{id, full_name, present}]
   const [loadingAttendance, setLoadingAttendance] = useState(false);
-  const [bagsProduced, setBagsProduced] = useState('');
+  // Bags produced is never typed by hand — it's always pulled from that
+  // day's real Daily Production Entry log (Tile Bond category only), so
+  // the payout can never drift from what was actually produced.
+  const [productionBags, setProductionBags] = useState({ total_bags: 0, runs: [] });
+  const [loadingBags, setLoadingBags] = useState(false);
   const [savingAttendance, setSavingAttendance] = useState(false);
   const [calculating, setCalculating] = useState(false);
   const [lastPayout, setLastPayout] = useState(null);
@@ -164,8 +168,9 @@ export default function ManufacturingEmployees() {
   // ── Attendance & Payout ──
   useEffect(() => {
     if (tab === 'payout' && payoutHeadId && payoutDate) loadAttendance();
+    if (tab === 'payout' && payoutDate && companyFilter) loadProductionBags();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, payoutHeadId, payoutDate]);
+  }, [tab, payoutHeadId, payoutDate, companyFilter]);
 
   const loadAttendance = async () => {
     setLoadingAttendance(true);
@@ -177,6 +182,18 @@ export default function ManufacturingEmployees() {
       toast.error('Failed to load attendance.');
     } finally {
       setLoadingAttendance(false);
+    }
+  };
+
+  const loadProductionBags = async () => {
+    setLoadingBags(true);
+    try {
+      const res = await api.get('/manufacturing/production-bags', { params: { company_id: companyFilter, date: payoutDate } });
+      setProductionBags(res.data.data || { total_bags: 0, runs: [] });
+    } catch (err) {
+      setProductionBags({ total_bags: 0, runs: [] });
+    } finally {
+      setLoadingBags(false);
     }
   };
 
@@ -200,21 +217,25 @@ export default function ManufacturingEmployees() {
   };
 
   const presentCount = attendance.filter((w) => w.present).length;
-  const bagsNum = Number(bagsProduced) || 0;
+  const bagsNum = Number(productionBags.total_bags) || 0;
   const previewHeadAmount = bagsNum * HEAD_SHARE;
   const previewPool = bagsNum * WORKER_POOL_SHARE;
   const previewPerWorker = presentCount > 0 ? previewPool / presentCount : 0;
 
   const handleCalculatePayout = async () => {
     if (!payoutHeadId) { toast.error('Select a Head.'); return; }
-    if (!bagsNum || bagsNum <= 0) { toast.error('Enter bags produced.'); return; }
+    if (!bagsNum || bagsNum <= 0) {
+      toast.error('No Tile Bond production logged for this date yet — log it in Daily Production Entry first.');
+      return;
+    }
     setCalculating(true);
     try {
       await handleSaveAttendance();
+      // bags_produced is deliberately not sent — the backend always
+      // re-derives it from the real production log, never trusts the client.
       const res = await api.post('/manufacturing/payout', {
         head_id: payoutHeadId,
         date: payoutDate,
-        bags_produced: bagsNum,
       });
       setLastPayout(res.data.data);
       toast.success(res.data.message || 'Payout calculated.');
@@ -426,16 +447,20 @@ export default function ManufacturingEmployees() {
                 )}
 
                 <div className="mt-5">
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Tile Bond Bags Produced (today)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={bagsProduced}
-                    onChange={(e) => setBagsProduced(e.target.value)}
-                    placeholder="0"
-                    className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-                  />
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Tile Bond Bags Produced (from Daily Production Entry)</label>
+                  <div className="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2.5 text-sm font-semibold text-navy">
+                    {loadingBags ? 'Loading...' : bagsNum.toLocaleString()}
+                  </div>
+                  {!loadingBags && productionBags.runs?.length > 0 && (
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      {productionBags.runs.map((r) => `${r.product_name} (${r.qty_produced})`).join(', ')}
+                    </p>
+                  )}
+                  {!loadingBags && bagsNum === 0 && (
+                    <p className="text-[11px] text-amber-600 mt-1">
+                      No Tile Bond production logged for this date yet — log it under Production → Daily Production Entry first.
+                    </p>
+                  )}
                 </div>
 
                 {bagsNum > 0 && (
@@ -472,9 +497,10 @@ export default function ManufacturingEmployees() {
             <h3 className="font-semibold text-navy text-sm mb-2">How this works</h3>
             <ul className="text-sm text-gray-600 space-y-2 list-disc pl-5">
               <li>The client pays PKR 10 per bag on Tile Bond production.</li>
+              <li>Bags produced is never typed by hand — it's pulled straight from that day's real Daily Production Entry log for any Tile Bond category product, so it can never drift from what was actually made.</li>
               <li>PKR 1/bag always goes to the Head of Manufacturing for that team — whether the Head was personally present that day or not.</li>
               <li>The remaining PKR 9/bag is split evenly across whichever Workers are marked <strong>Present</strong> above.</li>
-              <li>Mark attendance first, then enter the bags produced and calculate — re-running for the same Head + date replaces that day's numbers instead of duplicating them.</li>
+              <li>Mark attendance, then calculate — re-running for the same Head + date replaces that day's numbers instead of duplicating them.</li>
             </ul>
           </div>
         </div>

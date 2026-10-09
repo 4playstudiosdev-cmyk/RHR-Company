@@ -17,6 +17,7 @@ router.delete('/workers/:id', authenticate, isAdmin, ctrl.deleteWorker);
 router.get('/attendance',  authenticate, isAdmin, ctrl.getAttendance);
 router.post('/attendance', authenticate, isAdmin, ctrl.saveAttendance);
 
+router.get('/production-bags', authenticate, isAdmin, ctrl.getProductionBags);
 router.post('/payout',  authenticate, isAdmin, ctrl.calculatePayout);
 router.get('/earnings', authenticate, isAdmin, ctrl.getEarnings);
 
