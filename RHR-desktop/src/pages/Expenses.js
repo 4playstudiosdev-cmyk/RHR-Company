@@ -20,9 +20,12 @@ const EXPENSE_CATEGORIES = [
 // Vehicle picker (driver + car number) only when one of these is chosen.
 const VEHICLE_CATEGORIES = ['Fuel', 'Vehicle Maintenance'];
 
-const now = new Date();
-const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 const todayISO = () => new Date().toISOString().split('T')[0];
+// Defaults to the current calendar month (same range the old month-only
+// picker always started on), but as real from/to dates now — so the
+// native date picker opens on a day, like Reports.js's date filters,
+// instead of only letting a whole month be picked at once.
+const monthStartISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; };
 const EMPTY_FORM = { category: EXPENSE_CATEGORIES[0], amount: '', description: '', expense_date: todayISO(), method: 'cash', bank_account_id: '', driver_id: '' };
 
 export default function Expenses() {
@@ -30,7 +33,8 @@ export default function Expenses() {
   const user = getCurrentUser();
   const defaultCity = user?.role === 'super_admin' ? KARACHI_COMPANY_ID : user?.companyId;
   const [selectedCity, setSelectedCity] = useState(defaultCity);
-  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+  const [dateFrom, setDateFrom] = useState(monthStartISO());
+  const [dateTo, setDateTo] = useState(todayISO());
   const [expenses, setExpenses] = useState([]);
   const [bankAccounts, setBankAccounts] = useState([]);
   const [driversList, setDriversList] = useState([]);
@@ -43,7 +47,7 @@ export default function Expenses() {
   useEffect(() => {
     loadExpenses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCity, selectedMonth]);
+  }, [selectedCity, dateFrom, dateTo]);
 
   useEffect(() => {
     const loadBankAccounts = async () => {
@@ -79,14 +83,11 @@ export default function Expenses() {
     setLoading(true);
     setError('');
     try {
-      const [year, month] = selectedMonth.split('-');
-      const from = `${year}-${month}-01`;
-      const to = new Date(Number(year), Number(month), 0).toISOString().split('T')[0];
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
-      const params = { from, to, company_id: companyFilter };
+      const params = { from: dateFrom, to: dateTo, company_id: companyFilter };
       const data = companyFilter
         ? (await api.get('/expenses', { params })).data.data || []
-        : await fetchAllCities('/expenses', { from, to });
+        : await fetchAllCities('/expenses', { from: dateFrom, to: dateTo });
       setExpenses(data);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load expenses.');
@@ -161,7 +162,7 @@ export default function Expenses() {
     doc.text('EXPENSE REPORT', PAGE_W - M, 26, { align: 'right' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
-    doc.text(`Month: ${selectedMonth}`, PAGE_W - M, 34, { align: 'right' });
+    doc.text(`Period: ${dateFrom} to ${dateTo}`, PAGE_W - M, 34, { align: 'right' });
     doc.text(`Generated: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`, PAGE_W - M, 40, { align: 'right' });
 
     doc.setDrawColor(30, 30, 40);
@@ -190,7 +191,7 @@ export default function Expenses() {
       footStyles: { fillColor: [27, 39, 58], textColor: [230, 126, 34], fontStyle: 'bold', fontSize: 10 }
     });
 
-    doc.save(`Expense-Report-${selectedMonth}.pdf`);
+    doc.save(`Expense-Report-${dateFrom}_to_${dateTo}.pdf`);
   };
 
   return (
@@ -198,16 +199,28 @@ export default function Expenses() {
       <div className="flex justify-between items-start flex-wrap gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-navy">Company Expenses</h1>
-          <p className="text-sm text-gray-500 mt-1">Track all company expenses by month.</p>
+          <p className="text-sm text-gray-500 mt-1">Track all company expenses by date range.</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
-          <input
-            type="month"
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
-          />
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={dateFrom}
+              max={dateTo}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
+            />
+            <span className="text-gray-400 text-sm">to</span>
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom}
+              max={todayISO()}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
+            />
+          </div>
           <Button variant="primary" onClick={exportToPdf} className="flex items-center gap-2">
             <Download size={15} /> Export PDF
           </Button>
@@ -216,7 +229,7 @@ export default function Expenses() {
 
       <div className="bg-navy rounded-2xl px-6 py-5 mb-6 flex items-center justify-between flex-wrap gap-4">
         <div>
-          <p className="text-blue-200/70 text-xs font-semibold uppercase tracking-wide">Total Expenses — {selectedMonth}</p>
+          <p className="text-blue-200/70 text-xs font-semibold uppercase tracking-wide">Total Expenses — {dateFrom} to {dateTo}</p>
           <p className="text-white text-3xl font-bold mt-1">PKR {totalExpenses.toLocaleString()}</p>
         </div>
         <div className="text-right">
