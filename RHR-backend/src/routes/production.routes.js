@@ -193,7 +193,6 @@ router.post('/unit-conversions', authenticate, isAdmin, async (req, res) => {
       consumption_unit,
       bag_weight:       Number(bag_weight),
       bag_weight_unit,
-      updated_at:       new Date().toISOString(),
     };
 
     const existing = await pgrestGet('unit_conversions', {
@@ -201,11 +200,24 @@ router.post('/unit-conversions', authenticate, isAdmin, async (req, res) => {
       raw_material_id: `eq.${raw_material_id}`,
     });
 
+    // updated_at (phase35) exists in the migration file but was never
+    // actually applied to this table on the live DB — fall back to
+    // writing without it rather than hard-failing every save with a
+    // PGRST204 "column not found" until phase48 is run.
     let data;
-    if (existing?.[0]) {
-      [data] = await pgrestPatch('unit_conversions', { id: `eq.${existing[0].id}` }, body);
-    } else {
-      [data] = await pgrestPost('unit_conversions', body);
+    try {
+      const bodyWithTimestamp = { ...body, updated_at: new Date().toISOString() };
+      if (existing?.[0]) {
+        [data] = await pgrestPatch('unit_conversions', { id: `eq.${existing[0].id}` }, bodyWithTimestamp);
+      } else {
+        [data] = await pgrestPost('unit_conversions', bodyWithTimestamp);
+      }
+    } catch (eTimestamp) {
+      if (existing?.[0]) {
+        [data] = await pgrestPatch('unit_conversions', { id: `eq.${existing[0].id}` }, body);
+      } else {
+        [data] = await pgrestPost('unit_conversions', body);
+      }
     }
 
     return success(res, data, 'Unit conversion saved');
