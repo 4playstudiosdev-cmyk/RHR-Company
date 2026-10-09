@@ -56,14 +56,20 @@ async function buildCustomerProfilePDF(customer, company) {
     doc.fillColor(ORANGE).font('Helvetica-Bold').fontSize(8.5).text('THE SIGN OF QUALITY', M + 72, 46);
     doc.fillColor(WHITE).font('Helvetica-Bold').fontSize(11).text('CUSTOMER PROFILE REPORT', M + 72, 62);
 
-    // Photo box — top-right of the banner
-    const photoW = 70, photoH = 70;
-    const photoX = W - M - photoW, photoY = (bannerH - photoH) / 2;
-    doc.rect(photoX, photoY, photoW, photoH).fill(WHITE);
+    // Photo — circular, top-right of the banner
+    const photoD = 70;
+    const photoX = W - M - photoD, photoY = (bannerH - photoD) / 2;
+    const photoCx = photoX + photoD / 2, photoCy = photoY + photoD / 2;
+    doc.circle(photoCx, photoCy, photoD / 2).fill(WHITE);
     if (profileBuf) {
-      try { doc.image(profileBuf, photoX + 2, photoY + 2, { width: photoW - 4, height: photoH - 4, fit: [photoW - 4, photoH - 4] }); } catch (e) {}
+      try {
+        doc.save();
+        doc.circle(photoCx, photoCy, photoD / 2 - 2).clip();
+        doc.image(profileBuf, photoX + 2, photoY + 2, { width: photoD - 4, height: photoD - 4, fit: [photoD - 4, photoD - 4], align: 'center', valign: 'center' });
+        doc.restore();
+      } catch (e) {}
     } else {
-      doc.fillColor(GRAY).font('Helvetica').fontSize(7.5).text('No Photo', photoX, photoY + photoH / 2 - 4, { width: photoW, align: 'center' });
+      doc.fillColor(GRAY).font('Helvetica').fontSize(7.5).text('No Photo', photoX, photoCy - 4, { width: photoD, align: 'center' });
     }
 
     // ── REG / DATE STRIP ──
@@ -117,6 +123,10 @@ async function buildCustomerProfilePDF(customer, company) {
     tableRowTwoCol('Rate Tier', (customer.rate_tier || '-').toUpperCase(), 'Registered On',
       customer.created_at ? new Date(customer.created_at).toLocaleDateString('en-GB') : '-', false);
     tableRowFull('Shop Address', customer.shop_address, true);
+    const shopLocation = (customer.shop_latitude != null && customer.shop_longitude != null)
+      ? `${Number(customer.shop_latitude).toFixed(6)}, ${Number(customer.shop_longitude).toFixed(6)}`
+      : 'Not set';
+    tableRowFull('Shop Location (GPS)', shopLocation, false);
     doc.rect(M, tableTop, CW, y - tableTop).strokeColor(LINE_CLR).lineWidth(1).stroke();
 
     y += 18;

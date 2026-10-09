@@ -1,34 +1,6 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
-
-// ── ALLOWED FILE TYPES PER BUCKET ──
-const BUCKET_RULES = {
-  'product-images': {
-    allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
-    maxSizeMB: 10,
-    isPublic: true
-  },
-  'payment-proofs': {
-    allowedTypes: ['image/jpeg', 'image/png'],
-    maxSizeMB: 5,
-    isPublic: false
-  },
-  'invoices': {
-    allowedTypes: ['application/pdf'],
-    maxSizeMB: 5,
-    isPublic: false
-  },
-  'profile-photos': {
-    allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
-    maxSizeMB: 5,
-    isPublic: true
-  },
-  'nic-images': {
-    allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
-    maxSizeMB: 5,
-    isPublic: false
-  }
-};
+const { BUCKET_RULES, LONG_LIVED_SIGN_SECONDS, uploadBase64ToStorage } = require('../utils/storageUpload');
 
 // ══════════════════════════════════════════════
 // POST /api/v1/storage/upload
@@ -41,54 +13,11 @@ const uploadFile = async (req, res) => {
     if (!bucket || !fileName || !fileBase64 || !mimeType)
       return error(res, 'bucket, fileName, fileBase64, mimeType are required', 400);
 
-    const rules = BUCKET_RULES[bucket];
-    if (!rules)
-      return error(res, `Invalid bucket. Allowed: ${Object.keys(BUCKET_RULES).join(', ')}`, 400);
+    const result = await uploadBase64ToStorage({
+      bucket, fileName, fileBase64, mimeType, companyId: req.user.company_id,
+    });
 
-    if (!rules.allowedTypes.includes(mimeType))
-      return error(res, `Invalid file type for ${bucket}. Allowed: ${rules.allowedTypes.join(', ')}`, 400);
-
-    const fileBuffer = Buffer.from(fileBase64, 'base64');
-    const fileSizeMB = fileBuffer.length / (1024 * 1024);
-    if (fileSizeMB > rules.maxSizeMB)
-      return error(res, `File too large. Max size for ${bucket}: ${rules.maxSizeMB}MB`, 400);
-
-    const companyId = req.user.company_id;
-    const timestamp = Date.now();
-    const safeName  = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const filePath  = `${companyId}/${timestamp}_${safeName}`;
-
-    const { data, error: uploadError } = await supabaseAdmin.storage
-      .from(bucket)
-      .upload(filePath, fileBuffer, {
-        contentType: mimeType,
-        upsert: false
-      });
-
-    if (uploadError) throw new Error(uploadError.message);
-
-    let fileUrl;
-    if (rules.isPublic) {
-      const { data: urlData } = supabaseAdmin.storage
-        .from(bucket)
-        .getPublicUrl(filePath);
-      fileUrl = urlData.publicUrl;
-    } else {
-      const { data: urlData, error: signError } = await supabaseAdmin.storage
-        .from(bucket)
-        .createSignedUrl(filePath, 3600);
-      if (signError) throw new Error(signError.message);
-      fileUrl = urlData.signedUrl;
-    }
-
-    return success(res, {
-      url:      fileUrl,
-      path:     filePath,
-      bucket,
-      sizeMB:   fileSizeMB.toFixed(2),
-      isPublic: rules.isPublic
-    }, 'File uploaded successfully', 201);
-
+    return success(res, result, 'File uploaded successfully', 201);
   } catch (err) {
     return error(res, err.message);
   }
@@ -118,13 +47,13 @@ const getSignedUrl = async (req, res) => {
 
     const { data, error: signError } = await supabaseAdmin.storage
       .from(bucket)
-      .createSignedUrl(filePath, 3600);
+      .createSignedUrl(filePath, LONG_LIVED_SIGN_SECONDS);
 
     if (signError) throw new Error(signError.message);
 
     return success(res, {
       url:       data.signedUrl,
-      expiresIn: '1 hour'
+      expiresIn: '10 years'
     }, 'Signed URL generated');
 
   } catch (err) {

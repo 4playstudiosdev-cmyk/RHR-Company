@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const { supabaseAdmin } = require('../config/supabase');
 const { withRetry } = require('../utils/withRetry');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { uploadBase64ToStorage } = require('../utils/storageUpload');
 
 // Matches the frontend's own SESSION_MAX_AGE_MS (App.js) — a session is
 // considered abandoned (not actively locking the account) past this age.
@@ -87,7 +88,20 @@ async function getOrCreateAuthUser({ canonical, bare, fullName, role }) {
   return authData.user.id;
 }
 
-async function registerCustomer({ phone, fullName, companyId, shopName, shopAddress }) {
+// Customer signup now collects the full "Complete Your Profile" set
+// (email, NIC number, NIC front/back, WhatsApp number, profile picture)
+// on the single signup screen instead of a separate forced screen after
+// first login — so a brand-new registration is born with a complete
+// profile. The three images arrive as base64 (the signup form has no
+// JWT yet to call the authenticated /storage/upload endpoint with) and
+// are uploaded here directly via the service-role key.
+async function registerCustomer({
+  phone, fullName, companyId, shopName, shopAddress,
+  email, nicNumber, whatsappPhone,
+  profileImageBase64, profileImageMime,
+  nicFrontBase64, nicFrontMime,
+  nicBackBase64, nicBackMime,
+}) {
   const canonical = normalizePhone(phone);
   const bare      = canonical.replace('+', '');
 
@@ -102,20 +116,45 @@ async function registerCustomer({ phone, fullName, companyId, shopName, shopAddr
     throw new Error('Account already exists. Pending admin approval.');
   }
 
+  if (!email || !nicNumber || !whatsappPhone || !profileImageBase64 || !nicFrontBase64 || !nicBackBase64) {
+    throw new Error('email, nicNumber, whatsappPhone, profile picture, and both NIC images are required');
+  }
+
   // Supabase Auth requires E.164 format (+923001234567)
   const authUserId = await getOrCreateAuthUser({ canonical, bare, fullName, role: 'customer' });
+
+  const [profileUpload, nicFrontUpload, nicBackUpload] = await Promise.all([
+    uploadBase64ToStorage({
+      bucket: 'profile-photos', fileName: `${authUserId}.jpg`,
+      fileBase64: profileImageBase64, mimeType: profileImageMime || 'image/jpeg', companyId,
+    }),
+    uploadBase64ToStorage({
+      bucket: 'nic-images', fileName: `${authUserId}_front.jpg`,
+      fileBase64: nicFrontBase64, mimeType: nicFrontMime || 'image/jpeg', companyId,
+    }),
+    uploadBase64ToStorage({
+      bucket: 'nic-images', fileName: `${authUserId}_back.jpg`,
+      fileBase64: nicBackBase64, mimeType: nicBackMime || 'image/jpeg', companyId,
+    }),
+  ]);
 
   const { data: newUser, error: userError } = await supabaseAdmin
     .from('users')
     .insert({
-      id:           authUserId,
-      company_id:   companyId,
-      role:         'customer',
-      full_name:    fullName,
-      phone:        canonical,   // always store in +92XXXXXXXXXX format
-      shop_name:    shopName    || null,
-      shop_address: shopAddress || null,
-      is_approved:  false
+      id:                 authUserId,
+      company_id:         companyId,
+      role:               'customer',
+      full_name:          fullName,
+      phone:              canonical,   // always store in +92XXXXXXXXXX format
+      email,
+      nic_number:         nicNumber,
+      whatsapp_phone:     whatsappPhone,
+      shop_name:          shopName    || null,
+      shop_address:       shopAddress || null,
+      profile_photo_url:  profileUpload.url,
+      nic_image_url:      nicFrontUpload.url,
+      nic_back_image_url: nicBackUpload.url,
+      is_approved:        false
     })
     .select()
     .single();

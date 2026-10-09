@@ -39,7 +39,13 @@ const sendOTPHandler = async (req, res) => {
 
 const verifyOTPHandler = async (req, res) => {
   try {
-    const { phone, otp, fullName, companyId, shopName, shopAddress, role, position, carNumber } = req.body;
+    const {
+      phone, otp, fullName, companyId, shopName, shopAddress, role, position, carNumber,
+      email, nicNumber, whatsappPhone,
+      profileImageBase64, profileImageMime,
+      nicFrontBase64, nicFrontMime,
+      nicBackBase64, nicBackMime,
+    } = req.body;
     if (!phone || !otp || !companyId) {
       return error(res, 'phone, otp, companyId are required', 400);
     }
@@ -87,7 +93,13 @@ const verifyOTPHandler = async (req, res) => {
     } else if (role === 'driver') {
       await registerDriver({ phone, fullName, companyId, carNumber });
     } else {
-      await registerCustomer({ phone, fullName, companyId, shopName, shopAddress });
+      await registerCustomer({
+        phone, fullName, companyId, shopName, shopAddress,
+        email, nicNumber, whatsappPhone,
+        profileImageBase64, profileImageMime,
+        nicFrontBase64, nicFrontMime,
+        nicBackBase64, nicBackMime,
+      });
     }
 
     return success(
