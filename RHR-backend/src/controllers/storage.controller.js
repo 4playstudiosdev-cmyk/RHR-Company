@@ -17,6 +17,16 @@ const BUCKET_RULES = {
     allowedTypes: ['application/pdf'],
     maxSizeMB: 5,
     isPublic: false
+  },
+  'profile-photos': {
+    allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
+    maxSizeMB: 5,
+    isPublic: true
+  },
+  'nic-images': {
+    allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
+    maxSizeMB: 5,
+    isPublic: false
   }
 };
 

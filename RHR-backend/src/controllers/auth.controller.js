@@ -58,15 +58,24 @@ const verifyOTPHandler = async (req, res) => {
       }
       // Approved existing user — return JWT for login
       const token = generateToken(existingUser);
-      return success(res, {
-        token,
-        user: {
-          id:        existingUser.id,
-          fullName:  existingUser.full_name,
-          role:      existingUser.role,
-          carNumber: existingUser.car_number,
-        },
-      }, 'Login successful');
+      const responseUser = {
+        id:        existingUser.id,
+        fullName:  existingUser.full_name,
+        role:      existingUser.role,
+        carNumber: existingUser.car_number,
+      };
+      // Customer-only "Complete Your Profile" gate — see
+      // customers.controller.js's isProfileComplete for the field list.
+      if (existingUser.role === 'customer') {
+        const requiredFields = [
+          'full_name', 'email', 'nic_number', 'shop_name',
+          'shop_address', 'whatsapp_phone', 'profile_photo_url', 'nic_image_url',
+        ];
+        responseUser.profileComplete = requiredFields.every(
+          (f) => existingUser[f] != null && String(existingUser[f]).trim() !== ''
+        );
+      }
+      return success(res, { token, user: responseUser }, 'Login successful');
     }
 
     // New user — fullName required for registration

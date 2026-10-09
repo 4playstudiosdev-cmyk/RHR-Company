@@ -8,6 +8,8 @@ router.get('/',              authenticate,             ctrl.getCustomers);
 router.post('/',              authenticate, isAdmin,    ctrl.createCustomer);
 router.get('/pending',       authenticate, isAdmin,     ctrl.getPendingCustomers);
 router.patch('/me/location', authenticate, isCustomer,  ctrl.updateMyShopLocation);
+router.get('/me/profile',    authenticate, isCustomer,  ctrl.getMyProfile);
+router.patch('/me/profile',  authenticate, isCustomer,  ctrl.updateMyProfile);
 router.patch('/:id/rate-tier', authenticate, isAdmin,   ctrl.updateRateTier);
 router.patch('/:id/assign-salesman', authenticate, isAdmin, ctrl.assignSalesman);
 router.patch('/:id/assign-driver',   authenticate, isAdmin, ctrl.assignDriver);

@@ -438,8 +438,68 @@ const updateMyShopLocation = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+// A customer's profile is "complete" only once every one of these is
+// filled in — checked fresh on every read instead of cached in a column,
+// so it self-corrects if a field is ever cleared later.
+const REQUIRED_PROFILE_FIELDS = [
+  'full_name', 'email', 'nic_number', 'shop_name',
+  'shop_address', 'whatsapp_phone', 'profile_photo_url', 'nic_image_url',
+];
+
+function isProfileComplete(user) {
+  return REQUIRED_PROFILE_FIELDS.every(
+    (f) => user[f] != null && String(user[f]).trim() !== ''
+  );
+}
+
+// GET /api/v1/customers/me/profile
+const getMyProfile = async (req, res) => {
+  try {
+    const rows = await pgrestGet('users', {
+      select: 'id,full_name,phone,email,nic_number,nic_image_url,whatsapp_phone,shop_name,shop_address,profile_photo_url',
+      id: `eq.${req.user.id}`,
+      role: 'eq.customer',
+    });
+    const data = rows?.[0];
+    if (!data) return error(res, 'Profile not found', 404);
+    return success(res, { ...data, profileComplete: isProfileComplete(data) });
+  } catch (err) { return error(res, err.message); }
+};
+
+// PATCH /api/v1/customers/me/profile — self-service, used by both the
+// forced first-login "Complete Your Profile" screen and the later "Edit
+// Profile" entry point from Settings. All 8 fields are required by the
+// frontend before it even calls this, but this only ever writes fields
+// actually present in the body so a partial save never blanks the rest.
+const updateMyProfile = async (req, res) => {
+  try {
+    const {
+      full_name, email, nic_number, whatsapp_phone,
+      shop_name, shop_address, profile_photo_url, nic_image_url,
+    } = req.body;
+
+    const update = {};
+    if (full_name != null)         update.full_name = full_name;
+    if (email != null)             update.email = email;
+    if (nic_number != null)        update.nic_number = nic_number;
+    if (whatsapp_phone != null)    update.whatsapp_phone = whatsapp_phone;
+    if (shop_name != null)         update.shop_name = shop_name;
+    if (shop_address != null)      update.shop_address = shop_address;
+    if (profile_photo_url != null) update.profile_photo_url = profile_photo_url;
+    if (nic_image_url != null)     update.nic_image_url = nic_image_url;
+
+    if (Object.keys(update).length === 0) return error(res, 'No fields to update', 400);
+
+    const rows = await pgrestPatch('users', { id: `eq.${req.user.id}`, role: 'eq.customer' }, update);
+    const data = rows?.[0];
+    if (!data) return error(res, 'Profile not found', 404);
+    return success(res, { ...data, profileComplete: isProfileComplete(data) }, 'Profile updated');
+  } catch (err) { return error(res, err.message); }
+};
+
 module.exports = {
   getCustomers, getPendingCustomers, getCustomerById, updateMyShopLocation, updateRateTier,
   getCustomerPricing, setCustomerPricing, deleteCustomerPricing,
-  createCustomer, updateCustomer, assignSalesman, assignDriver, deleteCustomer
+  createCustomer, updateCustomer, assignSalesman, assignDriver, deleteCustomer,
+  getMyProfile, updateMyProfile,
 };
