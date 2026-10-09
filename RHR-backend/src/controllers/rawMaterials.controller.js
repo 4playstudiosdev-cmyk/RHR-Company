@@ -142,29 +142,31 @@ const deleteMaterial = async (req, res) => {
 };
 
 // PATCH /api/v1/production/materials/:id/stock
+// Routed through the pgrestGet/pgrestPatch/pgrestPost raw-https bypass
+// (see utils/directQuery.js) — this was still on plain supabase-js, the
+// same documented Railway flakiness that's hit every other write in this
+// file; the find step silently returning no row is exactly what produces
+// a "Material not found" error for a material that genuinely exists.
 const addStock = async (req, res) => {
   try {
     const { quantity, date, note } = req.body;
     if (!quantity || Number(quantity) <= 0)
       return error(res, 'quantity must be a positive number', 400);
 
-    const { data: material, error: findErr } = await supabaseAdmin
-      .from('raw_materials')
-      .select('*')
-      .eq('id', req.params.id)
-      .eq('company_id', req.user.company_id)
-      .single();
-    if (findErr || !material) return error(res, 'Material not found', 404);
+    const materials = await pgrestGet('raw_materials', {
+      select: '*',
+      id: `eq.${req.params.id}`,
+      company_id: `eq.${req.user.company_id}`,
+    });
+    const material = materials?.[0];
+    if (!material) return error(res, 'Material not found', 404);
 
-    const { data: updated, error: updErr } = await supabaseAdmin
-      .from('raw_materials')
-      .update({ stock: Number(material.stock) + Number(quantity) })
-      .eq('id', req.params.id)
-      .select()
-      .single();
-    if (updErr) throw new Error(updErr.message);
+    const updated = await pgrestPatch('raw_materials', { id: `eq.${req.params.id}` }, {
+      stock: Number(material.stock) + Number(quantity),
+    });
+    if (!updated?.[0]) return error(res, 'Material not found', 404);
 
-    await supabaseAdmin.from('raw_material_stock_logs').insert({
+    await pgrestPost('raw_material_stock_logs', {
       material_id: req.params.id,
       company_id:  req.user.company_id,
       quantity:    Number(quantity),
@@ -174,7 +176,7 @@ const addStock = async (req, res) => {
     });
 
     invalidate(`materials:${req.user.company_id}`);
-    return success(res, updated, 'Stock updated');
+    return success(res, updated[0], 'Stock updated');
   } catch (err) { return error(res, err.message); }
 };
 
