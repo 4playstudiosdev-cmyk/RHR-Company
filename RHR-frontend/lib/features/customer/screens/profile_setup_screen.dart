@@ -12,9 +12,10 @@ import '../../../shared/widgets/wave_header.dart';
 
 /// Forced on a customer's first login once their profile is missing any
 /// required field (see customers.controller.js's isProfileComplete), and
-/// also reachable any time after via Settings → Edit Profile. All 8
+/// also reachable any time after via Settings → Edit Profile. All 9
 /// fields — full name, email, NIC number, shop name, shop address,
-/// WhatsApp phone, profile picture, NIC image — are required to save.
+/// WhatsApp phone, profile picture, NIC front image, NIC back image —
+/// are required to save.
 class ProfileSetupScreen extends StatefulWidget {
   final bool forced;
   const ProfileSetupScreen({super.key, this.forced = false});
@@ -32,9 +33,11 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   final _whatsappController = TextEditingController();
 
   File? _profileImageFile;
-  File? _nicImageFile;
+  File? _nicFrontImageFile;
+  File? _nicBackImageFile;
   String? _existingProfileUrl;
-  String? _existingNicUrl;
+  String? _existingNicFrontUrl;
+  String? _existingNicBackUrl;
 
   bool _loading = true;
   bool _saving = false;
@@ -67,8 +70,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         _shopNameController.text = (data['shop_name'] as String?) ?? '';
         _addressController.text  = (data['shop_address'] as String?) ?? '';
         _whatsappController.text = (data['whatsapp_phone'] as String?) ?? '';
-        _existingProfileUrl = data['profile_photo_url'] as String?;
-        _existingNicUrl     = data['nic_image_url'] as String?;
+        _existingProfileUrl  = data['profile_photo_url'] as String?;
+        _existingNicFrontUrl = data['nic_image_url'] as String?;
+        _existingNicBackUrl  = data['nic_back_image_url'] as String?;
       }
     } catch (e) {
       debugPrint('Profile load error: $e');
@@ -77,15 +81,21 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     }
   }
 
-  Future<void> _pickImage(bool isProfile) async {
+  Future<void> _pickImage(String target) async {
     final picker = ImagePicker();
     final image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
     if (image == null) return;
     setState(() {
-      if (isProfile) {
-        _profileImageFile = File(image.path);
-      } else {
-        _nicImageFile = File(image.path);
+      switch (target) {
+        case 'profile':
+          _profileImageFile = File(image.path);
+          break;
+        case 'nicFront':
+          _nicFrontImageFile = File(image.path);
+          break;
+        case 'nicBack':
+          _nicBackImageFile = File(image.path);
+          break;
       }
     });
   }
@@ -122,9 +132,14 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           const SnackBar(content: Text('Profile picture is required.')));
       return;
     }
-    if (_nicImageFile == null && _existingNicUrl == null) {
+    if (_nicFrontImageFile == null && _existingNicFrontUrl == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('NIC image is required.')));
+          const SnackBar(content: Text('NIC front image is required.')));
+      return;
+    }
+    if (_nicBackImageFile == null && _existingNicBackUrl == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('NIC back image is required.')));
       return;
     }
 
@@ -133,19 +148,23 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       final profileUrl = _profileImageFile != null
           ? await _uploadImage(_profileImageFile!, 'profile-photos')
           : _existingProfileUrl!;
-      final nicUrl = _nicImageFile != null
-          ? await _uploadImage(_nicImageFile!, 'nic-images')
-          : _existingNicUrl!;
+      final nicFrontUrl = _nicFrontImageFile != null
+          ? await _uploadImage(_nicFrontImageFile!, 'nic-images')
+          : _existingNicFrontUrl!;
+      final nicBackUrl = _nicBackImageFile != null
+          ? await _uploadImage(_nicBackImageFile!, 'nic-images')
+          : _existingNicBackUrl!;
 
       final res = await DioClient.instance.patch(ApiEndpoints.myProfile, data: {
-        'full_name':         _nameController.text.trim(),
-        'email':             _emailController.text.trim(),
-        'nic_number':        _nicController.text.trim(),
-        'shop_name':         _shopNameController.text.trim(),
-        'shop_address':      _addressController.text.trim(),
-        'whatsapp_phone':    _whatsappController.text.trim(),
-        'profile_photo_url': profileUrl,
-        'nic_image_url':     nicUrl,
+        'full_name':          _nameController.text.trim(),
+        'email':              _emailController.text.trim(),
+        'nic_number':         _nicController.text.trim(),
+        'shop_name':          _shopNameController.text.trim(),
+        'shop_address':       _addressController.text.trim(),
+        'whatsapp_phone':     _whatsappController.text.trim(),
+        'profile_photo_url':  profileUrl,
+        'nic_image_url':      nicFrontUrl,
+        'nic_back_image_url': nicBackUrl,
       });
 
       if (res.data['success'] == true) {
@@ -319,7 +338,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                                 label: 'Profile Picture *',
                                 file: _profileImageFile,
                                 existingUrl: _existingProfileUrl,
-                                onTap: () => _pickImage(true),
+                                onTap: () => _pickImage('profile'),
                               ),
                               const SizedBox(height: AppSpacing.sm),
                               _field(label: 'Full Name *', icon: Icons.person, controller: _nameController, hint: 'Enter your full name'),
@@ -330,12 +349,25 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                               _field(label: 'NIC Number *', icon: Icons.badge_outlined, controller: _nicController,
                                   hint: '42101-1234567-1'),
                               const SizedBox(height: AppSpacing.sm),
-                              _imagePicker(
-                                label: 'NIC Image *',
-                                file: _nicImageFile,
-                                existingUrl: _existingNicUrl,
-                                onTap: () => _pickImage(false),
-                              ),
+                              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Expanded(
+                                  child: _imagePicker(
+                                    label: 'NIC Front *',
+                                    file: _nicFrontImageFile,
+                                    existingUrl: _existingNicFrontUrl,
+                                    onTap: () => _pickImage('nicFront'),
+                                  ),
+                                ),
+                                const SizedBox(width: AppSpacing.sm),
+                                Expanded(
+                                  child: _imagePicker(
+                                    label: 'NIC Back *',
+                                    file: _nicBackImageFile,
+                                    existingUrl: _existingNicBackUrl,
+                                    onTap: () => _pickImage('nicBack'),
+                                  ),
+                                ),
+                              ]),
                               const SizedBox(height: AppSpacing.sm),
                               _field(label: 'Shop Name *', icon: Icons.store_outlined, controller: _shopNameController,
                                   hint: 'Shop or company name'),
