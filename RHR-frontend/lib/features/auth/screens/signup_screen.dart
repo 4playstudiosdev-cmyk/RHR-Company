@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -24,18 +25,41 @@ class _SignupScreenState extends State<SignupScreen> {
   final _addressController  = TextEditingController();
   final _positionController = TextEditingController();
   final _carNumberController = TextEditingController();
+  final _emailController    = TextEditingController();
+  final _nicController      = TextEditingController();
+  final _whatsappController = TextEditingController();
   String _selectedRole = 'customer';
   String _selectedCity = ApiEndpoints.khiId;
   bool _isLoading = false;
   File? _profileImage;
+  File? _nicFrontImage;
+  File? _nicBackImage;
 
-  Future<void> _pickImage() async {
+  Future<void> _pickImage(String target) async {
     final picker = ImagePicker();
     final image = await picker.pickImage(
         source: ImageSource.gallery, imageQuality: 70);
-    if (image != null) {
-      setState(() => _profileImage = File(image.path));
-    }
+    if (image == null) return;
+    setState(() {
+      switch (target) {
+        case 'profile':
+          _profileImage = File(image.path);
+          break;
+        case 'nicFront':
+          _nicFrontImage = File(image.path);
+          break;
+        case 'nicBack':
+          _nicBackImage = File(image.path);
+          break;
+      }
+    });
+  }
+
+  Future<Map<String, String>> _encodeImage(File file) async {
+    final bytes = await file.readAsBytes();
+    final ext = file.path.split('.').last.toLowerCase();
+    final mime = ext == 'png' ? 'image/png' : (ext == 'webp' ? 'image/webp' : 'image/jpeg');
+    return {'base64': base64Encode(bytes), 'mime': mime};
   }
 
   final List<Map<String, String>> _cities = [
@@ -61,6 +85,9 @@ class _SignupScreenState extends State<SignupScreen> {
     _addressController.dispose();
     _positionController.dispose();
     _carNumberController.dispose();
+    _emailController.dispose();
+    _nicController.dispose();
+    _whatsappController.dispose();
     super.dispose();
   }
 
@@ -74,6 +101,32 @@ class _SignupScreenState extends State<SignupScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Full name is required')));
       return;
+    }
+    if (_selectedRole == 'customer') {
+      if (_businessController.text.trim().isEmpty ||
+          _addressController.text.trim().isEmpty ||
+          _emailController.text.trim().isEmpty ||
+          _nicController.text.trim().isEmpty ||
+          _whatsappController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('All fields are required.')));
+        return;
+      }
+      if (_profileImage == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile picture is required.')));
+        return;
+      }
+      if (_nicFrontImage == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('NIC front image is required.')));
+        return;
+      }
+      if (_nicBackImage == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('NIC back image is required.')));
+        return;
+      }
     }
 
     final phone = PhoneNormalizer.normalize(_phoneController.text);
@@ -103,6 +156,15 @@ class _SignupScreenState extends State<SignupScreen> {
       }
     }
 
+    Map<String, String>? profileEnc;
+    Map<String, String>? nicFrontEnc;
+    Map<String, String>? nicBackEnc;
+    if (_selectedRole == 'customer') {
+      profileEnc  = await _encodeImage(_profileImage!);
+      nicFrontEnc = await _encodeImage(_nicFrontImage!);
+      nicBackEnc  = await _encodeImage(_nicBackImage!);
+    }
+
     if (!mounted) return;
     context.go('/otp', extra: {
       'phone':     phone,
@@ -114,13 +176,55 @@ class _SignupScreenState extends State<SignupScreen> {
       else if (_selectedRole == 'driver')
         'carNumber': _carNumberController.text.trim()
       else ...{
-        'businessName': _businessController.text.trim(),
-        'address':      _addressController.text.trim(),
+        'businessName':       _businessController.text.trim(),
+        'address':            _addressController.text.trim(),
+        'email':              _emailController.text.trim(),
+        'nicNumber':          _nicController.text.trim(),
+        'whatsappPhone':      _whatsappController.text.trim(),
+        'profileImageBase64': profileEnc!['base64']!,
+        'profileImageMime':   profileEnc['mime']!,
+        'nicFrontBase64':     nicFrontEnc!['base64']!,
+        'nicFrontMime':       nicFrontEnc['mime']!,
+        'nicBackBase64':      nicBackEnc!['base64']!,
+        'nicBackMime':        nicBackEnc['mime']!,
       },
     });
   }
 
   static const _fieldBorder = Color(0xFFCED4DA);
+
+  Widget _nicImagePicker({required String label, required File? file, required VoidCallback onTap}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant)),
+        const SizedBox(height: 6),
+        GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: double.infinity,
+            height: 100,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceContainerLowest,
+              borderRadius: BorderRadius.circular(AppRadius.base),
+              border: Border.all(color: _fieldBorder),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: file != null
+                ? Image.file(file, fit: BoxFit.cover, width: double.infinity)
+                : Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.add_photo_alternate_outlined, color: AppColors.outline, size: 24),
+                      const SizedBox(height: 4),
+                      Text('Tap to upload', style: AppTextStyles.bodySm.copyWith(color: AppColors.outline, fontSize: 11)),
+                    ],
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
 
   Widget _field({
     required String label,
@@ -254,7 +358,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           ),
                           Positioned(bottom: 0, right: 0,
                               child: GestureDetector(
-                                onTap: _pickImage,
+                                onTap: () => _pickImage('profile'),
                                 child: Container(
                                     width: 30, height: 30,
                                     decoration: BoxDecoration(
@@ -285,6 +389,33 @@ class _SignupScreenState extends State<SignupScreen> {
                         const SizedBox(height: AppSpacing.sm),
                         _field(label: 'Address', icon: Icons.location_on, controller: _addressController,
                             hint: 'Shop address, area'),
+                        const SizedBox(height: AppSpacing.sm),
+                        _field(label: 'Email', icon: Icons.email_outlined, controller: _emailController,
+                            hint: 'you@example.com', keyboardType: TextInputType.emailAddress),
+                        const SizedBox(height: AppSpacing.sm),
+                        _field(label: 'WhatsApp Phone', icon: Icons.chat_outlined, controller: _whatsappController,
+                            hint: '03XX XXXXXXX', keyboardType: TextInputType.phone),
+                        const SizedBox(height: AppSpacing.sm),
+                        _field(label: 'NIC Number', icon: Icons.badge_outlined, controller: _nicController,
+                            hint: '42101-1234567-1'),
+                        const SizedBox(height: AppSpacing.sm),
+                        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Expanded(
+                            child: _nicImagePicker(
+                              label: 'NIC Front',
+                              file: _nicFrontImage,
+                              onTap: () => _pickImage('nicFront'),
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: _nicImagePicker(
+                              label: 'NIC Back',
+                              file: _nicBackImage,
+                              onTap: () => _pickImage('nicBack'),
+                            ),
+                          ),
+                        ]),
                       ],
                       const SizedBox(height: AppSpacing.sm),
 

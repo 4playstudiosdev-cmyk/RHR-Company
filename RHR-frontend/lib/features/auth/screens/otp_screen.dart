@@ -100,6 +100,20 @@ class _OtpScreenState extends State<OtpScreen> {
     return null;
   }
 
+  // New-customer-signup-only fields — all collected on the signup screen
+  // itself now (see signup_screen.dart) instead of a separate forced
+  // screen after first login, so a fresh registration is born complete.
+  T? _extra<T>(String key) => widget.extra is Map ? (widget.extra as Map)[key] as T? : null;
+  String? get _email => _extra<String>('email');
+  String? get _nicNumber => _extra<String>('nicNumber');
+  String? get _whatsappPhone => _extra<String>('whatsappPhone');
+  String? get _profileImageBase64 => _extra<String>('profileImageBase64');
+  String? get _profileImageMime => _extra<String>('profileImageMime');
+  String? get _nicFrontBase64 => _extra<String>('nicFrontBase64');
+  String? get _nicFrontMime => _extra<String>('nicFrontMime');
+  String? get _nicBackBase64 => _extra<String>('nicBackBase64');
+  String? get _nicBackMime => _extra<String>('nicBackMime');
+
   void _onChanged(String value, int index) {
     if (value.isNotEmpty && index < 5) _focusNodes[index + 1].requestFocus();
     if (value.isEmpty && index > 0) _focusNodes[index - 1].requestFocus();
@@ -144,6 +158,15 @@ class _OtpScreenState extends State<OtpScreen> {
     if (_role != null) body['role'] = _role!;
     if (_position != null && _position!.isNotEmpty) body['position'] = _position!;
     if (_carNumber != null && _carNumber!.isNotEmpty) body['carNumber'] = _carNumber!;
+    if (_email != null) body['email'] = _email!;
+    if (_nicNumber != null) body['nicNumber'] = _nicNumber!;
+    if (_whatsappPhone != null) body['whatsappPhone'] = _whatsappPhone!;
+    if (_profileImageBase64 != null) body['profileImageBase64'] = _profileImageBase64!;
+    if (_profileImageMime != null) body['profileImageMime'] = _profileImageMime!;
+    if (_nicFrontBase64 != null) body['nicFrontBase64'] = _nicFrontBase64!;
+    if (_nicFrontMime != null) body['nicFrontMime'] = _nicFrontMime!;
+    if (_nicBackBase64 != null) body['nicBackBase64'] = _nicBackBase64!;
+    if (_nicBackMime != null) body['nicBackMime'] = _nicBackMime!;
     debugPrint('Verify OTP body: $body');
     try {
       final response = await DioClient.instance.post(

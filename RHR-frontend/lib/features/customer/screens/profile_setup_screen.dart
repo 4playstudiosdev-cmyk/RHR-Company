@@ -227,11 +227,15 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     );
   }
 
+  // locked: true once this NIC side already has a saved image — a NIC
+  // can't be re-uploaded after the fact (identity document, not editable
+  // like the other fields), so it renders read-only with no tap target.
   Widget _imagePicker({
     required String label,
     required File? file,
     required String? existingUrl,
     required VoidCallback onTap,
+    bool locked = false,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -239,7 +243,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         Text(label, style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant)),
         const SizedBox(height: 6),
         GestureDetector(
-          onTap: onTap,
+          onTap: locked ? null : onTap,
           child: Container(
             width: double.infinity,
             height: 120,
@@ -254,19 +258,37 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                 : (existingUrl != null
                     ? Stack(fit: StackFit.expand, children: [
                         Image.network(existingUrl, fit: BoxFit.cover),
-                        Container(
-                          alignment: Alignment.bottomRight,
-                          padding: const EdgeInsets.all(6),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.55),
-                              borderRadius: BorderRadius.circular(AppRadius.full),
+                        if (!locked)
+                          Container(
+                            alignment: Alignment.bottomRight,
+                            padding: const EdgeInsets.all(6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.55),
+                                borderRadius: BorderRadius.circular(AppRadius.full),
+                              ),
+                              child: const Text('Tap to change',
+                                  style: TextStyle(color: Colors.white, fontSize: 11)),
                             ),
-                            child: const Text('Tap to change',
-                                style: TextStyle(color: Colors.white, fontSize: 11)),
+                          )
+                        else
+                          Container(
+                            alignment: Alignment.bottomRight,
+                            padding: const EdgeInsets.all(6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.55),
+                                borderRadius: BorderRadius.circular(AppRadius.full),
+                              ),
+                              child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                                Icon(Icons.lock, color: Colors.white, size: 11),
+                                SizedBox(width: 4),
+                                Text('Locked', style: TextStyle(color: Colors.white, fontSize: 11)),
+                              ]),
+                            ),
                           ),
-                        ),
                       ])
                     : Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -279,6 +301,42 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _circleImagePicker({
+    required File? file,
+    required String? existingUrl,
+    required VoidCallback onTap,
+  }) {
+    return Center(
+      child: Stack(children: [
+        CircleAvatar(
+          radius: 48,
+          backgroundColor: AppColors.surfaceContainerLow,
+          backgroundImage: file != null
+              ? FileImage(file)
+              : (existingUrl != null ? NetworkImage(existingUrl) as ImageProvider : null),
+          child: (file == null && existingUrl == null)
+              ? const Icon(Icons.person, size: 44, color: AppColors.secondary)
+              : null,
+        ),
+        Positioned(
+          bottom: 0, right: 0,
+          child: GestureDetector(
+            onTap: onTap,
+            child: Container(
+              width: 32, height: 32,
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+              child: const Icon(Icons.camera_alt, color: Colors.white, size: 16),
+            ),
+          ),
+        ),
+      ]),
     );
   }
 
@@ -334,8 +392,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                               border: Border.all(color: AppColors.outlineVariant),
                             ),
                             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                              _imagePicker(
-                                label: 'Profile Picture *',
+                              _circleImagePicker(
                                 file: _profileImageFile,
                                 existingUrl: _existingProfileUrl,
                                 onTap: () => _pickImage('profile'),
@@ -356,6 +413,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                                     file: _nicFrontImageFile,
                                     existingUrl: _existingNicFrontUrl,
                                     onTap: () => _pickImage('nicFront'),
+                                    locked: _existingNicFrontUrl != null,
                                   ),
                                 ),
                                 const SizedBox(width: AppSpacing.sm),
@@ -365,6 +423,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                                     file: _nicBackImageFile,
                                     existingUrl: _existingNicBackUrl,
                                     onTap: () => _pickImage('nicBack'),
+                                    locked: _existingNicBackUrl != null,
                                   ),
                                 ),
                               ]),
