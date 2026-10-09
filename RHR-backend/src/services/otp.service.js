@@ -1,6 +1,17 @@
 const bcrypt = require('bcryptjs');
+const axios = require('axios');
 const { supabaseAdmin } = require('../config/supabase');
-const { sendWhatsAppMessage } = require('../config/whatsapp');
+
+// OTPs are sent through the standalone RHR-whatsapp-bot service (separate
+// Railway deployment, keeps its own WhatsApp session) instead of a
+// whatsapp-web.js client running inside this backend.
+async function sendWhatsAppMessage(phoneNumber, message) {
+  const serviceUrl = process.env.WHATSAPP_SERVICE_URL;
+  if (!serviceUrl) throw new Error('WHATSAPP_SERVICE_URL is not configured');
+
+  const { data } = await axios.post(`${serviceUrl}/send-whatsapp`, { phone: phoneNumber, message });
+  if (!data?.success) throw new Error(data?.message || 'WhatsApp send failed');
+}
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
