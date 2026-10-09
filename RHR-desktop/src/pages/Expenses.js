@@ -192,27 +192,18 @@ export default function Expenses() {
         company_id: targetCompanyId,
       };
       if (isSplit) {
-        // Two rows, one per payment method — this is what lets the online
-        // portion show up correctly in Bank → Transactions and the cash
-        // portion show as a normal cash expense, with no special-casing
-        // needed anywhere else in the app.
-        if (splitCash > 0) {
-          await api.post('/expenses', {
-            ...baseRow,
-            amount: splitCash,
-            method: 'cash',
-            description: `${form.description} (cash portion)`,
-          });
-        }
-        if (splitOnline > 0) {
-          await api.post('/expenses', {
-            ...baseRow,
-            amount: splitOnline,
-            method: 'bank',
-            bank_account_id: form.bank_account_id,
-            description: `${form.description} (online portion)`,
-          });
-        }
+        // One row, method: 'split' — carries both the cash and bank
+        // portions together instead of two separate expense entries. Bank
+        // → Transactions reads bank_amount off this same row for its view.
+        await api.post('/expenses', {
+          ...baseRow,
+          description: form.description,
+          amount: splitTotal,
+          method: 'split',
+          cash_amount: splitCash,
+          bank_amount: splitOnline,
+          bank_account_id: splitOnline > 0 ? form.bank_account_id : null,
+        });
       } else {
         await api.post('/expenses', { ...form, ...baseRow, amount: Number(form.amount) });
       }
@@ -253,6 +244,14 @@ export default function Expenses() {
     return '—';
   };
 
+  const getPaidFromLabel = (e) => {
+    if (e.method === 'split') {
+      return `Cash Rs ${Number(e.cash_amount || 0).toLocaleString()} + Bank Rs ${Number(e.bank_amount || 0).toLocaleString()}${e.bank_accounts ? ` — ${e.bank_accounts.account_name}` : ''}`;
+    }
+    if (e.method === 'bank') return `Bank${e.bank_accounts ? ` — ${e.bank_accounts.account_name}` : ''}`;
+    return 'Cash';
+  };
+
   const exportToPdf = () => {
     if (expenses.length === 0) { toast.error('No expenses to export.'); return; }
     const doc = new jsPDF();
@@ -287,7 +286,7 @@ export default function Expenses() {
       e.category,
       e.description,
       getEmployeeLabel(e),
-      e.method === 'bank' ? `Bank${e.bank_accounts ? ` — ${e.bank_accounts.account_name}` : ''}` : 'Cash',
+      getPaidFromLabel(e),
       `Rs ${Number(e.amount).toLocaleString()}`
     ]);
 
@@ -611,9 +610,7 @@ export default function Expenses() {
                         {getEmployeeLabel(e)}
                       </td>
                       <td className="px-6 py-3.5 text-gray-600 text-xs">
-                        {e.method === 'bank'
-                          ? `Bank${e.bank_accounts ? ` — ${e.bank_accounts.account_name}` : ''}`
-                          : 'Cash'}
+                        {getPaidFromLabel(e)}
                       </td>
                       <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(e.amount).toLocaleString()}</td>
                       <td className="px-6 py-3.5">

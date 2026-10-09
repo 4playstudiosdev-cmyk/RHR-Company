@@ -22,12 +22,19 @@ const getExpenses = async (req, res) => {
     if (to)   filters.push(`expense_date=lte.${to}`);
     const filterStr = filters.length ? `&${filters.join('&')}` : '';
 
-    // supplier_id (phase45), salesman_id/manufacturing_worker_id (phase44),
-    // method/bank_account_id (phase24), driver_id (phase25) and
+    // cash_amount/bank_amount (phase46, for a split cash+online purchase
+    // as ONE row), supplier_id (phase45), salesman_id/manufacturing_worker_id
+    // (phase44), method/bank_account_id (phase24), driver_id (phase25) and
     // vehicle_id/fuel_*/bags_delivered (phase30) are separate additions —
     // fall back a level at a time if any hasn't run yet, same pattern
     // used for the other phase18 bank_account_id columns, so this never
     // breaks mid-migration.
+    try {
+      const data = await pgrestGetRaw(
+        `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),vehicle_id,vehicles(name,plate_number),fuel_price_per_liter,fuel_liters,bags_delivered,salesman_id,salesmen(full_name),manufacturing_worker_id,manufacturing_workers(full_name),supplier_id,suppliers(name),cash_amount,bank_amount,created_at&order=expense_date.desc${filterStr}`
+      );
+      return success(res, data);
+    } catch (eSplit) {
     try {
       const data = await pgrestGetRaw(
         `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),vehicle_id,vehicles(name,plate_number),fuel_price_per_liter,fuel_liters,bags_delivered,salesman_id,salesmen(full_name),manufacturing_worker_id,manufacturing_workers(full_name),supplier_id,suppliers(name),created_at&order=expense_date.desc${filterStr}`
@@ -67,6 +74,7 @@ const getExpenses = async (req, res) => {
     }
     }
     }
+    }
   } catch (err) { return error(res, err.message); }
 };
 
@@ -76,7 +84,7 @@ const createExpense = async (req, res) => {
     const {
       category, amount, description, expense_date, company_id, method, bank_account_id, driver_id,
       vehicle_id, fuel_price_per_liter, fuel_liters, bags_delivered,
-      salesman_id, manufacturing_worker_id, supplier_id,
+      salesman_id, manufacturing_worker_id, supplier_id, cash_amount, bank_amount,
     } = req.body;
     if (!category || !amount || Number(amount) <= 0)
       return error(res, 'category and a positive amount are required', 400);
@@ -84,6 +92,8 @@ const createExpense = async (req, res) => {
       return error(res, `category must be one of: ${EXPENSE_CATEGORIES.join(', ')}`, 400);
     if (method === 'bank' && !bank_account_id)
       return error(res, 'bank_account_id is required when method is bank', 400);
+    if (method === 'split' && Number(bank_amount) > 0 && !bank_account_id)
+      return error(res, 'bank_account_id is required when any amount is paid online', 400);
 
     const targetCompanyId = req.user.role === 'branch_admin'
       ? req.user.company_id
@@ -98,11 +108,31 @@ const createExpense = async (req, res) => {
       created_by:   req.user.id,
     };
 
-    // supplier_id (phase45), salesman_id/manufacturing_worker_id (phase44),
-    // method/bank_account_id (phase24), driver_id (phase25) and
-    // vehicle_id/fuel_*/bags_delivered (phase30) are separate additions —
-    // fall back a level at a time if any hasn't run yet, mirroring
-    // getExpenses above.
+    const resolvedMethod = method === 'split' ? 'split' : method === 'bank' ? 'bank' : 'cash';
+
+    // cash_amount/bank_amount (phase46), supplier_id (phase45),
+    // salesman_id/manufacturing_worker_id (phase44), method/bank_account_id
+    // (phase24), driver_id (phase25) and vehicle_id/fuel_*/bags_delivered
+    // (phase30) are separate additions — fall back a level at a time if
+    // any hasn't run yet, mirroring getExpenses above.
+    try {
+      const [data] = await pgrestPost('expenses', {
+        ...baseRow,
+        method: resolvedMethod,
+        bank_account_id: resolvedMethod !== 'cash' ? bank_account_id : null,
+        driver_id: driver_id || null,
+        vehicle_id: vehicle_id || null,
+        fuel_price_per_liter: fuel_price_per_liter ? Number(fuel_price_per_liter) : null,
+        fuel_liters: fuel_liters ? Number(fuel_liters) : null,
+        bags_delivered: bags_delivered ? Number(bags_delivered) : null,
+        salesman_id: salesman_id || null,
+        manufacturing_worker_id: manufacturing_worker_id || null,
+        supplier_id: supplier_id || null,
+        cash_amount: resolvedMethod === 'split' ? Number(cash_amount) || 0 : null,
+        bank_amount: resolvedMethod === 'split' ? Number(bank_amount) || 0 : null,
+      });
+      return success(res, data, 'Expense recorded', 201);
+    } catch (eSplit) {
     try {
       const [data] = await pgrestPost('expenses', {
         ...baseRow,
@@ -168,6 +198,7 @@ const createExpense = async (req, res) => {
           return success(res, data, 'Expense recorded', 201);
         }
       }
+    }
     }
     }
     }

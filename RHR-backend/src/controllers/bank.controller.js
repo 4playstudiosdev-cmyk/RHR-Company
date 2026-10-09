@@ -75,7 +75,7 @@ const getBankTransactions = async (req, res) => {
     } catch (e) { /* bank_account_id is a phase18 addition */ }
 
     const expenseParts = [
-      'select=id,amount,method,category,description,expense_date,bank_accounts(account_name,bank_name,account_number)',
+      'select=id,amount,method,category,description,expense_date,bank_accounts(account_name,bank_name,account_number),cash_amount,bank_amount',
       'bank_account_id=not.is.null',
       'order=expense_date.desc',
     ];
@@ -86,11 +86,24 @@ const getBankTransactions = async (req, res) => {
     let expenses = [];
     try {
       expenses = await pgrestGetRaw(`expenses?${expenseParts.join('&')}`);
-    } catch (e) { /* bank_account_id is a phase24 addition */ }
+    } catch (e) {
+      // cash_amount/bank_amount is a phase46 addition — fall back without it.
+      try {
+        expenses = await pgrestGetRaw(`expenses?${expenseParts.join('&').replace(',cash_amount,bank_amount', '')}`);
+      } catch (e2) { /* bank_account_id is a phase24 addition */ }
+    }
 
     const merged = [
       ...(payments || []).map((p) => ({ ...p, type: 'payment' })),
-      ...(expenses || []).map((e) => ({ ...e, type: 'expense', created_at: e.expense_date })),
+      // A 'split' expense's amount field is the FULL purchase (cash +
+      // bank) — only the bank_amount portion actually moved through this
+      // bank account, so that's what belongs in a bank statement view.
+      ...(expenses || []).map((e) => ({
+        ...e,
+        type: 'expense',
+        amount: e.method === 'split' ? Number(e.bank_amount || 0) : e.amount,
+        created_at: e.expense_date,
+      })),
     ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
     return success(res, merged);
