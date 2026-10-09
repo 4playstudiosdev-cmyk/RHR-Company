@@ -81,6 +81,11 @@ export default function Customers({ onViewLedger }) {
   const [filterArea, setFilterArea] = useState('');
   const [filterSalesman, setFilterSalesman] = useState('');
 
+  // "Customer Information" tab — super_admin only, every city. Reuses the
+  // same `all` list already loaded for the All Customers tab.
+  const [infoSearch, setInfoSearch] = useState('');
+  const [downloadingInfoId, setDownloadingInfoId] = useState(null);
+
   // Outstanding balance per customer — fetched lazily, only for the rows
   // actually visible on the current page (avoids an N+1 ledger call for
   // every customer in the company on every page load).
@@ -314,6 +319,28 @@ export default function Customers({ onViewLedger }) {
     }
   };
 
+  const handleDownloadProfilePdf = async (customer) => {
+    setDownloadingInfoId(customer.id);
+    try {
+      const res = await api.get(`/customers/${customer.id}/profile-pdf`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `customer-${(customer.full_name || customer.id).replace(/\s+/g, '_')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Customer PDF downloaded.');
+    } catch (err) {
+      toast.error('Failed to download customer PDF.');
+    } finally {
+      setDownloadingInfoId(null);
+    }
+  };
+
+  const infoFiltered = filterCustomers(all, infoSearch);
+
   const filtered = filterCustomers(all, search).filter((c) => {
     if (filterCity && !c.city?.toLowerCase().includes(filterCity.toLowerCase())) return false;
     if (filterArea && !c.area?.toLowerCase().includes(filterArea.toLowerCase())) return false;
@@ -397,6 +424,16 @@ export default function Customers({ onViewLedger }) {
         >
           All Customers
         </button>
+        {user?.role === 'super_admin' && (
+          <button
+            onClick={() => setTab('info')}
+            className={`pb-3 text-sm font-semibold transition-colors flex items-center gap-1.5 -mb-px border-b-2 ${
+              tab === 'info' ? 'text-navy border-navy' : 'text-gray-400 border-transparent hover:text-navy'
+            }`}
+          >
+            Customer Information
+          </button>
+        )}
       </div>
 
       {error && (
@@ -471,7 +508,7 @@ export default function Customers({ onViewLedger }) {
             </>
           )}
         </section>
-      ) : (
+      ) : tab === 'all' ? (
         <section>
           <div className="flex justify-between items-center mb-4 gap-3 flex-wrap">
             <h3 className="font-semibold text-navy">Active Customer Database</h3>
@@ -556,9 +593,17 @@ export default function Customers({ onViewLedger }) {
                         >
                           <td className="py-3 px-6">
                             <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-lg bg-navy-chip text-navy flex items-center justify-center font-semibold flex-shrink-0">
-                                {getInitials(customer.full_name)}
-                              </div>
+                              {customer.profile_photo_url ? (
+                                <img
+                                  src={customer.profile_photo_url}
+                                  alt={customer.full_name}
+                                  className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+                                />
+                              ) : (
+                                <div className="w-10 h-10 rounded-lg bg-navy-chip text-navy flex items-center justify-center font-semibold flex-shrink-0">
+                                  {getInitials(customer.full_name)}
+                                </div>
+                              )}
                               <div className="min-w-0">
                                 <div className="font-semibold text-navy truncate">{customer.full_name}</div>
                                 <div className="text-xs text-gray-400 truncate">
@@ -686,6 +731,66 @@ export default function Customers({ onViewLedger }) {
                     Next
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+        </section>
+      ) : (
+        <section>
+          <div className="flex justify-between items-center mb-4 gap-3 flex-wrap">
+            <div>
+              <h3 className="font-semibold text-navy">Customer Information</h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Select any customer (every city) to download their complete profile as a PDF — photo, NIC image and every detail.
+              </p>
+            </div>
+            <div className="relative w-full sm:w-64">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={infoSearch}
+                onChange={(e) => setInfoSearch(e.target.value)}
+                placeholder="Search name, phone, email..."
+                className="w-full bg-white border border-gray-200 rounded-full pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-all shadow-sm"
+              />
+            </div>
+          </div>
+
+          {infoFiltered.length === 0 ? (
+            <div className="bg-white rounded-2xl shadow-card border border-gray-100">
+              <EmptyState icon={Users} title="No customers found" subtitle="Try a different search term" />
+            </div>
+          ) : (
+            <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+              <div className="divide-y divide-gray-50">
+                {infoFiltered.map((customer) => (
+                  <div key={customer.id} className="flex items-center gap-3 px-6 py-3.5 hover:bg-gray-50/80 transition-colors">
+                    {customer.profile_photo_url ? (
+                      <img
+                        src={customer.profile_photo_url}
+                        alt={customer.full_name}
+                        className="w-11 h-11 rounded-lg object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="w-11 h-11 rounded-lg bg-navy-chip text-navy flex items-center justify-center font-semibold flex-shrink-0">
+                        {getInitials(customer.full_name)}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-navy truncate">{customer.full_name}</div>
+                      <div className="text-xs text-gray-400 truncate">
+                        {customer.phone} · {customer.shop_name || customer.email || '—'}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDownloadProfilePdf(customer)}
+                      disabled={downloadingInfoId === customer.id}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-white border border-gray-200 text-navy text-xs font-semibold hover:bg-gray-50 transition-colors shadow-sm disabled:opacity-50 flex-shrink-0"
+                    >
+                      {downloadingInfoId === customer.id ? 'Downloading…' : 'Download PDF'}
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           )}
