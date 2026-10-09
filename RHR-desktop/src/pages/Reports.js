@@ -8,6 +8,7 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
+import Button from '../components/Button';
 import { fetchAllCities } from '../utils/multiCityFetch';
 
 const REPORT_TABS = [
