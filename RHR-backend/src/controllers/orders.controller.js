@@ -89,22 +89,19 @@ const markInvoiceGenerated = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-// DELETE /api/v1/orders/:id/invoice — super_admin only. Doubles as both
-// "delete this order's invoice" (order kept visible, just loses its
-// invoice) and "delete this order outright" (no invoice existed yet) —
-// either way the order gets invoice_deleted_at set, which is what hides
-// it from every normal Orders tab and surfaces it only under Deleted
-// Invoices / the Deleted Items page. invoice_url/the Storage-backed
-// generateInvoice flow in invoice.service.js is a separate, unused-by-
-// the-desktop-UI mechanism, but is cleared too here for consistency since
-// the schema carries both. A full snapshot is archived to
-// deleted_invoices (sql/phase40) before any of this happens.
+// DELETE /api/v1/orders/:id/invoice — any admin (super_admin or
+// branch_admin, the latter restricted to their own branch's orders).
+// Doubles as both "delete this order's invoice" (order kept visible,
+// just loses its invoice) and "delete this order outright" (no invoice
+// existed yet) — either way the order gets invoice_deleted_at set, which
+// is what hides it from every normal Orders tab and surfaces it only
+// under Deleted Invoices / the Deleted Items page. invoice_url/the
+// Storage-backed generateInvoice flow in invoice.service.js is a
+// separate, unused-by-the-desktop-UI mechanism, but is cleared too here
+// for consistency since the schema carries both. A full snapshot is
+// archived to deleted_invoices (sql/phase40) before any of this happens.
 const deleteInvoice = async (req, res) => {
   try {
-    if (req.user.role !== 'super_admin') {
-      return error(res, 'Access denied — super admin only', 403);
-    }
-
     const orders = await pgrestGet('orders', {
       select: '*,users:customer_id(full_name)',
       id: `eq.${req.params.id}`,
@@ -112,10 +109,16 @@ const deleteInvoice = async (req, res) => {
     const order = orders?.[0];
     if (!order) return error(res, 'Order not found', 404);
 
+    if (req.user.role === 'branch_admin' && order.company_id !== req.user.company_id) {
+      return error(res, 'Access denied — this order belongs to a different branch', 403);
+    }
+
     // deleted_invoices first (fails immediately if phase40 hasn't run) —
     // so a request that errors out never silently wipes the invoice with
-    // no record of it.
-    await pgrestPost('deleted_invoices', {
+    // no record of it. company_id (phase42) is what lets branch_admin's
+    // view of this list be scoped to their own branch — fall back to the
+    // plain row if that migration hasn't run yet.
+    const deletedInvoiceRow = {
       original_order_id: order.id,
       order_number: order.order_number,
       customer_name: order.users?.full_name || 'Unknown',
@@ -124,7 +127,12 @@ const deleteInvoice = async (req, res) => {
       deleted_by: req.user.id,
       reason: req.body?.reason || null,
       original_data: order,
-    });
+    };
+    try {
+      await pgrestPost('deleted_invoices', { ...deletedInvoiceRow, company_id: order.company_id });
+    } catch (e) {
+      await pgrestPost('deleted_invoices', deletedInvoiceRow);
+    }
 
     // invoice_deleted_at (phase41) is what the frontend actually keys off
     // to show a locked "Deleted" status instead of letting "Create
@@ -162,16 +170,29 @@ const deleteInvoice = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-// GET /api/v1/orders/deleted-invoices — super_admin only
+// GET /api/v1/orders/deleted-invoices — any admin. branch_admin only
+// ever sees their own branch's deleted orders/invoices; super_admin sees
+// every branch (or one, via ?company_id=, same convention as every other
+// list endpoint — see utils/companyScope.js).
 const getDeletedInvoices = async (req, res) => {
   try {
-    if (req.user.role !== 'super_admin') {
-      return error(res, 'Access denied', 403);
-    }
-    const data = await pgrestGet('deleted_invoices', {
+    const companyId = resolveCompanyId(req);
+    const params = {
       select: '*,deleted_by_user:users!deleted_by(full_name)',
       order: 'deleted_at.desc',
-    });
+    };
+    if (companyId) params.company_id = `eq.${companyId}`;
+    // company_id is a phase42 addition — fall back to the unscoped list
+    // if it hasn't run yet (branch_admin would briefly see every branch's
+    // rows until the migration runs, same graceful-degrade pattern used
+    // everywhere else for a not-yet-migrated column).
+    let data;
+    try {
+      data = await pgrestGet('deleted_invoices', params);
+    } catch (e) {
+      const { company_id, ...fallbackParams } = params;
+      data = await pgrestGet('deleted_invoices', fallbackParams);
+    }
     return success(res, data || []);
   } catch (err) { return error(res, err.message); }
 };

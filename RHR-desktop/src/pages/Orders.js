@@ -41,7 +41,10 @@ const RATE_TIER_ADJUSTMENT = { manual: 0, discount: -10, premium: 10 };
 export default function Orders() {
   const toast = useToast();
   const user = getCurrentUser();
-  const isSuperAdmin = user?.role === 'super_admin';
+  // Deleting an order/invoice is an admin action — available to both
+  // super_admin and branch_admin now (previously super_admin only;
+  // branch_admin couldn't see or use it on their own branch's orders).
+  const canDeleteInvoices = user?.role === 'super_admin' || user?.role === 'branch_admin';
   const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId; // KHI default
   const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [orders, setOrders] = useState([]);
@@ -109,7 +112,7 @@ export default function Orders() {
   // instead of a separate sidebar page — this is an audit sub-view of
   // Orders, not its own destination.
   useEffect(() => {
-    if (tab === 'deleted-invoices' && isSuperAdmin) loadDeletedInvoices();
+    if (tab === 'deleted-invoices' && canDeleteInvoices) loadDeletedInvoices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
@@ -676,7 +679,7 @@ export default function Orders() {
               </span>
             </button>
           ))}
-          {isSuperAdmin && (
+          {canDeleteInvoices && (
             <button
               onClick={() => { setTab('deleted-invoices'); setPage(1); }}
               className={`pb-3 pt-2 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors flex items-center gap-1.5 ${
@@ -825,7 +828,7 @@ export default function Orders() {
                               <FileDown size={14} />
                               {editInvoiceLoadingId === order.id ? 'Loading...' : 'Edit Invoice'}
                             </button>
-                            {isSuperAdmin && (
+                            {canDeleteInvoices && (
                               <button
                                 onClick={() => handleDeleteInvoice(order)}
                                 title="Delete this invoice (super admin only)"
@@ -845,7 +848,7 @@ export default function Orders() {
                               <FileDown size={14} />
                               {pdfLoadingId === order.id ? 'Generating...' : 'Create Invoice'}
                             </button>
-                            {isSuperAdmin && (
+                            {canDeleteInvoices && (
                               <button
                                 onClick={() => handleDeleteInvoice(order)}
                                 title="Delete this order (super admin only)"

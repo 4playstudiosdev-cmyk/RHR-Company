@@ -99,8 +99,7 @@ const PAGE_ACCESS = {
   'production-reports': { requiredPermission: 'can_manage_production' },
   'production-recipes': { requiredPermission: 'can_manage_production' },
   'production-daily': { requiredPermission: 'can_manage_production' },
-  'opening-balances': { requiredRole: 'super_admin' },
-  'deleted-items': { requiredRole: 'super_admin' }
+  'opening-balances': { requiredRole: 'super_admin' }
 };
 
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 hours
