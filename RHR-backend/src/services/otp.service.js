@@ -19,8 +19,31 @@ function normalizePhone(phone) {
   return cleaned;
 }
 
+// Per-IP limiting alone doesn't catch a phone that gets re-requested
+// from a mobile connection that rotates IPs between taps (common on
+// cellular carriers) — this caps it per phone number too, regardless
+// of which IP the request comes from.
+async function assertNotFlooded(phone) {
+  const windowStart = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  let recent;
+  try {
+    recent = await pgrestGet('otp_verifications', {
+      select: 'id',
+      phone: `eq.${phone}`,
+      created_at: `gt.${windowStart}`,
+    });
+  } catch (err) {
+    console.error('OTP flood-check warning:', err.message);
+    return; // fail open — a DB hiccup here shouldn't block legitimate OTP sends
+  }
+  if ((recent?.length || 0) >= 5) {
+    throw new Error('Too many OTP requests for this number. Try again in 15 minutes.');
+  }
+}
+
 async function sendOTP(phoneNumber) {
   const phone     = normalizePhone(phoneNumber);
+  await assertNotFlooded(phone);
   const otp       = generateOTP();
   const expiryMin = parseInt(process.env.OTP_EXPIRY_MINUTES) || 10;
   const expiresAt = new Date(Date.now() + expiryMin * 60 * 1000);

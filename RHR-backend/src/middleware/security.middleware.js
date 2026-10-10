@@ -62,6 +62,19 @@ const loginLimiter = rateLimit({
   message: { success: false, message: 'Too many login attempts. Try again in 15 minutes.' }
 });
 
+// Rate limiter for OTP verification — a 6-digit OTP has only 1,000,000
+// combinations, and this endpoint previously had no dedicated limiter
+// (only the generous 300/min generalLimiter applied to every route).
+// Caps guessing attempts per IP regardless of how many different phone
+// numbers/OTPs are tried against it.
+const verifyOtpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many verification attempts. Try again in 15 minutes.' }
+});
+
 // General rate limiter — all routes, generous ceiling so a busy admin
 // dashboard (several parallel requests per page, live GPS polling) never
 // gets throttled during normal use.
@@ -73,4 +86,4 @@ const generalLimiter = rateLimit({
   message: { success: false, message: 'Too many requests. Please slow down.' }
 });
 
-module.exports = { helmetMiddleware, corsMiddleware, otpLimiter, loginLimiter, generalLimiter };
+module.exports = { helmetMiddleware, corsMiddleware, otpLimiter, loginLimiter, verifyOtpLimiter, generalLimiter };

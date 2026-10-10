@@ -11,12 +11,12 @@ const {
 } = require('../controllers/auth.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin } = require('../middleware/role.middleware');
-const { otpLimiter, loginLimiter } = require('../middleware/security.middleware');
+const { otpLimiter, loginLimiter, verifyOtpLimiter } = require('../middleware/security.middleware');
 
 // Public routes
-router.post('/send-otp',    otpLimiter,  sendOTPHandler);
-router.post('/verify-otp',               verifyOTPHandler);
-router.post('/login',       loginLimiter, loginHandler);
+router.post('/send-otp',    otpLimiter,       sendOTPHandler);
+router.post('/verify-otp',  verifyOtpLimiter, verifyOTPHandler);
+router.post('/login',       loginLimiter,     loginHandler);
 
 // Protected routes
 router.post('/logout', authenticate, logoutHandler);

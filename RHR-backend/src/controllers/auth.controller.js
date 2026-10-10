@@ -33,7 +33,8 @@ const sendOTPHandler = async (req, res) => {
     const result = await sendOTP(phone);
     return success(res, { ...result, isNewUser: false, isPending: false }, 'OTP sent to your WhatsApp');
   } catch (err) {
-    return error(res, err.message, 500);
+    const isFlood = err.message.includes('Too many OTP requests');
+    return error(res, err.message, isFlood ? 429 : 500);
   }
 };
 
