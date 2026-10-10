@@ -11,9 +11,11 @@ import api, { hasPermission } from '../services/api';
 // requiredRole/requiredPermission here must match PAGE_ACCESS in App.js —
 // that's what actually enforces access if someone bypasses the sidebar
 // (e.g. an old bookmarked page state); this just keeps the menu itself
-// from showing links a user can't use.
+// from showing links a user can't use. Every item below is unchanged
+// from the pre-accordion flat list — only how they're grouped/displayed
+// changed, not what gates each one.
 const NAV_ITEMS = [
-  { key: 'daily-dashboard', label: 'Daily Report', icon: LayoutPanelTop },
+  { key: 'daily-dashboard', label: 'Daily Dashboard', icon: LayoutPanelTop },
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiredRole: 'super_admin' },
   { key: 'products', label: 'Products', icon: Package },
   { key: 'production-materials', label: 'Raw Materials', icon: Boxes, requiredPermission: 'can_manage_production' },
@@ -28,24 +30,16 @@ const NAV_ITEMS = [
   { key: 'bank', label: 'Bank', icon: Landmark, requiredPermission: 'can_view_payments' },
   { key: 'expenses', label: 'Expenses', icon: Receipt, requiredPermission: 'can_view_payments' },
   { key: 'ledger', label: 'Ledger', icon: BookOpen },
-  { key: 'reports', label: 'Reports', icon: FileSpreadsheet, requiredPermission: 'can_export_reports' },
+  { key: 'reports', label: 'Sales Report', icon: FileSpreadsheet, requiredPermission: 'can_export_reports' },
   { key: 'gps', label: 'Live GPS', icon: MapPin, requiredPermission: 'can_view_gps' },
   { key: 'notifications', label: 'Notifications', icon: Bell },
-  {
-    key: 'production',
-    label: 'Production',
-    icon: Factory,
-    requiredPermission: 'can_manage_production',
-    children: [
-      { key: 'production-dashboard', label: 'Production Dashboard', icon: Gauge },
-      { key: 'production-orders', label: 'Production Orders', icon: ClipboardList },
-      { key: 'production-log', label: 'Production History', icon: PackageCheck },
-      { key: 'production-reports', label: 'Production Reports', icon: FileBarChart2 },
-      { key: 'production-recipes', label: 'Recipes', icon: ClipboardList },
-      { key: 'production-daily', label: 'Daily Production Entry', icon: CalendarCheck },
-      { key: 'manufacturing-employees', label: 'Manufacturing Employees', icon: HardHat }
-    ]
-  },
+  { key: 'production-dashboard', label: 'Production Dashboard', icon: Gauge, requiredPermission: 'can_manage_production' },
+  { key: 'production-orders', label: 'Production Orders', icon: ClipboardList, requiredPermission: 'can_manage_production' },
+  { key: 'production-log', label: 'Production History', icon: PackageCheck, requiredPermission: 'can_manage_production' },
+  { key: 'production-reports', label: 'Production Reports', icon: FileBarChart2, requiredPermission: 'can_manage_production' },
+  { key: 'production-recipes', label: 'Recipes', icon: ClipboardList, requiredPermission: 'can_manage_production' },
+  { key: 'production-daily', label: 'Daily Production Entry', icon: CalendarCheck, requiredPermission: 'can_manage_production' },
+  { key: 'manufacturing-employees', label: 'Manufacturing Employees', icon: HardHat, requiredPermission: 'can_manage_production' },
   { key: 'stock-transfers', label: 'Stock Transfers', icon: ArrowLeftRight },
   { key: 'stock-reports', label: 'Stock Reports', icon: PackageSearch, requiredPermission: 'can_export_reports' },
   { key: 'opening-balances', label: 'Opening Balances', icon: WalletCards, requiredRole: 'super_admin' },
@@ -54,7 +48,49 @@ const NAV_ITEMS = [
   { key: 'admins', label: 'Admin Roles', icon: KeyRound, requiredRole: 'super_admin' }
 ];
 
+const ITEM_BY_KEY = Object.fromEntries(NAV_ITEMS.map((item) => [item.key, item]));
+
+// The 7 accordion groups. A key may appear in more than one group (e.g.
+// Stock Reports under both Inventory and Reports & Audit) — that's a
+// shared shortcut to the same page, not a duplicate feature, and each
+// occurrence is independently gated by that item's own requiredRole/
+// requiredPermission via canAccess() below.
+const GROUPS = [
+  {
+    key: 'dash', label: 'Dashboard & Tracking', icon: LayoutPanelTop,
+    children: ['daily-dashboard', 'dashboard', 'gps', 'notifications']
+  },
+  {
+    key: 'sales', label: 'Sales & Recovery', icon: ShoppingCart,
+    children: ['customers', 'orders', 'salesmen', 'recovery']
+  },
+  {
+    key: 'inventory', label: 'Inventory & Procurement', icon: Boxes,
+    children: ['products', 'production-materials', 'suppliers', 'returns', 'stock-transfers', 'stock-reports']
+  },
+  {
+    key: 'production', label: 'Production', icon: Factory,
+    children: [
+      'production-dashboard', 'production-orders', 'production-log',
+      'production-reports', 'production-recipes', 'production-daily', 'manufacturing-employees'
+    ]
+  },
+  {
+    key: 'finance', label: 'Finance & Accounts', icon: Wallet,
+    children: ['ledger', 'payments', 'bank', 'expenses']
+  },
+  {
+    key: 'hr', label: 'HR & Administration', icon: Briefcase,
+    children: ['hrm', 'vehicles', 'opening-balances', 'admins']
+  },
+  {
+    key: 'reports', label: 'Reports & Audit', icon: FileBarChart2,
+    children: ['daily-dashboard', 'production-reports', 'stock-reports', 'reports', 'deleted-items']
+  }
+];
+
 function canAccess(item, user) {
+  if (!item) return false;
   if (item.requiredRole && user?.role !== item.requiredRole) return false;
   if (item.requiredPermission && !hasPermission(item.requiredPermission, user)) return false;
   return true;
@@ -72,10 +108,32 @@ function formatRole(role) {
   return role.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function groupForPage(page) {
+  return GROUPS.find((g) => g.children.includes(page));
+}
+
 export default function Sidebar({ page, setPage, user, onLogout, open, onClose }) {
-  const [productionOpen, setProductionOpen] = useState(page.startsWith('production-') || page === 'manufacturing-employees');
+  // Multiple groups can be open at once — matches the original single
+  // "Production" accordion's behavior, just generalized to all 7.
+  const [openGroups, setOpenGroups] = useState(() => {
+    const g = groupForPage(page);
+    return g ? [g.key] : ['dash'];
+  });
   const [pendingTransfers, setPendingTransfers] = useState(0);
   const [loginAlerts, setLoginAlerts] = useState(0);
+
+  const toggleGroup = (key) => {
+    setOpenGroups((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  };
+
+  // Auto-opens the group containing whatever page is currently active —
+  // covers both sidebar clicks and landing directly on a page (e.g. a
+  // restored session), without closing any other group the user already
+  // had open.
+  useEffect(() => {
+    const g = groupForPage(page);
+    if (g) setOpenGroups((prev) => (prev.includes(g.key) ? prev : [...prev, g.key]));
+  }, [page]);
 
   useEffect(() => {
     api.get('/transfers/pending')
@@ -110,6 +168,35 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose }
     api.patch('/notifications/mark-read').catch(() => {});
   }, [page, user?.role]);
 
+  const renderChildButton = (item, groupKey) => {
+    const Icon = item.icon;
+    const active = page === item.key;
+    return (
+      <button
+        key={`${groupKey}-${item.key}`}
+        onClick={() => setPage(item.key)}
+        className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+          active
+            ? 'bg-navy-container text-white shadow-sm'
+            : 'text-blue-200/70 hover:bg-white/10 hover:text-white'
+        }`}
+      >
+        <Icon size={15} strokeWidth={2} />
+        <span className="flex-1 text-left">{item.label}</span>
+        {item.key === 'stock-transfers' && pendingTransfers > 0 && (
+          <span className="text-[11px] font-bold bg-orange text-white px-1.5 py-0.5 rounded-full">
+            {pendingTransfers}
+          </span>
+        )}
+        {item.key === 'notifications' && loginAlerts > 0 && (
+          <span className="text-[11px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded-full">
+            {loginAlerts}
+          </span>
+        )}
+      </button>
+    );
+  };
+
   return (
     <>
       {/* Backdrop — mobile only, closes the drawer on outside tap */}
@@ -141,78 +228,43 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose }
       </div>
 
       <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-5 space-y-1.5">
-        {NAV_ITEMS.filter((item) => canAccess(item, user)).map((item) => {
-          const Icon = item.icon;
+        {GROUPS.map((group) => {
+          const visibleChildren = group.children
+            .map((k) => ITEM_BY_KEY[k])
+            .filter((item) => canAccess(item, user));
 
-          if (item.children) {
-            const groupActive = page.startsWith(`${item.key}-`);
-            return (
-              <div key={item.key}>
-                <button
-                  onClick={() => setProductionOpen((prev) => !prev)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
-                    groupActive
-                      ? 'bg-white/10 text-white'
-                      : 'text-blue-200/80 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <Icon size={18} strokeWidth={2} />
-                  <span className="flex-1 text-left">{item.label}</span>
-                  <ChevronDown
-                    size={15}
-                    className={`transition-transform ${productionOpen ? 'rotate-180' : ''}`}
-                  />
-                </button>
-                {productionOpen && (
-                  <div className="mt-1 ml-4 pl-3 border-l border-white/10 space-y-1">
-                    {item.children.map((child) => {
-                      const ChildIcon = child.icon;
-                      const active = page === child.key;
-                      return (
-                        <button
-                          key={child.key}
-                          onClick={() => setPage(child.key)}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                            active
-                              ? 'bg-navy-container text-white shadow-sm'
-                              : 'text-blue-200/70 hover:bg-white/10 hover:text-white'
-                          }`}
-                        >
-                          <ChildIcon size={15} strokeWidth={2} />
-                          <span>{child.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          }
+          // If every child of this group is hidden for this role, hide
+          // the whole group header too — e.g. a branch_admin never sees
+          // an empty "HR & Administration" accordion with nothing in it.
+          if (visibleChildren.length === 0) return null;
 
-          const active = page === item.key;
+          const GroupIcon = group.icon;
+          const isOpen = openGroups.includes(group.key);
+          const groupHasActive = visibleChildren.some((item) => item.key === page);
+
           return (
-            <button
-              key={item.key}
-              onClick={() => setPage(item.key)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
-                active
-                  ? 'bg-navy-container text-white shadow-sm'
-                  : 'text-blue-200/80 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Icon size={18} strokeWidth={2} />
-              <span className="flex-1 text-left">{item.label}</span>
-              {item.key === 'stock-transfers' && pendingTransfers > 0 && (
-                <span className="text-[11px] font-bold bg-orange text-white px-1.5 py-0.5 rounded-full">
-                  {pendingTransfers}
-                </span>
+            <div key={group.key}>
+              <button
+                onClick={() => toggleGroup(group.key)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
+                  groupHasActive
+                    ? 'bg-white/10 text-white'
+                    : 'text-blue-200/80 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                <GroupIcon size={18} strokeWidth={2} />
+                <span className="flex-1 text-left">{group.label}</span>
+                <ChevronDown
+                  size={15}
+                  className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+              {isOpen && (
+                <div className="mt-1 ml-4 pl-3 border-l border-white/10 space-y-1">
+                  {visibleChildren.map((item) => renderChildButton(item, group.key))}
+                </div>
               )}
-              {item.key === 'notifications' && loginAlerts > 0 && (
-                <span className="text-[11px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded-full">
-                  {loginAlerts}
-                </span>
-              )}
-            </button>
+            </div>
           );
         })}
       </nav>
