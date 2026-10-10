@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
 import '../../../core/storage/secure_storage.dart';
+import '../../../widgets/location_disclosure_dialog.dart';
 
 /// First screen the app shows. Briefly displays branding, then decides
 /// where to send the user based on whatever session state already exists
@@ -24,6 +25,23 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _decideNextRoute() async {
     await Future.delayed(const Duration(milliseconds: 1400));
+    if (!mounted) return;
+
+    // Google Play requires this shown BEFORE any location-permission
+    // prompt, for every role — shown here, right after splash and before
+    // the login screen (or dashboard, on a restored session), since the
+    // role isn't known yet at this point. Cleared on logout along with
+    // everything else in SecureStorage, so it re-prompts on next login
+    // too, not just once per install.
+    if (!await SecureStorage.getLocationConsent()) {
+      if (!mounted) return;
+      final accepted = await showAppLaunchLocationDisclosureDialog(context);
+      if (accepted) {
+        await SecureStorage.saveLocationConsent(true);
+        await SecureStorage.saveShopLocationConsent(true);
+      }
+    }
+
     if (!mounted) return;
     if (await SecureStorage.isLoggedIn()) {
       final role = await SecureStorage.getRole();

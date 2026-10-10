@@ -59,6 +59,66 @@ Future<bool> showLocationDisclosureDialog(BuildContext context) async {
   return accepted ?? false;
 }
 
+/// Shown once, right after the splash screen, before the user even
+/// reaches the login screen — covers every role (customer, salesman,
+/// driver) in one dialog since the role isn't known yet at this point.
+/// Accepting sets BOTH consent flags (see SecureStorage) so the later
+/// role-specific prompts below are skipped; declining leaves both
+/// unset, so declining here still lets a user log in and use the app —
+/// they'll just be asked again the first time they actually try to use
+/// a location-dependent feature (see GPSService/profile_screen.dart).
+Future<bool> showAppLaunchLocationDisclosureDialog(BuildContext context) async {
+  const darkNavy = Color(0xFF1B2E6B);
+  const orange = Color(0xFFE8841A);
+
+  final accepted = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text(
+        'Location Access',
+        style: TextStyle(color: darkNavy, fontWeight: FontWeight.bold, fontSize: 18),
+      ),
+      content: const SingleChildScrollView(
+        child: Text(
+          'RHR & Company uses your location to:\n\n'
+          '• Let customers pin their shop\'s location for deliveries\n'
+          '• Track salesman and driver field visits during work hours\n'
+          '• Monitor delivery routes and arrival/departure times\n\n'
+          'For salesmen and drivers, location is collected even when '
+          'the app is running in the background during an active work '
+          'session, and stops automatically when you log out. For '
+          'customers, location is only read once when you choose to '
+          'set your shop\'s location.\n\n'
+          'Your location data is shared with RHR & Company '
+          'management only and is not shared with third parties.',
+          style: TextStyle(color: Color(0xFF374151), fontSize: 14, height: 1.5),
+        ),
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('Decline', style: TextStyle(color: Color(0xFF6B7280))),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: orange,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          child: const Text('I Understand & Allow'),
+        ),
+      ],
+    ),
+  );
+
+  return accepted ?? false;
+}
+
 /// Same Google Play requirement, different use case: a customer setting
 /// their shop's location (profile_screen.dart) is a one-time foreground
 /// GPS read, not background tracking — the copy below reflects that
