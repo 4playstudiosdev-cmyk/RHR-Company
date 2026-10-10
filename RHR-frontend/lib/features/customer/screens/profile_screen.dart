@@ -8,6 +8,7 @@ import '../../../core/storage/secure_storage.dart';
 import '../../../core/location/location_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../shared/widgets/rhr_bottom_nav.dart';
+import '../../../widgets/location_disclosure_dialog.dart';
 
 const _cityNames = {
   '1e5962c6-33a7-460b-913e-9e08db46973a': 'Karachi (Head Office)',
@@ -106,6 +107,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _setShopLocation() async {
+    // Google Play requires a prominent in-app disclosure BEFORE the OS
+    // location-permission prompt — shown once, like the salesman/driver
+    // tracking dialog (see GPSService.startTrackingWithConsent), but with
+    // copy specific to this one-time foreground grab.
+    if (!await SecureStorage.getShopLocationConsent()) {
+      if (!mounted) return;
+      final accepted = await showShopLocationDisclosureDialog(context);
+      if (!accepted) return;
+      await SecureStorage.saveShopLocationConsent(true);
+    }
+
     setState(() => _settingLocation = true);
     try {
       final pos = await LocationService.getCurrentPosition();

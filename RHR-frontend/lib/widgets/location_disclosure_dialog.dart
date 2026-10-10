@@ -58,3 +58,60 @@ Future<bool> showLocationDisclosureDialog(BuildContext context) async {
 
   return accepted ?? false;
 }
+
+/// Same Google Play requirement, different use case: a customer setting
+/// their shop's location (profile_screen.dart) is a one-time foreground
+/// GPS read, not background tracking — the copy below reflects that
+/// instead of reusing the salesman-tracking wording above, which would
+/// be misleading ("even when in the background") for this flow.
+///
+/// Returns true if the user tapped "Allow", false otherwise.
+Future<bool> showShopLocationDisclosureDialog(BuildContext context) async {
+  const darkNavy = Color(0xFF1B2E6B);
+  const orange = Color(0xFFE8841A);
+
+  final accepted = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text(
+        'Location Access Required',
+        style: TextStyle(color: darkNavy, fontWeight: FontWeight.bold, fontSize: 18),
+      ),
+      content: const SingleChildScrollView(
+        child: Text(
+          'RHR & Company would like to use your current location to '
+          'set your shop\'s location on the map. This is used to:\n\n'
+          '• Pin your shop\'s exact location for deliveries\n'
+          '• Help salesmen and drivers find your shop\n\n'
+          'Your location is read once, only when you tap "Set Shop '
+          'Location" — the app does not track your location in the '
+          'background for this feature.\n\n'
+          'Your location data is shared with RHR & Company '
+          'management only and is not shared with third parties.',
+          style: TextStyle(color: Color(0xFF374151), fontSize: 14, height: 1.5),
+        ),
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('Decline', style: TextStyle(color: Color(0xFF6B7280))),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: orange,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          child: const Text('Allow'),
+        ),
+      ],
+    ),
+  );
+
+  return accepted ?? false;
+}

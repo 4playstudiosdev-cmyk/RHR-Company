@@ -18,6 +18,7 @@ class SecureStorage {
   static const _carNumberKey = 'user_car_number';
   static const _loginTimeKey = 'login_time';
   static const _locationConsentKey = 'location_disclosure_accepted';
+  static const _shopLocationConsentKey = 'shop_location_disclosure_accepted';
   static const _profileCompleteKey = 'customer_profile_complete';
 
   // Session lifetime — a stored token older than this is treated as
@@ -103,6 +104,18 @@ class SecureStorage {
 
   static Future<bool> getLocationConsent() async {
     return (await _storage.read(key: _locationConsentKey)) == 'true';
+  }
+
+  // Separate consent flag for the customer-facing "Set Shop Location"
+  // one-time GPS grab (see LocationService/profile_screen.dart) — a
+  // distinct use case from salesman/driver background tracking above,
+  // so it gets its own disclosure and its own consent flag.
+  static Future<void> saveShopLocationConsent(bool accepted) async {
+    await _storage.write(key: _shopLocationConsentKey, value: accepted.toString());
+  }
+
+  static Future<bool> getShopLocationConsent() async {
+    return (await _storage.read(key: _shopLocationConsentKey)) == 'true';
   }
 
   // Whether this customer has filled in every required "Complete Your
