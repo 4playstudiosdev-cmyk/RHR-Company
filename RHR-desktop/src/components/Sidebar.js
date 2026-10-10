@@ -206,28 +206,6 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
   const renderChildButton = (item, groupKey) => {
     const Icon = item.icon;
     const active = page === item.key;
-    const badgeCount = item.key === 'stock-transfers' ? pendingTransfers
-      : item.key === 'notifications' ? loginAlerts : 0;
-
-    if (collapsed) {
-      return (
-        <button
-          key={`${groupKey}-${item.key}`}
-          onClick={() => setPage(item.key)}
-          title={item.label}
-          className={`relative w-full flex items-center justify-center py-2.5 rounded-xl transition-colors ${
-            active
-              ? 'bg-navy-container text-white shadow-sm'
-              : 'text-blue-200/70 hover:bg-white/10 hover:text-white'
-          }`}
-        >
-          <Icon size={17} strokeWidth={2} />
-          {badgeCount > 0 && (
-            <span className="absolute top-0.5 right-1 w-2 h-2 rounded-full bg-orange" />
-          )}
-        </button>
-      );
-    }
 
     return (
       <button
@@ -265,125 +243,111 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
           aria-hidden="true"
         />
       )}
+      {/* Outer positioning/width wrapper — deliberately has NO
+          overflow-hidden, so the toggle button (a sibling of the
+          overflow-hidden content panel below, positioned straddling
+          this wrapper's own right edge) is never clipped regardless of
+          how narrow the panel gets. */}
       <div
-        className={`fixed inset-y-0 left-0 z-50 bg-navy text-white flex flex-col h-screen flex-shrink-0 overflow-hidden
+        className={`fixed inset-y-0 left-0 z-50 flex-shrink-0
           transform transition-all duration-200 ease-in-out
           ${open ? 'translate-x-0' : '-translate-x-full'}
-          ${collapsed ? 'md:w-16' : 'md:w-64'} w-64
+          ${collapsed ? 'md:w-0' : 'md:w-64'} w-64
           md:static md:translate-x-0 md:z-auto`}
       >
-      {/* Collapse/expand toggle — desktop only, floats on the sidebar's
-          right edge regardless of scroll position. */}
-      <button
-        onClick={onToggleCollapse}
-        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        className="hidden md:flex absolute -right-3 top-8 z-50 w-6 h-6 bg-blue-500 hover:bg-blue-600 rounded-full items-center justify-center shadow-lg transition-colors"
-      >
-        {collapsed ? <ChevronRight size={13} className="text-white" /> : <ChevronLeft size={13} className="text-white" />}
-      </button>
-
-      <div className={`py-6 border-b border-white/10 flex-shrink-0 flex items-center ${collapsed ? 'justify-center px-2' : 'justify-between px-6'}`}>
-        {collapsed ? (
-          <div className="w-9 h-9 rounded-full bg-orange flex items-center justify-center text-xs font-bold text-white flex-shrink-0" title="RHR & Company">
-            RHR
-          </div>
-        ) : (
-          <>
-            <div>
-              <h1 className="text-xl font-bold tracking-wide text-white">RHR & Company</h1>
-              <p className="text-xs text-blue-200/70 mt-1">Admin Desktop Panel</p>
-            </div>
-            <button
-              onClick={onClose}
-              className="md:hidden text-blue-200/70 hover:text-white p-1 -mr-1"
-              aria-label="Close menu"
-            >
-              <X size={20} />
-            </button>
-          </>
-        )}
-      </div>
-
-      <nav className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden py-5 space-y-1.5 ${collapsed ? 'px-2' : 'px-3'}`}>
-        {GROUPS.map((group) => {
-          const visibleChildren = group.children
-            .map((k) => ITEM_BY_KEY[k])
-            .filter((item) => canAccess(item, user));
-
-          // If every child of this group is hidden for this role, hide
-          // the whole group header too — e.g. a branch_admin never sees
-          // an empty "HR & Administration" accordion with nothing in it.
-          if (visibleChildren.length === 0) return null;
-
-          const GroupIcon = group.icon;
-          const isOpen = openGroups.includes(group.key);
-          const groupHasActive = visibleChildren.some((item) => item.key === page);
-
-          // Collapsed mode: no accordion — just the group icon as a
-          // non-interactive marker, then every child always visible as
-          // an icon-only button, so navigation never requires expanding
-          // the sidebar first.
-          if (collapsed) {
-            return (
-              <div key={group.key} className="space-y-1">
-                <div className="flex items-center justify-center py-2 text-blue-200/50" title={group.label}>
-                  <GroupIcon size={15} strokeWidth={2} />
-                </div>
-                {visibleChildren.map((item) => renderChildButton(item, group.key))}
-              </div>
-            );
-          }
-
-          return (
-            <div key={group.key}>
-              <button
-                onClick={() => toggleGroup(group.key)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
-                  groupHasActive
-                    ? 'bg-white/10 text-white'
-                    : 'text-blue-200/80 hover:bg-white/10 hover:text-white'
-                }`}
-              >
-                <GroupIcon size={18} strokeWidth={2} />
-                <span className="flex-1 text-left">{group.label}</span>
-                <ChevronDown
-                  size={15}
-                  className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                />
-              </button>
-              {isOpen && (
-                <div className="mt-1 ml-4 pl-3 border-l border-white/10 space-y-1">
-                  {visibleChildren.map((item) => renderChildButton(item, group.key))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </nav>
-
-      <div className={`py-4 border-t border-white/10 space-y-3 flex-shrink-0 ${collapsed ? 'px-2' : 'px-4'}`}>
-        <div className={`flex items-center gap-3 ${collapsed ? 'justify-center' : 'px-2'}`} title={collapsed ? `${user?.fullName} — ${formatRole(user?.role)}` : undefined}>
-          <div className="w-9 h-9 rounded-full bg-orange flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
-            {getInitials(user?.fullName)}
-          </div>
-          {!collapsed && (
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-white truncate">{user?.fullName}</p>
-              <p className="text-xs text-blue-200/60 truncate">{formatRole(user?.role)}</p>
-            </div>
-          )}
-        </div>
+        {/* Collapse/expand toggle — desktop only. right-0 + translate-x-1/2
+            keeps it straddling the wrapper's current edge in both states,
+            instead of a fixed negative offset that only looked right at
+            one specific width. */}
         <button
-          onClick={onLogout}
-          title={collapsed ? 'Logout' : undefined}
-          className={`w-full flex items-center rounded-xl text-sm font-medium text-blue-200/80 hover:bg-white/10 hover:text-white transition-colors ${
-            collapsed ? 'justify-center py-2.5' : 'gap-3 px-4 py-2.5'
-          }`}
+          onClick={onToggleCollapse}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="hidden md:flex absolute top-8 right-0 translate-x-1/2 z-50 w-6 h-6 bg-blue-500 hover:bg-blue-600 rounded-full items-center justify-center shadow-lg transition-colors"
         >
-          <LogOut size={18} strokeWidth={2} />
-          {!collapsed && <span>Logout</span>}
+          {collapsed ? <ChevronRight size={13} className="text-white" /> : <ChevronLeft size={13} className="text-white" />}
         </button>
-      </div>
+
+        {/* Collapsed (desktop): the wrapper is 0-width, so nothing in
+            here would be visible anyway — not rendering it at all
+            avoids any stray padding/border peeking past the edge. */}
+        {!collapsed && (
+          <div className="bg-navy text-white flex flex-col h-screen overflow-hidden">
+            <div className="py-6 px-6 border-b border-white/10 flex-shrink-0 flex items-center justify-between">
+              <div>
+                <h1 className="text-xl font-bold tracking-wide text-white">RHR & Company</h1>
+                <p className="text-xs text-blue-200/70 mt-1">Admin Desktop Panel</p>
+              </div>
+              <button
+                onClick={onClose}
+                className="md:hidden text-blue-200/70 hover:text-white p-1 -mr-1"
+                aria-label="Close menu"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-5 space-y-1.5">
+              {GROUPS.map((group) => {
+                const visibleChildren = group.children
+                  .map((k) => ITEM_BY_KEY[k])
+                  .filter((item) => canAccess(item, user));
+
+                // If every child of this group is hidden for this role,
+                // hide the whole group header too — e.g. a branch_admin
+                // never sees an empty "HR & Administration" accordion.
+                if (visibleChildren.length === 0) return null;
+
+                const GroupIcon = group.icon;
+                const isOpen = openGroups.includes(group.key);
+                const groupHasActive = visibleChildren.some((item) => item.key === page);
+
+                return (
+                  <div key={group.key}>
+                    <button
+                      onClick={() => toggleGroup(group.key)}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
+                        groupHasActive
+                          ? 'bg-white/10 text-white'
+                          : 'text-blue-200/80 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      <GroupIcon size={18} strokeWidth={2} />
+                      <span className="flex-1 text-left">{group.label}</span>
+                      <ChevronDown
+                        size={15}
+                        className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+                    {isOpen && (
+                      <div className="mt-1 ml-4 pl-3 border-l border-white/10 space-y-1">
+                        {visibleChildren.map((item) => renderChildButton(item, group.key))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </nav>
+
+            <div className="py-4 px-4 border-t border-white/10 space-y-3 flex-shrink-0">
+              <div className="flex items-center gap-3 px-2">
+                <div className="w-9 h-9 rounded-full bg-orange flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+                  {getInitials(user?.fullName)}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-white truncate">{user?.fullName}</p>
+                  <p className="text-xs text-blue-200/60 truncate">{formatRole(user?.role)}</p>
+                </div>
+              </div>
+              <button
+                onClick={onLogout}
+                className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-blue-200/80 hover:bg-white/10 hover:text-white transition-colors"
+              >
+                <LogOut size={18} strokeWidth={2} />
+                <span>Logout</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

@@ -11,6 +11,7 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
+import DateRangeFilter from '../components/DateRangeFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
 import { exportTableToExcel } from './production/exportUtils';
 
@@ -452,11 +453,11 @@ export default function VehicleManagement() {
     }
   };
 
-  const loadReport = async () => {
+  const loadReport = async (from = reportFrom, to = reportTo) => {
     setReportLoading(true);
     setReportRun(true);
     try {
-      const params = { from: reportFrom, to: reportTo };
+      const params = { from, to };
       if (companyFilter) params.company_id = companyFilter;
       const res = await api.get('/vehicles/report', { params });
       setReport(res.data.data || []);
@@ -1065,36 +1066,25 @@ export default function VehicleManagement() {
             <SummaryCard icon={Wallet} value={`PKR ${fuelCostMonth.toLocaleString()}`} label="Fuel Cost This Month" color={{ bg: 'bg-orange/10', text: 'text-orange' }} />
           </div>
 
-          <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5 mb-5 flex items-end gap-4 flex-wrap">
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">From Date</label>
-              <input
-                type="date"
-                value={reportFrom}
-                onChange={(e) => setReportFrom(e.target.value)}
-                className="border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-              />
+          <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5 mb-5">
+            <DateRangeFilter
+              from={reportFrom}
+              to={reportTo}
+              onApply={(from, to) => { setReportFrom(from); setReportTo(to); loadReport(from, to); }}
+            />
+            <div className="flex items-center gap-3 flex-wrap">
+              <Button variant="accent" onClick={() => loadReport()} disabled={reportLoading} className="flex items-center gap-2">
+                <BarChart3 size={15} /> {reportLoading ? 'Generating...' : 'Generate Report'}
+              </Button>
+              {report.length > 0 && (
+                <button
+                  onClick={exportReport}
+                  className="flex items-center gap-1.5 border border-gray-200 text-navy hover:bg-gray-50 text-sm font-medium px-3.5 py-2.5 rounded-lg transition-colors"
+                >
+                  <Download size={15} /> Export Excel
+                </button>
+              )}
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">To Date</label>
-              <input
-                type="date"
-                value={reportTo}
-                onChange={(e) => setReportTo(e.target.value)}
-                className="border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-              />
-            </div>
-            <Button variant="accent" onClick={loadReport} disabled={reportLoading} className="flex items-center gap-2">
-              <BarChart3 size={15} /> {reportLoading ? 'Generating...' : 'Generate Report'}
-            </Button>
-            {report.length > 0 && (
-              <button
-                onClick={exportReport}
-                className="flex items-center gap-1.5 border border-gray-200 text-navy hover:bg-gray-50 text-sm font-medium px-3.5 py-2.5 rounded-lg transition-colors"
-              >
-                <Download size={15} /> Export Excel
-              </button>
-            )}
           </div>
 
           {reportLoading ? (

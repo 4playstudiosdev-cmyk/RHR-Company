@@ -6,6 +6,7 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
+import DateRangeFilter from '../components/DateRangeFilter';
 import { CITY_IDS, groupByName } from '../utils/multiCityFetch';
 import { exportTableToExcel } from './production/exportUtils';
 
@@ -32,8 +33,14 @@ export default function StockReports() {
   const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId; // KHI default
   const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [activeTab, setActiveTab] = useState('products');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  // "This Month" by default, matching the Quick Filter's default pill
+  // (was all-time/blank — every other report page already defaults to
+  // a bounded range, so this brings Stock Reports in line with them).
+  const [dateFrom, setDateFrom] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
+  });
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().split('T')[0]);
   const [products, setProducts] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [conversions, setConversions] = useState([]);
@@ -130,55 +137,24 @@ export default function StockReports() {
         }
       />
 
-      <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
-        <div className="flex gap-2">
-          {TABS.map((t) => {
-            const Icon = t.icon;
-            return (
-              <button
-                key={t.key}
-                onClick={() => setActiveTab(t.key)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  activeTab === t.key ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                <Icon size={15} /> {t.label}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex items-end gap-2">
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">From</label>
-            <input
-              type="date"
-              value={dateFrom}
-              max={dateTo || undefined}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">To</label>
-            <input
-              type="date"
-              value={dateTo}
-              min={dateFrom || undefined}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
-            />
-          </div>
-          {(dateFrom || dateTo) && (
+      <div className="flex gap-2 mb-4">
+        {TABS.map((t) => {
+          const Icon = t.icon;
+          return (
             <button
-              onClick={() => { setDateFrom(''); setDateTo(''); }}
-              className="text-xs text-navy hover:underline pb-2.5"
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === t.key ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+              }`}
             >
-              Clear (all-time)
+              <Icon size={15} /> {t.label}
             </button>
-          )}
-        </div>
+          );
+        })}
       </div>
+
+      <DateRangeFilter from={dateFrom} to={dateTo} onApply={(from, to) => { setDateFrom(from); setDateTo(to); }} />
 
       {error && (
         <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>

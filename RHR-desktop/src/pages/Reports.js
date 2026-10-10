@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  TrendingUp, Wallet, ShoppingCart, Download, RefreshCw, ArrowUp, ArrowDown, Receipt,
+  TrendingUp, Wallet, ShoppingCart, Download, ArrowUp, ArrowDown, Receipt,
   Package, CreditCard, TrendingDown
 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
@@ -8,6 +8,7 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
+import DateRangeFilter from '../components/DateRangeFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
 
 const REPORT_TABS = [
@@ -19,7 +20,10 @@ const REPORT_TABS = [
 ];
 
 const toISODate = (d) => d.toISOString().split('T')[0];
-const defaultFrom = () => { const d = new Date(); d.setDate(d.getDate() - 29); return toISODate(d); };
+// Default range is "This Month" now, matching the Quick Filter's default
+// preset below (was a rolling last-30-days window, which didn't match
+// any single pill and made the filter look unselected on first load).
+const defaultFrom = () => toISODate(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
 const defaultTo = () => toISODate(new Date());
 
 function pctChange(current, previous) {
@@ -146,7 +150,14 @@ export default function Reports() {
     }
   };
 
-  const handleGenerate = () => setApplied({ from: fromDate, to: toDate });
+  // Quick Filter pills auto-apply immediately (no separate Generate
+  // click needed); Custom Range still routes through the same Apply
+  // path as the pills once its own Apply button is pressed.
+  const handleDateRangeApply = (from, to) => {
+    setFromDate(from);
+    setToDate(to);
+    setApplied({ from, to });
+  };
 
   const handleExport = async (type) => {
     setDownloading(true);
@@ -260,44 +271,15 @@ export default function Reports() {
 
   return (
     <div className="p-6">
-      <div className="flex justify-between items-end flex-wrap gap-4 mb-6">
+      <div className="flex justify-between items-end flex-wrap gap-4 mb-4">
         <div>
           <h1 className="text-2xl font-bold text-navy">Reports & Analytics</h1>
           <p className="text-sm text-gray-500 mt-1">Comprehensive financial and operational insights.</p>
         </div>
-        <div className="flex items-end gap-2 flex-wrap">
-          <div>
-            <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">From</label>
-            <input
-              type="date"
-              value={fromDate}
-              max={toDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">To</label>
-            <input
-              type="date"
-              value={toDate}
-              min={fromDate}
-              max={defaultTo()}
-              onChange={(e) => setToDate(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
-            />
-          </div>
-          <button
-            onClick={handleGenerate}
-            className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
-          >
-            <RefreshCw size={14} /> Generate
-          </button>
-        </div>
+        <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
       </div>
+
+      <DateRangeFilter from={applied.from} to={applied.to} onApply={handleDateRangeApply} />
 
       <div className="flex gap-2 mb-6">
         {REPORT_TABS.map((t) => {
