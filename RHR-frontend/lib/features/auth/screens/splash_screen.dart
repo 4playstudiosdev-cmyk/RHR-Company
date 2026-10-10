@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
+import '../../../core/location/location_service.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../widgets/location_disclosure_dialog.dart';
 
@@ -39,6 +41,20 @@ class _SplashScreenState extends State<SplashScreen> {
       if (accepted) {
         await SecureStorage.saveLocationConsent(true);
         await SecureStorage.saveShopLocationConsent(true);
+        // Immediately chain into the real OS permission prompt right
+        // after the custom disclosure, instead of only showing it later
+        // the first time a location feature is actually used — Play
+        // Store review expects the two to appear back-to-back, and it's
+        // what the Android location-permission guidelines show too.
+        // Best-effort: never blocks navigation if this fails/hangs.
+        try {
+          if (await LocationService.ensureLocationServiceOn()) {
+            var permission = await Geolocator.checkPermission();
+            if (permission == LocationPermission.denied) {
+              await Geolocator.requestPermission();
+            }
+          }
+        } catch (_) {}
       }
     }
 
