@@ -584,12 +584,16 @@ export default function RawMaterials() {
                       <td className="px-6 py-3.5 text-gray-600">{CATEGORY_LABEL[m.category] || m.category}</td>
                       <td className="px-6 py-3.5 text-gray-600">{m.unit}</td>
                       <td className="px-6 py-3.5 text-right text-gray-700">
-                        {Number(m.stock).toLocaleString()} {m.unit}
-                        {conv && (
-                          <span className="block text-xs text-gray-400">
-                            {stockInPurchaseUnits !== null && `${stockInPurchaseUnits.toFixed(1)} ${conv.purchase_unit}s`}
-                            {stockInProductionUnits !== null && ` · ${stockInProductionUnits.toLocaleString()} ${conv.consumption_unit}`}
-                          </span>
+                        {conv && stockInPurchaseUnits !== null ? (
+                          <>
+                            {stockInPurchaseUnits.toFixed(1)} {conv.purchase_unit}s
+                            <span className="block text-xs text-gray-400">
+                              {Number(m.stock).toLocaleString()} {m.unit}
+                              {stockInProductionUnits !== null && ` · ${stockInProductionUnits.toLocaleString()} ${conv.consumption_unit}`}
+                            </span>
+                          </>
+                        ) : (
+                          `${Number(m.stock).toLocaleString()} ${m.unit}`
                         )}
                       </td>
                       <td className="px-6 py-3.5 text-right text-gray-500">{Number(m.min_level).toLocaleString()}</td>
