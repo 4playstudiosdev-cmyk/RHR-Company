@@ -14,25 +14,32 @@ import api, { hasPermission } from '../services/api';
 // from showing links a user can't use. Every item below is unchanged
 // from the pre-accordion flat list — only how they're grouped/displayed
 // changed, not what gates each one.
+// Every item now carries a requiredPermission — the handful that used to
+// have none (daily-dashboard, products, orders, salesmen, ledger,
+// notifications, stock-transfers) use their own key as the permission
+// name, so AdminManagement.js can offer a toggle for literally every
+// panel, not just the previous fixed set of 6. requiredRole items
+// (super_admin-only) are deliberately NOT toggleable — those are a hard
+// block for every branch admin, not a per-admin preference.
 const NAV_ITEMS = [
-  { key: 'daily-dashboard', label: 'Daily Dashboard', icon: LayoutPanelTop },
+  { key: 'daily-dashboard', label: 'Daily Dashboard', icon: LayoutPanelTop, requiredPermission: 'daily-dashboard' },
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiredRole: 'super_admin' },
-  { key: 'products', label: 'Products', icon: Package },
+  { key: 'products', label: 'Products', icon: Package, requiredPermission: 'products' },
   { key: 'production-materials', label: 'Raw Materials', icon: Boxes, requiredPermission: 'can_manage_production' },
   { key: 'suppliers', label: 'Suppliers', icon: Store, requiredPermission: 'can_manage_production' },
   { key: 'returns', label: 'Returns', icon: RotateCcw, requiredPermission: 'can_manage_production' },
-  { key: 'orders', label: 'Orders', icon: ShoppingCart },
+  { key: 'orders', label: 'Orders', icon: ShoppingCart, requiredPermission: 'orders' },
   { key: 'customers', label: 'Customers', icon: Users, requiredPermission: 'can_manage_customers' },
-  { key: 'salesmen', label: 'Salesmen', icon: UserCog },
+  { key: 'salesmen', label: 'Salesmen', icon: UserCog, requiredPermission: 'salesmen' },
   { key: 'recovery', label: 'Salesman Recovery', icon: HandCoins, requiredPermission: 'can_view_payments' },
   { key: 'vehicles', label: 'Vehicles', icon: Car, requiredPermission: 'can_view_payments' },
   { key: 'payments', label: 'Payments', icon: Wallet, requiredPermission: 'can_view_payments' },
   { key: 'bank', label: 'Bank', icon: Landmark, requiredPermission: 'can_view_payments' },
   { key: 'expenses', label: 'Expenses', icon: Receipt, requiredPermission: 'can_view_payments' },
-  { key: 'ledger', label: 'Ledger', icon: BookOpen },
+  { key: 'ledger', label: 'Ledger', icon: BookOpen, requiredPermission: 'ledger' },
   { key: 'reports', label: 'Sales Report', icon: FileSpreadsheet, requiredPermission: 'can_export_reports' },
   { key: 'gps', label: 'Live GPS', icon: MapPin, requiredPermission: 'can_view_gps' },
-  { key: 'notifications', label: 'Notifications', icon: Bell },
+  { key: 'notifications', label: 'Notifications', icon: Bell, requiredPermission: 'notifications' },
   { key: 'production-dashboard', label: 'Production Dashboard', icon: Gauge, requiredPermission: 'can_manage_production' },
   { key: 'production-orders', label: 'Production Orders', icon: ClipboardList, requiredPermission: 'can_manage_production' },
   { key: 'production-log', label: 'Production History', icon: PackageCheck, requiredPermission: 'can_manage_production' },
@@ -40,15 +47,43 @@ const NAV_ITEMS = [
   { key: 'production-recipes', label: 'Recipes', icon: ClipboardList, requiredPermission: 'can_manage_production' },
   { key: 'production-daily', label: 'Daily Production Entry', icon: CalendarCheck, requiredPermission: 'can_manage_production' },
   { key: 'manufacturing-employees', label: 'Manufacturing Employees', icon: HardHat, requiredPermission: 'can_manage_production' },
-  { key: 'stock-transfers', label: 'Stock Transfers', icon: ArrowLeftRight },
+  { key: 'stock-transfers', label: 'Stock Transfers', icon: ArrowLeftRight, requiredPermission: 'stock-transfers' },
   { key: 'stock-reports', label: 'Stock Reports', icon: PackageSearch, requiredPermission: 'can_export_reports' },
   { key: 'opening-balances', label: 'Opening Balances', icon: WalletCards, requiredRole: 'super_admin' },
-  { key: 'deleted-items', label: 'Deleted Items', icon: Trash2 },
+  // Hard-blocked for every branch admin (KHI/HYD/SUK) — not a per-admin
+  // toggle, a flat role restriction, same as Opening Balances/Admin Roles.
+  { key: 'deleted-items', label: 'Deleted Items', icon: Trash2, requiredRole: 'super_admin' },
   { key: 'hrm', label: 'HRM', icon: Briefcase, requiredPermission: 'can_manage_hrm' },
   { key: 'admins', label: 'Admin Roles', icon: KeyRound, requiredRole: 'super_admin' }
 ];
 
 const ITEM_BY_KEY = Object.fromEntries(NAV_ITEMS.map((item) => [item.key, item]));
+
+// A handful of permission keys already gate several pages at once (e.g.
+// can_manage_production covers Raw Materials, Suppliers, Returns and
+// every Production page) — for those, a descriptive group label reads
+// far better in the toggle list than just the first page's name.
+const SHARED_PERMISSION_LABELS = {
+  can_manage_production: 'Production & Materials Access',
+  can_view_payments: 'Payments, Bank, Expenses & Recovery',
+  can_export_reports: 'Reports (Sales & Stock)',
+  can_manage_customers: 'Customers',
+  can_manage_hrm: 'HRM Access',
+  can_view_gps: 'Live GPS Tracker',
+};
+
+// Every panel a branch admin could possibly be granted — i.e. every item
+// with a requiredPermission (role-gated items are a hard block, not a
+// toggle). Exported so AdminManagement.js renders a checkbox for every
+// real panel instead of a hand-maintained, easily-stale subset.
+export const TOGGLEABLE_PANELS = NAV_ITEMS
+  .filter((item) => item.requiredPermission)
+  .reduce((acc, item) => {
+    if (!acc.some((p) => p.key === item.requiredPermission)) {
+      acc.push({ key: item.requiredPermission, label: SHARED_PERMISSION_LABELS[item.requiredPermission] || item.label });
+    }
+    return acc;
+  }, []);
 
 // The 7 accordion groups. A key may appear in more than one group (e.g.
 // Stock Reports under both Inventory and Reports & Audit) — that's a

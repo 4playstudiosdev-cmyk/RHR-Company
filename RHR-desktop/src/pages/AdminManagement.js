@@ -1,15 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
 import { useToast } from '../components/Toast';
+import { TOGGLEABLE_PANELS } from '../components/Sidebar';
 
-const PERMISSIONS = [
-  { key: 'can_view_payments', label: 'View Payments' },
-  { key: 'can_export_reports', label: 'Export Reports' },
-  { key: 'can_manage_customers', label: 'Manage Customers' },
-  { key: 'can_view_gps', label: 'View GPS Tracker' },
-  { key: 'can_manage_hrm', label: 'HRM Access' },
-  { key: 'can_manage_production', label: 'Production Access' }
-];
+// Every real panel in the sidebar, not a hand-picked subset — see
+// Sidebar.js's TOGGLEABLE_PANELS for how this list is built, so a new
+// sidebar item never silently goes un-toggleable here.
+const PERMISSIONS = TOGGLEABLE_PANELS;
 
 export default function AdminManagement() {
   const toast = useToast();
@@ -147,7 +144,7 @@ export default function AdminManagement() {
                 <h4 className="text-sm font-bold text-gray-600 mb-3 uppercase tracking-wide">
                   Feature Permissions
                 </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {PERMISSIONS.map((perm) => {
                     const perms = admin.permissions || {};
                     const enabled = perms[perm.key] !== false;
