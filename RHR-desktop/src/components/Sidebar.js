@@ -326,26 +326,33 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
                   </div>
                 );
               })}
-            </nav>
 
-            <div className="py-4 px-4 border-t border-white/10 space-y-3 flex-shrink-0">
-              <div className="flex items-center gap-3 px-2">
-                <div className="w-9 h-9 rounded-full bg-orange flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
-                  {getInitials(user?.fullName)}
+              {/* Profile + Logout live inside the scrollable nav itself
+                  now, as the last items — not pinned outside it. Pinning
+                  them kept Logout sitting at a fixed screen position no
+                  matter how far the groups above were scrolled/expanded,
+                  which made it too easy to tap by accident; this way it
+                  only comes into view once actually scrolled to, like
+                  any other nav entry. */}
+              <div className="pt-4 mt-3 border-t border-white/10 space-y-3">
+                <div className="flex items-center gap-3 px-2">
+                  <div className="w-9 h-9 rounded-full bg-orange flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+                    {getInitials(user?.fullName)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{user?.fullName}</p>
+                    <p className="text-xs text-blue-200/60 truncate">{formatRole(user?.role)}</p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-white truncate">{user?.fullName}</p>
-                  <p className="text-xs text-blue-200/60 truncate">{formatRole(user?.role)}</p>
-                </div>
+                <button
+                  onClick={onLogout}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-blue-200/80 hover:bg-white/10 hover:text-white transition-colors"
+                >
+                  <LogOut size={18} strokeWidth={2} />
+                  <span>Logout</span>
+                </button>
               </div>
-              <button
-                onClick={onLogout}
-                className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-blue-200/80 hover:bg-white/10 hover:text-white transition-colors"
-              >
-                <LogOut size={18} strokeWidth={2} />
-                <span>Logout</span>
-              </button>
-            </div>
+            </nav>
           </div>
         )}
       </div>
