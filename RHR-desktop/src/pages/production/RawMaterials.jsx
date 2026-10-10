@@ -27,6 +27,8 @@ const MATERIAL_CATEGORIES = [
 ];
 const CATEGORY_LABEL = Object.fromEntries(MATERIAL_CATEGORIES.map((c) => [c.value, c.label]));
 const UNITS = ['kg', 'gm', 'litre', 'ml', 'piece', 'bag'];
+const PURCHASE_FORMATS = ['bag', 'box', 'piece', 'drum', 'litre', 'other'];
+const PRODUCTION_UNITS = ['gm', 'kg', 'ml', 'litre', 'piece'];
 const EMPTY_FORM = {
   name: '', category: MATERIAL_CATEGORIES[0].value, unit: UNITS[0], stock: '', min_level: '', cost_per_unit: '',
   // Purchased in a different unit than it's tracked/used in — e.g. bought
@@ -34,8 +36,23 @@ const EMPTY_FORM = {
   // material's own `unit` above), consumed in production by the gm
   // (consumption_unit). Optional: left off, purchases/production both
   // just use `unit` directly, exactly as before this existed.
-  purchasedDifferently: false, purchase_unit: 'bag', bag_weight: '', consumption_unit: UNITS[0],
+  purchasedDifferently: false, purchase_unit: 'bag', purchase_unit_other: '', bag_weight: '', consumption_unit: UNITS[0],
 };
+
+// Mirrors the backend's convertQuantity (src/utils/unitConversion.js) —
+// just enough to show a live "1 kg = 1000 gm" preview in the form before
+// saving; the real conversion that drives stock numbers always happens
+// server-side.
+const WEIGHT_TO_GRAMS = { mg: 0.001, g: 1, gm: 1, kg: 1000, ton: 1000000 };
+const VOLUME_TO_ML = { ml: 1, l: 1000, litre: 1000, liter: 1000 };
+function previewConvert(value, fromUnit, toUnit) {
+  const from = (fromUnit || '').toLowerCase();
+  const to = (toUnit || '').toLowerCase();
+  if (!from || !to || from === to) return value;
+  if (WEIGHT_TO_GRAMS[from] && WEIGHT_TO_GRAMS[to]) return (value * WEIGHT_TO_GRAMS[from]) / WEIGHT_TO_GRAMS[to];
+  if (VOLUME_TO_ML[from] && VOLUME_TO_ML[to]) return (value * VOLUME_TO_ML[from]) / VOLUME_TO_ML[to];
+  return null;
+}
 const EMPTY_STOCK_FORM = { quantity: '', date: new Date().toISOString().split('T')[0], note: '' };
 const EMPTY_PURCHASE_ROW = { raw_material_id: '', qty: '', price_per_unit: '' };
 const EMPTY_CONVERSION_FORM = { purchase_unit: 'bag', consumption_unit: 'kg', bag_weight: '', bag_weight_unit: 'kg' };
@@ -168,9 +185,16 @@ export default function RawMaterials() {
   const tabs = [{ label: 'All', value: 'All' }, ...MATERIAL_CATEGORIES];
   const filtered = tab === 'All' ? groupedMaterials : groupedMaterials.filter((m) => m.category === tab);
 
+  // Add Material modal — live-computed helper text for the purchase/
+  // production unit section, so the admin sees the math before saving.
+  const purchaseUnitLabel = form.purchase_unit === 'other' ? (form.purchase_unit_other || 'unit') : form.purchase_unit;
+  const productionPreview = previewConvert(1, form.unit, form.consumption_unit);
+
   const openEditModal = (material) => {
     setEditingMaterial(material);
     const existingConversion = conversionByMaterial[material.id];
+    const savedPurchaseUnit = existingConversion?.purchase_unit || 'bag';
+    const isKnownFormat = PURCHASE_FORMATS.includes(savedPurchaseUnit);
     setForm({
       name: material.name || '',
       category: material.category || MATERIAL_CATEGORIES[0].value,
@@ -179,7 +203,8 @@ export default function RawMaterials() {
       min_level: material.min_level ?? '',
       cost_per_unit: material.cost_per_unit ?? '',
       purchasedDifferently: !!existingConversion,
-      purchase_unit: existingConversion?.purchase_unit || 'bag',
+      purchase_unit: isKnownFormat ? savedPurchaseUnit : 'other',
+      purchase_unit_other: isKnownFormat ? '' : savedPurchaseUnit,
       bag_weight: existingConversion?.bag_weight ?? '',
       consumption_unit: existingConversion?.consumption_unit || material.unit || UNITS[0],
     });
@@ -195,7 +220,7 @@ export default function RawMaterials() {
     if (!form.purchasedDifferently || !form.bag_weight || Number(form.bag_weight) <= 0) return;
     await api.post('/production/unit-conversions', {
       raw_material_id: materialId,
-      purchase_unit: form.purchase_unit,
+      purchase_unit: purchaseUnitLabel,
       consumption_unit: form.consumption_unit,
       bag_weight: Number(form.bag_weight),
       bag_weight_unit: form.unit,
@@ -209,7 +234,7 @@ export default function RawMaterials() {
       return;
     }
     if (form.purchasedDifferently && (!form.bag_weight || Number(form.bag_weight) <= 0)) {
-      toast.error(`Enter how many ${form.unit} are in 1 ${form.purchase_unit}.`);
+      toast.error(`Enter how many ${form.unit} are in 1 ${purchaseUnitLabel}.`);
       return;
     }
     setSaving(true);
@@ -497,7 +522,7 @@ export default function RawMaterials() {
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Material Name</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Unit</th>
-                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">In Stock</th>
+                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Stock Detail</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Min Level</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Cost/Unit</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
@@ -506,7 +531,25 @@ export default function RawMaterials() {
               </thead>
               <tbody>
                 {filtered.map((m, i) => {
-                  const low = Number(m.stock) < Number(m.min_level);
+                  const conv = conversionByMaterial[m.id];
+                  const stockInPurchaseUnits = conv ? Number(m.stock) / Number(conv.bag_weight) : null;
+                  const stockInProductionUnits = conv ? previewConvert(Number(m.stock), m.unit, conv.consumption_unit) : null;
+
+                  // Three-tier status when a production-unit conversion is
+                  // configured (compares against the minimum in that same
+                  // unit, same thresholds Basit's spec asked for); plain
+                  // stock-vs-min_level otherwise, same as before this existed.
+                  let status = 'good';
+                  if (conv && stockInProductionUnits !== null) {
+                    const minInProductionUnits = previewConvert(Number(m.min_level), m.unit, conv.consumption_unit);
+                    if (minInProductionUnits !== null) {
+                      if (stockInProductionUnits < minInProductionUnits) status = 'critical';
+                      else if (stockInProductionUnits < minInProductionUnits * 2) status = 'low';
+                    }
+                  } else if (Number(m.stock) < Number(m.min_level)) {
+                    status = 'critical';
+                  }
+
                   return (
                     <tr
                       key={m.id}
@@ -518,19 +561,24 @@ export default function RawMaterials() {
                       <td className="px-6 py-3.5 text-gray-600">{CATEGORY_LABEL[m.category] || m.category}</td>
                       <td className="px-6 py-3.5 text-gray-600">{m.unit}</td>
                       <td className="px-6 py-3.5 text-right text-gray-700">
-                        {Number(m.stock).toLocaleString()}
-                        {conversionByMaterial[m.id] && (
+                        {Number(m.stock).toLocaleString()} {m.unit}
+                        {conv && (
                           <span className="block text-xs text-gray-400">
-                            ≈ {(Number(m.stock) / Number(conversionByMaterial[m.id].bag_weight)).toFixed(1)} {conversionByMaterial[m.id].purchase_unit}
+                            {stockInPurchaseUnits !== null && `${stockInPurchaseUnits.toFixed(1)} ${conv.purchase_unit}s`}
+                            {stockInProductionUnits !== null && ` · ${stockInProductionUnits.toLocaleString()} ${conv.consumption_unit}`}
                           </span>
                         )}
                       </td>
                       <td className="px-6 py-3.5 text-right text-gray-500">{Number(m.min_level).toLocaleString()}</td>
                       <td className="px-6 py-3.5 text-right text-gray-700">PKR {Number(m.cost_per_unit || 0).toLocaleString()}</td>
                       <td className="px-6 py-3.5">
-                        {low ? (
+                        {status === 'critical' ? (
                           <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">
-                            <AlertCircle size={12} /> Low Stock
+                            <AlertCircle size={12} /> Critical
+                          </span>
+                        ) : status === 'low' ? (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
+                            <AlertCircle size={12} /> Low
                           </span>
                         ) : (
                           <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
@@ -661,47 +709,74 @@ export default function RawMaterials() {
                 Purchased in a different unit than it's used in production
               </label>
               {form.purchasedDifferently && (
-                <div className="mt-3 space-y-3">
-                  <p className="text-xs text-gray-500">
-                    e.g. bought by the bag, stock kept in {form.unit || 'kg'}, used in production by the gm.
-                  </p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Purchased In</label>
-                      <input
-                        type="text"
-                        placeholder="bag"
-                        value={form.purchase_unit}
-                        onChange={(e) => setForm({ ...form, purchase_unit: e.target.value })}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow bg-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        1 {form.purchase_unit || 'unit'} = ___ {form.unit}
-                      </label>
-                      <input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        placeholder="e.g. 25"
-                        value={form.bag_weight}
-                        onChange={(e) => setForm({ ...form, bag_weight: e.target.value })}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow bg-white"
-                      />
-                    </div>
-                  </div>
+                <div className="mt-3 space-y-4">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Used in production as</label>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">
+                      How do you purchase this material?
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Purchase Format</label>
+                        <select
+                          value={form.purchase_unit}
+                          onChange={(e) => setForm({ ...form, purchase_unit: e.target.value })}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                        >
+                          {PURCHASE_FORMATS.map((u) => (
+                            <option key={u} value={u}>{u}</option>
+                          ))}
+                        </select>
+                        {form.purchase_unit === 'other' && (
+                          <input
+                            type="text"
+                            placeholder="Name it, e.g. drum"
+                            value={form.purchase_unit_other}
+                            onChange={(e) => setForm({ ...form, purchase_unit_other: e.target.value })}
+                            className="w-full mt-1.5 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow bg-white"
+                          />
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          1 {purchaseUnitLabel} = ___ {form.unit}
+                        </label>
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          placeholder="e.g. 25"
+                          value={form.bag_weight}
+                          onChange={(e) => setForm({ ...form, bag_weight: e.target.value })}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow bg-white"
+                        />
+                      </div>
+                    </div>
+                    {form.bag_weight && Number(form.bag_weight) > 0 && (
+                      <p className="text-xs text-navy font-medium mt-1.5">
+                        1 {purchaseUnitLabel} = {form.bag_weight} {form.unit}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">
+                      How is this used in production?
+                    </p>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Production Unit</label>
                     <select
                       value={form.consumption_unit}
                       onChange={(e) => setForm({ ...form, consumption_unit: e.target.value })}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
                     >
-                      {UNITS.map((u) => (
+                      {PRODUCTION_UNITS.map((u) => (
                         <option key={u} value={u}>{u}</option>
                       ))}
                     </select>
+                    {productionPreview !== null && (
+                      <p className="text-xs text-navy font-medium mt-1.5">
+                        1 {form.unit} = {productionPreview.toLocaleString()} {form.consumption_unit}
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
