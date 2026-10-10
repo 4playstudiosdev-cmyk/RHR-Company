@@ -23,7 +23,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 // POST /api/v1/vehicles
 router.post('/', authenticate, isAdmin, async (req, res) => {
   try {
-    const { name, plate_number, type, company_id } = req.body;
+    const { name, plate_number, type, company_id, is_active } = req.body;
     if (!name || !plate_number)
       return error(res, 'name and plate_number are required', 400);
     if (type && !VEHICLE_TYPES.includes(type))
@@ -38,16 +38,20 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
       name,
       plate_number,
       type: type || 'delivery',
+      is_active: is_active !== undefined ? is_active : true,
     });
 
     return success(res, data, 'Vehicle added', 201);
   } catch (err) { return error(res, err.message); }
 });
 
-// PATCH /api/v1/vehicles/:id — edit details or deactivate
+// PATCH /api/v1/vehicles/:id — edit details, deactivate, or record a
+// service (last_service_odometer — phase50, resets the Maintenance
+// Alert baseline; the desktop's "Mark Serviced" action sets this to the
+// vehicle's current odometer reading).
 router.patch('/:id', authenticate, isAdmin, async (req, res) => {
   try {
-    const { name, plate_number, type, is_active } = req.body;
+    const { name, plate_number, type, is_active, last_service_odometer } = req.body;
     const filter = { id: `eq.${req.params.id}` };
     if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
 
@@ -56,8 +60,18 @@ router.patch('/:id', authenticate, isAdmin, async (req, res) => {
     if (plate_number !== undefined) body.plate_number = plate_number;
     if (type !== undefined) body.type = type;
     if (is_active !== undefined) body.is_active = is_active;
+    if (last_service_odometer !== undefined) body.last_service_odometer = last_service_odometer;
 
-    const data = await pgrestPatch('vehicles', filter, body);
+    let data;
+    try {
+      data = await pgrestPatch('vehicles', filter, body);
+    } catch (e) {
+      // last_service_odometer is a phase50 addition — fall back without
+      // it rather than breaking ordinary name/plate/type/is_active edits.
+      if (last_service_odometer === undefined) throw e;
+      const { last_service_odometer: _drop, ...rest } = body;
+      data = await pgrestPatch('vehicles', filter, rest);
+    }
     if (!data?.[0]) return error(res, 'Vehicle not found or access denied', 404);
     return success(res, data[0], 'Vehicle updated');
   } catch (err) { return error(res, err.message); }
