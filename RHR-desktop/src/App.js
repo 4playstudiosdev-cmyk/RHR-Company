@@ -6,8 +6,9 @@ import ErrorBoundary from './components/ErrorBoundary';
 import SessionWarning from './components/SessionWarning';
 import LocationGate from './components/LocationGate';
 import AdminLocationService from './services/adminLocationService';
-import api from './services/api';
+import api, { hasPermission } from './services/api';
 import { ToastProvider } from './components/Toast';
+import NotificationBell from './components/NotificationBell';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import DailyDashboard from './pages/DailyDashboard';
@@ -267,6 +268,7 @@ function AppShell() {
       </div>
       <SessionWarning />
       <LocationGate user={user} />
+      {hasPermission('notifications', user) && <NotificationBell setPage={setPage} />}
     </div>
   );
 }
