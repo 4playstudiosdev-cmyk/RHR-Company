@@ -15,7 +15,13 @@ const { success, error } = require('../utils/response');
 router.get('/', authenticate, isAdmin, async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
-    const { from = today, to = today, company_id } = req.query;
+    // DateRangeFilter's "All Time" preset sends from/to as empty strings,
+    // not omitted — the `= today` defaults above only fire on undefined,
+    // so an empty string slipped through and built an invalid
+    // `gte.T00:00:00` timestamp. Treat blank the same as "not provided".
+    let { from, to, company_id } = req.query;
+    if (!from) from = '2000-01-01';
+    if (!to) to = today;
     const requestedCompanyId = company_id === 'all' ? null : company_id;
     const companyId = req.user.role === 'branch_admin'
       ? req.user.company_id : (requestedCompanyId || req.user.company_id);

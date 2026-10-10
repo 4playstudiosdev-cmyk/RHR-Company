@@ -83,7 +83,7 @@ export default function DateRangeFilter({ from, to, onApply, defaultPreset = 'Th
   };
 
   return (
-    <div className="flex items-end gap-3 flex-wrap">
+    <div className="flex items-center gap-2 flex-wrap">
       <select value={activePreset} onChange={(e) => handleSelect(e.target.value)} style={selectStyle}>
         {presets.map((preset) => (
           <option key={preset.label} value={preset.label}>{preset.label}</option>
@@ -91,32 +91,29 @@ export default function DateRangeFilter({ from, to, onApply, defaultPreset = 'Th
       </select>
 
       {activePreset === 'Custom Range' && (
-        <div className="flex gap-3 items-end">
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">From</label>
-            <input
-              type="date"
-              value={customFrom}
-              max={customTo || undefined}
-              onChange={(e) => setCustomFrom(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">To</label>
-            <input
-              type="date"
-              value={customTo}
-              min={customFrom || undefined}
-              onChange={(e) => setCustomTo(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
-            />
-          </div>
+        <div className="flex items-center gap-2 flex-nowrap">
+          <input
+            type="date"
+            aria-label="From date"
+            value={customFrom}
+            max={customTo || undefined}
+            onChange={(e) => setCustomFrom(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm leading-tight focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
+          />
+          <span className="text-gray-400 text-sm">–</span>
+          <input
+            type="date"
+            aria-label="To date"
+            value={customTo}
+            min={customFrom || undefined}
+            onChange={(e) => setCustomTo(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm leading-tight focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
+          />
           <button
             type="button"
             onClick={() => onApply(customFrom, customTo)}
             disabled={!customFrom || !customTo}
-            className="bg-navy hover:bg-navy/90 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            className="bg-navy hover:bg-navy/90 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 whitespace-nowrap"
           >
             Apply
           </button>
