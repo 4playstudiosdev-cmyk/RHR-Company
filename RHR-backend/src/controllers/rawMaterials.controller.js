@@ -4,6 +4,7 @@ const { success, error } = require('../utils/response');
 const { getCached, setCached, invalidate } = require('../utils/simpleCache');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { resolveCompanyId } = require('../utils/companyScope');
+const { convertQuantity } = require('../utils/unitConversion');
 
 const CACHE_TTL_MS = 60000;
 
@@ -35,8 +36,38 @@ const getMaterials = async (req, res) => {
       data = await pgrestGet('raw_materials', fallbackParams);
     }
 
-    if (data && data.length > 0) setCached(cacheKey, data, CACHE_TTL_MS);
-    return success(res, data);
+    // Attach each material's purchase/production unit figures (if a
+    // conversion rule is configured) directly on the list response —
+    // stock itself always stays in raw_materials.unit (the base unit);
+    // these are just read-only, computed display conveniences so a
+    // consumer doesn't have to separately fetch and merge
+    // /production/unit-conversions to show "500 kg (20 bags, 500,000 gm)".
+    let enriched = data;
+    if (data && data.length > 0) {
+      try {
+        const ids = data.map((m) => m.id);
+        const conversions = await pgrestGet('unit_conversions', {
+          select: '*',
+          raw_material_id: `in.(${ids.join(',')})`,
+        });
+        const byMaterial = Object.fromEntries((conversions || []).map((c) => [c.raw_material_id, c]));
+        enriched = data.map((m) => {
+          const c = byMaterial[m.id];
+          if (!c || !c.bag_weight) return m;
+          const stockInProductionUnits = convertQuantity(Number(m.stock), m.unit, c.consumption_unit);
+          return {
+            ...m,
+            purchase_unit: c.purchase_unit,
+            stock_in_purchase_units: Number((Number(m.stock) / Number(c.bag_weight)).toFixed(3)),
+            production_unit: c.consumption_unit,
+            stock_in_production_units: stockInProductionUnits === null ? null : Number(stockInProductionUnits.toFixed(3)),
+          };
+        });
+      } catch (e) { /* unit_conversions is a phase35 addition — ignore until it's run */ }
+    }
+
+    if (enriched && enriched.length > 0) setCached(cacheKey, enriched, CACHE_TTL_MS);
+    return success(res, enriched);
   } catch (err) { return error(res, err.message); }
 };
 
@@ -161,16 +192,23 @@ const addStock = async (req, res) => {
     const material = materials?.[0];
     if (!material) return error(res, 'Material not found', 404);
 
+    // If this material has a purchase-vs-stock unit rule configured (Unit
+    // Conversion tab — e.g. "1 bag = 25 kg", stock tracked in gm), the
+    // quantity entered here is a count of purchase_unit (bags), not
+    // material.unit directly — convert it to the stock's own unit before
+    // adding, instead of adding the raw bag count onto a gram figure.
+    const { delta, note: convertedNote } = await resolveStockDelta(material, Number(quantity));
+
     const updated = await pgrestPatch('raw_materials', { id: `eq.${req.params.id}` }, {
-      stock: Number(material.stock) + Number(quantity),
+      stock: Number(material.stock) + delta,
     });
     if (!updated?.[0]) return error(res, 'Material not found', 404);
 
     await pgrestPost('raw_material_stock_logs', {
       material_id: req.params.id,
       company_id:  req.user.company_id,
-      quantity:    Number(quantity),
-      note:        note || null,
+      quantity:    delta,
+      note:        [note, convertedNote].filter(Boolean).join(' — ') || null,
       logged_date: date || new Date().toISOString().split('T')[0],
       created_by:  req.user.id
     });
@@ -179,6 +217,48 @@ const addStock = async (req, res) => {
     return success(res, updated[0], 'Stock updated');
   } catch (err) { return error(res, err.message); }
 };
+
+// Shared by addStock and purchaseMaterials below — looks up this
+// material's unit_conversions row (if any) and converts a purchase_unit
+// count (e.g. "20" meaning 20 bags) into the material's own stock unit
+// (e.g. gm). Materials with no conversion rule configured are unaffected
+// — the quantity is assumed to already be in the material's unit, exactly
+// as before this feature existed.
+async function resolveStockDelta(material, enteredQty) {
+  let conversion;
+  try {
+    const rows = await pgrestGet('unit_conversions', {
+      select: '*',
+      raw_material_id: `eq.${material.id}`,
+    });
+    conversion = rows?.[0];
+  } catch (e) { /* unit_conversions is a phase35 addition — ignore until it's run */ }
+
+  if (!conversion || !conversion.bag_weight) {
+    return { delta: enteredQty, note: null, purchaseUnit: material.unit };
+  }
+
+  const weightInBagUnit = enteredQty * Number(conversion.bag_weight);
+  const converted = convertQuantity(weightInBagUnit, conversion.bag_weight_unit, material.unit);
+
+  if (converted === null) {
+    // bag_weight_unit and material.unit aren't a known matching family
+    // (e.g. "piece" vs "kg") — can't safely convert, so fall back to
+    // treating bag_weight_unit's number as already being in material.unit
+    // rather than silently applying a wrong ratio.
+    return {
+      delta: weightInBagUnit,
+      note: `${enteredQty} ${conversion.purchase_unit} × ${conversion.bag_weight} ${conversion.bag_weight_unit}/${conversion.purchase_unit}`,
+      purchaseUnit: conversion.purchase_unit,
+    };
+  }
+
+  return {
+    delta: converted,
+    note: `${enteredQty} ${conversion.purchase_unit} × ${conversion.bag_weight} ${conversion.bag_weight_unit}/${conversion.purchase_unit} = ${converted.toLocaleString()} ${material.unit}`,
+    purchaseUnit: conversion.purchase_unit,
+  };
+}
 
 // POST /api/v1/production/materials/purchase — bulk stock-in from a
 // supplier purchase: adds to stock and writes one raw_material_stock_logs
@@ -216,13 +296,23 @@ const purchaseMaterials = async (req, res) => {
       const qty = Number(item.qty);
       const pricePerUnit = Number(item.price_per_unit);
 
-      await pgrestPatch('raw_materials', { id: `eq.${item.raw_material_id}` }, { stock: Number(mat.stock) + qty });
+      // Same purchase-unit → stock-unit conversion as addStock above —
+      // qty here is a bag count when this material has a conversion rule
+      // configured, not a direct amount in mat.unit.
+      const { delta, note: convertedNote, purchaseUnit } = await resolveStockDelta(mat, qty);
 
+      await pgrestPatch('raw_materials', { id: `eq.${item.raw_material_id}` }, { stock: Number(mat.stock) + delta });
+      mat.stock = Number(mat.stock) + delta; // keep running total correct if this material repeats in the same purchase
+
+      const noteParts = [
+        `Purchased${supplier_name ? ' from ' + supplier_name : ''} @ PKR ${pricePerUnit}/unit`,
+        convertedNote,
+      ].filter(Boolean);
       const logRow = {
         material_id: item.raw_material_id,
         company_id:  mat.company_id,
-        quantity:    qty,
-        note:        `Purchased${supplier_name ? ' from ' + supplier_name : ''} @ PKR ${pricePerUnit}/unit`,
+        quantity:    delta,
+        note:        noteParts.join(' — '),
         logged_date: purchaseDate,
         created_by:  req.user.id,
       };
@@ -244,8 +334,10 @@ const purchaseMaterials = async (req, res) => {
       results.push({
         raw_material_id: item.raw_material_id,
         name: mat.name,
-        unit: mat.unit,
+        unit: purchaseUnit,
         qty,
+        stock_added: delta,
+        stock_unit: mat.unit,
         price_per_unit: pricePerUnit,
         total: qty * pricePerUnit,
       });

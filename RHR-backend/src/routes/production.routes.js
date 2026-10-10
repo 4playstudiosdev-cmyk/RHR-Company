@@ -402,7 +402,11 @@ router.delete('/runs/:id', authenticate, isAdmin, async (req, res) => {
 
     if (pErr || !productionRun) return error(res, 'Production record not found', 404);
 
-    // Restore raw material stock for each line
+    // Restore raw material stock for each line. production_lines.qty_used
+    // is written in the material's own stock unit (see runProduction in
+    // production.controller.js), not the recipe's BOM unit, so adding it
+    // straight back is correct even when a recipe's unit differs from the
+    // material's (e.g. recipe in gm, stock tracked in kg).
     for (const line of productionRun.production_lines) {
       const { data: current } = await supabaseAdmin
         .from('raw_materials')

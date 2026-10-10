@@ -3,6 +3,7 @@ const { success, error } = require('../utils/response');
 const { invalidate } = require('../utils/simpleCache');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { convertQuantity } = require('../utils/unitConversion');
 
 // Orders that still need product manufactured/shipped for them. The task
 // spec says "pending customer orders" — but literally filtering to
@@ -184,17 +185,32 @@ const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, r
   const recipeLabel = bomRecipe.product_name;
   const batchUnit = bomRecipe.batch_unit;
 
+  // A recipe's BOM line can be written in a different unit than the raw
+  // material's own stock unit (e.g. recipe calls for 500 gm of a chemical
+  // tracked in kg) — convert what's "needed" into the stock's unit before
+  // comparing against/deducting from it. needed/unit stay in the recipe's
+  // own unit for user-facing display (shortage messages, the
+  // materials_used summary below); neededForStock/stockUnit are what
+  // actually gets subtracted from raw_materials.stock and logged to
+  // production_lines, so a later quantity correction (see
+  // updateProductionOrderQty) can diff against it directly without a
+  // second conversion.
   const materialNeeds = allIngredients.map(ing => {
     const needed = Number(ing.quantity) * Number(qtyProduced);
+    const stockUnit = ing.raw_materials?.unit;
+    const converted = convertQuantity(needed, ing.unit, stockUnit);
+    const neededForStock = converted === null ? needed : converted;
     const available = Number(ing.raw_materials?.stock || 0);
     return {
       raw_material_id: ing.raw_material_id,
       name:            ing.raw_materials?.name,
       unit:            ing.unit,
+      stockUnit,
       needed,
+      neededForStock,
       available,
-      shortage:        Math.max(0, needed - available),
-      canProduce:      available >= needed,
+      shortage:        Math.max(0, neededForStock - available),
+      canProduce:      available >= neededForStock,
     };
   });
 
@@ -258,13 +274,20 @@ const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, r
 
   for (const mat of materialNeeds) {
     const conversion = conversionByMaterial[mat.raw_material_id];
-    const bagsUsed = conversion?.bag_weight ? Number((mat.needed / Number(conversion.bag_weight)).toFixed(3)) : null;
+    // bag_weight is denominated in the stock's own unit (bag_weight_unit,
+    // normally == consumption/stock unit) — bags-used has to divide the
+    // stock-unit figure, not the recipe-unit one, or this silently drifts
+    // whenever a recipe's BOM unit differs from the material's stock unit.
+    const bagsUsed = conversion?.bag_weight ? Number((mat.neededForStock / Number(conversion.bag_weight)).toFixed(3)) : null;
 
     const lineRow = {
       production_id:   newProduction.id,
       raw_material_id: mat.raw_material_id,
-      qty_used:        mat.needed,
-      unit:            mat.unit,
+      // Stored in the material's own stock unit (not the recipe's BOM
+      // unit) — matches what's actually deducted below, so a later
+      // quantity correction can diff against this directly.
+      qty_used:        mat.neededForStock,
+      unit:            mat.stockUnit || mat.unit,
     };
     try {
       // bags_used is a separately-run ALTER (see the "sql is already run"
@@ -283,7 +306,7 @@ const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, r
 
     await supabaseAdmin
       .from('raw_materials')
-      .update({ stock: Number(current.stock) - mat.needed })
+      .update({ stock: Number(current.stock) - mat.neededForStock })
       .eq('id', mat.raw_material_id);
 
     await supabaseAdmin
@@ -291,10 +314,11 @@ const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, r
       .insert({
         material_id: mat.raw_material_id,
         company_id:  companyId,
-        quantity:    -mat.needed,
+        quantity:    -mat.neededForStock,
         logged_date: date || new Date().toISOString().split('T')[0],
         created_by:  userId,
-        note: `Used in production: ${recipeLabel} — ${qtyProduced} ${batchUnit} (production ${newProduction.id})`,
+        note: `Used in production: ${recipeLabel} — ${qtyProduced} ${batchUnit} (production ${newProduction.id})` +
+              (mat.needed !== mat.neededForStock ? ` [${mat.needed} ${mat.unit} converted to ${mat.neededForStock.toLocaleString()} stock units]` : ''),
       });
   }
 
@@ -439,18 +463,31 @@ const updateProductionOrderQty = async (req, res) => {
 
     const { data: bomRecipe } = await supabaseAdmin
       .from('production_bom')
-      .select('production_bom_items(raw_material_id, qty_required)')
+      .select('production_bom_items(raw_material_id, qty_required, unit)')
       .eq('id', run.recipe_id)
       .maybeSingle();
     if (!bomRecipe) return error(res, 'Recipe for this production run no longer exists', 404);
 
     const oldQty = Number(run.qty_produced);
-    const deltas = []; // { raw_material_id, line_id, delta, neededNew }
+    const bomMaterialIds = (bomRecipe.production_bom_items || []).map((i) => i.raw_material_id);
+    const bomMaterials = bomMaterialIds.length
+      ? await pgrestGet('raw_materials', { select: 'id,unit', id: `in.(${bomMaterialIds.join(',')})` })
+      : [];
+    const stockUnitById = Object.fromEntries((bomMaterials || []).map((m) => [m.id, m.unit]));
 
+    const deltas = []; // { raw_material_id, line_id, delta, neededNew } — delta/neededNew are in the material's own stock unit
     for (const bomItem of bomRecipe.production_bom_items || []) {
       const line = (run.production_lines || []).find((l) => l.raw_material_id === bomItem.raw_material_id);
-      const neededNew = Number(bomItem.qty_required) * newQty;
-      const oldUsed = line ? Number(line.qty_used) : 0;
+      // qty_required/qty_used are both in the recipe's BOM unit, which can
+      // differ from the raw material's stock unit — convert the new
+      // target the same way runProduction does, so this correction
+      // doesn't subtract a recipe-unit number straight off a stock-unit
+      // figure (e.g. grams off a kg stock).
+      const stockUnit = stockUnitById[bomItem.raw_material_id];
+      const rawNeededNew = Number(bomItem.qty_required) * newQty;
+      const converted = convertQuantity(rawNeededNew, bomItem.unit, stockUnit);
+      const neededNew = converted === null ? rawNeededNew : converted;
+      const oldUsed = line ? Number(line.qty_used) : 0; // already in stock unit — written that way by runProduction above
       deltas.push({ raw_material_id: bomItem.raw_material_id, line_id: line?.id, neededNew, delta: neededNew - oldUsed });
     }
 

@@ -26,8 +26,16 @@ const MATERIAL_CATEGORIES = [
   { label: 'Other', value: 'other' },
 ];
 const CATEGORY_LABEL = Object.fromEntries(MATERIAL_CATEGORIES.map((c) => [c.value, c.label]));
-const UNITS = ['kg', 'litre', 'piece', 'bag'];
-const EMPTY_FORM = { name: '', category: MATERIAL_CATEGORIES[0].value, unit: UNITS[0], stock: '', min_level: '', cost_per_unit: '' };
+const UNITS = ['kg', 'gm', 'litre', 'ml', 'piece', 'bag'];
+const EMPTY_FORM = {
+  name: '', category: MATERIAL_CATEGORIES[0].value, unit: UNITS[0], stock: '', min_level: '', cost_per_unit: '',
+  // Purchased in a different unit than it's tracked/used in — e.g. bought
+  // by the bag (purchase_unit), stock kept in kg (bag_weight_unit — this
+  // material's own `unit` above), consumed in production by the gm
+  // (consumption_unit). Optional: left off, purchases/production both
+  // just use `unit` directly, exactly as before this existed.
+  purchasedDifferently: false, purchase_unit: 'bag', bag_weight: '', consumption_unit: UNITS[0],
+};
 const EMPTY_STOCK_FORM = { quantity: '', date: new Date().toISOString().split('T')[0], note: '' };
 const EMPTY_PURCHASE_ROW = { raw_material_id: '', qty: '', price_per_unit: '' };
 const EMPTY_CONVERSION_FORM = { purchase_unit: 'bag', consumption_unit: 'kg', bag_weight: '', bag_weight_unit: 'kg' };
@@ -162,21 +170,46 @@ export default function RawMaterials() {
 
   const openEditModal = (material) => {
     setEditingMaterial(material);
+    const existingConversion = conversionByMaterial[material.id];
     setForm({
       name: material.name || '',
       category: material.category || MATERIAL_CATEGORIES[0].value,
       unit: material.unit || UNITS[0],
       stock: material.stock ?? '',
       min_level: material.min_level ?? '',
-      cost_per_unit: material.cost_per_unit ?? ''
+      cost_per_unit: material.cost_per_unit ?? '',
+      purchasedDifferently: !!existingConversion,
+      purchase_unit: existingConversion?.purchase_unit || 'bag',
+      bag_weight: existingConversion?.bag_weight ?? '',
+      consumption_unit: existingConversion?.consumption_unit || material.unit || UNITS[0],
     });
     setShowAddModal(true);
+  };
+
+  // Saves the purchase/production unit rule (if the admin filled it in)
+  // right alongside the material itself, via the same endpoint the
+  // separate "Unit Conversion" modal (Repeat icon) already posts to —
+  // this is just an earlier entry point into the same table, not a
+  // parallel system.
+  const saveConversionIfSet = async (materialId) => {
+    if (!form.purchasedDifferently || !form.bag_weight || Number(form.bag_weight) <= 0) return;
+    await api.post('/production/unit-conversions', {
+      raw_material_id: materialId,
+      purchase_unit: form.purchase_unit,
+      consumption_unit: form.consumption_unit,
+      bag_weight: Number(form.bag_weight),
+      bag_weight_unit: form.unit,
+    });
   };
 
   const handleSaveMaterial = async (e) => {
     e.preventDefault();
     if (!form.name || form.stock === '' || form.min_level === '') {
       toast.error('Material name, current stock and minimum level are required.');
+      return;
+    }
+    if (form.purchasedDifferently && (!form.bag_weight || Number(form.bag_weight) <= 0)) {
+      toast.error(`Enter how many ${form.unit} are in 1 ${form.purchase_unit}.`);
       return;
     }
     setSaving(true);
@@ -190,9 +223,10 @@ export default function RawMaterials() {
           min_level: Number(form.min_level),
           cost_per_unit: Number(form.cost_per_unit) || 0
         });
+        await saveConversionIfSet(editingMaterial.id);
         toast.success('Material updated.');
       } else {
-        await api.post('/production/materials', {
+        const res = await api.post('/production/materials', {
           name: form.name,
           category: form.category,
           unit: form.unit,
@@ -200,12 +234,14 @@ export default function RawMaterials() {
           min_level: Number(form.min_level),
           cost_per_unit: Number(form.cost_per_unit) || 0
         });
+        await saveConversionIfSet(res.data.data.id);
         toast.success('Material added.');
       }
       setShowAddModal(false);
       setEditingMaterial(null);
       setForm(EMPTY_FORM);
       loadMaterials();
+      loadConversions();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to save material.');
     } finally {
@@ -613,6 +649,64 @@ export default function RawMaterials() {
                 <p className="text-xs text-gray-400 mt-1">Alerts when stock falls below this.</p>
               </div>
             </div>
+
+            <div className="border border-gray-200 rounded-lg p-3.5 bg-gray-50/60">
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.purchasedDifferently}
+                  onChange={(e) => setForm({ ...form, purchasedDifferently: e.target.checked })}
+                  className="rounded border-gray-300"
+                />
+                Purchased in a different unit than it's used in production
+              </label>
+              {form.purchasedDifferently && (
+                <div className="mt-3 space-y-3">
+                  <p className="text-xs text-gray-500">
+                    e.g. bought by the bag, stock kept in {form.unit || 'kg'}, used in production by the gm.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Purchased In</label>
+                      <input
+                        type="text"
+                        placeholder="bag"
+                        value={form.purchase_unit}
+                        onChange={(e) => setForm({ ...form, purchase_unit: e.target.value })}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        1 {form.purchase_unit || 'unit'} = ___ {form.unit}
+                      </label>
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        placeholder="e.g. 25"
+                        value={form.bag_weight}
+                        onChange={(e) => setForm({ ...form, bag_weight: e.target.value })}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow bg-white"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Used in production as</label>
+                    <select
+                      value={form.consumption_unit}
+                      onChange={(e) => setForm({ ...form, consumption_unit: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                    >
+                      {UNITS.map((u) => (
+                        <option key={u} value={u}>{u}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Cost per Unit (PKR)</label>
               <input
@@ -815,47 +909,67 @@ export default function RawMaterials() {
                 <span></span>
               </div>
               <div className="space-y-2">
-                {purchaseItems.map((item, index) => (
-                  <div key={index} className="grid grid-cols-[2fr_1fr_1fr_auto] gap-2 items-center">
-                    <select
-                      value={item.raw_material_id}
-                      onChange={(e) => updatePurchaseRow(index, 'raw_material_id', e.target.value)}
-                      className="border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-                    >
-                      <option value="">— Select —</option>
-                      {materials.map((m) => (
-                        <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>
-                      ))}
-                    </select>
-                    <input
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      placeholder="Qty"
-                      value={item.qty}
-                      onChange={(e) => updatePurchaseRow(index, 'qty', e.target.value)}
-                      className="border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-                    />
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="PKR"
-                      value={item.price_per_unit}
-                      onChange={(e) => updatePurchaseRow(index, 'price_per_unit', e.target.value)}
-                      className="border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removePurchaseRow(index)}
-                      disabled={purchaseItems.length === 1}
-                      className="p-2 rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                      title="Remove row"
-                    >
-                      <X size={15} />
-                    </button>
-                  </div>
-                ))}
+                {purchaseItems.map((item, index) => {
+                  const mat = materials.find((m) => m.id === item.raw_material_id);
+                  const conv = item.raw_material_id ? conversionByMaterial[item.raw_material_id] : null;
+                  const qtyUnit = conv ? conv.purchase_unit : mat?.unit;
+                  const convertedPreview = conv && item.qty
+                    ? Number(item.qty) * Number(conv.bag_weight)
+                    : null;
+                  return (
+                    <div key={index}>
+                      <div className="grid grid-cols-[2fr_1fr_1fr_auto] gap-2 items-center">
+                        <select
+                          value={item.raw_material_id}
+                          onChange={(e) => updatePurchaseRow(index, 'raw_material_id', e.target.value)}
+                          className="border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                        >
+                          <option value="">— Select —</option>
+                          {materials.map((m) => {
+                            const mConv = conversionByMaterial[m.id];
+                            return (
+                              <option key={m.id} value={m.id}>
+                                {m.name} ({mConv ? mConv.purchase_unit : m.unit})
+                              </option>
+                            );
+                          })}
+                        </select>
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          placeholder={qtyUnit ? `Qty (${qtyUnit})` : 'Qty'}
+                          value={item.qty}
+                          onChange={(e) => updatePurchaseRow(index, 'qty', e.target.value)}
+                          className="border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="PKR"
+                          value={item.price_per_unit}
+                          onChange={(e) => updatePurchaseRow(index, 'price_per_unit', e.target.value)}
+                          className="border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removePurchaseRow(index)}
+                          disabled={purchaseItems.length === 1}
+                          className="p-2 rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                          title="Remove row"
+                        >
+                          <X size={15} />
+                        </button>
+                      </div>
+                      {convertedPreview !== null && (
+                        <p className="text-xs text-gray-400 mt-0.5 ml-1">
+                          = {convertedPreview.toLocaleString()} {conv.bag_weight_unit} added to stock
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               <button
                 type="button"
