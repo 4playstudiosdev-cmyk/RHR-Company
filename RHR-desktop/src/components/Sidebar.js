@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, UserCog, Wallet, LogOut,
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
-  Gauge, Boxes, ClipboardList, FileBarChart2, ChevronDown, X,
+  Gauge, Boxes, ClipboardList, FileBarChart2, ChevronDown, ChevronLeft, ChevronRight, X,
   PackageCheck, ArrowLeftRight, PackageSearch, Landmark, Receipt, Store, RotateCcw,
   HandCoins, Car, CalendarCheck, WalletCards, LayoutPanelTop, Trash2, HardHat
 } from 'lucide-react';
@@ -120,7 +120,7 @@ const GROUPS = [
   },
   {
     key: 'reports', label: 'Reports & Audit', icon: FileBarChart2,
-    children: ['daily-dashboard', 'production-reports', 'stock-reports', 'reports', 'deleted-items']
+    children: ['production-reports', 'stock-reports', 'reports', 'deleted-items']
   }
 ];
 
@@ -147,7 +147,7 @@ function groupForPage(page) {
   return GROUPS.find((g) => g.children.includes(page));
 }
 
-export default function Sidebar({ page, setPage, user, onLogout, open, onClose }) {
+export default function Sidebar({ page, setPage, user, onLogout, open, onClose, collapsed, onToggleCollapse }) {
   // Multiple groups can be open at once — matches the original single
   // "Production" accordion's behavior, just generalized to all 7.
   const [openGroups, setOpenGroups] = useState(() => {
@@ -206,6 +206,29 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose }
   const renderChildButton = (item, groupKey) => {
     const Icon = item.icon;
     const active = page === item.key;
+    const badgeCount = item.key === 'stock-transfers' ? pendingTransfers
+      : item.key === 'notifications' ? loginAlerts : 0;
+
+    if (collapsed) {
+      return (
+        <button
+          key={`${groupKey}-${item.key}`}
+          onClick={() => setPage(item.key)}
+          title={item.label}
+          className={`relative w-full flex items-center justify-center py-2.5 rounded-xl transition-colors ${
+            active
+              ? 'bg-navy-container text-white shadow-sm'
+              : 'text-blue-200/70 hover:bg-white/10 hover:text-white'
+          }`}
+        >
+          <Icon size={17} strokeWidth={2} />
+          {badgeCount > 0 && (
+            <span className="absolute top-0.5 right-1 w-2 h-2 rounded-full bg-orange" />
+          )}
+        </button>
+      );
+    }
+
     return (
       <button
         key={`${groupKey}-${item.key}`}
@@ -243,26 +266,45 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose }
         />
       )}
       <div
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-navy text-white flex flex-col h-screen flex-shrink-0 overflow-hidden
-          transform transition-transform duration-200 ease-in-out
+        className={`fixed inset-y-0 left-0 z-50 bg-navy text-white flex flex-col h-screen flex-shrink-0 overflow-hidden
+          transform transition-all duration-200 ease-in-out
           ${open ? 'translate-x-0' : '-translate-x-full'}
+          ${collapsed ? 'md:w-16' : 'md:w-64'} w-64
           md:static md:translate-x-0 md:z-auto`}
       >
-      <div className="px-6 py-6 border-b border-white/10 flex-shrink-0 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-wide text-white">RHR & Company</h1>
-          <p className="text-xs text-blue-200/70 mt-1">Admin Desktop Panel</p>
-        </div>
-        <button
-          onClick={onClose}
-          className="md:hidden text-blue-200/70 hover:text-white p-1 -mr-1"
-          aria-label="Close menu"
-        >
-          <X size={20} />
-        </button>
+      {/* Collapse/expand toggle — desktop only, floats on the sidebar's
+          right edge regardless of scroll position. */}
+      <button
+        onClick={onToggleCollapse}
+        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        className="hidden md:flex absolute -right-3 top-8 z-50 w-6 h-6 bg-blue-500 hover:bg-blue-600 rounded-full items-center justify-center shadow-lg transition-colors"
+      >
+        {collapsed ? <ChevronRight size={13} className="text-white" /> : <ChevronLeft size={13} className="text-white" />}
+      </button>
+
+      <div className={`py-6 border-b border-white/10 flex-shrink-0 flex items-center ${collapsed ? 'justify-center px-2' : 'justify-between px-6'}`}>
+        {collapsed ? (
+          <div className="w-9 h-9 rounded-full bg-orange flex items-center justify-center text-xs font-bold text-white flex-shrink-0" title="RHR & Company">
+            RHR
+          </div>
+        ) : (
+          <>
+            <div>
+              <h1 className="text-xl font-bold tracking-wide text-white">RHR & Company</h1>
+              <p className="text-xs text-blue-200/70 mt-1">Admin Desktop Panel</p>
+            </div>
+            <button
+              onClick={onClose}
+              className="md:hidden text-blue-200/70 hover:text-white p-1 -mr-1"
+              aria-label="Close menu"
+            >
+              <X size={20} />
+            </button>
+          </>
+        )}
       </div>
 
-      <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-5 space-y-1.5">
+      <nav className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden py-5 space-y-1.5 ${collapsed ? 'px-2' : 'px-3'}`}>
         {GROUPS.map((group) => {
           const visibleChildren = group.children
             .map((k) => ITEM_BY_KEY[k])
@@ -276,6 +318,21 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose }
           const GroupIcon = group.icon;
           const isOpen = openGroups.includes(group.key);
           const groupHasActive = visibleChildren.some((item) => item.key === page);
+
+          // Collapsed mode: no accordion — just the group icon as a
+          // non-interactive marker, then every child always visible as
+          // an icon-only button, so navigation never requires expanding
+          // the sidebar first.
+          if (collapsed) {
+            return (
+              <div key={group.key} className="space-y-1">
+                <div className="flex items-center justify-center py-2 text-blue-200/50" title={group.label}>
+                  <GroupIcon size={15} strokeWidth={2} />
+                </div>
+                {visibleChildren.map((item) => renderChildButton(item, group.key))}
+              </div>
+            );
+          }
 
           return (
             <div key={group.key}>
@@ -304,22 +361,27 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose }
         })}
       </nav>
 
-      <div className="px-4 py-4 border-t border-white/10 space-y-3 flex-shrink-0">
-        <div className="flex items-center gap-3 px-2">
+      <div className={`py-4 border-t border-white/10 space-y-3 flex-shrink-0 ${collapsed ? 'px-2' : 'px-4'}`}>
+        <div className={`flex items-center gap-3 ${collapsed ? 'justify-center' : 'px-2'}`} title={collapsed ? `${user?.fullName} — ${formatRole(user?.role)}` : undefined}>
           <div className="w-9 h-9 rounded-full bg-orange flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
             {getInitials(user?.fullName)}
           </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-white truncate">{user?.fullName}</p>
-            <p className="text-xs text-blue-200/60 truncate">{formatRole(user?.role)}</p>
-          </div>
+          {!collapsed && (
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-white truncate">{user?.fullName}</p>
+              <p className="text-xs text-blue-200/60 truncate">{formatRole(user?.role)}</p>
+            </div>
+          )}
         </div>
         <button
           onClick={onLogout}
-          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-blue-200/80 hover:bg-white/10 hover:text-white transition-colors"
+          title={collapsed ? 'Logout' : undefined}
+          className={`w-full flex items-center rounded-xl text-sm font-medium text-blue-200/80 hover:bg-white/10 hover:text-white transition-colors ${
+            collapsed ? 'justify-center py-2.5' : 'gap-3 px-4 py-2.5'
+          }`}
         >
           <LogOut size={18} strokeWidth={2} />
-          <span>Logout</span>
+          {!collapsed && <span>Logout</span>}
         </button>
       </div>
       </div>

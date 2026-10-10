@@ -145,6 +145,13 @@ function AppShell() {
   // order's detail view on the Orders page.
   const [targetOrderNumber, setTargetOrderNumber] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Desktop-only icon-rail mode — persisted so it survives a refresh.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem('sidebar_collapsed') === 'true'
+  );
+  useEffect(() => {
+    localStorage.setItem('sidebar_collapsed', sidebarCollapsed);
+  }, [sidebarCollapsed]);
 
   // Closes the mobile drawer whenever a nav item is picked, without
   // affecting desktop where the sidebar is always static/visible anyway.
@@ -222,8 +229,10 @@ function AppShell() {
         onLogout={handleLogout}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
       />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 transition-all duration-300">
         <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-navy text-white flex-shrink-0">
           <button
             onClick={() => setSidebarOpen(true)}
