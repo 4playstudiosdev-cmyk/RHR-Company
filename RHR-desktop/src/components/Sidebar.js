@@ -255,16 +255,21 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
           ${collapsed ? 'md:w-0' : 'md:w-64'} w-64
           md:static md:translate-x-0 md:z-auto`}
       >
-        {/* Collapse/expand toggle — desktop only. right-0 + translate-x-1/2
-            keeps it straddling the wrapper's current edge in both states,
-            instead of a fixed negative offset that only looked right at
-            one specific width. */}
+        {/* Collapse/expand toggle — desktop only. When expanded, right-0
+            + translate-x-1/2 straddles the sidebar's right edge (both
+            halves land on real content either side, so nothing's cut
+            off). When collapsed the wrapper itself sits at the viewport's
+            left edge (x=0) — the same straddle math would put half the
+            button at a negative x, off-screen — so it switches to a
+            plain left-2 instead, fully on-screen. */}
         <button
           onClick={onToggleCollapse}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="hidden md:flex absolute top-8 right-0 translate-x-1/2 z-50 w-6 h-6 bg-blue-500 hover:bg-blue-600 rounded-full items-center justify-center shadow-lg transition-colors"
+          className={`hidden md:flex absolute top-8 z-50 w-8 h-8 bg-blue-500 hover:bg-blue-600 rounded-full items-center justify-center shadow-lg transition-colors ${
+            collapsed ? 'left-2' : 'right-0 translate-x-1/2'
+          }`}
         >
-          {collapsed ? <ChevronRight size={13} className="text-white" /> : <ChevronLeft size={13} className="text-white" />}
+          {collapsed ? <ChevronRight size={18} className="text-white" /> : <ChevronLeft size={18} className="text-white" />}
         </button>
 
         {/* Collapsed (desktop): the wrapper is 0-width, so nothing in
