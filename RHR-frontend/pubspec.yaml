@@ -52,6 +52,7 @@ dependencies:
   # PDF generation
   printing: ^5.12.0
   pdf: ^3.10.8
+  location: ^10.0.2
 
 dev_dependencies:
   flutter_test:

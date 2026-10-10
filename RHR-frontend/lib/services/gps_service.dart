@@ -3,6 +3,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import '../core/location/location_service.dart';
 import '../core/network/dio_client.dart';
 import '../core/storage/secure_storage.dart';
 import '../widgets/location_disclosure_dialog.dart';
@@ -68,6 +69,14 @@ class GPSService {
     }
 
     await initialize();
+
+    // Prompts the native "Turn on Location?" dialog if GPS is off —
+    // see LocationService.ensureLocationServiceOn for why Geolocator
+    // alone can't do this.
+    if (!await LocationService.ensureLocationServiceOn()) {
+      debugPrint('GPS tracking skipped — location service is off');
+      return false;
+    }
 
     try {
       LocationPermission permission = await Geolocator.checkPermission();
