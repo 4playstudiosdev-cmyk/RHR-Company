@@ -221,10 +221,16 @@ const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, r
     ), { statusCode: 400 });
   }
 
-  const totalCost = allIngredients.reduce(
-    (sum, ing) => sum + Number(ing.rate_per_unit || 0) * Number(ing.quantity) * Number(qtyProduced),
-    0
-  );
+  // cost_per_unit is priced per the material's own stock unit (e.g. PKR
+  // per kg) — multiplying it by the raw recipe-unit quantity (e.g. 1000
+  // gm) instead of the already-converted stock-unit amount overstated
+  // cost by whatever the unit ratio was (1000x for kg/gm). neededForStock
+  // (materialNeeds, computed above) is the correct, already-converted
+  // figure to price against.
+  const totalCost = materialNeeds.reduce((sum, mat) => {
+    const ing = allIngredients.find((i) => i.raw_material_id === mat.raw_material_id);
+    return sum + Number(ing?.rate_per_unit || 0) * mat.neededForStock;
+  }, 0);
 
   const productionRow = {
     company_id:       companyId,

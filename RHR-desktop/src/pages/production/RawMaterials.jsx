@@ -11,6 +11,7 @@ import { SkeletonTable } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
 import CityFilter from '../../components/CityFilter';
 import { fetchAllCities } from '../../utils/multiCityFetch';
+import { convertQuantity as previewConvert } from '../../utils/unitConversion';
 
 // Labels shown in the UI vs. the actual lowercase codes stored in
 // raw_materials.category — tabs/filter/form all used to compare against
@@ -39,26 +40,8 @@ const EMPTY_FORM = {
   // purchases/production both just use `unit` directly, exactly as
   // before this existed.
   purchasedDifferently: false, purchase_unit: 'bag', purchase_unit_other: '', bag_weight: '', bag_weight_unit: UNITS[0], consumption_unit: UNITS[0],
-  // UI-only convenience — never sent to the backend. Typing a bag count
-  // here just computes `stock` (above) for you; `stock` itself is still
-  // what actually gets saved, always in the material's base unit.
-  stock_in_bags: '',
 };
 
-// Mirrors the backend's convertQuantity (src/utils/unitConversion.js) —
-// just enough to show a live "1 kg = 1000 gm" preview in the form before
-// saving; the real conversion that drives stock numbers always happens
-// server-side.
-const WEIGHT_TO_GRAMS = { mg: 0.001, g: 1, gm: 1, kg: 1000, ton: 1000000 };
-const VOLUME_TO_ML = { ml: 1, l: 1000, litre: 1000, liter: 1000 };
-function previewConvert(value, fromUnit, toUnit) {
-  const from = (fromUnit || '').toLowerCase();
-  const to = (toUnit || '').toLowerCase();
-  if (!from || !to || from === to) return value;
-  if (WEIGHT_TO_GRAMS[from] && WEIGHT_TO_GRAMS[to]) return (value * WEIGHT_TO_GRAMS[from]) / WEIGHT_TO_GRAMS[to];
-  if (VOLUME_TO_ML[from] && VOLUME_TO_ML[to]) return (value * VOLUME_TO_ML[from]) / VOLUME_TO_ML[to];
-  return null;
-}
 const EMPTY_STOCK_FORM = { quantity: '', date: new Date().toISOString().split('T')[0], note: '' };
 const EMPTY_PURCHASE_ROW = { raw_material_id: '', qty: '', price_per_unit: '' };
 const EMPTY_CONVERSION_FORM = { purchase_unit: 'bag', consumption_unit: 'kg', bag_weight: '', bag_weight_unit: 'kg' };
@@ -200,14 +183,16 @@ export default function RawMaterials() {
   const bagWeightInProductionUnit = form.bag_weight
     ? previewConvert(Number(form.bag_weight), form.bag_weight_unit, form.consumption_unit)
     : null;
-  // Current Stock always stays in the material's own base unit (kg) —
-  // same number the backend stores and what every other material on
-  // this page already means, so an existing material's real inventory
-  // never gets silently reinterpreted as a bag count. The "Set Current
-  // Stock from ___ bags" quick-fill below writes into `stock` for them
-  // (bags x per-bag weight), rather than changing what this field means.
-  const stockInProductionPreview = form.stock
-    ? previewConvert(Number(form.stock), form.unit, form.consumption_unit)
+  // When a purchase conversion is configured, Current Stock is entered
+  // as a bag count (how the admin actually counts what's in the
+  // godown) instead of the material's base unit — converted into the
+  // base unit (what actually gets sent to the backend) and the
+  // production unit here, purely for the live preview under the field.
+  const stockTotalInStockUnit = form.purchasedDifferently && form.stock && bagWeightInStockUnit
+    ? Number(form.stock) * bagWeightInStockUnit
+    : null;
+  const stockTotalInProductionUnit = stockTotalInStockUnit !== null
+    ? previewConvert(stockTotalInStockUnit, form.unit, form.consumption_unit)
     : null;
 
   const openEditModal = (material) => {
@@ -215,11 +200,21 @@ export default function RawMaterials() {
     const existingConversion = conversionByMaterial[material.id];
     const savedPurchaseUnit = existingConversion?.purchase_unit || 'bag';
     const isKnownFormat = PURCHASE_FORMATS.includes(savedPurchaseUnit);
+    // Current Stock is entered/shown as a bag count whenever a conversion
+    // exists — material.stock itself is always the real base-unit figure
+    // (what's actually stored), so convert it back into bags here for
+    // display, matching what handleSaveMaterial converts back on save.
+    const bagWeightInStock = existingConversion?.bag_weight
+      ? previewConvert(Number(existingConversion.bag_weight), existingConversion.bag_weight_unit, material.unit)
+      : null;
+    const stockForDisplay = existingConversion && bagWeightInStock
+      ? Number((Number(material.stock) / bagWeightInStock).toFixed(4))
+      : material.stock ?? '';
     setForm({
       name: material.name || '',
       category: material.category || MATERIAL_CATEGORIES[0].value,
       unit: material.unit || UNITS[0],
-      stock: material.stock ?? '',
+      stock: stockForDisplay,
       min_level: material.min_level ?? '',
       cost_per_unit: material.cost_per_unit ?? '',
       purchasedDifferently: !!existingConversion,
@@ -228,7 +223,6 @@ export default function RawMaterials() {
       bag_weight: existingConversion?.bag_weight ?? '',
       bag_weight_unit: existingConversion?.bag_weight_unit || material.unit || UNITS[0],
       consumption_unit: existingConversion?.consumption_unit || material.unit || UNITS[0],
-      stock_in_bags: '',
     });
     setShowAddModal(true);
   };
@@ -259,6 +253,13 @@ export default function RawMaterials() {
       toast.error(`Enter how many ${form.unit} are in 1 ${purchaseUnitLabel}.`);
       return;
     }
+    // form.stock is a bag count whenever a conversion is configured (see
+    // the Current Stock field's label above) — convert it into the
+    // material's base unit before sending, since that's what the backend
+    // (and every other material's stock figure) actually stores.
+    const stockToSave = form.purchasedDifferently && stockTotalInStockUnit !== null
+      ? stockTotalInStockUnit
+      : Number(form.stock);
     setSaving(true);
     try {
       if (editingMaterial) {
@@ -266,7 +267,7 @@ export default function RawMaterials() {
           name: form.name,
           category: form.category,
           unit: form.unit,
-          stock: Number(form.stock),
+          stock: stockToSave,
           min_level: Number(form.min_level),
           cost_per_unit: Number(form.cost_per_unit) || 0
         });
@@ -277,7 +278,7 @@ export default function RawMaterials() {
           name: form.name,
           category: form.category,
           unit: form.unit,
-          stock: Number(form.stock),
+          stock: stockToSave,
           min_level: Number(form.min_level),
           cost_per_unit: Number(form.cost_per_unit) || 0
         });
@@ -696,15 +697,25 @@ export default function RawMaterials() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Current Stock *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  {form.purchasedDifferently ? `Current Stock (in ${purchaseUnitLabel}s) *` : 'Current Stock *'}
+                </label>
                 <input
                   type="number"
                   min="0"
+                  step="0.01"
                   required
+                  placeholder={form.purchasedDifferently ? `e.g. 40 ${purchaseUnitLabel}s` : undefined}
                   value={form.stock}
                   onChange={(e) => setForm({ ...form, stock: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
                 />
+                {form.purchasedDifferently && form.stock && stockTotalInStockUnit !== null && (
+                  <p className="text-xs text-navy font-medium mt-1">
+                    = {stockTotalInStockUnit.toLocaleString()} {form.unit}
+                    {stockTotalInProductionUnit !== null && ` = ${stockTotalInProductionUnit.toLocaleString()} ${form.consumption_unit}`}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Minimum Level *</label>
@@ -808,49 +819,16 @@ export default function RawMaterials() {
                   </div>
 
                   {form.bag_weight && Number(form.bag_weight) > 0 && (
-                    <div className="bg-navy-chip/40 rounded-lg px-3 py-2.5 text-xs text-navy space-y-2">
-                      <div>
-                        <p className="font-semibold uppercase tracking-wide text-[10px] text-navy/70">Per {purchaseUnitLabel}</p>
-                        <p>1 {purchaseUnitLabel} = {form.bag_weight} {form.bag_weight_unit}
-                          {bagWeightInStockUnit !== null && bagWeightInStockUnit !== Number(form.bag_weight) &&
-                            ` = ${bagWeightInStockUnit.toLocaleString()} ${form.unit} (stock unit)`}
-                        </p>
-                        {bagWeightInProductionUnit !== null && (
-                          <p>= {bagWeightInProductionUnit.toLocaleString()} {form.consumption_unit} per {purchaseUnitLabel} (production unit)</p>
-                        )}
-                      </div>
-
-                      <div className="border-t border-navy/15 pt-2">
-                        <p className="font-semibold uppercase tracking-wide text-[10px] text-navy/70 mb-1">
-                          Have {purchaseUnitLabel}s in stock right now?
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <span>Set Current Stock from</span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            placeholder={`e.g. 40`}
-                            value={form.stock_in_bags}
-                            onChange={(e) => {
-                              const bags = e.target.value;
-                              const computedStock = bags !== '' && bagWeightInStockUnit !== null
-                                ? Number((Number(bags) * bagWeightInStockUnit).toFixed(4))
-                                : form.stock;
-                              setForm({ ...form, stock_in_bags: bags, stock: bags !== '' ? String(computedStock) : form.stock });
-                            }}
-                            className="w-20 border border-navy/30 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-navy bg-white"
-                          />
-                          <span>{purchaseUnitLabel}s</span>
-                        </div>
-                        {form.stock && (
-                          <p className="mt-1.5 font-medium">
-                            = {Number(form.stock).toLocaleString()} {form.unit} in stock
-                            {stockInProductionPreview !== null &&
-                              ` = ${stockInProductionPreview.toLocaleString()} ${form.consumption_unit} available for production`}
-                          </p>
-                        )}
-                      </div>
+                    <div className="bg-navy-chip/40 rounded-lg px-3 py-2.5 text-xs text-navy space-y-1">
+                      <p className="font-semibold uppercase tracking-wide text-[10px] text-navy/70">Per {purchaseUnitLabel}</p>
+                      <p>1 {purchaseUnitLabel} = {form.bag_weight} {form.bag_weight_unit}
+                        {bagWeightInStockUnit !== null && bagWeightInStockUnit !== Number(form.bag_weight) &&
+                          ` = ${bagWeightInStockUnit.toLocaleString()} ${form.unit} (stock unit)`}
+                      </p>
+                      {bagWeightInProductionUnit !== null && (
+                        <p>= {bagWeightInProductionUnit.toLocaleString()} {form.consumption_unit} per {purchaseUnitLabel} (production unit)</p>
+                      )}
+                      <p className="text-navy/70">Enter how many {purchaseUnitLabel}s you have in Current Stock above — it converts automatically.</p>
                     </div>
                   )}
                 </div>

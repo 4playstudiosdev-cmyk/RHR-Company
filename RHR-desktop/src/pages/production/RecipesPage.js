@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Plus, ListPlus, PencilLine, Trash2, Save, X, FlaskConical, ClipboardList, Coins } from 'lucide-react';
-import api from '../../services/api';
+import api, { getCurrentUser } from '../../services/api';
+import { convertQuantity } from '../../utils/unitConversion';
 import PageHeader from '../../components/PageHeader';
 import Button from '../../components/Button';
 import EmptyState from '../../components/EmptyState';
@@ -42,9 +43,17 @@ export default function RecipesPage() {
     }
   };
 
+  // Recipes always save against the logged-in admin's own company_id
+  // (production_bom.company_id = req.user.company_id server-side, even
+  // for super_admin — see production.routes.js) — scoping the materials
+  // list the same way instead of fetching unfiltered avoids every
+  // material showing up once per branch ("Chemical 1 (kg)", "Chemical 1
+  // (Gm)", "Chemical 1 (Gm)"...) with no way to tell which copy a recipe
+  // would actually be able to use.
   const loadRawMaterials = async () => {
     try {
-      const r = await api.get('/production/materials');
+      const user = getCurrentUser();
+      const r = await api.get('/production/materials', { params: { company_id: user?.companyId } });
       if (r.data.success) setRawMaterials(r.data.data || []);
     } catch (e) {
       toast.error('Failed to load raw materials.');
@@ -82,11 +91,17 @@ export default function RecipesPage() {
   // each row's rate up against rawMaterials.cost_per_unit (phase36), the
   // same rate production.controller.js#runProduction actually multiplies
   // against quantity consumed, so this preview matches the real COGS.
+  // cost_per_unit is priced per the material's own stock unit (e.g. PKR
+  // per kg) — a row entered in a different unit (e.g. 1000 gm) has to be
+  // converted into that stock unit before pricing, or this overstates
+  // cost by the unit ratio (1000x for a kg/gm mismatch).
   const costOfIngredients = (rows) =>
     rows.reduce((sum, row) => {
       const mat = rawMaterials.find((m) => m.id === row.raw_material_id);
       const rate = Number(mat?.cost_per_unit || 0);
-      return sum + Number(row.quantity || 0) * rate;
+      const qty = Number(row.quantity || 0);
+      const converted = mat ? convertQuantity(qty, row.unit, mat.unit) : qty;
+      return sum + (converted === null ? qty : converted) * rate;
     }, 0);
 
   const formCost = useMemo(() => costOfIngredients(ingredients), [ingredients, rawMaterials]);
