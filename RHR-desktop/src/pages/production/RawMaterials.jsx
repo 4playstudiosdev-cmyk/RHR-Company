@@ -32,11 +32,13 @@ const PRODUCTION_UNITS = ['gm', 'kg', 'ml', 'litre', 'piece'];
 const EMPTY_FORM = {
   name: '', category: MATERIAL_CATEGORIES[0].value, unit: UNITS[0], stock: '', min_level: '', cost_per_unit: '',
   // Purchased in a different unit than it's tracked/used in — e.g. bought
-  // by the bag (purchase_unit), stock kept in kg (bag_weight_unit — this
-  // material's own `unit` above), consumed in production by the gm
-  // (consumption_unit). Optional: left off, purchases/production both
-  // just use `unit` directly, exactly as before this existed.
-  purchasedDifferently: false, purchase_unit: 'bag', purchase_unit_other: '', bag_weight: '', consumption_unit: UNITS[0],
+  // by the bag (purchase_unit), where 1 bag weighs bag_weight
+  // bag_weight_unit (picked independently — the admin might think in kg
+  // even for a material whose stock is tracked in gm), consumed in
+  // production by the gm (consumption_unit). Optional: left off,
+  // purchases/production both just use `unit` directly, exactly as
+  // before this existed.
+  purchasedDifferently: false, purchase_unit: 'bag', purchase_unit_other: '', bag_weight: '', bag_weight_unit: UNITS[0], consumption_unit: UNITS[0],
 };
 
 // Mirrors the backend's convertQuantity (src/utils/unitConversion.js) —
@@ -188,7 +190,12 @@ export default function RawMaterials() {
   // Add Material modal — live-computed helper text for the purchase/
   // production unit section, so the admin sees the math before saving.
   const purchaseUnitLabel = form.purchase_unit === 'other' ? (form.purchase_unit_other || 'unit') : form.purchase_unit;
-  const productionPreview = previewConvert(1, form.unit, form.consumption_unit);
+  const bagWeightInStockUnit = form.bag_weight
+    ? previewConvert(Number(form.bag_weight), form.bag_weight_unit, form.unit)
+    : null;
+  const bagWeightInProductionUnit = form.bag_weight
+    ? previewConvert(Number(form.bag_weight), form.bag_weight_unit, form.consumption_unit)
+    : null;
 
   const openEditModal = (material) => {
     setEditingMaterial(material);
@@ -206,6 +213,7 @@ export default function RawMaterials() {
       purchase_unit: isKnownFormat ? savedPurchaseUnit : 'other',
       purchase_unit_other: isKnownFormat ? '' : savedPurchaseUnit,
       bag_weight: existingConversion?.bag_weight ?? '',
+      bag_weight_unit: existingConversion?.bag_weight_unit || material.unit || UNITS[0],
       consumption_unit: existingConversion?.consumption_unit || material.unit || UNITS[0],
     });
     setShowAddModal(true);
@@ -223,7 +231,7 @@ export default function RawMaterials() {
       purchase_unit: purchaseUnitLabel,
       consumption_unit: form.consumption_unit,
       bag_weight: Number(form.bag_weight),
-      bag_weight_unit: form.unit,
+      bag_weight_unit: form.bag_weight_unit,
     });
   };
 
@@ -738,22 +746,33 @@ export default function RawMaterials() {
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">
-                          1 {purchaseUnitLabel} = ___ {form.unit}
+                          1 {purchaseUnitLabel} = how much?
                         </label>
-                        <input
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          placeholder="e.g. 25"
-                          value={form.bag_weight}
-                          onChange={(e) => setForm({ ...form, bag_weight: e.target.value })}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow bg-white"
-                        />
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            placeholder="e.g. 25"
+                            value={form.bag_weight}
+                            onChange={(e) => setForm({ ...form, bag_weight: e.target.value })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow bg-white"
+                          />
+                          <select
+                            value={form.bag_weight_unit}
+                            onChange={(e) => setForm({ ...form, bag_weight_unit: e.target.value })}
+                            className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                          >
+                            {UNITS.filter((u) => u !== 'bag').map((u) => (
+                              <option key={u} value={u}>{u}</option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                     </div>
                     {form.bag_weight && Number(form.bag_weight) > 0 && (
                       <p className="text-xs text-navy font-medium mt-1.5">
-                        1 {purchaseUnitLabel} = {form.bag_weight} {form.unit}
+                        1 {purchaseUnitLabel} = {form.bag_weight} {form.bag_weight_unit}
                       </p>
                     )}
                   </div>
@@ -772,12 +791,20 @@ export default function RawMaterials() {
                         <option key={u} value={u}>{u}</option>
                       ))}
                     </select>
-                    {productionPreview !== null && (
-                      <p className="text-xs text-navy font-medium mt-1.5">
-                        1 {form.unit} = {productionPreview.toLocaleString()} {form.consumption_unit}
-                      </p>
-                    )}
                   </div>
+
+                  {form.bag_weight && Number(form.bag_weight) > 0 && (
+                    <div className="bg-navy-chip/40 rounded-lg px-3 py-2.5 text-xs text-navy space-y-1">
+                      <p className="font-semibold uppercase tracking-wide text-[10px] text-navy/70">Full conversion chain</p>
+                      <p>1 {purchaseUnitLabel} = {form.bag_weight} {form.bag_weight_unit}
+                        {bagWeightInStockUnit !== null && bagWeightInStockUnit !== Number(form.bag_weight) &&
+                          ` = ${bagWeightInStockUnit.toLocaleString()} ${form.unit} (stock unit)`}
+                      </p>
+                      {bagWeightInProductionUnit !== null && (
+                        <p>= {bagWeightInProductionUnit.toLocaleString()} {form.consumption_unit} per {purchaseUnitLabel} (production unit)</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -988,8 +1015,16 @@ export default function RawMaterials() {
                   const mat = materials.find((m) => m.id === item.raw_material_id);
                   const conv = item.raw_material_id ? conversionByMaterial[item.raw_material_id] : null;
                   const qtyUnit = conv ? conv.purchase_unit : mat?.unit;
-                  const convertedPreview = conv && item.qty
-                    ? Number(item.qty) * Number(conv.bag_weight)
+                  // Full chain: qty (bags) -> weight in bag_weight_unit ->
+                  // the material's actual stock unit -> production unit —
+                  // shown before saving so the admin can verify the math,
+                  // not just trust a single combined number.
+                  const weightInBagUnit = conv && item.qty ? Number(item.qty) * Number(conv.bag_weight) : null;
+                  const weightInStockUnit = weightInBagUnit !== null && mat
+                    ? previewConvert(weightInBagUnit, conv.bag_weight_unit, mat.unit)
+                    : null;
+                  const weightInProductionUnit = weightInBagUnit !== null
+                    ? previewConvert(weightInBagUnit, conv.bag_weight_unit, conv.consumption_unit)
                     : null;
                   return (
                     <div key={index}>
@@ -1037,9 +1072,12 @@ export default function RawMaterials() {
                           <X size={15} />
                         </button>
                       </div>
-                      {convertedPreview !== null && (
+                      {weightInBagUnit !== null && (
                         <p className="text-xs text-gray-400 mt-0.5 ml-1">
-                          = {convertedPreview.toLocaleString()} {conv.bag_weight_unit} added to stock
+                          {item.qty} {conv.purchase_unit} × {conv.bag_weight} {conv.bag_weight_unit}
+                          {weightInStockUnit !== null && ` = ${weightInStockUnit.toLocaleString()} ${mat.unit} added to stock`}
+                          {weightInProductionUnit !== null && conv.consumption_unit !== mat?.unit &&
+                            ` (${weightInProductionUnit.toLocaleString()} ${conv.consumption_unit} for production)`}
                         </p>
                       )}
                     </div>
