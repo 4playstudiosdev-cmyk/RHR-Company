@@ -30,6 +30,17 @@ const CATEGORY_LABEL = Object.fromEntries(MATERIAL_CATEGORIES.map((c) => [c.valu
 const UNITS = ['kg', 'gm', 'litre', 'ml', 'piece', 'bag'];
 const PURCHASE_FORMATS = ['bag', 'box', 'piece', 'drum', 'litre', 'other'];
 const PRODUCTION_UNITS = ['gm', 'kg', 'ml', 'litre', 'piece'];
+
+// A unit stored with different casing ("Kg" vs "kg") won't match any
+// <option> in a select built from UNITS (all-lowercase) — the browser
+// then just shows whichever option happens to be first, silently
+// displaying the wrong unit even though the real stored value never
+// changed. Lowercasing here keeps the dropdown honest regardless of
+// how the value was originally saved.
+const normalizeUnit = (u, fallback) => {
+  const lower = (u || '').toLowerCase();
+  return lower || fallback;
+};
 const EMPTY_FORM = {
   name: '', category: MATERIAL_CATEGORIES[0].value, unit: UNITS[0], stock: '', min_level: '', cost_per_unit: '',
   // Purchased in a different unit than it's tracked/used in — e.g. bought
@@ -213,7 +224,7 @@ export default function RawMaterials() {
     setForm({
       name: material.name || '',
       category: material.category || MATERIAL_CATEGORIES[0].value,
-      unit: material.unit || UNITS[0],
+      unit: normalizeUnit(material.unit, UNITS[0]),
       stock: stockForDisplay,
       min_level: material.min_level ?? '',
       cost_per_unit: material.cost_per_unit ?? '',
@@ -221,8 +232,8 @@ export default function RawMaterials() {
       purchase_unit: isKnownFormat ? savedPurchaseUnit : 'other',
       purchase_unit_other: isKnownFormat ? '' : savedPurchaseUnit,
       bag_weight: existingConversion?.bag_weight ?? '',
-      bag_weight_unit: existingConversion?.bag_weight_unit || material.unit || UNITS[0],
-      consumption_unit: existingConversion?.consumption_unit || material.unit || UNITS[0],
+      bag_weight_unit: normalizeUnit(existingConversion?.bag_weight_unit || material.unit, UNITS[0]),
+      consumption_unit: normalizeUnit(existingConversion?.consumption_unit || material.unit, UNITS[0]),
     });
     setShowAddModal(true);
   };

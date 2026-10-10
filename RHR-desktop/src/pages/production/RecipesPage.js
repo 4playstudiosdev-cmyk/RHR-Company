@@ -9,9 +9,16 @@ import { useToast } from '../../components/Toast';
 
 const EMPTY_ROW = () => ({ raw_material_id: '', material_name: '', quantity: '', unit: '', isNew: false });
 
+// Lowercase only, one entry per unit — this used to list both 'Kg' and
+// 'kg' (etc), and picking the capitalized one here is exactly how
+// raw_materials/unit_conversions/production_bom_items ended up with
+// mixed-case unit strings that the Raw Materials page's own Unit
+// dropdown (all-lowercase) couldn't match back, silently showing the
+// wrong selection. convertQuantity lowercases everything anyway, so
+// there's no reason for this list to offer more than one casing.
 const UNITS = [
-  'Kg', 'Gm', 'Pcs', 'bag', 'pouch', 'bottle',
-  'kg', 'liter', 'ml', 'ton', 'meter', 'box'
+  'kg', 'gm', 'piece', 'bag', 'pouch', 'bottle',
+  'liter', 'ml', 'ton', 'meter', 'box'
 ];
 
 export default function RecipesPage() {
