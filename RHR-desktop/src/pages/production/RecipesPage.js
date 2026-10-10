@@ -156,7 +156,11 @@ export default function RecipesPage() {
       const updated = { ...ing, [field]: value };
       if (field === 'raw_material_id') {
         const mat = rawMaterials.find((m) => m.id === value);
-        if (mat) updated.unit = mat.unit || '';
+        // Default to the material's configured production unit (e.g. gm)
+        // when it has one — that's what recipes actually consume it by —
+        // falling back to its base/stock unit (kg) for materials with no
+        // purchase-unit conversion set up.
+        if (mat) updated.unit = mat.production_unit || mat.unit || '';
       }
       return updated;
     }));
@@ -351,7 +355,7 @@ export default function RecipesPage() {
                         </button>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-[1fr_70px_60px_32px] gap-2 items-center">
+                      <div className="grid grid-cols-[1fr_70px_70px_32px] gap-2 items-center">
                         <select
                           value={ing.raw_material_id}
                           onChange={(e) => updateRow(index, 'raw_material_id', e.target.value)}
@@ -359,7 +363,7 @@ export default function RecipesPage() {
                         >
                           <option value="">-- Select --</option>
                           {rawMaterials.map((m) => (
-                            <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>
+                            <option key={m.id} value={m.id}>{m.name} ({m.production_unit || m.unit})</option>
                           ))}
                         </select>
                         <input
@@ -370,9 +374,31 @@ export default function RecipesPage() {
                           onChange={(e) => updateRow(index, 'quantity', e.target.value)}
                           className="border border-gray-300 rounded-md px-2 py-1.5 text-sm w-full"
                         />
-                        <div className="text-center text-xs text-gray-500 bg-gray-50 rounded-md py-1.5">
-                          {ing.unit || '—'}
-                        </div>
+                        {(() => {
+                          const rowMat = rawMaterials.find((m) => m.id === ing.raw_material_id);
+                          // Only offer a real choice when the material has
+                          // both a stock unit and a different production
+                          // unit configured — otherwise there's nothing to
+                          // pick between, so keep it a plain read-only chip.
+                          const unitOptions = rowMat && rowMat.production_unit && rowMat.production_unit !== rowMat.unit
+                            ? [rowMat.unit, rowMat.production_unit]
+                            : null;
+                          return unitOptions ? (
+                            <select
+                              value={ing.unit}
+                              onChange={(e) => updateRow(index, 'unit', e.target.value)}
+                              className="border border-gray-300 rounded-md px-1 py-1.5 text-xs w-full bg-white text-center"
+                            >
+                              {unitOptions.map((u) => (
+                                <option key={u} value={u}>{u}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <div className="text-center text-xs text-gray-500 bg-gray-50 rounded-md py-1.5">
+                              {ing.unit || '—'}
+                            </div>
+                          );
+                        })()}
                         <button
                           onClick={() => removeRow(index)}
                           disabled={ingredients.length === 1}
