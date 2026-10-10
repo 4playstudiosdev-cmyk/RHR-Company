@@ -141,6 +141,9 @@ function AppShell() {
   });
   // Lets Customers.js jump straight to a specific customer's ledger
   const [ledgerCustomerId, setLedgerCustomerId] = useState(null);
+  // Lets Ledger.js's clickable order-number links jump straight to that
+  // order's detail view on the Orders page.
+  const [targetOrderNumber, setTargetOrderNumber] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Closes the mobile drawer whenever a nav item is picked, without
@@ -184,6 +187,11 @@ function AppShell() {
   const goToLedger = (customerId) => {
     setLedgerCustomerId(customerId);
     setPage('ledger');
+  };
+
+  const goToOrder = (orderNumber) => {
+    setTargetOrderNumber(orderNumber);
+    setPage('orders');
   };
 
   // Continuous admin location tracking, same lifecycle as the salesman
@@ -238,6 +246,8 @@ function AppShell() {
                 setPage={setPage}
                 onViewLedger={goToLedger}
                 initialCustomerId={ledgerCustomerId}
+                onViewOrderNumber={goToOrder}
+                initialOrderNumber={targetOrderNumber}
               />
             </ProtectedRoute>
           </ErrorBoundary>

@@ -14,20 +14,83 @@ const EMPTY_ADJUSTMENT = { entry_type: 'debit', amount: '', description: '' };
 const PAGE_SIZE = 8;
 
 // Some ledger entries carry a reference_type (order/payment/adjustment) set
-// by the DB trigger that posts them; manual adjustments always have it.
-// Falls back to entry_type so every row still gets a sensible badge.
+// by the DB trigger that posts them; manual adjustments don't, so this
+// falls back to entry_type — shown as "Billed"/"Received" (never the raw
+// Debit/Credit wording) so every row still gets a plain-language badge.
 function typeLabel(entry) {
-  return (entry.reference_type || entry.entry_type || '').replace(/^\w/, (c) => c.toUpperCase());
+  if (entry.reference_type) return entry.reference_type.replace(/^\w/, (c) => c.toUpperCase());
+  return entry.entry_type === 'debit' ? 'Billed' : 'Received';
 }
 
 function typeBadgeClasses(entry) {
   const t = (entry.reference_type || entry.entry_type || '').toLowerCase();
-  if (t === 'payment' || t === 'credit') return 'bg-emerald-50 text-emerald-700 border border-emerald-100';
-  if (t === 'order' || t === 'debit') return 'bg-red-50 text-red-600 border border-red-100';
+  if (t === 'payment' || t === 'credit' || t === 'recovery') return 'bg-emerald-50 text-emerald-700 border border-emerald-100';
+  if (t === 'order' || t === 'debit') return 'bg-blue-50 text-blue-600 border border-blue-100';
   return 'bg-gray-100 text-gray-600 border border-gray-200';
 }
 
-export default function Ledger({ initialCustomerId }) {
+// Pulls a human order number like "KHI-2026-00008" out of a ledger
+// description — both "Order KHI-2026-00015 confirmed" and
+// "Return — Order #KHI-2026-00001" carry it in plain text already, so
+// this needs no new backend field to make it clickable.
+const ORDER_NUMBER_RE = /([A-Z]{2,5}-\d{4}-\d+)/;
+
+function extractOrderNumber(description) {
+  const match = (description || '').match(ORDER_NUMBER_RE);
+  return match ? match[1] : null;
+}
+
+// Splits a description around its order number (if any) so the order
+// number alone can render as a clickable link, with the rest of the
+// text staying plain.
+function DescriptionCell({ description, onViewOrderNumber }) {
+  const orderNumber = extractOrderNumber(description);
+  if (!orderNumber || !onViewOrderNumber) return <>{description || '—'}</>;
+
+  const idx = description.indexOf(orderNumber);
+  const before = description.slice(0, idx);
+  const after = description.slice(idx + orderNumber.length);
+  return (
+    <>
+      {before}
+      <button
+        type="button"
+        onClick={() => onViewOrderNumber(orderNumber)}
+        className="text-blue-600 underline underline-offset-2 hover:text-blue-800 font-semibold"
+      >
+        {orderNumber}
+      </button>
+      {after}
+    </>
+  );
+}
+
+// "Cash payment received by salesman" / similar generic trigger text
+// doesn't name who actually collected it — this best-effort matches the
+// entry to a payment record for the same customer (closest amount +
+// nearest timestamp) and appends the real salesman's name, without
+// touching the DB trigger that writes the original description.
+function enrichRecoveryDescription(entry, payments) {
+  if (entry.reference_type !== 'recovery' || !payments?.length) return entry.description;
+  if (/by\s+\S/.test(entry.description || '')) return entry.description; // already names someone
+
+  const entryTime = new Date(entry.created_at).getTime();
+  let best = null;
+  let bestDiff = Infinity;
+  for (const p of payments) {
+    if (Number(p.amount) !== Number(entry.amount)) continue;
+    if (p.status !== 'approved') continue;
+    const diff = Math.abs(new Date(p.created_at).getTime() - entryTime);
+    if (diff < bestDiff) { bestDiff = diff; best = p; }
+  }
+  // Only trust a match within a generous 48h window of the ledger entry
+  // itself — anything further apart is more likely a coincidental
+  // same-amount payment than the one that actually produced this entry.
+  if (!best || bestDiff > 48 * 60 * 60 * 1000 || !best.salesman?.full_name) return entry.description;
+  return `${entry.description} by ${best.salesman.full_name} (Salesman)`;
+}
+
+export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
   const toast = useToast();
   const user = getCurrentUser();
   const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId; // KHI default
@@ -38,6 +101,7 @@ export default function Ledger({ initialCustomerId }) {
   const [customerId, setCustomerId] = useState(initialCustomerId || '');
 
   const [entries, setEntries] = useState([]);
+  const [customerPayments, setCustomerPayments] = useState([]);
   const [currentBalance, setCurrentBalance] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -94,13 +158,41 @@ export default function Ledger({ initialCustomerId }) {
     loadLedger();
   }, [loadLedger]);
 
+  // Fetched once per customer (not per date filter) — used only to find
+  // who actually collected a cash/online recovery, for the description
+  // enrichment below. Best-effort: ledger still works fine if this fails.
+  useEffect(() => {
+    if (!customerId) { setCustomerPayments([]); return; }
+    api.get('/payments', { params: { customer_id: customerId } })
+      .then((r) => setCustomerPayments(r.data.data || []))
+      .catch(() => setCustomerPayments([]));
+  }, [customerId]);
+
   const selectedCustomer = customers.find((c) => c.id === customerId);
 
   const totalDebit = entries.filter((e) => e.entry_type === 'debit').reduce((sum, e) => sum + Number(e.amount), 0);
   const totalCredit = entries.filter((e) => e.entry_type === 'credit').reduce((sum, e) => sum + Number(e.amount), 0);
 
-  const totalPages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
-  const pageEntries = entries.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  // Backend returns newest-first; a ledger reads naturally oldest-first,
+  // like a bank statement, with Opening Balance as the literal first row —
+  // which also makes "what did they owe before this date range" obvious
+  // without needing a separate query.
+  const chronoEntries = [...entries].reverse();
+  const oldest = chronoEntries[0];
+  const openingBalance = oldest
+    ? Number(oldest.running_balance) - (oldest.entry_type === 'debit' ? Number(oldest.amount) : -Number(oldest.amount))
+    : Number(currentBalance);
+  const openingRow = {
+    id: '__opening-balance__',
+    isOpeningBalance: true,
+    created_at: fromDate ? `${fromDate}T00:00:00` : oldest?.created_at,
+    description: fromDate ? 'Opening Balance (as of start date)' : 'Opening Balance',
+    running_balance: openingBalance,
+  };
+  const displayRows = [openingRow, ...chronoEntries];
+
+  const totalPages = Math.max(1, Math.ceil(displayRows.length / PAGE_SIZE));
+  const pageEntries = displayRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleAdjustSubmit = async (e) => {
     e.preventDefault();
@@ -154,15 +246,21 @@ export default function Ledger({ initialCustomerId }) {
   };
 
   const handleExportExcel = () => {
-    const head = ['Date', 'Description', 'Debit (DR)', 'Credit (CR)', 'Balance', 'Type'];
-    const rows = entries.map((e) => [
-      new Date(e.created_at).toLocaleDateString('en-GB'),
-      e.description || '',
-      e.entry_type === 'debit' ? Number(e.amount) : '',
-      e.entry_type === 'credit' ? Number(e.amount) : '',
-      Number(e.running_balance),
-      typeLabel(e)
-    ]);
+    const head = ['Date', 'Description', 'Billed (+)', 'Received (-)', 'Balance', 'Type'];
+    const rows = [
+      [
+        openingRow.created_at ? new Date(openingRow.created_at).toLocaleDateString('en-GB') : '',
+        openingRow.description, '', '', Number(openingRow.running_balance), 'Opening',
+      ],
+      ...chronoEntries.map((e) => [
+        new Date(e.created_at).toLocaleDateString('en-GB'),
+        enrichRecoveryDescription(e, customerPayments) || '',
+        e.entry_type === 'debit' ? Number(e.amount) : '',
+        e.entry_type === 'credit' ? Number(e.amount) : '',
+        Number(e.running_balance),
+        typeLabel(e)
+      ]),
+    ];
     exportTableToExcel({
       sheetName: 'Ledger',
       head,
@@ -268,14 +366,14 @@ export default function Ledger({ initialCustomerId }) {
           {/* Balance summary */}
           {entries.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-6">
-              <div className="bg-white rounded-2xl shadow-card border border-red-100 p-5">
+              <div className="bg-white rounded-2xl shadow-card border border-blue-100 p-5">
                 <div className="flex items-center gap-2 mb-3">
-                  <div className="w-8 h-8 rounded-md bg-red-50 flex items-center justify-center text-red-600">
+                  <div className="w-8 h-8 rounded-md bg-blue-50 flex items-center justify-center text-blue-600">
                     <TrendingDown size={18} />
                   </div>
-                  <h3 className="text-sm font-semibold text-gray-500">Total Debit (Billed)</h3>
+                  <h3 className="text-sm font-semibold text-gray-500">Total Billed</h3>
                 </div>
-                <div className="text-[26px] leading-tight font-bold text-red-600">
+                <div className="text-[26px] leading-tight font-bold text-blue-600">
                   PKR {totalDebit.toLocaleString()}
                 </div>
               </div>
@@ -284,7 +382,7 @@ export default function Ledger({ initialCustomerId }) {
                   <div className="w-8 h-8 rounded-md bg-emerald-50 flex items-center justify-center text-emerald-600">
                     <TrendingUp size={18} />
                   </div>
-                  <h3 className="text-sm font-semibold text-gray-500">Total Credit (Paid)</h3>
+                  <h3 className="text-sm font-semibold text-gray-500">Total Received</h3>
                 </div>
                 <div className="text-[26px] leading-tight font-bold text-emerald-600">
                   PKR {totalCredit.toLocaleString()}
@@ -309,7 +407,7 @@ export default function Ledger({ initialCustomerId }) {
               <h2 className="font-semibold text-navy">Transaction History</h2>
             </div>
 
-            {entries.length === 0 ? (
+            {entries.length === 0 && Number(openingBalance) === 0 ? (
               <EmptyState icon={BookOpen} title="No ledger entries" subtitle="Entries will appear here as orders, payments and adjustments occur" />
             ) : (
               <>
@@ -319,14 +417,30 @@ export default function Ledger({ initialCustomerId }) {
                       <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Description</th>
-                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Debit (DR)</th>
-                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Credit (CR)</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Billed (+)</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Received (-)</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Balance</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-center">Type</th>
                       </tr>
                     </thead>
                     <tbody>
                       {pageEntries.map((entry, i) => (
+                        entry.isOpeningBalance ? (
+                          <tr key={entry.id} className="border-b border-gray-100 bg-navy-chip/30">
+                            <td className="px-6 py-3.5 whitespace-nowrap text-gray-500">
+                              {entry.created_at ? new Date(entry.created_at).toLocaleDateString('en-GB') : '—'}
+                            </td>
+                            <td className="px-6 py-3.5 text-navy font-bold" colSpan={3}>{entry.description}</td>
+                            <td className="px-6 py-3.5 text-right font-bold text-navy">
+                              PKR {Number(entry.running_balance).toLocaleString()}
+                            </td>
+                            <td className="px-6 py-3.5 text-center">
+                              <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wide bg-navy-chip text-navy">
+                                Opening
+                              </span>
+                            </td>
+                          </tr>
+                        ) : (
                         <tr
                           key={entry.id}
                           className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${
@@ -336,8 +450,13 @@ export default function Ledger({ initialCustomerId }) {
                           <td className="px-6 py-3.5 whitespace-nowrap text-gray-500">
                             {new Date(entry.created_at).toLocaleDateString('en-GB')}
                           </td>
-                          <td className="px-6 py-3.5 text-navy font-medium">{entry.description || '—'}</td>
-                          <td className="px-6 py-3.5 text-right text-red-600 font-medium">
+                          <td className="px-6 py-3.5 text-navy font-medium">
+                            <DescriptionCell
+                              description={enrichRecoveryDescription(entry, customerPayments)}
+                              onViewOrderNumber={onViewOrderNumber}
+                            />
+                          </td>
+                          <td className="px-6 py-3.5 text-right text-blue-600 font-medium">
                             {entry.entry_type === 'debit' ? `PKR ${Number(entry.amount).toLocaleString()}` : '—'}
                           </td>
                           <td className="px-6 py-3.5 text-right text-emerald-600 font-medium">
@@ -352,6 +471,7 @@ export default function Ledger({ initialCustomerId }) {
                             </span>
                           </td>
                         </tr>
+                        )
                       ))}
                     </tbody>
                   </table>
@@ -359,7 +479,7 @@ export default function Ledger({ initialCustomerId }) {
 
                 <div className="px-6 py-4 border-t border-gray-100 flex justify-between items-center flex-wrap gap-3">
                   <span className="text-xs text-gray-400">
-                    Showing {(page - 1) * PAGE_SIZE + 1} to {Math.min(page * PAGE_SIZE, entries.length)} of {entries.length} entries
+                    Showing {(page - 1) * PAGE_SIZE + 1} to {Math.min(page * PAGE_SIZE, displayRows.length)} of {displayRows.length} entries
                   </span>
                   <div className="flex gap-1.5">
                     <button
@@ -410,7 +530,7 @@ export default function Ledger({ initialCustomerId }) {
                     checked={form.entry_type === 'debit'}
                     onChange={() => setForm({ ...form, entry_type: 'debit' })}
                   />
-                  Debit (customer owes more)
+                  Billed (customer owes more)
                 </label>
                 <label className="flex items-center gap-2 text-sm">
                   <input
@@ -419,7 +539,7 @@ export default function Ledger({ initialCustomerId }) {
                     checked={form.entry_type === 'credit'}
                     onChange={() => setForm({ ...form, entry_type: 'credit' })}
                   />
-                  Credit (reduces balance)
+                  Received (reduces balance)
                 </label>
               </div>
             </div>

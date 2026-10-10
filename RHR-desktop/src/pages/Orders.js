@@ -38,7 +38,7 @@ const EMPTY_ORDER_FORM = { customer_id: '', items: [{ product_id: '', quantity: 
 // custom price or a discount/premium tier set.
 const RATE_TIER_ADJUSTMENT = { manual: 0, discount: -10, premium: 10 };
 
-export default function Orders() {
+export default function Orders({ initialOrderNumber }) {
   const toast = useToast();
   const user = getCurrentUser();
   // Deleting an order/invoice is an admin action — available to both
@@ -107,6 +107,16 @@ export default function Orders() {
     loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
+
+  // Ledger.js's clickable "Order #KHI-2026-00008" links land here —
+  // find that order in whatever's loaded and open its detail modal,
+  // same as clicking "View" on it directly.
+  useEffect(() => {
+    if (!initialOrderNumber || orders.length === 0) return;
+    const match = orders.find((o) => o.order_number === initialOrderNumber);
+    if (match) handleViewOrder(match);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialOrderNumber, orders]);
 
   // Fetched lazily the first time the "Deleted Invoices" tab is opened,
   // instead of a separate sidebar page — this is an audit sub-view of
