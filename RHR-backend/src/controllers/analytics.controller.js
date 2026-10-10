@@ -7,13 +7,21 @@ const { pgrestGet, pgrestGetRaw } = require('../utils/directQuery');
 const getSalesmanAnalytics = async (req, res) => {
   try {
     const { id } = req.params;
-    const { month, year } = req.query;
+    const { month, year, from, to } = req.query;
 
-    const now   = new Date();
-    const m     = month || now.getMonth() + 1;
-    const y     = year  || now.getFullYear();
-    const start = new Date(y, m - 1, 1).toISOString();
-    const end   = new Date(y, m, 0).toISOString();
+    let start, end, period;
+    if (from && to) {
+      start = new Date(`${from}T00:00:00`).toISOString();
+      end = new Date(`${to}T23:59:59.999`).toISOString();
+      period = `${from} to ${to}`;
+    } else {
+      const now = new Date();
+      const m = month || now.getMonth() + 1;
+      const y = year || now.getFullYear();
+      start = new Date(y, m - 1, 1).toISOString();
+      end = new Date(y, m, 0).toISOString();
+      period = `${m}/${y}`;
+    }
 
     // Orders this month
     const { data: orders } = await supabaseAdmin
@@ -52,7 +60,7 @@ const getSalesmanAnalytics = async (req, res) => {
     const totalCollected = payments?.reduce((s, p) => s + Number(p.amount), 0) || 0;
 
     return success(res, {
-      period:          `${m}/${y}`,
+      period,
       totalOrders:     orders?.length || 0,
       totalSales,
       totalCollected,

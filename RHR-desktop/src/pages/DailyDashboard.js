@@ -6,6 +6,7 @@ import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
 import { SkeletonStatCards, SkeletonTable } from '../components/Skeleton';
 import CityFilter from '../components/CityFilter';
+import DateRangeFilter from '../components/DateRangeFilter';
 
 const todayISO = () => new Date().toISOString().split('T')[0];
 
@@ -61,21 +62,11 @@ export default function DailyDashboard() {
         action={
           <div className="flex items-center gap-2 flex-wrap">
             <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
-            <input
-              type="date"
-              value={dateFrom}
-              max={dateTo}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
-            />
-            <span className="text-gray-400">—</span>
-            <input
-              type="date"
-              value={dateTo}
-              min={dateFrom}
-              max={todayISO()}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+            <DateRangeFilter
+              from={dateFrom}
+              to={dateTo}
+              defaultPreset="Today"
+              onApply={(from, to) => { setDateFrom(from); setDateTo(to); }}
             />
             <Button variant="primary" onClick={loadDashboard} className="flex items-center gap-1.5">
               <RefreshCw size={14} /> Refresh

@@ -8,6 +8,7 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
+import DateRangeFilter from '../components/DateRangeFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
 
 const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
@@ -315,24 +316,12 @@ export default function Expenses() {
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
-          <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={dateFrom}
-              max={dateTo}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
-            />
-            <span className="text-gray-400 text-sm">to</span>
-            <input
-              type="date"
-              value={dateTo}
-              min={dateFrom}
-              max={todayISO()}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
-            />
-          </div>
+          <DateRangeFilter
+            from={dateFrom}
+            to={dateTo}
+            defaultPreset="This Month"
+            onApply={(from, to) => { setDateFrom(from); setDateTo(to); }}
+          />
           <Button variant="primary" onClick={exportToPdf} className="flex items-center gap-2">
             <Download size={15} /> Export PDF
           </Button>

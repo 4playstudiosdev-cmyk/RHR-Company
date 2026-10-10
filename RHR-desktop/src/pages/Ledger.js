@@ -8,6 +8,7 @@ import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import { exportTableToExcel } from './production/exportUtils';
 import CityFilter from '../components/CityFilter';
+import DateRangeFilter from '../components/DateRangeFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
 
 const EMPTY_ADJUSTMENT = { entry_type: 'debit', amount: '', description: '' };
@@ -322,24 +323,12 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
             ))}
           </select>
         </div>
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Start Date</label>
-          <input
-            type="date"
-            value={fromDate}
-            onChange={(e) => setFromDate(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1.5">End Date</label>
-          <input
-            type="date"
-            value={toDate}
-            onChange={(e) => setToDate(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
-          />
-        </div>
+        <DateRangeFilter
+          from={fromDate}
+          to={toDate}
+          defaultPreset="All Time"
+          onApply={(from, to) => { setFromDate(from); setToDate(to); }}
+        />
       </div>
 
       {error && (

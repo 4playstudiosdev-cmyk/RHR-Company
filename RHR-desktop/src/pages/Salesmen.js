@@ -12,6 +12,7 @@ import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import { exportTableToExcel } from './production/exportUtils';
 import CityFilter from '../components/CityFilter';
+import DateRangeFilter from '../components/DateRangeFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
 
 const EMPTY_FORM = { full_name: '', phone: '', email: '', password: '', position: '' };
@@ -23,8 +24,6 @@ const CITY_LABELS = {
   '09a1fda3-7ac0-406a-8f42-75d973dc3b7e': 'Hyderabad',
   '00f79d89-0d36-4704-8865-fc7bbd662267': 'Sukkur'
 };
-const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const now = new Date();
 
 function getInitials(name) {
   if (!name) return '?';
@@ -770,15 +769,13 @@ function StatusBadgeMini({ status }) {
 // Backed by GET /api/v1/analytics/salesman/:id — an endpoint that already
 // existed but wasn't used by any page yet.
 
-function weekBucket(dateStr) {
-  const d = new Date(dateStr).getDate();
-  return Math.min(4, Math.ceil(d / 7)) - 1; // 0..4 -> W1..W5, capped to a 4-bar view (W5 folds into W4)
-}
-
 function PerformanceTab({ salesmen, onViewLedger, toast }) {
   const [userId, setUserId] = useState('');
-  const [month, setMonth] = useState(now.getMonth() + 1);
-  const [year, setYear] = useState(now.getFullYear());
+  const [dateFrom, setDateFrom] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
+  });
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().split('T')[0]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [balances, setBalances] = useState({});
@@ -787,14 +784,14 @@ function PerformanceTab({ salesmen, onViewLedger, toast }) {
     if (!userId) return;
     setLoading(true);
     try {
-      const res = await api.get(`/analytics/salesman/${userId}`, { params: { month, year } });
+      const res = await api.get(`/analytics/salesman/${userId}`, { params: { from: dateFrom, to: dateTo } });
       setData(res.data.data);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load performance data.');
     } finally {
       setLoading(false);
     }
-  }, [userId, month, year, toast]);
+  }, [userId, dateFrom, dateTo, toast]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -836,17 +833,31 @@ function PerformanceTab({ salesmen, onViewLedger, toast }) {
     return Array.from(map.values()).sort((a, b) => new Date(b.lastVisit) - new Date(a.lastVisit));
   }, [data]);
 
+  const rangeMs = useMemo(() => {
+    const from = new Date(dateFrom);
+    const to = new Date(dateTo);
+    to.setHours(23, 59, 59, 999);
+    return { from, to, spanMs: Math.max(to - from, 0) };
+  }, [dateFrom, dateTo]);
+
+  const weekCount = Math.max(1, Math.ceil(rangeMs.spanMs / (7 * 24 * 60 * 60 * 1000)));
+
+  const weekBucket = useCallback((dateStr) => {
+    const idx = Math.floor((new Date(dateStr) - rangeMs.from) / (7 * 24 * 60 * 60 * 1000));
+    return Math.min(weekCount - 1, Math.max(0, idx));
+  }, [rangeMs, weekCount]);
+
   const weeklyOrders = useMemo(() => {
-    const buckets = [0, 0, 0, 0];
+    const buckets = Array.from({ length: weekCount }, () => 0);
     (data?.orders || []).forEach((o) => { if (o.created_at) buckets[weekBucket(o.created_at)] += 1; });
     return buckets;
-  }, [data]);
+  }, [data, weekCount, weekBucket]);
 
   const weeklyCollections = useMemo(() => {
-    const buckets = [0, 0, 0, 0];
+    const buckets = Array.from({ length: weekCount }, () => 0);
     (data?.payments || []).forEach((p) => { if (p.created_at) buckets[weekBucket(p.created_at)] += Number(p.amount); });
     return buckets;
-  }, [data]);
+  }, [data, weekCount, weekBucket]);
 
   const maxOrders = Math.max(...weeklyOrders, 1);
   const maxCollections = Math.max(...weeklyCollections, 1);
@@ -865,7 +876,7 @@ function PerformanceTab({ salesmen, onViewLedger, toast }) {
         balances[v.customerId] ?? '',
         v.notes || ''
       ]),
-      filename: `${(selected?.full_name || 'salesman').replace(/\s+/g, '-')}-visits-${month}-${year}`
+      filename: `${(selected?.full_name || 'salesman').replace(/\s+/g, '-')}-visits-${dateFrom}-to-${dateTo}`
     });
   };
 
@@ -886,25 +897,12 @@ function PerformanceTab({ salesmen, onViewLedger, toast }) {
               ))}
             </select>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Month</label>
-            <select
-              value={month}
-              onChange={(e) => setMonth(Number(e.target.value))}
-              className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow bg-white"
-            >
-              {MONTH_NAMES.map((name, i) => <option key={i} value={i + 1}>{name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Year</label>
-            <input
-              type="number"
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-              className="w-24 border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-            />
-          </div>
+          <DateRangeFilter
+            from={dateFrom}
+            to={dateTo}
+            defaultPreset="This Month"
+            onApply={(from, to) => { setDateFrom(from); setDateTo(to); }}
+          />
         </div>
         {userId && (
           <button
@@ -965,7 +963,7 @@ function PerformanceTab({ salesmen, onViewLedger, toast }) {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
             <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5">
-              <h3 className="font-semibold text-navy mb-4 text-sm">Orders by Week — {MONTH_NAMES[month - 1]}</h3>
+              <h3 className="font-semibold text-navy mb-4 text-sm">Orders by Week — {dateFrom} to {dateTo}</h3>
               <div className="flex items-end justify-around gap-3 h-40">
                 {weeklyOrders.map((v, i) => (
                   <div key={i} className="flex flex-col items-center gap-2 flex-1 h-full justify-end">
@@ -976,7 +974,7 @@ function PerformanceTab({ salesmen, onViewLedger, toast }) {
               </div>
             </div>
             <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5">
-              <h3 className="font-semibold text-navy mb-4 text-sm">Collections by Week — {MONTH_NAMES[month - 1]}</h3>
+              <h3 className="font-semibold text-navy mb-4 text-sm">Collections by Week — {dateFrom} to {dateTo}</h3>
               <div className="flex items-end justify-around gap-3 h-40">
                 {weeklyCollections.map((v, i) => (
                   <div key={i} className="flex flex-col items-center gap-2 flex-1 h-full justify-end">

@@ -120,7 +120,7 @@ const GROUPS = [
   },
   {
     key: 'reports', label: 'Reports & Audit', icon: FileBarChart2,
-    children: ['production-reports', 'stock-reports', 'reports', 'deleted-items']
+    children: ['stock-reports', 'reports', 'deleted-items']
   }
 ];
 

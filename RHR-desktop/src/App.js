@@ -232,7 +232,10 @@ function AppShell() {
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
       />
-      <div className="flex-1 flex flex-col min-w-0 transition-all duration-300">
+      {/* md:pl-10 when collapsed clears the floating toggle arrow, which
+          otherwise sits right where a page's title/heading starts once
+          the sidebar itself is 0-width. */}
+      <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${sidebarCollapsed ? 'md:pl-10' : ''}`}>
         <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-navy text-white flex-shrink-0">
           <button
             onClick={() => setSidebarOpen(true)}

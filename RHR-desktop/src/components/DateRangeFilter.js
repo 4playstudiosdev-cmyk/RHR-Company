@@ -20,6 +20,7 @@ function buildPresets() {
   const endOfLastMonth = toISO(new Date(now.getFullYear(), now.getMonth(), 0));
 
   return [
+    { label: 'All Time', getValue: () => ({ from: '', to: '' }) },
     { label: 'Today', getValue: () => ({ from: today, to: today }) },
     { label: 'Yesterday', getValue: () => ({ from: yesterday, to: yesterday }) },
     { label: 'Last 7 Days', getValue: () => ({ from: sub7, to: today }) },
@@ -33,17 +34,18 @@ function buildPresets() {
 }
 
 /**
- * Quick-filter date range pills (Today/Yesterday/Last 7 Days/.../Custom
- * Range) used across every report-style page's date filter. A preset
- * (other than Custom Range) calls onApply(from, to) immediately; Custom
- * Range reveals manual date inputs and only calls onApply when the user
- * taps Apply, so typing in-progress dates doesn't fire a fetch per
- * keystroke.
+ * Quick-filter date range — a single dropdown (Today/Yesterday/Last 7
+ * Days/.../Custom Range), styled to match CityFilter's "All Cities"
+ * dropdown, used across every report-style page's date filter. Picking
+ * a preset (other than Custom Range) calls onApply(from, to)
+ * immediately; Custom Range reveals manual date inputs and only calls
+ * onApply when the user taps Apply, so typing in-progress dates doesn't
+ * fire a fetch per keystroke.
  *
  * `from`/`to` are the page's current applied values — used only to
- * figure out which pill (if any) matches on first render, so a page
+ * figure out which option (if any) matches on first render, so a page
  * that already has a date range selected (e.g. restored from state)
- * shows the right pill highlighted instead of defaulting to one.
+ * shows the right option instead of defaulting to one.
  */
 export default function DateRangeFilter({ from, to, onApply, defaultPreset = 'This Month' }) {
   const presets = React.useMemo(buildPresets, []);
@@ -58,36 +60,38 @@ export default function DateRangeFilter({ from, to, onApply, defaultPreset = 'Th
   const [customFrom, setCustomFrom] = useState(from || '');
   const [customTo, setCustomTo] = useState(to || '');
 
-  const handlePresetSelect = (preset) => {
-    setActivePreset(preset.label);
-    if (preset.label === 'Custom Range') return;
+  const handleSelect = (label) => {
+    setActivePreset(label);
+    if (label === 'Custom Range') return;
+    const preset = presets.find((p) => p.label === label);
     const range = preset.getValue();
     setCustomFrom(range.from);
     setCustomTo(range.to);
     onApply(range.from, range.to);
   };
 
+  const selectStyle = {
+    padding: '8px 14px',
+    border: '1px solid #1B2E6B',
+    borderRadius: '8px',
+    color: '#1B2E6B',
+    fontWeight: '600',
+    fontSize: '13px',
+    cursor: 'pointer',
+    background: 'white',
+    outline: 'none',
+  };
+
   return (
-    <div className="mb-4">
-      <div className="flex flex-wrap gap-2">
+    <div className="flex items-end gap-3 flex-wrap">
+      <select value={activePreset} onChange={(e) => handleSelect(e.target.value)} style={selectStyle}>
         {presets.map((preset) => (
-          <button
-            key={preset.label}
-            type="button"
-            onClick={() => handlePresetSelect(preset)}
-            className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              activePreset === preset.label
-                ? 'bg-navy text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {preset.label}
-          </button>
+          <option key={preset.label} value={preset.label}>{preset.label}</option>
         ))}
-      </div>
+      </select>
 
       {activePreset === 'Custom Range' && (
-        <div className="flex gap-3 items-end mt-3">
+        <div className="flex gap-3 items-end">
           <div>
             <label className="text-xs text-gray-500 block mb-1">From</label>
             <input

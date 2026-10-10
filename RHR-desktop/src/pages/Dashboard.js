@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   ShoppingCart, Wallet, HourglassIcon, ReceiptText, Bell, CalendarDays,
-  ArrowRight, Inbox, RefreshCw
+  ArrowRight, Inbox
 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import StatCard from '../components/StatCard';
@@ -9,6 +9,7 @@ import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
 import { SkeletonStatCards, SkeletonTable } from '../components/Skeleton';
 import CityFilter from '../components/CityFilter';
+import DateRangeFilter from '../components/DateRangeFilter';
 
 const todayISO = () => new Date().toISOString().split('T')[0];
 
@@ -86,7 +87,7 @@ export default function Dashboard({ user, setPage }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
 
-  const loadDashboard = async () => {
+  const loadDashboard = async (rangeFrom = dateFrom, rangeTo = dateTo) => {
     setLoading(true);
     setError('');
     try {
@@ -99,7 +100,7 @@ export default function Dashboard({ user, setPage }) {
 
       // Non-fatal — company-wide financial totals are a bonus on top of the
       // core stats above, so a failure here shouldn't block the dashboard.
-      api.get('/analytics/dashboard', { params: { ...companyParams, from: dateFrom, to: dateTo } })
+      api.get('/analytics/dashboard', { params: { ...companyParams, from: rangeFrom, to: rangeTo } })
         .then((res) => setFinancials(res.data.data))
         .catch(() => setFinancials(null));
 
@@ -111,8 +112,8 @@ export default function Dashboard({ user, setPage }) {
       // stays on the real trailing 7 days regardless (buildWeekSeries
       // uses allOrders, unfiltered) so it doesn't collapse to an empty
       // chart whenever a narrow range like "today" is selected.
-      const from = new Date(dateFrom);
-      const to = new Date(dateTo);
+      const from = new Date(rangeFrom);
+      const to = new Date(rangeTo);
       to.setHours(23, 59, 59, 999);
       const orders = allOrders.filter((o) => {
         const t = new Date(o.created_at).getTime();
@@ -186,33 +187,16 @@ export default function Dashboard({ user, setPage }) {
 
       <div className="flex items-end gap-2 flex-wrap justify-end -mt-2">
         <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">From</label>
-          <input
-            type="date"
-            value={dateFrom}
-            max={dateTo}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">To</label>
-          <input
-            type="date"
-            value={dateTo}
-            min={dateFrom}
-            max={todayISO()}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
-          />
-        </div>
-        <button
-          onClick={loadDashboard}
-          className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
-        >
-          <RefreshCw size={14} /> Apply
-        </button>
+        <DateRangeFilter
+          from={dateFrom}
+          to={dateTo}
+          defaultPreset="Today"
+          onApply={(from, to) => {
+            setDateFrom(from);
+            setDateTo(to);
+            loadDashboard(from, to);
+          }}
+        />
       </div>
 
       {error && (
