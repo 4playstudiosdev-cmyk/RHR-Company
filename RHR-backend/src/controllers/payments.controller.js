@@ -2,6 +2,7 @@ const svc = require('../services/payments.service');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
+const { sendPaymentReceipt } = require('../services/paymentReceipt.service');
 
 const createPayment = async (req, res) => {
   try {
@@ -46,9 +47,13 @@ const createPayment = async (req, res) => {
         status: 'approved',
         adminNote: 'Auto-approved — recorded directly by admin'
       });
+      // Not awaited — a slow/failing WhatsApp send must never delay this
+      // response. See paymentReceipt.service.js.
+      sendPaymentReceipt(approved);
       return success(res, approved, 'Payment recorded and approved.', 201);
     }
 
+    sendPaymentReceipt(data);
     return success(res, data, 'Payment recorded. Pending admin approval.', 201);
   } catch (err) { return error(res, err.message, 400); }
 };

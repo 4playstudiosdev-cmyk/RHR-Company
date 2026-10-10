@@ -28,6 +28,11 @@ const BUCKET_RULES = {
     allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
     maxSizeMB: 5,
     isPublic: false
+  },
+  'money-receipts': {
+    allowedTypes: ['application/pdf'],
+    maxSizeMB: 5,
+    isPublic: true
   }
 };
 
