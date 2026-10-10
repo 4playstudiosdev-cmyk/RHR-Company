@@ -39,6 +39,10 @@ const EMPTY_FORM = {
   // purchases/production both just use `unit` directly, exactly as
   // before this existed.
   purchasedDifferently: false, purchase_unit: 'bag', purchase_unit_other: '', bag_weight: '', bag_weight_unit: UNITS[0], consumption_unit: UNITS[0],
+  // UI-only convenience — never sent to the backend. Typing a bag count
+  // here just computes `stock` (above) for you; `stock` itself is still
+  // what actually gets saved, always in the material's base unit.
+  stock_in_bags: '',
 };
 
 // Mirrors the backend's convertQuantity (src/utils/unitConversion.js) —
@@ -196,6 +200,15 @@ export default function RawMaterials() {
   const bagWeightInProductionUnit = form.bag_weight
     ? previewConvert(Number(form.bag_weight), form.bag_weight_unit, form.consumption_unit)
     : null;
+  // Current Stock always stays in the material's own base unit (kg) —
+  // same number the backend stores and what every other material on
+  // this page already means, so an existing material's real inventory
+  // never gets silently reinterpreted as a bag count. The "Set Current
+  // Stock from ___ bags" quick-fill below writes into `stock` for them
+  // (bags x per-bag weight), rather than changing what this field means.
+  const stockInProductionPreview = form.stock
+    ? previewConvert(Number(form.stock), form.unit, form.consumption_unit)
+    : null;
 
   const openEditModal = (material) => {
     setEditingMaterial(material);
@@ -215,6 +228,7 @@ export default function RawMaterials() {
       bag_weight: existingConversion?.bag_weight ?? '',
       bag_weight_unit: existingConversion?.bag_weight_unit || material.unit || UNITS[0],
       consumption_unit: existingConversion?.consumption_unit || material.unit || UNITS[0],
+      stock_in_bags: '',
     });
     setShowAddModal(true);
   };
@@ -794,15 +808,49 @@ export default function RawMaterials() {
                   </div>
 
                   {form.bag_weight && Number(form.bag_weight) > 0 && (
-                    <div className="bg-navy-chip/40 rounded-lg px-3 py-2.5 text-xs text-navy space-y-1">
-                      <p className="font-semibold uppercase tracking-wide text-[10px] text-navy/70">Full conversion chain</p>
-                      <p>1 {purchaseUnitLabel} = {form.bag_weight} {form.bag_weight_unit}
-                        {bagWeightInStockUnit !== null && bagWeightInStockUnit !== Number(form.bag_weight) &&
-                          ` = ${bagWeightInStockUnit.toLocaleString()} ${form.unit} (stock unit)`}
-                      </p>
-                      {bagWeightInProductionUnit !== null && (
-                        <p>= {bagWeightInProductionUnit.toLocaleString()} {form.consumption_unit} per {purchaseUnitLabel} (production unit)</p>
-                      )}
+                    <div className="bg-navy-chip/40 rounded-lg px-3 py-2.5 text-xs text-navy space-y-2">
+                      <div>
+                        <p className="font-semibold uppercase tracking-wide text-[10px] text-navy/70">Per {purchaseUnitLabel}</p>
+                        <p>1 {purchaseUnitLabel} = {form.bag_weight} {form.bag_weight_unit}
+                          {bagWeightInStockUnit !== null && bagWeightInStockUnit !== Number(form.bag_weight) &&
+                            ` = ${bagWeightInStockUnit.toLocaleString()} ${form.unit} (stock unit)`}
+                        </p>
+                        {bagWeightInProductionUnit !== null && (
+                          <p>= {bagWeightInProductionUnit.toLocaleString()} {form.consumption_unit} per {purchaseUnitLabel} (production unit)</p>
+                        )}
+                      </div>
+
+                      <div className="border-t border-navy/15 pt-2">
+                        <p className="font-semibold uppercase tracking-wide text-[10px] text-navy/70 mb-1">
+                          Have {purchaseUnitLabel}s in stock right now?
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <span>Set Current Stock from</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder={`e.g. 40`}
+                            value={form.stock_in_bags}
+                            onChange={(e) => {
+                              const bags = e.target.value;
+                              const computedStock = bags !== '' && bagWeightInStockUnit !== null
+                                ? Number((Number(bags) * bagWeightInStockUnit).toFixed(4))
+                                : form.stock;
+                              setForm({ ...form, stock_in_bags: bags, stock: bags !== '' ? String(computedStock) : form.stock });
+                            }}
+                            className="w-20 border border-navy/30 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-navy bg-white"
+                          />
+                          <span>{purchaseUnitLabel}s</span>
+                        </div>
+                        {form.stock && (
+                          <p className="mt-1.5 font-medium">
+                            = {Number(form.stock).toLocaleString()} {form.unit} in stock
+                            {stockInProductionPreview !== null &&
+                              ` = ${stockInProductionPreview.toLocaleString()} ${form.consumption_unit} available for production`}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
