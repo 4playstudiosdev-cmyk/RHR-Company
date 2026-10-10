@@ -60,7 +60,7 @@ const createPayment = async (req, res) => {
 
 const getPayments = async (req, res) => {
   try {
-    const data = await svc.getPayments(req.user, resolveCompanyId(req), req.query.salesman_id);
+    const data = await svc.getPayments(req.user, resolveCompanyId(req), req.query.salesman_id, req.query.customer_id);
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 };

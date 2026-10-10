@@ -44,13 +44,14 @@ async function createPayment({ companyId, customerId, salesmanId, orderId, amoun
   }
 }
 
-async function getPayments(user, companyIdOverride, salesmanIdFilter) {
+async function getPayments(user, companyIdOverride, salesmanIdFilter, customerIdFilter) {
   const applyFilters = (q) => {
     if (user.role === 'salesman') {
       return q.eq('salesman_id', user.id);
     }
     if (companyIdOverride) q = q.eq('company_id', companyIdOverride);
     if (salesmanIdFilter)  q = q.eq('salesman_id', salesmanIdFilter);
+    if (customerIdFilter)  q = q.eq('customer_id', customerIdFilter);
     return q;
   };
 
