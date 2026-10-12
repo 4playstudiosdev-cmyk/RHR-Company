@@ -366,15 +366,25 @@ async function loginWithCredentials({ email, password, latitude, longitude, forc
   };
 }
 
+// Routed through the pgrestGet/pgrestPost raw-https bypass (see
+// utils/directQuery.js) — this was still on plain supabaseAdmin, the
+// same documented Railway/supabase-js flakiness fixed everywhere else
+// in this codebase. Here it surfaced as an intermittent, misleading
+// "new row violates row-level security policy for table 'salesmen'"
+// even though the service-role client genuinely bypasses RLS (confirmed
+// by reproducing the exact same insert directly, which succeeded) —
+// whatever Railway/supabase-js does under the hood on a flaky request,
+// it can apparently misreport as an RLS violation instead of a plain
+// empty/failed response.
 async function registerSalesman({ phone, fullName, companyId, position }) {
   const canonical = normalizePhone(phone);
   const bare      = canonical.replace('+', '');
 
-  const { data: existing } = await supabaseAdmin
-    .from('salesmen')
-    .select('id, is_approved')
-    .or(`phone.eq.${canonical},phone.eq.${bare}`)
-    .maybeSingle();
+  const existingRows = await pgrestGet('salesmen', {
+    select: 'id,is_approved',
+    or: `(phone.eq.${canonical},phone.eq.${bare})`,
+  });
+  const existing = existingRows?.[0];
 
   if (existing) {
     if (existing.is_approved) throw new Error('Phone number already registered and approved');
@@ -383,20 +393,16 @@ async function registerSalesman({ phone, fullName, companyId, position }) {
 
   const authUserId = await getOrCreateAuthUser({ canonical, bare, fullName, role: 'salesman' });
 
-  const { data: newSalesman, error: salesmanError } = await supabaseAdmin
-    .from('salesmen')
-    .insert({
-      id:          authUserId,
-      company_id:  companyId,
-      full_name:   fullName,
-      phone:       canonical,
-      position:    position || null,
-      is_approved: false
-    })
-    .select()
-    .single();
+  const [newSalesman] = await pgrestPost('salesmen', {
+    id:          authUserId,
+    company_id:  companyId,
+    full_name:   fullName,
+    phone:       canonical,
+    position:    position || null,
+    is_approved: false
+  });
 
-  if (salesmanError) throw new Error(salesmanError.message);
+  if (!newSalesman) throw new Error('Failed to create salesman account');
 
   return newSalesman;
 }
@@ -405,11 +411,11 @@ async function registerDriver({ phone, fullName, companyId, carNumber }) {
   const canonical = normalizePhone(phone);
   const bare      = canonical.replace('+', '');
 
-  const { data: existing } = await supabaseAdmin
-    .from('drivers')
-    .select('id, is_approved')
-    .or(`phone.eq.${canonical},phone.eq.${bare}`)
-    .maybeSingle();
+  const existingRows = await pgrestGet('drivers', {
+    select: 'id,is_approved',
+    or: `(phone.eq.${canonical},phone.eq.${bare})`,
+  });
+  const existing = existingRows?.[0];
 
   if (existing) {
     if (existing.is_approved) throw new Error('Phone number already registered and approved');
@@ -418,20 +424,16 @@ async function registerDriver({ phone, fullName, companyId, carNumber }) {
 
   const authUserId = await getOrCreateAuthUser({ canonical, bare, fullName, role: 'driver' });
 
-  const { data: newDriver, error: driverError } = await supabaseAdmin
-    .from('drivers')
-    .insert({
-      id:          authUserId,
-      company_id:  companyId,
-      full_name:   fullName,
-      phone:       canonical,
-      car_number:  carNumber || null,
-      is_approved: false
-    })
-    .select()
-    .single();
+  const [newDriver] = await pgrestPost('drivers', {
+    id:          authUserId,
+    company_id:  companyId,
+    full_name:   fullName,
+    phone:       canonical,
+    car_number:  carNumber || null,
+    is_approved: false
+  });
 
-  if (driverError) throw new Error(driverError.message);
+  if (!newDriver) throw new Error('Failed to create driver account');
 
   return newDriver;
 }

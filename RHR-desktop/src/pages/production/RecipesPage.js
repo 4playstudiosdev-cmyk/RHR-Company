@@ -483,10 +483,21 @@ export default function RecipesPage() {
                   <div className="flex flex-col gap-2">
                     {catRecipes.map((recipe) => {
                       const expanded = expandedRecipeId === recipe.id;
+                      // unit must come along here too — costOfIngredients
+                      // converts quantity into the material's own stock
+                      // unit before pricing it, and silently skips that
+                      // conversion (treating the raw number as already
+                      // correct) when unit is missing, which is exactly
+                      // what made this card's price wildly overstate
+                      // anything entered in gm against a kg-priced
+                      // material (1000x too high) while the edit form's
+                      // own live total — which already passed unit
+                      // through — showed the right number.
                       const cost = costOfIngredients(
                         (recipe.recipe_ingredients || []).map((ing) => ({
                           raw_material_id: ing.raw_materials?.id,
                           quantity: ing.qty_required,
+                          unit: ing.unit,
                         }))
                       );
                       return (
