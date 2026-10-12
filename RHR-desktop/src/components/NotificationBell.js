@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bell, BellRing, X, LogIn, Megaphone } from 'lucide-react';
+import { Bell, BellRing, X, LogIn, Megaphone, ShoppingCart, Wallet } from 'lucide-react';
 import api from '../services/api';
 
 const TYPE_ICON = {
   admin_login: LogIn,
   broadcast: Megaphone,
+  order: ShoppingCart,
+  payment: Wallet,
 };
 
 function getTimeAgo(dateStr) {
@@ -21,9 +23,10 @@ function getTimeAgo(dateStr) {
 // a preview of the logged-in user's own notifications (same /notifications
 // endpoint Sidebar's nav-item badge already polls, just not restricted to
 // super_admin/admin_login — this surfaces everything targeted at the user).
-// Doesn't call /notifications/mark-read itself — that stays tied to
-// actually opening the Notifications page (see Sidebar.js), so this
-// preview popup doesn't silently clear a badge the user hasn't acted on.
+// Opening the popup marks everything read immediately (optimistic client
+// update + the real mark-read call), same as opening the Notifications
+// page already did — the whole point of a bell preview is to let the
+// admin dismiss it at a glance without a second trip to that page.
 export default function NotificationBell({ setPage }) {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -57,6 +60,17 @@ export default function NotificationBell({ setPage }) {
   const goToNotifications = () => {
     setOpen(false);
     setPage('notifications');
+  };
+
+  const handleToggle = () => {
+    setOpen((o) => {
+      const opening = !o;
+      if (opening && unreadCount > 0) {
+        setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+        api.patch('/notifications/mark-read').catch(() => {});
+      }
+      return opening;
+    });
   };
 
   return (
@@ -134,7 +148,7 @@ export default function NotificationBell({ setPage }) {
       )}
 
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={handleToggle}
         aria-label="Notifications"
         className="relative w-14 h-14 bg-navy hover:bg-navy/90 rounded-full shadow-xl flex items-center justify-center transition-all hover:scale-105 active:scale-95"
       >

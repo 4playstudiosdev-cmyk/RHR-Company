@@ -96,34 +96,53 @@ const sendNotification = async (req, res) => {
 };
 
 // GET /api/v1/notifications
-// User sees their own notifications
+// User sees their own notifications — a branch_admin only sees their own
+// branch's (company_id-scoped, as before), but super_admin oversees every
+// branch, so they're never scoped to just their own company_id here.
 const getMyNotifications = async (req, res) => {
   try {
-    const { data, error: dbErr } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('notifications')
       .select('*')
-      .or(`recipient_id.eq.${req.user.id},recipient_role.eq.${req.user.role}`)
-      .eq('company_id', req.user.company_id)
-      .order('created_at', { ascending: false })
-      .limit(50);
+      .order('created_at', { ascending: false });
 
+    // super_admin oversees every branch — sees every notification
+    // regardless of which role/branch it was addressed to, not just the
+    // ones explicitly aimed at 'super_admin'. A branch_admin only sees
+    // their own branch's, addressed to them specifically or their role.
+    if (req.user.role === 'super_admin') {
+      query = query.limit(100);
+    } else {
+      query = query
+        .or(`recipient_id.eq.${req.user.id},recipient_role.eq.${req.user.role}`)
+        .eq('company_id', req.user.company_id)
+        .limit(50);
+    }
+
+    const { data, error: dbErr } = await query;
     if (dbErr) throw new Error(dbErr.message);
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 };
 
 // PATCH /api/v1/notifications/mark-read
-// Clears the unread badge (e.g. Sidebar's admin_login alert count) —
-// called once when the recipient opens the Notifications page.
+// Clears the unread badge (e.g. Sidebar's admin_login alert count, the
+// floating NotificationBell) — called when the recipient opens either.
 const markAllRead = async (req, res) => {
   try {
-    const { error: dbErr } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('notifications')
       .update({ is_read: true })
-      .or(`recipient_id.eq.${req.user.id},recipient_role.eq.${req.user.role}`)
-      .eq('company_id', req.user.company_id)
       .eq('is_read', false);
+    if (req.user.role === 'super_admin') {
+      // sees/clears every branch's notifications, same scope as getMyNotifications above
+    } else {
+      query = query
+        .or(`recipient_id.eq.${req.user.id},recipient_role.eq.${req.user.role}`)
+        .eq('company_id', req.user.company_id);
+    }
 
+    const { error: dbErr } = await query;
     if (dbErr) throw new Error(dbErr.message);
     return success(res, { marked: true });
   } catch (err) { return error(res, err.message); }

@@ -54,6 +54,21 @@ const createPayment = async (req, res) => {
     }
 
     sendPaymentReceipt(data);
+
+    // Best-effort, never blocks the response — lets the branch (and
+    // super_admin, who sees every branch regardless of recipient_role)
+    // know a field payment is sitting in the approval queue, same
+    // pattern as the new-order notification in orders.service.js.
+    try {
+      await supabaseAdmin.from('notifications').insert({
+        company_id:     req.user.company_id,
+        recipient_role: 'branch_admin',
+        title:          'New Payment — Pending Approval',
+        body:           `PKR ${Number(amount).toLocaleString()} (${method || 'cash'}) submitted, awaiting review`,
+        type:           'payment',
+      });
+    } catch (e) { /* non-fatal */ }
+
     return success(res, data, 'Payment recorded. Pending admin approval.', 201);
   } catch (err) { return error(res, err.message, 400); }
 };

@@ -26,7 +26,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       company_id: `eq.${companyId}`,
       is_active: 'eq.true',
     }),
-    pgrestGet('users', { select: 'rate_tier', id: `eq.${customerId}` }),
+    pgrestGet('users', { select: 'rate_tier,full_name', id: `eq.${customerId}` }),
     // Per-customer, per-product override (Customers page → Set Custom
     // Pricing) — takes precedence over rate_tier for whichever products
     // it covers; anything not overridden still falls through to the
@@ -101,6 +101,22 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
   // order is actually marked delivered (see deductDeliveredStock below),
   // not the moment it's placed. The stock_quantity check above still
   // guards against ordering more than what's currently on hand.
+
+  // Best-effort — a notification failure should never block the order
+  // itself. recipient_role: 'branch_admin' + company_id scopes this to
+  // the branch the order actually belongs to (getMyNotifications filters
+  // branch_admin by their own company_id); super_admin sees every
+  // branch's notifications regardless of recipient_role, so this reaches
+  // them too without a separate insert.
+  try {
+    await supabaseAdmin.from('notifications').insert({
+      company_id:     companyId,
+      recipient_role: 'branch_admin',
+      title:          'New Order',
+      body:           `${customer?.full_name || 'A customer'} placed order ${orderNumber} — PKR ${totalAmount.toLocaleString()}`,
+      type:           'order',
+    });
+  } catch (e) { /* non-fatal */ }
 
   return order;
 }

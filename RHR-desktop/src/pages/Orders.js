@@ -456,6 +456,22 @@ export default function Orders({ initialOrderNumber }) {
     }
   };
 
+  // View — opens a read-only preview of the invoice in a new tab, for an
+  // order that hasn't had its invoice generated yet. No tax/conveyance
+  // charge posted, no invoice_generated_at set — just a look at what the
+  // invoice would be, same underlying PDF builder as the real thing.
+  const handleViewInvoice = async (order) => {
+    setPdfLoadingId(order.id);
+    try {
+      const res = await api.get(`/orders/${order.id}`);
+      buildInvoicePdf(res.data.data, { preview: true });
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load invoice preview.');
+    } finally {
+      setPdfLoadingId(null);
+    }
+  };
+
   // Print — reprints the invoice as it stands right now, with no
   // tax/conveyance prompts. Those were already decided (and posted to
   // the ledger) the first time the invoice was created — reapplied here
@@ -850,6 +866,14 @@ export default function Orders({ initialOrderNumber }) {
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleViewInvoice(order)}
+                              disabled={pdfLoadingId === order.id}
+                              title="Preview the invoice without generating it"
+                              className="flex items-center gap-1 border border-gray-200 hover:bg-gray-50 disabled:opacity-60 text-gray-600 text-xs font-medium px-2.5 py-2 rounded-lg transition-colors"
+                            >
+                              <Eye size={14} />
+                            </button>
                             <button
                               onClick={() => handleInvoice(order)}
                               disabled={pdfLoadingId === order.id}

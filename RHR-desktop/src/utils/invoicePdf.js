@@ -9,7 +9,7 @@ const TAX_RATE = 0.18; // 18% sales tax
 // Total Amount row, and a signature line. Shared by Orders.js (normal/
 // tax/conveyance invoices) and Returns.js (order-return "updated
 // invoice" — pass returnAmount to subtract it and relabel the header).
-export function buildInvoicePdf(order, { withTax = false, conveyance = 0, invoiceNumber, returnAmount = 0 } = {}) {
+export function buildInvoicePdf(order, { withTax = false, conveyance = 0, invoiceNumber, returnAmount = 0, preview = false } = {}) {
   const doc = new jsPDF();
   const customer = order.users || {};
   const items = order.order_items || [];
@@ -136,6 +136,15 @@ export function buildInvoicePdf(order, { withTax = false, conveyance = 0, invoic
   doc.setTextColor(90, 90, 90);
   doc.text('Authorized Signature: _________________________', M, signY + 6);
   doc.text('Thank you for your business!', PAGE_W - M, signY + 6, { align: 'right' });
+
+  // Preview opens the PDF in a new tab (read-only look, no download
+  // prompt, no invoice_generated_at side effects) — for a quick check
+  // before/without actually generating the real invoice. Regular
+  // generate/print/reprint flows keep forcing a download as before.
+  if (preview) {
+    window.open(doc.output('bloburl'), '_blank');
+    return;
+  }
 
   const filename = returnAmount > 0
     ? `Updated-Invoice-${order.order_number}.pdf`

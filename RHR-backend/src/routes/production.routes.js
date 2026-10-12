@@ -6,7 +6,7 @@ const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { retryIfEmpty } = require('../utils/withRetry');
 const { getCached, setCached, invalidate } = require('../utils/simpleCache');
-const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
 const { resolveCompanyId } = require('../utils/companyScope');
 
 const CACHE_TTL_MS = 60000;
@@ -130,8 +130,14 @@ router.put('/recipes/:id', authenticate, isAdmin, async (req, res) => {
     if (!updatedBom) return error(res, 'Recipe not found', 404);
 
     // Replace ingredient lines wholesale — simpler and safer than diffing
-    // adds/edits/removes against whatever the client sent.
-    await supabaseAdmin.from('production_bom_items').delete().eq('bom_id', req.params.id);
+    // adds/edits/removes against whatever the client sent. Routed through
+    // the raw-https bypass (see utils/directQuery.js) — plain
+    // supabase-js's .delete() here was silently no-op'ing on Railway
+    // (the same documented empty-response bug every other write in this
+    // codebase was already migrated off of), so the old ingredient rows
+    // never actually went away and every edit just piled a new copy on
+    // top of the last one.
+    await pgrestDelete('production_bom_items', { bom_id: `eq.${req.params.id}` });
 
     const rows = ingredients.map(i => ({
       bom_id:           req.params.id,
