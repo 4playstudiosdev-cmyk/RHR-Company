@@ -3,26 +3,38 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:location/location.dart' as loc;
 import '../core/location/location_service.dart';
 import '../core/network/dio_client.dart';
 import '../core/storage/secure_storage.dart';
 import '../widgets/location_disclosure_dialog.dart';
 
-/// Sends a GPS ping every [_interval] while tracking is active, and queues
-/// pings in Hive when offline or when a send fails — flushing the whole
-/// queue via POST /gps/batch-ping the next time a ping succeeds. 5s keeps
-/// the admin map (which polls every 10s — see GPS.js's REFRESH_MS) feeling
-/// live during an active delivery without pinging so often it drains the
-/// driver's battery/data for no visible benefit.
+/// Keeps sending GPS pings for as long as tracking is on — including while
+/// the app is minimized or swiped away from Recents, until something
+/// explicitly calls [stopTracking] (logout, or a session going away). Runs
+/// on a real Android foreground service (the `location` package's
+/// background mode), which is why a permanent notification is required —
+/// Android itself enforces that for any app accessing location in the
+/// background, it can't be hidden. 5s / 1m keeps the admin map (which
+/// polls every 10s — see GPS.js's REFRESH_MS) feeling live without
+/// pinging pointlessly often when the phone hasn't actually moved.
+///
+/// Note for real-device testing: some OEM Android skins (the exact family
+/// TECNO's HiOS is part of) kill foreground services anyway unless the
+/// user disables battery optimization / enables autostart for this app —
+/// that's an OS-level restriction outside what any app can override from
+/// inside itself.
 class GPSService {
   static final GPSService _instance = GPSService._internal();
   factory GPSService() => _instance;
   GPSService._internal();
 
   static const String _boxName = 'gps_offline';
-  static const Duration _interval = Duration(seconds: 5);
+  static const int _intervalMs = 5000;
+  static const double _distanceFilterMeters = 1;
 
-  Timer? _timer;
+  final loc.Location _location = loc.Location();
+  StreamSubscription<loc.LocationData>? _locationSub;
   Box? _offlineBox;
   bool _isTracking = false;
 
@@ -97,17 +109,33 @@ class GPSService {
       return false;
     }
 
-    _isTracking = true;
-    unawaited(_captureAndSend());
-    _timer = Timer.periodic(_interval, (_) async {
-      // Stop pinging the moment the session goes away instead of quietly
-      // hitting /gps/ping with a stale/cleared token every 2 minutes.
-      if (!await SecureStorage.isLoggedIn()) {
-        await stopTracking(sync: false); // no session — nothing can upload
-        return;
+    try {
+      await _location.changeNotificationOptions(
+        channelName: 'Location Tracking',
+        title: 'RHR Company',
+        subtitle: 'Your location is being shared while on duty',
+        onTapBringToFront: true,
+      );
+      await _location.changeSettings(
+        accuracy: loc.LocationAccuracy.high,
+        interval: _intervalMs,
+        distanceFilter: _distanceFilterMeters,
+      );
+      // Starts the actual Android foreground service — tracking survives
+      // the app being minimized or swiped from Recents from this point on.
+      final backgroundStarted = await _location.enableBackgroundMode(enable: true);
+      if (!backgroundStarted) {
+        debugPrint('GPS background mode could not be enabled — tracking only while app is open');
       }
-      await _captureAndSend();
-    });
+    } catch (e) {
+      debugPrint('GPS background mode setup failed: $e');
+    }
+
+    _isTracking = true;
+    _locationSub = _location.onLocationChanged.listen(
+      (data) => unawaited(_handleLocation(data)),
+      onError: (e) => debugPrint('GPS stream error: $e'),
+    );
     return true;
   }
 
@@ -117,29 +145,33 @@ class GPSService {
   /// an endless request loop that starved the UI and froze the app on its
   /// loading screen whenever a stale (expired) session was saved.
   Future<void> stopTracking({bool sync = true}) async {
-    _timer?.cancel();
-    _timer = null;
+    await _locationSub?.cancel();
+    _locationSub = null;
     _isTracking = false;
+    try {
+      await _location.enableBackgroundMode(enable: false);
+    } catch (e) {
+      debugPrint('GPS background mode teardown failed: $e');
+    }
     if (sync) await _syncOfflinePoints();
   }
 
-  Future<void> _captureAndSend() async {
+  Future<void> _handleLocation(loc.LocationData data) async {
+    // Stop pinging the moment the session goes away instead of quietly
+    // uploading points with a stale/cleared token.
+    if (!await SecureStorage.isLoggedIn()) {
+      await stopTracking(sync: false); // no session — nothing can upload
+      return;
+    }
+    final ping = {
+      'latitude': data.latitude,
+      'longitude': data.longitude,
+      'accuracy': data.accuracy,
+      'status': 'moving',
+      'timestamp': DateTime.now().toIso8601String(),
+    };
+
     try {
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 10),
-        ),
-      );
-
-      final ping = {
-        'latitude': position.latitude,
-        'longitude': position.longitude,
-        'accuracy': position.accuracy,
-        'status': 'moving',
-        'timestamp': DateTime.now().toIso8601String(),
-      };
-
       final connectivity = await Connectivity().checkConnectivity();
       final hasInternet = !connectivity.contains(ConnectivityResult.none);
 
@@ -154,7 +186,7 @@ class GPSService {
         await _saveOffline(ping);
       }
     } catch (e) {
-      debugPrint('GPS capture error: $e');
+      debugPrint('GPS send error: $e');
     }
   }
 
