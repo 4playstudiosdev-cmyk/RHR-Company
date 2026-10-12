@@ -10,14 +10,17 @@ import '../widgets/location_disclosure_dialog.dart';
 
 /// Sends a GPS ping every [_interval] while tracking is active, and queues
 /// pings in Hive when offline or when a send fails — flushing the whole
-/// queue via POST /gps/batch-ping the next time a ping succeeds.
+/// queue via POST /gps/batch-ping the next time a ping succeeds. 5s keeps
+/// the admin map (which polls every 10s — see GPS.js's REFRESH_MS) feeling
+/// live during an active delivery without pinging so often it drains the
+/// driver's battery/data for no visible benefit.
 class GPSService {
   static final GPSService _instance = GPSService._internal();
   factory GPSService() => _instance;
   GPSService._internal();
 
   static const String _boxName = 'gps_offline';
-  static const Duration _interval = Duration(minutes: 2);
+  static const Duration _interval = Duration(seconds: 5);
 
   Timer? _timer;
   Box? _offlineBox;
