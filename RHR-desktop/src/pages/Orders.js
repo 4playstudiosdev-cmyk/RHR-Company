@@ -68,7 +68,6 @@ export default function Orders({ initialOrderNumber }) {
   const [customerCustomPrices, setCustomerCustomPrices] = useState({});
 
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const [viewLoadingId, setViewLoadingId] = useState(null);
 
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [dispatchingOrder, setDispatchingOrder] = useState(null);
@@ -343,14 +342,11 @@ export default function Orders({ initialOrderNumber }) {
   };
 
   const handleViewOrder = async (order) => {
-    setViewLoadingId(order.id);
     try {
       const res = await api.get(`/orders/${order.id}`);
       setSelectedOrder(res.data.data);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load order details.');
-    } finally {
-      setViewLoadingId(null);
     }
   };
 
@@ -773,7 +769,6 @@ export default function Orders({ initialOrderNumber }) {
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Total</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
-                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">View</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Update</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Invoice</th>
                   </tr>
@@ -796,15 +791,6 @@ export default function Orders({ initialOrderNumber }) {
                       </td>
                       <td className="px-6 py-3.5">
                         <StatusBadge status={order.status} />
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <button
-                          onClick={() => handleViewOrder(order)}
-                          disabled={viewLoadingId === order.id}
-                          className="flex items-center gap-1.5 bg-navy-chip text-navy border-none rounded-lg px-3 py-1.5 text-xs font-semibold hover:bg-navy-chip/70 transition-colors disabled:opacity-50"
-                        >
-                          <Eye size={13} /> {viewLoadingId === order.id ? 'Loading...' : 'View'}
-                        </button>
                       </td>
                       <td className="px-6 py-3.5">
                         {(() => {

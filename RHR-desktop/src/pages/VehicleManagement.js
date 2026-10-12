@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   Car, BarChart3, Plus, Download, User, Trash2, Route,
-  AlertTriangle, Wrench, Activity, Wallet
+  AlertTriangle, Wrench, Activity, Wallet, UserCheck
 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import PageHeader from '../components/PageHeader';
@@ -119,6 +119,10 @@ export default function VehicleManagement() {
   const [driverForm, setDriverForm] = useState(EMPTY_DRIVER_FORM);
   const [savingDriver, setSavingDriver] = useState(false);
   const [deletingDriverId, setDeletingDriverId] = useState(null);
+  const [driverSubTab, setDriverSubTab] = useState('pending');
+  const [pendingDrivers, setPendingDrivers] = useState([]);
+  const [pendingDriversLoading, setPendingDriversLoading] = useState(true);
+  const [approvingDriverId, setApprovingDriverId] = useState(null);
 
   const [reportFrom, setReportFrom] = useState(monthStartISO());
   const [reportTo, setReportTo] = useState(todayISO());
@@ -132,6 +136,7 @@ export default function VehicleManagement() {
   useEffect(() => {
     loadVehicles();
     loadDrivers();
+    loadPendingDrivers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
 
@@ -182,6 +187,39 @@ export default function VehicleManagement() {
       toast.error('Failed to load drivers.');
     } finally {
       setDriversLoading(false);
+    }
+  };
+
+  // Self-registered drivers (the mobile app's signup flow) land here
+  // awaiting approval, same pattern as Salesmen.js's "Pending Approval"
+  // tab — once approved (PATCH /auth/approve-driver/:id) they show up in
+  // the regular "All Drivers" list below.
+  const loadPendingDrivers = async () => {
+    setPendingDriversLoading(true);
+    try {
+      const data = companyFilter
+        ? (await api.get('/drivers/pending', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/drivers/pending');
+      setPendingDrivers(data);
+    } catch (err) {
+      toast.error('Failed to load pending drivers.');
+    } finally {
+      setPendingDriversLoading(false);
+    }
+  };
+
+  const handleApproveDriver = async (driver) => {
+    if (!window.confirm(`Approve "${driver.full_name}"?`)) return;
+    setApprovingDriverId(driver.id);
+    try {
+      await api.patch(`/auth/approve-driver/${driver.id}`);
+      toast.success(`${driver.full_name} approved.`);
+      setPendingDrivers((prev) => prev.filter((d) => d.id !== driver.id));
+      loadDrivers();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to approve driver.');
+    } finally {
+      setApprovingDriverId(null);
     }
   };
 
@@ -938,13 +976,83 @@ export default function VehicleManagement() {
       {tab === 'drivers' && (
         <div>
           <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
-            <h3 className="font-semibold text-navy text-sm">Drivers ({drivers.length})</h3>
-            <Button variant="accent" onClick={() => setShowAddDriver(true)} className="flex items-center gap-2">
-              <Plus size={15} /> Add Driver
-            </Button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setDriverSubTab('pending')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  driverSubTab === 'pending' ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                Pending Approval ({pendingDrivers.length})
+              </button>
+              <button
+                onClick={() => setDriverSubTab('all')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  driverSubTab === 'all' ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                All Drivers ({drivers.length})
+              </button>
+            </div>
+            {driverSubTab === 'all' && (
+              <Button variant="accent" onClick={() => setShowAddDriver(true)} className="flex items-center gap-2">
+                <Plus size={15} /> Add Driver
+              </Button>
+            )}
           </div>
 
-          {showAddDriver && (
+          {driverSubTab === 'pending' ? (
+            <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+              {pendingDriversLoading ? (
+                <SkeletonTable rows={4} cols={4} />
+              ) : pendingDrivers.length === 0 ? (
+                <EmptyState icon={UserCheck} title="No drivers awaiting approval" subtitle="Self-registered drivers from the phone app will show up here" />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Name</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Phone</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Car Number</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Registered</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingDrivers.map((d, i) => (
+                        <tr
+                          key={d.id}
+                          className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${
+                            i % 2 === 1 ? 'bg-gray-50/40' : ''
+                          }`}
+                        >
+                          <td className="px-6 py-3.5 font-medium text-navy">{d.full_name}</td>
+                          <td className="px-6 py-3.5 text-gray-600">{d.phone || '—'}</td>
+                          <td className="px-6 py-3.5 text-gray-600">{d.car_number || '—'}</td>
+                          <td className="px-6 py-3.5 text-gray-500">
+                            {new Date(d.created_at).toLocaleDateString('en-GB')}
+                          </td>
+                          <td className="px-6 py-3.5">
+                            <Button
+                              variant="accent"
+                              className="text-xs px-3 py-1.5"
+                              onClick={() => handleApproveDriver(d)}
+                              disabled={approvingDriverId === d.id}
+                            >
+                              {approvingDriverId === d.id ? 'Approving...' : 'Approve'}
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {driverSubTab === 'all' && showAddDriver && (
             <form onSubmit={handleAddDriver} className="bg-white rounded-2xl shadow-card border border-gray-100 p-5 mb-5 space-y-3">
               <h4 className="font-semibold text-navy text-sm">Add New Driver</h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -999,6 +1107,7 @@ export default function VehicleManagement() {
             </form>
           )}
 
+          {driverSubTab === 'all' && (
           <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
             {driversLoading ? (
               <SkeletonTable rows={5} cols={5} />
@@ -1036,7 +1145,17 @@ export default function VehicleManagement() {
                           </select>
                         </td>
                         <td className="px-6 py-3.5">
-                          <span className="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700">Active</span>
+                          <span
+                            className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                              !d.is_active
+                                ? 'bg-gray-100 text-gray-500'
+                                : d.is_approved
+                                  ? 'bg-emerald-50 text-emerald-700'
+                                  : 'bg-amber-50 text-amber-700'
+                            }`}
+                          >
+                            {!d.is_active ? 'Inactive' : d.is_approved ? 'Active' : 'Pending'}
+                          </span>
                         </td>
                         <td className="px-6 py-3.5">
                           <button
@@ -1054,6 +1173,7 @@ export default function VehicleManagement() {
               </div>
             )}
           </div>
+          )}
         </div>
       )}
 
