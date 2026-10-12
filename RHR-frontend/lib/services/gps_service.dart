@@ -40,6 +40,10 @@ class GPSService {
 
   bool get isTracking => _isTracking;
   int get pendingOfflineCount => _offlineBox?.length ?? 0;
+  // Human-readable interval for the GPS Tracking screen to display,
+  // instead of a hardcoded string that drifts out of sync with the real
+  // value (as "Pinging every 2 minutes"/"2 min" did after this moved to 5s).
+  static String get intervalLabel => '${(_intervalMs / 1000).round()}s';
 
   Future<void> initialize() async {
     _offlineBox ??= await Hive.openBox(_boxName);

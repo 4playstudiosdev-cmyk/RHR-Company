@@ -1,9 +1,16 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
-const { pgrestGet } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost } = require('../utils/directQuery');
 
 // POST /api/v1/gps/ping
-// Salesman sends location every 2 minutes from Flutter app
+// Salesman/driver sends location every 5s from the Flutter app (background
+// tracking, see gps_service.dart). Routed through the pgrestPost raw-https
+// bypass (see utils/directQuery.js) — this was still on plain
+// supabaseAdmin, the same documented Railway/supabase-js write flakiness
+// fixed everywhere else in this codebase. Here it meant an occasional real
+// ping from a device with genuine internet still failed server-side, which
+// the app correctly treats as "couldn't send" and queues offline — so the
+// device looked stuck offline/stale on the admin map even while connected.
 const pingLocation = async (req, res) => {
   try {
     const { latitude, longitude, accuracy, status } = req.body;
@@ -11,27 +18,24 @@ const pingLocation = async (req, res) => {
     if (!latitude || !longitude)
       return error(res, 'latitude and longitude are required', 400);
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('gps_locations')
-      .insert({
-        company_id:  req.user.company_id,
-        user_id:     req.user.id,
-        latitude:    Number(latitude),
-        longitude:   Number(longitude),
-        accuracy:    accuracy || null,
-        status:      status || 'moving',
-        recorded_at: new Date().toISOString()
-      })
-      .select()
-      .single();
+    const [data] = await pgrestPost('gps_locations', {
+      company_id:  req.user.company_id,
+      user_id:     req.user.id,
+      latitude:    Number(latitude),
+      longitude:   Number(longitude),
+      accuracy:    accuracy || null,
+      status:      status || 'moving',
+      recorded_at: new Date().toISOString()
+    });
 
-    if (dbErr) throw new Error(dbErr.message);
+    if (!data) throw new Error('Failed to record location');
     return success(res, data, 'Location recorded');
   } catch (err) { return error(res, err.message); }
 };
 
 // POST /api/v1/gps/batch-ping
-// Salesman sends all offline stored locations at once when internet comes back
+// Salesman/driver sends all offline-queued locations at once when
+// internet comes back. Same raw-https bypass as pingLocation above.
 const batchPingLocation = async (req, res) => {
   try {
     const { pings } = req.body;
@@ -49,14 +53,10 @@ const batchPingLocation = async (req, res) => {
       recorded_at: p.timestamp || new Date().toISOString()
     }));
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('gps_locations')
-      .insert(records)
-      .select();
+    const data = await pgrestPost('gps_locations', records);
 
-    if (dbErr) throw new Error(dbErr.message);
     return success(res, {
-      uploaded: records.length,
+      uploaded: data?.length || records.length,
       message: `${records.length} offline points uploaded`
     }, 'Batch upload successful');
   } catch (err) { return error(res, err.message); }
