@@ -1,15 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 import { MapPin, Circle, Route, ShieldCheck, LocateFixed, WifiOff, Store, PauseCircle, Navigation } from 'lucide-react';
 import api from '../services/api';
 import AdminLocationService from '../services/adminLocationService';
 import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
 import { useToast } from '../components/Toast';
+import { loadGoogleMaps } from '../utils/googleMapsLoader';
 
 const REFRESH_MS = 10000;
-const KARACHI = [24.8608, 67.0104];
+const KARACHI = { lat: 24.8608, lng: 67.0104 };
+
+// Careem/Bykea-style minimal map — mutes default Google POI clutter
+// (shops, restaurants, transit icons) so field-staff pins stay the
+// visual focus instead of competing with a hundred tiny business icons.
+const MAP_STYLE = [
+  { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+  { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+  { featureType: 'road', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+];
 
 // A ping older than this with nothing newer behind it counts as "offline"
 // (signal lost) rather than just stale — matches the mobile app's own
@@ -56,17 +65,28 @@ function getAdminColor(admin) {
   return ADMIN_COLOR_PALETTE[hash % ADMIN_COLOR_PALETTE.length];
 }
 
-// Drivers get a rotated-square (diamond) divIcon; salesmen/delivery keep
-// the plain circleMarker. Dimmed when offline so a stale pin still reads
-// as stale even though color now encodes branch, not status.
-function buildDriverIcon(color, dimmed) {
-  return L.divIcon({
-    className: '',
-    html: `<div style="width:16px;height:16px;background:${color};opacity:${dimmed ? 0.45 : 1};border:2px solid #FFFFFF;transform:rotate(45deg);box-shadow:0 1px 3px rgba(0,0,0,.35);"></div>`,
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
-    popupAnchor: [0, -10]
-  });
+// Drivers get a rotated-square (diamond) icon; salesmen/delivery keep the
+// plain circle marker. Dimmed when offline so a stale pin still reads as
+// stale even though color now encodes branch, not status.
+function buildDriverIcon(maps, color, dimmed) {
+  const opacity = dimmed ? 0.45 : 1;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect x="4" y="4" width="12" height="12" fill="${color}" fill-opacity="${opacity}" stroke="#FFFFFF" stroke-width="2" transform="rotate(45 10 10)"/></svg>`;
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    scaledSize: new maps.Size(20, 20),
+    anchor: new maps.Point(10, 10),
+  };
+}
+
+function buildCircleIcon(maps, color, dimmed, radius = 9) {
+  return {
+    path: maps.SymbolPath.CIRCLE,
+    scale: radius,
+    fillColor: color,
+    fillOpacity: dimmed ? 0.45 : 1,
+    strokeColor: '#FFFFFF',
+    strokeWeight: 2,
+  };
 }
 
 function timeAgo(iso) {
@@ -99,6 +119,7 @@ export default function GPS({ user }) {
   const toast = useToast();
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
+  const mapsRef = useRef(null); // the `google.maps` namespace, once loaded
   const markersRef = useRef({});
   const adminMarkersRef = useRef({});
   const routeLayerRef = useRef(null);
@@ -110,6 +131,7 @@ export default function GPS({ user }) {
   const [adminLocations, setAdminLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [mapReady, setMapReady] = useState(false);
   const [branches, setBranches] = useState([]);
   const [cityFilter, setCityFilter] = useState(''); // '' = all cities (super_admin's "massive upper hand" default)
 
@@ -136,32 +158,46 @@ export default function GPS({ user }) {
 
   // ── Init map once ──
   useEffect(() => {
-    mapRef.current = L.map(mapContainerRef.current).setView(KARACHI, 12);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 19
-    }).addTo(mapRef.current);
+    let cancelled = false;
+    loadGoogleMaps()
+      .then((maps) => {
+        if (cancelled || !mapContainerRef.current) return;
+        mapsRef.current = maps;
+        mapRef.current = new maps.Map(mapContainerRef.current, {
+          center: KARACHI,
+          zoom: 12,
+          styles: MAP_STYLE,
+          streetViewControl: false,
+          mapTypeControl: false,
+          fullscreenControl: false,
+        });
+        setMapReady(true);
+      })
+      .catch((err) => {
+        console.error(err);
+        setError('Failed to load Google Maps — check the API key / billing on the Google Cloud project.');
+      });
 
     return () => {
-      mapRef.current?.remove();
+      cancelled = true;
       mapRef.current = null;
     };
   }, []);
 
   const clearRouteLayer = useCallback(() => {
     if (routeLayerRef.current) {
-      routeLayerRef.current.forEach((layer) => layer.remove());
+      routeLayerRef.current.forEach((layer) => layer.setMap(null));
       routeLayerRef.current = null;
     }
   }, []);
 
   const clearMarkers = useCallback(() => {
-    Object.values(markersRef.current).forEach((m) => m.remove());
+    Object.values(markersRef.current).forEach((m) => m.setMap(null));
     markersRef.current = {};
   }, []);
 
   const clearAdminMarkers = useCallback(() => {
-    Object.values(adminMarkersRef.current).forEach((m) => m.remove());
+    Object.values(adminMarkersRef.current).forEach((m) => m.setMap(null));
     adminMarkersRef.current = {};
   }, []);
 
@@ -174,11 +210,12 @@ export default function GPS({ user }) {
   // upsert/remove bookkeeping, which is simple and cheap enough at this
   // scale (staff counts are small, refresh is only every 10s anyway).
   useEffect(() => {
-    if (view !== 'live' || !mapRef.current) return;
+    if (view !== 'live' || !mapRef.current || !mapsRef.current) return;
+    const maps = mapsRef.current;
     clearMarkers();
     visibleSalesmen.forEach((s) => {
       if (!s.location) return;
-      const pos = [s.location.latitude, s.location.longitude];
+      const pos = { lat: s.location.latitude, lng: s.location.longitude };
       const status = effectiveStatus(s);
       const color = getMarkerColor(s);
       const dimmed = status === 'offline';
@@ -188,18 +225,18 @@ export default function GPS({ user }) {
         s.location.recorded_at
       ).toLocaleTimeString()}</div>`;
 
-      markersRef.current[s.id] = s.staffType === 'driver'
-        ? L.marker(pos, { icon: buildDriverIcon(color, dimmed) }).addTo(mapRef.current).bindPopup(popupHtml)
-        : L.circleMarker(pos, {
-            radius: 9,
-            fillColor: color,
-            fillOpacity: dimmed ? 0.45 : 1,
-            color: '#FFFFFF',
-            weight: 2
-          }).addTo(mapRef.current).bindPopup(popupHtml);
+      const marker = new maps.Marker({
+        position: pos,
+        map: mapRef.current,
+        icon: s.staffType === 'driver' ? buildDriverIcon(maps, color, dimmed) : buildCircleIcon(maps, color, dimmed),
+      });
+      const infoWindow = new maps.InfoWindow({ content: popupHtml });
+      marker.addListener('click', () => infoWindow.open({ map: mapRef.current, anchor: marker }));
+      marker._infoWindow = infoWindow;
+      markersRef.current[s.id] = marker;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleSalesmen, view]);
+  }, [visibleSalesmen, view, mapReady]);
 
   const loadLive = useCallback(
     async (silent = false) => {
@@ -231,7 +268,8 @@ export default function GPS({ user }) {
   }, []);
 
   useEffect(() => {
-    if (view !== 'admin' || !mapRef.current) return;
+    if (view !== 'admin' || !mapRef.current || !mapsRef.current) return;
+    const maps = mapsRef.current;
     clearAdminMarkers();
 
     // Two problems admins hit when several accounts' pings land at
@@ -258,28 +296,27 @@ export default function GPS({ user }) {
       // ~30m per step, in a different direction each time.
       const angle = clashIndex * (Math.PI / 3);
       const offsetDeg = clashIndex === 0 ? 0 : 0.00025 * clashIndex;
-      const pos = [
-        a.location.latitude + offsetDeg * Math.sin(angle),
-        a.location.longitude + offsetDeg * Math.cos(angle),
-      ];
+      const pos = {
+        lat: a.location.latitude + offsetDeg * Math.sin(angle),
+        lng: a.location.longitude + offsetDeg * Math.cos(angle),
+      };
 
       const branchLabel = a.company ? ` · ${a.company.city}` : '';
       const popupHtml = `<div style="font-size:12px"><strong>${a.full_name}</strong><br/>${a.phone ? `${a.phone}<br/>` : ''}${a.role === 'super_admin' ? 'Super Admin' : 'Branch Admin'}${branchLabel}<br/>Last seen: ${new Date(
         a.location.recorded_at
       ).toLocaleTimeString()}</div>`;
 
-      adminMarkersRef.current[a.id] = L.circleMarker(pos, {
-        radius: 10,
-        fillColor: getAdminColor(a),
-        fillOpacity: 1,
-        color: '#FFFFFF',
-        weight: 2
-      })
-        .addTo(mapRef.current)
-        .bindPopup(popupHtml);
+      const marker = new maps.Marker({
+        position: pos,
+        map: mapRef.current,
+        icon: buildCircleIcon(maps, getAdminColor(a), false, 10),
+      });
+      const infoWindow = new maps.InfoWindow({ content: popupHtml });
+      marker.addListener('click', () => infoWindow.open({ map: mapRef.current, anchor: marker }));
+      adminMarkersRef.current[a.id] = marker;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleAdmins, view]);
+  }, [visibleAdmins, view, mapReady]);
 
   const loadAdminLive = useCallback(
     async (silent = false) => {
@@ -307,7 +344,8 @@ export default function GPS({ user }) {
   }, [view, loadAdminLive, clearRouteLayer, clearMarkers]);
 
   const loadRoute = async () => {
-    if (!selectedUser || !mapRef.current) return;
+    if (!selectedUser || !mapRef.current || !mapsRef.current) return;
+    const maps = mapsRef.current;
     setRouteLoading(true);
     clearRouteLayer();
     clearMarkers();
@@ -327,29 +365,29 @@ export default function GPS({ user }) {
         return;
       }
 
-      const path = points.map((p) => [p.lat, p.lng]);
-      const polyline = L.polyline(path, { color: '#2E75B6', weight: 3, opacity: 0.8 }).addTo(mapRef.current);
-      const startMarker = L.circleMarker(path[0], {
-        radius: 8,
-        fillColor: '#1A7A4A',
-        fillOpacity: 1,
-        color: '#fff',
-        weight: 2
-      })
-        .addTo(mapRef.current)
-        .bindPopup('Start');
-      const endMarker = L.circleMarker(path[path.length - 1], {
-        radius: 8,
-        fillColor: '#C0392B',
-        fillOpacity: 1,
-        color: '#fff',
-        weight: 2
-      })
-        .addTo(mapRef.current)
-        .bindPopup('End (most recent)');
+      const path = points.map((p) => ({ lat: p.lat, lng: p.lng }));
+      const polyline = new maps.Polyline({ path, map: mapRef.current, strokeColor: '#2E75B6', strokeWeight: 3, strokeOpacity: 0.8 });
+
+      const startMarker = new maps.Marker({
+        position: path[0],
+        map: mapRef.current,
+        icon: buildCircleIcon(maps, '#1A7A4A', false, 8),
+      });
+      const startInfo = new maps.InfoWindow({ content: 'Start' });
+      startMarker.addListener('click', () => startInfo.open({ map: mapRef.current, anchor: startMarker }));
+
+      const endMarker = new maps.Marker({
+        position: path[path.length - 1],
+        map: mapRef.current,
+        icon: buildCircleIcon(maps, '#C0392B', false, 8),
+      });
+      const endInfo = new maps.InfoWindow({ content: 'End (most recent)' });
+      endMarker.addListener('click', () => endInfo.open({ map: mapRef.current, anchor: endMarker }));
 
       routeLayerRef.current = [polyline, startMarker, endMarker];
-      mapRef.current.fitBounds(polyline.getBounds(), { padding: [40, 40] });
+      const bounds = new maps.LatLngBounds();
+      path.forEach((p) => bounds.extend(p));
+      mapRef.current.fitBounds(bounds, 40);
 
       setRouteStats({ totalPoints, totalKM });
     } catch (err) {
@@ -395,8 +433,10 @@ export default function GPS({ user }) {
   // Clicking a sidebar card pans the map to that person's marker.
   const focusOnSalesman = (s) => {
     if (!s.location || !mapRef.current) return;
-    mapRef.current.setView([s.location.latitude, s.location.longitude], 15, { animate: true });
-    markersRef.current[s.id]?.openPopup();
+    mapRef.current.panTo({ lat: s.location.latitude, lng: s.location.longitude });
+    mapRef.current.setZoom(15);
+    const marker = markersRef.current[s.id];
+    marker?._infoWindow?.open({ map: mapRef.current, anchor: marker });
   };
 
   const statusCounts = useMemo(() => {
@@ -626,7 +666,7 @@ export default function GPS({ user }) {
           )}
         </div>
 
-        {/* Map — real Leaflet + OpenStreetMap, no API key required */}
+        {/* Map — official Google Maps JavaScript API */}
         <div className="flex-1 relative rounded-2xl overflow-hidden border border-gray-100 shadow-card">
           <div ref={mapContainerRef} className="w-full h-full min-h-[500px]" />
           {view === 'live' && (
