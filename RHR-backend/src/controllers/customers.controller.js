@@ -3,6 +3,7 @@ const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
 const { buildCustomerProfilePDF } = require('../services/customerProfilePdf.service');
+const { withRetry } = require('../utils/withRetry');
 
 function normalizePhone(phone) {
   let digits = phone.replace(/\D/g, '');
@@ -493,7 +494,12 @@ const updateMyProfile = async (req, res) => {
 
     if (Object.keys(update).length === 0) return error(res, 'No fields to update', 400);
 
-    const rows = await pgrestPatch('users', { id: `eq.${req.user.id}`, role: 'eq.customer' }, update);
+    // Same transient Railway<->Supabase blip withRetry.js documents —
+    // the customer-facing "Complete Your Profile" save is the one place
+    // a raw 500 here is most visible (right after uploading NIC/profile
+    // photos), so it's worth the one retry rather than making them redo
+    // the whole form.
+    const rows = await withRetry(() => pgrestPatch('users', { id: `eq.${req.user.id}`, role: 'eq.customer' }, update));
     const data = rows?.[0];
     if (!data) return error(res, 'Profile not found', 404);
     return success(res, { ...data, profileComplete: isProfileComplete(data) }, 'Profile updated');

@@ -1,6 +1,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { BUCKET_RULES, LONG_LIVED_SIGN_SECONDS, uploadBase64ToStorage } = require('../utils/storageUpload');
+const { withRetry } = require('../utils/withRetry');
 
 // ══════════════════════════════════════════════
 // POST /api/v1/storage/upload
@@ -13,9 +14,17 @@ const uploadFile = async (req, res) => {
     if (!bucket || !fileName || !fileBase64 || !mimeType)
       return error(res, 'bucket, fileName, fileBase64, mimeType are required', 400);
 
-    const result = await uploadBase64ToStorage({
+    // Same transient Railway<->Supabase blip documented in withRetry.js —
+    // this call goes through the Supabase Storage API (not the PostgREST
+    // table bypass most other writes in this codebase already use), but
+    // is exposed to the same class of occasional failure. A profile-setup
+    // NIC/photo upload throwing a raw 500 straight to the customer was the
+    // visible symptom — one retry papers over the blip without masking a
+    // genuinely bad upload (wrong mimetype, oversized file, etc. still
+    // fail every attempt and surface normally).
+    const result = await withRetry(() => uploadBase64ToStorage({
       bucket, fileName, fileBase64, mimeType, companyId: req.user.company_id,
-    });
+    }));
 
     return success(res, result, 'File uploaded successfully', 201);
   } catch (err) {
