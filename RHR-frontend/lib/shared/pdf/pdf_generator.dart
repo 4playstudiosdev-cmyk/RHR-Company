@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -8,21 +9,51 @@ const _steelBlue = PdfColor.fromInt(0xFF4A6FA5);
 const _success = PdfColor.fromInt(0xFF27AE60);
 const _error = PdfColor.fromInt(0xFFE74C3C);
 
-pw.Widget _letterhead(String title, {String? subtitle}) {
+// Loaded once per app session and reused — same logo asset the splash
+// screen already bundles (assets/images/rhr-logo.jpeg), so every PDF
+// this app generates (order receipt, ledger, payslip) carries the real
+// company mark instead of plain text, matching the desktop admin
+// panel's invoices/ledger exports.
+pw.MemoryImage? _logoCache;
+Future<pw.MemoryImage?> _loadLogo() async {
+  if (_logoCache != null) return _logoCache;
+  try {
+    final bytes = await rootBundle.load('assets/images/rhr-logo.jpeg');
+    _logoCache = pw.MemoryImage(bytes.buffer.asUint8List());
+  } catch (_) {
+    _logoCache = null;
+  }
+  return _logoCache;
+}
+
+pw.Widget _letterhead(pw.MemoryImage? logo, String title, {String? subtitle}) {
   return pw.Container(
     width: double.infinity,
     padding: const pw.EdgeInsets.all(20),
     decoration: const pw.BoxDecoration(color: _navy),
-    child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-      pw.Text('RHR & Company',
-          style: pw.TextStyle(color: PdfColors.white, fontSize: 20, fontWeight: pw.FontWeight.bold)),
-      pw.Text('Premium Tile Bond & Grout Manufacturer',
-          style: const pw.TextStyle(color: PdfColors.white, fontSize: 9)),
-      pw.SizedBox(height: 14),
-      pw.Text(title,
-          style: pw.TextStyle(color: _orange, fontSize: 16, fontWeight: pw.FontWeight.bold)),
-      if (subtitle != null)
-        pw.Text(subtitle, style: const pw.TextStyle(color: PdfColor(1, 1, 1, 0.7), fontSize: 10)),
+    child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.center, children: [
+      if (logo != null) ...[
+        pw.Container(
+          width: 46,
+          height: 46,
+          decoration: const pw.BoxDecoration(color: PdfColors.white, shape: pw.BoxShape.circle),
+          child: pw.ClipOval(child: pw.Image(logo, fit: pw.BoxFit.cover)),
+        ),
+        pw.SizedBox(width: 14),
+      ],
+      pw.Expanded(
+        child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+          pw.Text('RHR & Company',
+              style: pw.TextStyle(color: PdfColors.white, fontSize: 20, fontWeight: pw.FontWeight.bold)),
+          pw.Text('THE SIGN OF QUALITY',
+              style: pw.TextStyle(color: _orange, fontSize: 8, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 10),
+          pw.Text(title,
+              style: pw.TextStyle(color: _orange, fontSize: 16, fontWeight: pw.FontWeight.bold)),
+          if (subtitle != null)
+            pw.Text(subtitle, style: const pw.TextStyle(color: PdfColor(1, 1, 1, 0.7), fontSize: 10)),
+        ]),
+      ),
     ]),
   );
 }
@@ -44,10 +75,11 @@ Future<void> generateOrderPdf({
   required List<Map<String, dynamic>> items,
   required num total,
 }) async {
+  final logo = await _loadLogo();
   final doc = pw.Document();
   doc.addPage(pw.Page(
     build: (context) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-      _letterhead('Order Receipt', subtitle: 'Order #$orderId'),
+      _letterhead(logo, 'Order Receipt', subtitle: 'Order #$orderId'),
       pw.SizedBox(height: 20),
       pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
         pw.Text('Date: $date', style: const pw.TextStyle(fontSize: 11)),
@@ -96,10 +128,11 @@ Future<void> generateLedgerPdf({
   required num totalCredit,
   required num balance,
 }) async {
+  final logo = await _loadLogo();
   final doc = pw.Document();
   doc.addPage(pw.Page(
     build: (context) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-      _letterhead('Account Ledger', subtitle: '$customerName — $dateRange'),
+      _letterhead(logo, 'Account Ledger', subtitle: '$customerName — $dateRange'),
       pw.SizedBox(height: 20),
       pw.Table(
         border: pw.TableBorder.all(color: PdfColors.grey300),
@@ -145,6 +178,7 @@ Future<void> generatePayslipPdf({
   required Map<String, num> deductions,
   required num netSalary,
 }) async {
+  final logo = await _loadLogo();
   final doc = pw.Document();
 
   pw.Widget rows(Map<String, num> data) => pw.Column(
@@ -159,7 +193,7 @@ Future<void> generatePayslipPdf({
 
   doc.addPage(pw.Page(
     build: (context) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-      _letterhead('Payslip', subtitle: '$employeeName — $month'),
+      _letterhead(logo, 'Payslip', subtitle: '$employeeName — $month'),
       pw.SizedBox(height: 20),
       pw.Text('Earnings', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: _navy, fontSize: 13)),
       pw.Divider(),

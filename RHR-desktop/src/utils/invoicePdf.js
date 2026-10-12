@@ -1,15 +1,19 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { loadLogoDataUrl, drawPdfHeader } from './pdfBranding';
 
 const TAX_RATE = 0.18; // 18% sales tax
 
-// "Sale Invoice" template — company header, a two-column order-detail
-// block (customer/delivery info on the left, order/dispatch info on the
-// right), an items table, a Subtotal/Net Total Payable block, and a
-// signature line. Shared by Orders.js (normal/tax/conveyance invoices,
-// and the read-only preview) and Returns.js (order-return "updated
-// invoice" — pass returnAmount to subtract it and relabel the header).
-export function buildInvoicePdf(order, { withTax = false, conveyance = 0, invoiceNumber, returnAmount = 0, preview = false } = {}) {
+// "Sale Invoice" template — shared branded header (see pdfBranding.js),
+// a two-column order-detail block (customer/delivery info on the left,
+// order/dispatch info on the right), an items table, a Subtotal/Net
+// Total Payable block, and a signature line. Shared by Orders.js
+// (normal/tax/conveyance invoices, and the read-only preview) and
+// Returns.js (order-return "updated invoice" — pass returnAmount to
+// subtract it and relabel the header). Async because the logo has to
+// load before it can be embedded — every call site already runs inside
+// an async handler, so this just needs an `await` added.
+export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, invoiceNumber, returnAmount = 0, preview = false } = {}) {
   const doc = new jsPDF();
   const customer = order.users || {};
   const driver = order.drivers || {};
@@ -18,36 +22,19 @@ export function buildInvoicePdf(order, { withTax = false, conveyance = 0, invoic
   const M = 20;
   const PAGE_W = 210;
 
-  doc.setTextColor(20, 20, 30);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(22);
-  doc.text('RHR & COMPANY', M, 26);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(110, 110, 110);
-  doc.text('Industrial Area, Karachi', M, 33);
-  doc.text('Phone: +92 332 2110690', M, 38);
-
-  doc.setTextColor(20, 20, 30);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(18);
-  doc.text(returnAmount > 0 ? 'UPDATED INVOICE' : 'SALE INVOICE', PAGE_W - M, 24, { align: 'right' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(110, 110, 110);
-  doc.text('Sales Tax Invoice & Delivery Challan', PAGE_W - M, 30, { align: 'right' });
-
-  doc.setDrawColor(30, 30, 40);
-  doc.setLineWidth(0.6);
-  doc.line(M, 44, PAGE_W - M, 44);
+  const logoDataUrl = await loadLogoDataUrl();
+  drawPdfHeader(doc, logoDataUrl, {
+    title: returnAmount > 0 ? 'UPDATED INVOICE' : 'SALE INVOICE',
+    subtitle: 'Sales Tax Invoice & Delivery Challan',
+  });
 
   // ── Order detail block — two columns, labels left-aligned to a fixed
   // offset so values line up regardless of label length.
   const LABEL_W = 34;
   const colLeftX = M;
   const colRightX = 112;
-  let leftY = 54;
-  let rightY = 54;
+  let leftY = 48;
+  let rightY = 48;
 
   const field = (x, y, label, value) => {
     if (!value) return y;

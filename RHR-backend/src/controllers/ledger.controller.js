@@ -148,8 +148,33 @@ const downloadStatement = async (req, res) => {
 
     const currentBalance = entries.length > 0 ? entries[entries.length - 1].running_balance : 0;
 
+    // Order-type ledger entries only ever say "Order KHI-2026-00015
+    // confirmed" — no product detail. One batched lookup fetches what was
+    // actually in each referenced order, so the statement can show real
+    // items instead of just the generic confirmation text. Best-effort:
+    // a lookup failure just means those rows fall back to the plain
+    // description, never breaks the statement itself.
+    const orderEntryIds = entries.filter((e) => e.reference_type === 'order').map((e) => e.reference_id);
+    let itemsByOrderId = {};
+    if (orderEntryIds.length > 0) {
+      try {
+        const { data: items } = await supabaseAdmin
+          .from('order_items')
+          .select('order_id, product_name, quantity')
+          .in('order_id', orderEntryIds);
+        (items || []).forEach((it) => {
+          if (!itemsByOrderId[it.order_id]) itemsByOrderId[it.order_id] = [];
+          itemsByOrderId[it.order_id].push(`${it.quantity}x ${it.product_name}`);
+        });
+      } catch (e) { /* non-fatal */ }
+    }
+    const enrichedEntries = entries.map((e) => ({
+      ...e,
+      itemsSummary: e.reference_type === 'order' ? (itemsByOrderId[e.reference_id] || []).join(', ') : null,
+    }));
+
     const pdfBuffer = await buildStatementPDF({
-      customer, company, entries,
+      customer, company, entries: enrichedEntries,
       fromDate: from_date, toDate: to_date, currentBalance
     });
 

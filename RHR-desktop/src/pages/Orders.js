@@ -464,7 +464,7 @@ export default function Orders({ initialOrderNumber }) {
     setPdfLoadingId(order.id);
     try {
       const res = await api.get(`/orders/${order.id}`);
-      buildInvoicePdf(res.data.data, { preview: true });
+      await buildInvoicePdf(res.data.data, { preview: true });
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load invoice preview.');
     } finally {
@@ -484,7 +484,7 @@ export default function Orders({ initialOrderNumber }) {
     try {
       const res = await api.get(`/orders/${order.id}`);
       const detail = res.data.data;
-      buildInvoicePdf(detail, { withTax: !!detail.invoice_with_tax, conveyance: Number(detail.invoice_conveyance) || 0 });
+      await buildInvoicePdf(detail, { withTax: !!detail.invoice_with_tax, conveyance: Number(detail.invoice_conveyance) || 0 });
       toast.success(`Invoice for ${order.order_number} downloaded.`);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to download invoice.');
@@ -518,7 +518,7 @@ export default function Orders({ initialOrderNumber }) {
       const detail = res.data.data;
       const taxAmount = withTax ? Number(detail.total_amount) * TAX_RATE : 0;
 
-      buildInvoicePdf(detail, { withTax, conveyance });
+      await buildInvoicePdf(detail, { withTax, conveyance });
 
       // Tax and conveyance aren't part of orders.total_amount, so without
       // this the customer's ledger (and anything that rolls up from it —
@@ -621,7 +621,7 @@ export default function Orders({ initialOrderNumber }) {
       // invoice, same as Print — editing a return shouldn't silently drop them.
       const res = await api.get(`/orders/${order.id}`);
       const updated = res.data.data;
-      buildInvoicePdf(updated, { withTax: !!updated.invoice_with_tax, conveyance: Number(updated.invoice_conveyance) || 0 });
+      await buildInvoicePdf(updated, { withTax: !!updated.invoice_with_tax, conveyance: Number(updated.invoice_conveyance) || 0 });
       setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, total_amount: updated.total_amount } : o)));
 
       toast.success(`Updated invoice downloaded — ${order.users?.full_name || 'the customer'}'s ledger credited PKR ${returnAmount.toLocaleString()}.`);
