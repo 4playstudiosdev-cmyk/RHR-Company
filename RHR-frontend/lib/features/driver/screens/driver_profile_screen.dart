@@ -5,6 +5,7 @@ import '../../../core/storage/secure_storage.dart';
 import '../../../services/auth_service.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class DriverProfileScreen extends StatefulWidget {
   const DriverProfileScreen({super.key});
@@ -49,7 +50,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
         backgroundColor: AppColors.navy,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => context.go('/driver-dashboard'),
+          onPressed: () => goBack(context, '/driver-dashboard'),
         ),
         title: const Text('My Profile',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -124,13 +125,13 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                 ),
                 child: Column(
                   children: [
-                    _menuItem(Icons.location_on_outlined, 'GPS Tracking', () => context.go('/driver-gps-tracking')),
+                    _menuItem(Icons.location_on_outlined, 'GPS Tracking', () => context.push('/driver-gps-tracking')),
                     const Divider(height: 1, indent: 56),
-                    _menuItem(Icons.event_available_outlined, 'Attendance', () => context.go('/attendance')),
+                    _menuItem(Icons.event_available_outlined, 'Attendance', () => context.push('/attendance')),
                     const Divider(height: 1, indent: 56),
-                    _menuItem(Icons.event_busy_outlined, 'Apply Leave', () => context.go('/leave')),
+                    _menuItem(Icons.event_busy_outlined, 'Apply Leave', () => context.push('/leave')),
                     const Divider(height: 1, indent: 56),
-                    _menuItem(Icons.request_page_outlined, 'My Payslip', () => context.go('/payslip')),
+                    _menuItem(Icons.request_page_outlined, 'My Payslip', () => context.push('/payslip')),
                   ],
                 ),
               )),

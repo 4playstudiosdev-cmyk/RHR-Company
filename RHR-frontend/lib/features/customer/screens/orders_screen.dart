@@ -83,7 +83,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                             Text('No orders yet', style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant)),
                             const SizedBox(height: AppSpacing.xs),
                             TextButton(
-                              onPressed: () => context.go('/catalogue'),
+                              onPressed: () => context.push('/catalogue'),
                               child: Text('Start Shopping', style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
                             ),
                           ],
@@ -102,7 +102,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           final orderId     = order['id']?.toString() ?? '';
 
                           return GestureDetector(
-                            onTap: () => context.go('/order-tracking', extra: orderId),
+                            onTap: () => context.push('/order-tracking', extra: orderId),
                             child: Container(
                               margin: const EdgeInsets.only(bottom: AppSpacing.base),
                               padding: const EdgeInsets.all(AppSpacing.sm),
@@ -146,7 +146,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                       Text('PKR $total', style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary)),
                                     ]),
                                     OutlinedButton(
-                                      onPressed: () => context.go('/order-tracking', extra: orderId),
+                                      onPressed: () => context.push('/order-tracking', extra: orderId),
                                       style: OutlinedButton.styleFrom(
                                         foregroundColor: AppColors.primary,
                                         side: const BorderSide(color: AppColors.primary),

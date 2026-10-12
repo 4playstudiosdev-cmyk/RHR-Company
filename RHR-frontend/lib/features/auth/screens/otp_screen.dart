@@ -8,6 +8,7 @@ import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../core/utils/phone_normalizer.dart';
 import '../../../services/gps_service.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class OtpScreen extends StatefulWidget {
   final dynamic extra;
@@ -253,7 +254,7 @@ class _OtpScreenState extends State<OtpScreen> {
               child: Row(
                 children: [
                   IconButton(
-                    onPressed: () => context.go('/login'),
+                    onPressed: () => goBack(context, '/login'),
                     icon: const Icon(Icons.arrow_back, color: AppColors.onPrimaryFixed),
                   ),
                 ],

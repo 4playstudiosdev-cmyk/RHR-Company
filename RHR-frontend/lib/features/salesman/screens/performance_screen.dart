@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../shared/router/app_transitions.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
@@ -73,7 +73,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> with SingleTicker
       appBar: AppBar(
         backgroundColor: AppColors.navy,
         leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => context.go('/salesman-dashboard')),
+            onPressed: () => goBack(context, '/salesman-dashboard')),
         title: const Text('My Performance',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       ),

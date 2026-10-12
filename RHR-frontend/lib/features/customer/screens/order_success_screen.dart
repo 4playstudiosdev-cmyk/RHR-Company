@@ -85,7 +85,7 @@ class OrderSuccessScreen extends StatelessWidget {
                 Row(children: [
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: orderId == null ? null : () => context.go('/order-tracking', extra: orderId),
+                      onPressed: orderId == null ? null : () => context.push('/order-tracking', extra: orderId),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
@@ -99,7 +99,7 @@ class OrderSuccessScreen extends StatelessWidget {
                   const SizedBox(width: AppSpacing.base),
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () => context.go('/catalogue'),
+                      onPressed: () => context.push('/catalogue'),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.primary,
                         side: const BorderSide(color: AppColors.primary, width: 2),

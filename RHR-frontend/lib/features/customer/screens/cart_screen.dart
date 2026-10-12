@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
 import '../../../shared/cart_store.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class CartScreen extends StatelessWidget {
   const CartScreen({super.key});
@@ -21,7 +22,7 @@ class CartScreen extends StatelessWidget {
             elevation: 0,
             leading: IconButton(
               icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => context.go('/catalogue'),
+              onPressed: () => goBack(context, '/catalogue'),
             ),
             title: Text('My Cart', style: AppTextStyles.headlineSm.copyWith(color: Colors.white)),
           ),
@@ -35,7 +36,7 @@ class CartScreen extends StatelessWidget {
                       Text('Cart is empty', style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant)),
                       const SizedBox(height: AppSpacing.xs),
                       TextButton(
-                        onPressed: () => context.go('/catalogue'),
+                        onPressed: () => goBack(context, '/catalogue'),
                         child: Text('Browse Products', style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
                       ),
                     ],
@@ -122,7 +123,7 @@ class CartScreen extends StatelessWidget {
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
-                            onPressed: () => context.go('/place-order', extra: cartItems),
+                            onPressed: () => context.push('/place-order', extra: cartItems),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.primary,
                               foregroundColor: Colors.white,

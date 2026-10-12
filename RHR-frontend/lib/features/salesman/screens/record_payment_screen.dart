@@ -10,6 +10,7 @@ import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/rhr_input_field.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/widgets/tap_scale.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class RecordPaymentScreen extends StatefulWidget {
   final String? customerId;
@@ -137,7 +138,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
         backgroundColor: AppColors.navy,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => context.go('/salesman-dashboard'),
+          onPressed: () => goBack(context, '/salesman-dashboard'),
         ),
         title: const Text('Record Payment',
             style:

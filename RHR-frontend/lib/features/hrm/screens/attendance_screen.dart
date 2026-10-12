@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../core/location/location_service.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
@@ -128,7 +128,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       appBar: AppBar(
           backgroundColor: AppColors.navy,
           leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => context.go('/salesman-dashboard')),
+              onPressed: () => goBack(context, '/salesman-dashboard')),
           title: const Text('Attendance',
               style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
       body: _isLoading

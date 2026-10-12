@@ -6,6 +6,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../shared/pdf/pdf_generator.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class OrderTrackingScreen extends StatefulWidget {
   final String? orderId;
@@ -79,7 +80,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         backgroundColor: AppColors.surfaceContainerLowest,
         elevation: 0,
         iconTheme: const IconThemeData(color: AppColors.onPrimaryFixed),
-        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.go('/orders')),
+        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => goBack(context, '/orders')),
         title: Text('Order Tracking', style: AppTextStyles.headlineLgMobile.copyWith(color: AppColors.onPrimaryFixed, fontSize: 20)),
         actions: [
           if (_order != null)

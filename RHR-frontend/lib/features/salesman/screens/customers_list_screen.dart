@@ -7,6 +7,7 @@ import '../../../core/storage/secure_storage.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/widgets/tap_scale.dart';
 import '../../../shared/widgets/shimmer_box.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class CustomersListScreen extends StatefulWidget {
   const CustomersListScreen({super.key});
@@ -67,7 +68,7 @@ class _CustomersListScreenState extends State<CustomersListScreen> {
         backgroundColor: AppColors.navy,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => context.go('/salesman-dashboard'),
+          onPressed: () => goBack(context, '/salesman-dashboard'),
         ),
         title: const Text('My Customers',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -117,7 +118,7 @@ class _CustomersListScreenState extends State<CustomersListScreen> {
                     return StaggeredFadeIn(
                       index: i,
                       child: TapScale(
-                      onTap: () => context.go('/customer-detail',
+                      onTap: () => context.push('/customer-detail',
                           extra: c['id'] as String),
                       child: Container(
                         margin: const EdgeInsets.only(bottom: 12),
@@ -168,7 +169,7 @@ class _CustomersListScreenState extends State<CustomersListScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: AppColors.orange,
-        onPressed: () => context.go('/create-order'),
+        onPressed: () => context.push('/create-order'),
         icon: const Icon(Icons.add, color: Colors.white),
         label: const Text('New Order',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),

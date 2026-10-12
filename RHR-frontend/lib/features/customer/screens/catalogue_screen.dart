@@ -84,7 +84,7 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
                           Text('RHR & Company', style: AppTextStyles.headlineMd.copyWith(color: Colors.white)),
                           Stack(clipBehavior: Clip.none, children: [
                             IconButton(
-                              onPressed: () => context.go('/cart'),
+                              onPressed: () => context.push('/cart'),
                               icon: const Icon(Icons.shopping_cart, color: Colors.white),
                             ),
                             if (cartCount > 0)
@@ -170,7 +170,7 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       GestureDetector(
-                                        onTap: () => context.go('/product-detail', extra: p),
+                                        onTap: () => context.push('/product-detail', extra: p),
                                         child: Container(
                                           height: 110,
                                           decoration: const BoxDecoration(

@@ -6,6 +6,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/cart_store.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class OrderPlacementScreen extends StatefulWidget {
   final List<Map<String, dynamic>>? cartItems;
@@ -93,7 +94,7 @@ class _OrderPlacementScreenState extends State<OrderPlacementScreen> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => context.go('/cart'),
+          onPressed: () => goBack(context, '/cart'),
         ),
         title: Text('Checkout', style: AppTextStyles.headlineLgMobile.copyWith(color: Colors.white, fontSize: 22)),
       ),

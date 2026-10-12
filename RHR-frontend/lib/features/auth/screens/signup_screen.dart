@@ -9,6 +9,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/utils/phone_normalizer.dart';
 import '../../../shared/widgets/wave_header.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class SignupScreen extends StatefulWidget {
   final String? phone;
@@ -169,7 +170,7 @@ class _SignupScreenState extends State<SignupScreen> {
     }
 
     if (!mounted) return;
-    context.go('/otp', extra: {
+    context.push('/otp', extra: {
       'phone':     phone,
       'fullName':  _nameController.text.trim(),
       'companyId': _selectedCity,
@@ -279,7 +280,7 @@ class _SignupScreenState extends State<SignupScreen> {
         top: false,
         child: Column(
           children: [
-            WaveHeader(title: 'Create Account', onBack: () => context.go('/login')),
+            WaveHeader(title: 'Create Account', onBack: () => goBack(context, '/login')),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(

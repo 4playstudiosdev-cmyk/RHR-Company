@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
@@ -7,6 +6,7 @@ import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/pdf/pdf_generator.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class LedgerScreen extends StatefulWidget {
   const LedgerScreen({super.key});
@@ -90,7 +90,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.navy,
         leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => context.go('/home')),
+            onPressed: () => goBack(context, '/home')),
         title: const Text('My Ledger',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         actions: [IconButton(

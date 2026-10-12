@@ -43,9 +43,9 @@ class _LoginScreenState extends State<LoginScreen> {
         final isNewUser = response.data['data']?['isNewUser'] == true;
         if (mounted) {
           if (isNewUser) {
-            context.go('/signup', extra: phone);
+            context.push('/signup', extra: phone);
           } else {
-            context.go('/otp', extra: phone);
+            context.push('/otp', extra: phone);
           }
         }
       } else {
@@ -178,7 +178,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               const SizedBox(height: AppSpacing.md),
 
                               GestureDetector(
-                                onTap: () => context.go('/signup'),
+                                onTap: () => context.push('/signup'),
                                 child: Text.rich(
                                   TextSpan(
                                     text: 'New Customer? ',

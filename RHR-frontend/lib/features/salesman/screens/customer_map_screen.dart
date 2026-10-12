@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class CustomerMapScreen extends StatefulWidget {
   const CustomerMapScreen({super.key});
@@ -88,7 +89,7 @@ class _CustomerMapScreenState extends State<CustomerMapScreen> {
             child: OutlinedButton(
               onPressed: () {
                 Navigator.pop(context);
-                context.go('/customer-detail', extra: c['id'] as String?);
+                context.push('/customer-detail', extra: c['id'] as String?);
               },
               style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: AppColors.navy),
@@ -113,7 +114,7 @@ class _CustomerMapScreenState extends State<CustomerMapScreen> {
         backgroundColor: AppColors.navy,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => context.go('/salesman-dashboard'),
+          onPressed: () => goBack(context, '/salesman-dashboard'),
         ),
         title: const Text('Customer Map', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         actions: [

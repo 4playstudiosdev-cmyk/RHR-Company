@@ -6,6 +6,7 @@ import '../../../core/network/dio_client.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/widgets/shimmer_box.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class CustomerDetailScreen extends StatefulWidget {
   final String? customerId;
@@ -66,7 +67,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
         backgroundColor: AppColors.navy,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => context.go('/my-customers'),
+          onPressed: () => goBack(context, '/my-customers'),
         ),
         title: Text(name,
             style: const TextStyle(
@@ -155,14 +156,14 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                           Expanded(
                             child: RHRButton(
                               text: 'New Order',
-                              onPressed: () => context.go('/create-order'),
+                              onPressed: () => context.push('/create-order'),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: RHRButton(
                               text: 'Record Payment',
-                              onPressed: () => context.go('/record-payment', extra: widget.customerId),
+                              onPressed: () => context.push('/record-payment', extra: widget.customerId),
                               isSecondary: true,
                             ),
                           ),

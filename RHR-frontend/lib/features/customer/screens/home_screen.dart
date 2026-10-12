@@ -94,12 +94,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                   style: AppTextStyles.headlineMd.copyWith(color: Colors.white)),
                               Row(children: [
                                 GestureDetector(
-                                  onTap: () => context.go('/notifications'),
+                                  onTap: () => context.push('/notifications'),
                                   child: const Icon(Icons.notifications, color: Colors.white, size: 26),
                                 ),
                                 const SizedBox(width: 14),
                                 GestureDetector(
-                                  onTap: () => context.go('/profile'),
+                                  onTap: () => context.push('/profile'),
                                   child: const CircleAvatar(
                                     radius: 16,
                                     backgroundColor: AppColors.tertiaryFixedDim,
@@ -142,7 +142,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton.icon(
-                              onPressed: () => context.go('/catalogue'),
+                              onPressed: () => context.push('/catalogue'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.secondaryContainer,
                                 foregroundColor: AppColors.onSecondaryContainer,
@@ -161,7 +161,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             children: [
                               Text('My Recent Orders', style: AppTextStyles.headlineSm.copyWith(color: AppColors.onBackground)),
                               GestureDetector(
-                                onTap: () => context.go('/orders'),
+                                onTap: () => context.push('/orders'),
                                 child: Text('View All', style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
                               ),
                             ],
@@ -180,7 +180,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               final amount = order['total_amount'] ?? order['total'] ?? 0;
                               final status = (order['status'] ?? 'pending').toString();
                               return _OrderRow(id: 'ORD-$id', amount: 'PKR $amount', status: status,
-                                  onTap: () => context.go('/order-tracking', extra: order['id']?.toString()));
+                                  onTap: () => context.push('/order-tracking', extra: order['id']?.toString()));
                             }),
                           const SizedBox(height: AppSpacing.lg),
                         ]),

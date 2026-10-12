@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../services/gps_service.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class GpsTrackingScreen extends StatefulWidget {
   final String backRoute;
@@ -61,7 +61,7 @@ class _GpsTrackingScreenState extends State<GpsTrackingScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.navy,
         leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => context.go(widget.backRoute)),
+            onPressed: () => goBack(context, widget.backRoute)),
         title: const Text('GPS Tracking',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       ),

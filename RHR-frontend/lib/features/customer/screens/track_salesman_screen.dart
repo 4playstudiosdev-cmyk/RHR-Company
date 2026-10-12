@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/widgets/rhr_button.dart';
+import '../../../shared/router/app_transitions.dart';
 
 const _kKarachi = LatLng(24.8608, 67.0104);
 const _kRefreshInterval = Duration(seconds: 20);
@@ -106,7 +106,7 @@ class _TrackSalesmanScreenState extends State<TrackSalesmanScreen> {
         backgroundColor: AppColors.navy,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => context.go('/profile'),
+          onPressed: () => goBack(context, '/profile'),
         ),
         title: const Text('Track My Salesman',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),

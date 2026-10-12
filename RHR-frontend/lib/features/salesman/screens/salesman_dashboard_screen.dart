@@ -77,7 +77,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
               child: TextButton(
                 onPressed: () {
                   Navigator.of(context).pop();
-                  context.go('/salesman-profile');
+                  context.push('/salesman-profile');
                 },
                 child: const Text('View Full Profile',
                     style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.bold)),
@@ -153,7 +153,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                             children: [
                               Expanded(
                                 child: GestureDetector(
-                                  onTap: () => context.go('/salesman-profile'),
+                                  onTap: () => context.push('/salesman-profile'),
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
@@ -171,7 +171,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                               Row(
                                 children: [
                                   GestureDetector(
-                                    onTap: () => context.go('/notifications'),
+                                    onTap: () => context.push('/notifications'),
                                     child: Container(
                                       padding: const EdgeInsets.all(8),
                                       decoration: BoxDecoration(
@@ -239,7 +239,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                         children: [
                           Expanded(
                             child: TapScale(
-                              onTap: () => context.go('/create-order'),
+                              onTap: () => context.push('/create-order'),
                               child: Container(
                                 padding: const EdgeInsets.all(18),
                                 decoration: BoxDecoration(
@@ -269,7 +269,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: TapScale(
-                              onTap: () => context.go('/record-payment'),
+                              onTap: () => context.push('/record-payment'),
                               child: Container(
                                 padding: const EdgeInsets.all(18),
                                 decoration: BoxDecoration(
@@ -345,7 +345,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                                   fontWeight: FontWeight.bold,
                                   color: AppColors.navy)),
                           GestureDetector(
-                            onTap: () => context.go('/my-customers'),
+                            onTap: () => context.push('/my-customers'),
                             child: const Text('View All',
                                 style: TextStyle(
                                     color: AppColors.orange,
@@ -407,7 +407,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
     return StaggeredFadeIn(
       index: index,
       child: TapScale(
-        onTap: () => context.go(route),
+        onTap: () => context.push(route),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
           decoration: BoxDecoration(
@@ -442,7 +442,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
     return StaggeredFadeIn(
       index: index,
       child: TapScale(
-      onTap: () => context.go('/my-customers'),
+      onTap: () => context.push('/my-customers'),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
         padding: const EdgeInsets.all(16),

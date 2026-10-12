@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/widgets/tap_scale.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -71,7 +71,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.navy,
         leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => context.go('/home')),
+            onPressed: () => goBack(context, '/home')),
         title: Text('Notifications${_unread > 0 ? ' ($_unread)' : ''}',
             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         actions: [if (_unread > 0) TextButton(onPressed: () => setState(() {

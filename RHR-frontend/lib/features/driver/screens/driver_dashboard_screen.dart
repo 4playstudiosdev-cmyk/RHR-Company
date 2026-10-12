@@ -64,7 +64,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                       children: [
                         Expanded(
                           child: GestureDetector(
-                            onTap: () => context.go('/driver-profile'),
+                            onTap: () => context.push('/driver-profile'),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -80,7 +80,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                           ),
                         ),
                         GestureDetector(
-                          onTap: () => context.go('/notifications'),
+                          onTap: () => context.push('/notifications'),
                           child: Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
@@ -111,7 +111,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: StaggeredFadeIn(index: 2, child: TapScale(
-                  onTap: () => context.go('/driver-gps-tracking'),
+                  onTap: () => context.push('/driver-gps-tracking'),
                   child: Container(
                     padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
@@ -206,7 +206,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     return StaggeredFadeIn(
       index: index,
       child: TapScale(
-        onTap: () => context.go(route),
+        onTap: () => context.push(route),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
           decoration: BoxDecoration(

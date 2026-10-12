@@ -7,6 +7,7 @@ import '../../../core/storage/hive_service.dart';
 import '../../../core/storage/sync_service.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/success_check.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class CreateOrderScreen extends StatefulWidget {
   const CreateOrderScreen({super.key});
@@ -138,7 +139,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         backgroundColor: AppColors.navy,
         leading: IconButton(
             icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => context.go('/salesman-dashboard')),
+            onPressed: () => goBack(context, '/salesman-dashboard')),
         title: const Text('Create Order',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         actions: [

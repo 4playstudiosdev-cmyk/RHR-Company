@@ -5,6 +5,7 @@ import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/cart_store.dart';
+import '../../../shared/router/app_transitions.dart';
 
 class ProductDetailScreen extends StatefulWidget {
   final String? productId;
@@ -60,7 +61,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         iconTheme: const IconThemeData(color: AppColors.primaryContainer),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/catalogue'),
+          onPressed: () => goBack(context, '/catalogue'),
         ),
         title: Text('Product Details', style: AppTextStyles.headlineSm.copyWith(color: AppColors.primaryContainer)),
         actions: [
@@ -71,7 +72,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               return Stack(clipBehavior: Clip.none, children: [
                 IconButton(
                   icon: const Icon(Icons.shopping_cart),
-                  onPressed: () => context.go('/cart'),
+                  onPressed: () => context.push('/cart'),
                 ),
                 if (count > 0)
                   Positioned(
@@ -213,7 +214,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                 child: OutlinedButton.icon(
                                   onPressed: () {
                                     CartStore.instance.add(id: widget.productId ?? '', name: name, price: price, unit: unit, qty: _quantity);
-                                    context.go('/cart');
+                                    context.push('/cart');
                                   },
                                   style: OutlinedButton.styleFrom(
                                     foregroundColor: AppColors.primaryContainer,
@@ -230,7 +231,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                 child: ElevatedButton(
                                   onPressed: () {
                                     CartStore.instance.add(id: widget.productId ?? '', name: name, price: price, unit: unit, qty: _quantity);
-                                    context.go('/place-order', extra: CartStore.instance.items);
+                                    context.push('/place-order', extra: CartStore.instance.items);
                                   },
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: AppColors.primaryContainer,
