@@ -77,6 +77,7 @@ export default function Dashboard({ user, setPage }) {
   const [stats, setStats] = useState({ ordersInRange: 0, pendingOrders: 0 });
   const [financials, setFinancials] = useState(null);
   const [recentOrders, setRecentOrders] = useState([]);
+  const [recentPayments, setRecentPayments] = useState([]);
   const [statusCounts, setStatusCounts] = useState({});
   const [weekSeries, setWeekSeries] = useState([]);
   const [pendingCustomers, setPendingCustomers] = useState([]);
@@ -130,7 +131,14 @@ export default function Dashboard({ user, setPage }) {
       setWeekSeries(buildWeekSeries(allOrders));
       setRecentOrders(orders.slice(0, 10));
       setPendingCustomers(pendingCustomersRes.data.data || []);
-      setPendingPayments((paymentsRes.data.data || []).filter((p) => p.status === 'pending'));
+      const allPayments = paymentsRes.data.data || [];
+      setPendingPayments(allPayments.filter((p) => p.status === 'pending'));
+      setRecentPayments(
+        allPayments
+          .filter((p) => p.status === 'approved')
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+          .slice(0, 10)
+      );
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load dashboard data.');
     } finally {
@@ -333,6 +341,54 @@ export default function Dashboard({ user, setPage }) {
                 )}
               </div>
             </div>
+          </div>
+
+          {/* Recent Payments — real approved recoveries, links to Payments */}
+          <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <div>
+                <h2 className="font-semibold text-navy">Recent Payments</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Last 10 approved recoveries</p>
+              </div>
+              <button
+                onClick={() => setPage?.('payments')}
+                className="text-navy text-sm font-medium hover:underline flex items-center gap-1"
+              >
+                View All <ArrowRight size={15} />
+              </button>
+            </div>
+
+            {recentPayments.length === 0 ? (
+              <EmptyState icon={Wallet} title="No payments yet" subtitle="Approved recoveries will show up here" />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Method</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Amount</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentPayments.map((p, i) => (
+                      <tr
+                        key={p.id}
+                        className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${
+                          i % 2 === 1 ? 'bg-gray-50/40' : ''
+                        }`}
+                      >
+                        <td className="px-6 py-3.5 font-medium text-navy">{p.customer?.full_name || '—'}</td>
+                        <td className="px-6 py-3.5 capitalize text-gray-600">{p.method}</td>
+                        <td className="px-6 py-3.5 font-medium text-emerald-600">+ PKR {Number(p.amount).toLocaleString()}</td>
+                        <td className="px-6 py-3.5 text-gray-500">{new Date(p.created_at).toLocaleDateString('en-GB')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Sales overview — real last-7-days revenue */}

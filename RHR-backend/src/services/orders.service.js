@@ -170,7 +170,7 @@ async function getOrderById(id, user) {
   // still loads without it.
   let query = supabaseAdmin
     .from('orders')
-    .select('*, order_items(*, products(unit)), users!customer_id(full_name, phone, shop_name, shop_address), drivers(full_name, car_number, phone)')
+    .select('*, order_items(*, products(unit)), users!customer_id(full_name, phone, shop_name, shop_address), drivers(full_name, car_number, phone), salesmen!salesman_id(full_name)')
     .eq('id', id)
     .single();
   let { data, error } = await query;
