@@ -14,6 +14,17 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+// Google Maps API key — kept out of AndroidManifest.xml / git (GitHub's
+// secret scanner flagged it hardcoded there) and read from the
+// already-gitignored local.properties instead, same pattern as
+// key.properties above.
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
+}
+val mapsApiKey = localProperties.getProperty("mapsApiKey") ?: ""
+
 android {
     namespace = "com.rhrcompany.app"
     compileSdk = flutter.compileSdkVersion
@@ -36,6 +47,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["mapsApiKey"] = mapsApiKey
     }
 
     signingConfigs {
