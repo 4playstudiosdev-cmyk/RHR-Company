@@ -109,12 +109,20 @@ class _DriverProfileSetupScreenState extends State<DriverProfileSetupScreen> {
   }
 
   Future<void> _save() async {
-    if (_nameController.text.trim().isEmpty ||
-        _phoneController.text.trim().isEmpty ||
-        _nicController.text.trim().isEmpty ||
-        _vehicleController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('All fields are required.')));
+    if (_nameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Full Name is required.')));
+      return;
+    }
+    if (_phoneController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Phone Number is required.')));
+      return;
+    }
+    if (_nicController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('NIC Number is required.')));
+      return;
+    }
+    if (_vehicleController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vehicle Number is required.')));
       return;
     }
     if (_profileImageFile == null && _existingProfileUrl == null) {
@@ -190,8 +198,10 @@ class _DriverProfileSetupScreenState extends State<DriverProfileSetupScreen> {
         TextField(
           controller: controller,
           keyboardType: keyboardType,
+          style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w600),
           decoration: InputDecoration(
             hintText: hint,
+            hintStyle: TextStyle(color: AppColors.steelBlue.withValues(alpha: 0.55), fontWeight: FontWeight.normal),
             prefixIcon: Icon(icon, color: AppColors.steelBlue),
             filled: true,
             fillColor: AppColors.white,
