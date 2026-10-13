@@ -71,14 +71,27 @@ const verifyOTPHandler = async (req, res) => {
         role:      existingUser.role,
         carNumber: existingUser.car_number,
       };
-      // Customer-only "Complete Your Profile" gate — see
-      // customers.controller.js's isProfileComplete for the field list.
-      if (existingUser.role === 'customer') {
-        const requiredFields = [
-          'full_name', 'email', 'nic_number', 'shop_name',
-          'shop_address', 'whatsapp_phone', 'profile_photo_url',
-          'nic_image_url', 'nic_back_image_url',
-        ];
+      // "Complete Your Profile" gate, per role — field list must match
+      // customers.controller.js's isProfileComplete (customer) and
+      // salesmen.routes.js / drivers.routes.js's own copies (salesman /
+      // driver), since each role collects a different set of fields.
+      const REQUIRED_PROFILE_FIELDS_BY_ROLE = {
+        customer: [
+          'full_name', 'nic_number', 'shop_name', 'shop_image_url',
+          'shop_latitude', 'shop_longitude', 'whatsapp_phone',
+          'profile_photo_url', 'nic_image_url', 'nic_back_image_url',
+        ],
+        salesman: [
+          'full_name', 'phone', 'nic_number',
+          'profile_photo_url', 'nic_image_url', 'nic_back_image_url',
+        ],
+        driver: [
+          'full_name', 'phone', 'nic_number', 'car_number',
+          'profile_photo_url', 'nic_image_url', 'nic_back_image_url',
+        ],
+      };
+      const requiredFields = REQUIRED_PROFILE_FIELDS_BY_ROLE[existingUser.role];
+      if (requiredFields) {
         responseUser.profileComplete = requiredFields.every(
           (f) => existingUser[f] != null && String(existingUser[f]).trim() !== ''
         );

@@ -27,10 +27,14 @@ import '../../features/salesman/screens/customer_detail_screen.dart';
 import '../../features/salesman/screens/create_order_screen.dart';
 import '../../features/salesman/screens/record_payment_screen.dart';
 import '../../features/salesman/screens/salesman_profile_screen.dart';
+import '../../features/salesman/screens/salesman_profile_setup_screen.dart';
 import '../../features/salesman/screens/gps_tracking_screen.dart';
 import '../../features/salesman/screens/performance_screen.dart';
 import '../../features/driver/screens/driver_dashboard_screen.dart';
 import '../../features/driver/screens/driver_profile_screen.dart';
+import '../../features/driver/screens/driver_profile_setup_screen.dart';
+import '../../features/driver/screens/driver_orders_screen.dart';
+import '../../features/driver/screens/driver_order_detail_screen.dart';
 import '../../features/shared/screens/notifications_screen.dart';
 import '../../features/hrm/screens/attendance_screen.dart';
 import '../../features/hrm/screens/leave_screen.dart';
@@ -50,8 +54,14 @@ final appRouter = GoRouter(
     if (state.matchedLocation != '/login') return null;
     if (!await SecureStorage.isLoggedIn()) return null;
     final role = await SecureStorage.getRole();
-    if (role == 'salesman') return '/salesman-dashboard';
-    if (role == 'driver') return '/driver-dashboard';
+    if (role == 'salesman') {
+      if (!await SecureStorage.getSalesmanProfileComplete()) return '/salesman-profile-setup';
+      return '/salesman-dashboard';
+    }
+    if (role == 'driver') {
+      if (!await SecureStorage.getDriverProfileComplete()) return '/driver-profile-setup';
+      return '/driver-dashboard';
+    }
     if (!await SecureStorage.getProfileComplete()) return '/profile-setup';
     return '/home';
   },
@@ -92,6 +102,7 @@ final appRouter = GoRouter(
     GoRoute(path: '/customer-map',       pageBuilder: (c, s) => slidePage(s, const CustomerMapScreen())),
     GoRoute(path: '/salesman-dashboard', pageBuilder: (c, s) => slidePage(s, const SalesmanDashboardScreen())),
     GoRoute(path: '/salesman-profile',   pageBuilder: (c, s) => slidePage(s, const SalesmanProfileScreen())),
+    GoRoute(path: '/salesman-profile-setup', pageBuilder: (c, s) => slidePage(s, SalesmanProfileSetupScreen(forced: s.extra == true))),
     GoRoute(path: '/my-customers',       pageBuilder: (c, s) => slidePage(s, const CustomersListScreen())),
     GoRoute(path: '/customer-detail',    pageBuilder: (c, s) => slidePage(s, CustomerDetailScreen(customerId: s.extra as String?))),
     GoRoute(path: '/create-order',       pageBuilder: (c, s) => slidePage(s, const CreateOrderScreen())),
@@ -100,6 +111,9 @@ final appRouter = GoRouter(
     GoRoute(path: '/performance',        pageBuilder: (c, s) => slidePage(s, const PerformanceScreen())),
     GoRoute(path: '/driver-dashboard',   pageBuilder: (c, s) => slidePage(s, const DriverDashboardScreen())),
     GoRoute(path: '/driver-profile',     pageBuilder: (c, s) => slidePage(s, const DriverProfileScreen())),
+    GoRoute(path: '/driver-profile-setup', pageBuilder: (c, s) => slidePage(s, DriverProfileSetupScreen(forced: s.extra == true))),
+    GoRoute(path: '/driver-orders',       pageBuilder: (c, s) => slidePage(s, const DriverOrdersScreen())),
+    GoRoute(path: '/driver-order-detail', pageBuilder: (c, s) => slidePage(s, DriverOrderDetailScreen(orderId: s.extra as String?))),
     GoRoute(path: '/driver-gps-tracking', pageBuilder: (c, s) => slidePage(s, const GpsTrackingScreen(backRoute: '/driver-dashboard'))),
     GoRoute(path: '/notifications',      pageBuilder: (c, s) => slidePage(s, const NotificationsScreen())),
     GoRoute(path: '/attendance',         pageBuilder: (c, s) => slidePage(s, const AttendanceScreen())),

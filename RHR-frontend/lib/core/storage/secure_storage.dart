@@ -20,6 +20,8 @@ class SecureStorage {
   static const _locationConsentKey = 'location_disclosure_accepted';
   static const _shopLocationConsentKey = 'shop_location_disclosure_accepted';
   static const _profileCompleteKey = 'customer_profile_complete';
+  static const _salesmanProfileCompleteKey = 'salesman_profile_complete';
+  static const _driverProfileCompleteKey = 'driver_profile_complete';
 
   // Session lifetime — a stored token older than this is treated as
   // expired even if the backend JWT itself hasn't expired yet, and forces
@@ -127,6 +129,26 @@ class SecureStorage {
 
   static Future<bool> getProfileComplete() async {
     return (await _storage.read(key: _profileCompleteKey)) == 'true';
+  }
+
+  // Same idea as saveProfileComplete/getProfileComplete above, for the
+  // salesman/driver "Complete Your Profile" flows (see
+  // salesmen.routes.js / drivers.routes.js's own isProfileComplete) —
+  // each role gets its own key since they're gated independently.
+  static Future<void> saveSalesmanProfileComplete(bool complete) async {
+    await _storage.write(key: _salesmanProfileCompleteKey, value: complete.toString());
+  }
+
+  static Future<bool> getSalesmanProfileComplete() async {
+    return (await _storage.read(key: _salesmanProfileCompleteKey)) == 'true';
+  }
+
+  static Future<void> saveDriverProfileComplete(bool complete) async {
+    await _storage.write(key: _driverProfileCompleteKey, value: complete.toString());
+  }
+
+  static Future<bool> getDriverProfileComplete() async {
+    return (await _storage.read(key: _driverProfileCompleteKey)) == 'true';
   }
 
   // Clear everything on logout

@@ -99,6 +99,8 @@ class _SalesmanProfileScreenState extends State<SalesmanProfileScreen> {
                 ),
                 child: Column(
                   children: [
+                    _menuItem(Icons.edit_outlined, 'Edit Profile', () => context.push('/salesman-profile-setup')),
+                    const Divider(height: 1, indent: 56),
                     _menuItem(Icons.people_outline, 'My Customers', () => context.push('/my-customers')),
                     const Divider(height: 1, indent: 56),
                     _menuItem(Icons.map_outlined, 'Customer Map', () => context.push('/customer-map')),

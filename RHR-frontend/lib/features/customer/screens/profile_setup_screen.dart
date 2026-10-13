@@ -3,19 +3,20 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../shared/widgets/wave_header.dart';
+import '../../../shared/widgets/shop_location_picker_screen.dart';
 
 /// Forced on a customer's first login once their profile is missing any
 /// required field (see customers.controller.js's isProfileComplete), and
-/// also reachable any time after via Settings → Edit Profile. All 9
-/// fields — full name, email, NIC number, shop name, shop address,
-/// WhatsApp phone, profile picture, NIC front image, NIC back image —
-/// are required to save.
+/// also reachable any time after via Settings → Edit Profile. Required:
+/// customer photo + name, shop photo + name, shop GPS location, phone
+/// number, NIC number, NIC front/back images.
 class ProfileSetupScreen extends StatefulWidget {
   final bool forced;
   const ProfileSetupScreen({super.key, this.forced = false});
@@ -26,18 +27,21 @@ class ProfileSetupScreen extends StatefulWidget {
 
 class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   final _nameController     = TextEditingController();
-  final _emailController    = TextEditingController();
   final _nicController      = TextEditingController();
   final _shopNameController = TextEditingController();
-  final _addressController  = TextEditingController();
-  final _whatsappController = TextEditingController();
+  final _phoneController    = TextEditingController();
 
   File? _profileImageFile;
+  File? _shopImageFile;
   File? _nicFrontImageFile;
   File? _nicBackImageFile;
   String? _existingProfileUrl;
+  String? _existingShopImageUrl;
   String? _existingNicFrontUrl;
   String? _existingNicBackUrl;
+
+  double? _shopLatitude;
+  double? _shopLongitude;
 
   bool _loading = true;
   bool _saving = false;
@@ -51,11 +55,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   @override
   void dispose() {
     _nameController.dispose();
-    _emailController.dispose();
     _nicController.dispose();
     _shopNameController.dispose();
-    _addressController.dispose();
-    _whatsappController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
@@ -65,14 +67,17 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       if (res.data['success'] == true) {
         final data = res.data['data'] as Map<String, dynamic>;
         _nameController.text     = (data['full_name'] as String?) ?? '';
-        _emailController.text    = (data['email'] as String?) ?? '';
         _nicController.text      = (data['nic_number'] as String?) ?? '';
         _shopNameController.text = (data['shop_name'] as String?) ?? '';
-        _addressController.text  = (data['shop_address'] as String?) ?? '';
-        _whatsappController.text = (data['whatsapp_phone'] as String?) ?? '';
+        _phoneController.text    = (data['whatsapp_phone'] as String?) ?? '';
         _existingProfileUrl  = data['profile_photo_url'] as String?;
+        _existingShopImageUrl = data['shop_image_url'] as String?;
         _existingNicFrontUrl = data['nic_image_url'] as String?;
         _existingNicBackUrl  = data['nic_back_image_url'] as String?;
+        final lat = data['shop_latitude'];
+        final lng = data['shop_longitude'];
+        if (lat != null) _shopLatitude = (lat as num).toDouble();
+        if (lng != null) _shopLongitude = (lng as num).toDouble();
       }
     } catch (e) {
       debugPrint('Profile load error: $e');
@@ -90,6 +95,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         case 'profile':
           _profileImageFile = File(image.path);
           break;
+        case 'shop':
+          _shopImageFile = File(image.path);
+          break;
         case 'nicFront':
           _nicFrontImageFile = File(image.path);
           break;
@@ -98,6 +106,29 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           break;
       }
     });
+  }
+
+  Future<void> _pickShopLocation() async {
+    final result = await Navigator.of(context).push<Map<String, double>>(
+      MaterialPageRoute(
+        builder: (_) => ShopLocationPickerScreen(
+          initialLatitude: _shopLatitude,
+          initialLongitude: _shopLongitude,
+        ),
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _shopLatitude = result['latitude'];
+        _shopLongitude = result['longitude'];
+      });
+    }
+  }
+
+  Future<void> _openInGoogleMaps() async {
+    if (_shopLatitude == null || _shopLongitude == null) return;
+    final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$_shopLatitude,$_shopLongitude');
+    if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   Future<String> _uploadImage(File file, String bucket) async {
@@ -118,18 +149,26 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 
   Future<void> _save() async {
     if (_nameController.text.trim().isEmpty ||
-        _emailController.text.trim().isEmpty ||
         _nicController.text.trim().isEmpty ||
         _shopNameController.text.trim().isEmpty ||
-        _addressController.text.trim().isEmpty ||
-        _whatsappController.text.trim().isEmpty) {
+        _phoneController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('All fields are required.')));
       return;
     }
     if (_profileImageFile == null && _existingProfileUrl == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile picture is required.')));
+          const SnackBar(content: Text('Your photo is required.')));
+      return;
+    }
+    if (_shopImageFile == null && _existingShopImageUrl == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Shop photo is required.')));
+      return;
+    }
+    if (_shopLatitude == null || _shopLongitude == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please set your shop location on the map.')));
       return;
     }
     if (_nicFrontImageFile == null && _existingNicFrontUrl == null) {
@@ -148,6 +187,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       final profileUrl = _profileImageFile != null
           ? await _uploadImage(_profileImageFile!, 'profile-photos')
           : _existingProfileUrl!;
+      final shopImageUrl = _shopImageFile != null
+          ? await _uploadImage(_shopImageFile!, 'shop-photos')
+          : _existingShopImageUrl!;
       final nicFrontUrl = _nicFrontImageFile != null
           ? await _uploadImage(_nicFrontImageFile!, 'nic-images')
           : _existingNicFrontUrl!;
@@ -157,12 +199,13 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 
       final res = await DioClient.instance.patch(ApiEndpoints.myProfile, data: {
         'full_name':          _nameController.text.trim(),
-        'email':              _emailController.text.trim(),
         'nic_number':         _nicController.text.trim(),
         'shop_name':          _shopNameController.text.trim(),
-        'shop_address':       _addressController.text.trim(),
-        'whatsapp_phone':     _whatsappController.text.trim(),
+        'whatsapp_phone':     _phoneController.text.trim(),
         'profile_photo_url':  profileUrl,
+        'shop_image_url':     shopImageUrl,
+        'shop_latitude':      _shopLatitude,
+        'shop_longitude':     _shopLongitude,
         'nic_image_url':      nicFrontUrl,
         'nic_back_image_url': nicBackUrl,
       });
@@ -340,6 +383,48 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     );
   }
 
+  Widget _shopLocationField() {
+    final isSet = _shopLatitude != null && _shopLongitude != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Shop Location *', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant)),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: _pickShopLocation,
+          borderRadius: BorderRadius.circular(AppRadius.base),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceContainerLowest,
+              borderRadius: BorderRadius.circular(AppRadius.base),
+              border: Border.all(color: isSet ? AppColors.success : _fieldBorder),
+            ),
+            child: Row(children: [
+              Icon(isSet ? Icons.location_on : Icons.add_location_alt_outlined,
+                  color: isSet ? AppColors.success : AppColors.outline),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  isSet ? 'Location set — tap to change' : 'Tap to set on Google Maps',
+                  style: AppTextStyles.bodyMd.copyWith(
+                      color: isSet ? AppColors.onSurface : AppColors.outline),
+                ),
+              ),
+              if (isSet)
+                IconButton(
+                  icon: const Icon(Icons.open_in_new, size: 18, color: AppColors.primary),
+                  onPressed: _openInGoogleMaps,
+                  tooltip: 'Open in Google Maps',
+                ),
+            ]),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -400,8 +485,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                               const SizedBox(height: AppSpacing.sm),
                               _field(label: 'Full Name *', icon: Icons.person, controller: _nameController, hint: 'Enter your full name'),
                               const SizedBox(height: AppSpacing.sm),
-                              _field(label: 'Email *', icon: Icons.email_outlined, controller: _emailController,
-                                  hint: 'you@example.com', keyboardType: TextInputType.emailAddress),
+                              _field(label: 'Phone Number *', icon: Icons.phone_outlined, controller: _phoneController,
+                                  hint: '03XX XXXXXXX', keyboardType: TextInputType.phone),
                               const SizedBox(height: AppSpacing.sm),
                               _field(label: 'NIC Number *', icon: Icons.badge_outlined, controller: _nicController,
                                   hint: '42101-1234567-1'),
@@ -431,11 +516,14 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                               _field(label: 'Shop Name *', icon: Icons.store_outlined, controller: _shopNameController,
                                   hint: 'Shop or company name'),
                               const SizedBox(height: AppSpacing.sm),
-                              _field(label: 'Shop Address *', icon: Icons.location_on, controller: _addressController,
-                                  hint: 'Shop address, area'),
+                              _imagePicker(
+                                label: 'Shop Photo *',
+                                file: _shopImageFile,
+                                existingUrl: _existingShopImageUrl,
+                                onTap: () => _pickImage('shop'),
+                              ),
                               const SizedBox(height: AppSpacing.sm),
-                              _field(label: 'WhatsApp Phone *', icon: Icons.chat_outlined, controller: _whatsappController,
-                                  hint: '03XX XXXXXXX', keyboardType: TextInputType.phone),
+                              _shopLocationField(),
                               const SizedBox(height: AppSpacing.md),
                               SizedBox(
                                 width: double.infinity,

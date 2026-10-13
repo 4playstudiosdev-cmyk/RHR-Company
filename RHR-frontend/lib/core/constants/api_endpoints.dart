@@ -26,6 +26,11 @@ class ApiEndpoints {
   static const String customers       = '/api/v1/customers';
   static const String pendingCustomers = '/api/v1/customers/pending';
   static const String myProfile       = '/api/v1/customers/me/profile';
+  static const String myShopLocation  = '/api/v1/customers/me/location';
+
+  // SALESMEN / DRIVERS self-service profile
+  static const String salesmanMyProfile = '/api/v1/salesmen/me/profile';
+  static const String driverMyProfile   = '/api/v1/drivers/me/profile';
 
   // ORDERS
   static const String orders          = '/api/v1/orders';

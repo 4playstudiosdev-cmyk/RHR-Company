@@ -1,11 +1,64 @@
 const express = require('express');
 const router  = express.Router();
 const { authenticate } = require('../middleware/auth.middleware');
-const { isAdmin }      = require('../middleware/role.middleware');
+const { isAdmin, isDriver } = require('../middleware/role.middleware');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+
+// A driver's profile is "complete" once every one of these is filled —
+// mirrors customers.controller.js's isProfileComplete, same required-field
+// list as auth.controller.js's verifyOTPHandler uses at login time.
+// car_number is "vehicle number" in the UI.
+const REQUIRED_PROFILE_FIELDS = [
+  'full_name', 'phone', 'nic_number', 'car_number',
+  'profile_photo_url', 'nic_image_url', 'nic_back_image_url',
+];
+function isProfileComplete(driver) {
+  return REQUIRED_PROFILE_FIELDS.every(
+    (f) => driver[f] != null && String(driver[f]).trim() !== ''
+  );
+}
+
+// GET /api/v1/drivers/me/profile — self-service
+router.get('/me/profile', authenticate, isDriver, async (req, res) => {
+  try {
+    const rows = await pgrestGet('drivers', {
+      select: 'id,full_name,phone,car_number,nic_number,profile_photo_url,nic_image_url,nic_back_image_url',
+      id: `eq.${req.user.id}`,
+    });
+    const data = rows?.[0];
+    if (!data) return error(res, 'Profile not found', 404);
+    return success(res, { ...data, profileComplete: isProfileComplete(data) });
+  } catch (err) { return error(res, err.message); }
+});
+
+// PATCH /api/v1/drivers/me/profile — self-service, used by both the
+// forced first-login "Complete Your Profile" screen and the later "Edit
+// Profile" entry point — same pattern as customers.controller.js's
+// updateMyProfile.
+router.patch('/me/profile', authenticate, isDriver, async (req, res) => {
+  try {
+    const { full_name, phone, nic_number, car_number, profile_photo_url, nic_image_url, nic_back_image_url } = req.body;
+
+    const update = {};
+    if (full_name != null)          update.full_name = full_name;
+    if (phone != null)              update.phone = phone;
+    if (nic_number != null)         update.nic_number = nic_number;
+    if (car_number != null)         update.car_number = car_number;
+    if (profile_photo_url != null)  update.profile_photo_url = profile_photo_url;
+    if (nic_image_url != null)      update.nic_image_url = nic_image_url;
+    if (nic_back_image_url != null) update.nic_back_image_url = nic_back_image_url;
+
+    if (Object.keys(update).length === 0) return error(res, 'No fields to update', 400);
+
+    const rows = await pgrestPatch('drivers', { id: `eq.${req.user.id}` }, update);
+    const data = rows?.[0];
+    if (!data) return error(res, 'Profile not found', 404);
+    return success(res, { ...data, profileComplete: isProfileComplete(data) }, 'Profile updated');
+  } catch (err) { return error(res, err.message); }
+});
 
 // GET /api/v1/drivers — active drivers (approved + pending) in this
 // admin's company, each with a customer_count (how many active customers

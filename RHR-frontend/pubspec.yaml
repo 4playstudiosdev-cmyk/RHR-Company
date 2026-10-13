@@ -35,10 +35,14 @@ dependencies:
   # Connectivity check (for offline GPS queuing)
   connectivity_plus: ^6.0.0
 
-  # Maps — OpenStreetMap tiles, no API key needed (same reasoning as the
-  # desktop app's Leaflet choice: no Google Maps key configured anywhere)
+  # Maps — flutter_map/OSM (customer→salesman tracking, no API key) plus
+  # google_maps_flutter (shop-location picker on Complete Profile — the
+  # desktop admin panel also moved to official Google Maps, same API key
+  # project, see RHR-desktop/src/utils/googleMapsLoader.js).
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
+  google_maps_flutter: ^2.9.0
+  url_launcher: ^6.3.1
 
   # SVG Support
   flutter_svg: ^2.0.10+1

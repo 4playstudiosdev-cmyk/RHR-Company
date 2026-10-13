@@ -211,9 +211,19 @@ class _OtpScreenState extends State<OtpScreen> {
           // login_screen.dart) — awaited here, on the OTP screen, before
           // navigating away to the dashboard.
           if (role == 'salesman' || role == 'driver') {
+            final profileComplete = data['user']?['profileComplete'] == true;
+            if (role == 'salesman') {
+              await SecureStorage.saveSalesmanProfileComplete(profileComplete);
+            } else {
+              await SecureStorage.saveDriverProfileComplete(profileComplete);
+            }
             if (mounted) await GPSService().startTrackingWithConsent(context);
             if (mounted) {
-              context.go(role == 'salesman' ? '/salesman-dashboard' : '/driver-dashboard');
+              if (!profileComplete) {
+                context.go(role == 'salesman' ? '/salesman-profile-setup' : '/driver-profile-setup', extra: true);
+              } else {
+                context.go(role == 'salesman' ? '/salesman-dashboard' : '/driver-dashboard');
+              }
             }
           } else {
             final profileComplete = data['user']?['profileComplete'] == true;

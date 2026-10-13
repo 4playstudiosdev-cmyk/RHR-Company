@@ -442,11 +442,15 @@ const updateMyShopLocation = async (req, res) => {
 
 // A customer's profile is "complete" only once every one of these is
 // filled in — checked fresh on every read instead of cached in a column,
-// so it self-corrects if a field is ever cleared later.
+// so it self-corrects if a field is ever cleared later. email/shop_address
+// used to be required too; the "Complete Your Profile" screen dropped
+// them in favor of a shop photo + GPS shop location (shop_image_url /
+// shop_latitude / shop_longitude), which this list now reflects.
+// whatsapp_phone is the field the UI simply labels "Phone Number".
 const REQUIRED_PROFILE_FIELDS = [
-  'full_name', 'email', 'nic_number', 'shop_name',
-  'shop_address', 'whatsapp_phone', 'profile_photo_url',
-  'nic_image_url', 'nic_back_image_url',
+  'full_name', 'nic_number', 'shop_name', 'shop_image_url',
+  'shop_latitude', 'shop_longitude', 'whatsapp_phone',
+  'profile_photo_url', 'nic_image_url', 'nic_back_image_url',
 ];
 
 function isProfileComplete(user) {
@@ -459,7 +463,7 @@ function isProfileComplete(user) {
 const getMyProfile = async (req, res) => {
   try {
     const rows = await pgrestGet('users', {
-      select: 'id,full_name,phone,email,nic_number,nic_image_url,nic_back_image_url,whatsapp_phone,shop_name,shop_address,profile_photo_url',
+      select: 'id,full_name,phone,email,nic_number,nic_image_url,nic_back_image_url,whatsapp_phone,shop_name,shop_address,shop_image_url,shop_latitude,shop_longitude,profile_photo_url',
       id: `eq.${req.user.id}`,
       role: 'eq.customer',
     });
@@ -478,7 +482,8 @@ const updateMyProfile = async (req, res) => {
   try {
     const {
       full_name, email, nic_number, whatsapp_phone,
-      shop_name, shop_address, profile_photo_url, nic_image_url, nic_back_image_url,
+      shop_name, shop_address, shop_image_url, shop_latitude, shop_longitude,
+      profile_photo_url, nic_image_url, nic_back_image_url,
     } = req.body;
 
     const update = {};
@@ -488,6 +493,9 @@ const updateMyProfile = async (req, res) => {
     if (whatsapp_phone != null)     update.whatsapp_phone = whatsapp_phone;
     if (shop_name != null)          update.shop_name = shop_name;
     if (shop_address != null)       update.shop_address = shop_address;
+    if (shop_image_url != null)     update.shop_image_url = shop_image_url;
+    if (shop_latitude != null)      update.shop_latitude = Number(shop_latitude);
+    if (shop_longitude != null)     update.shop_longitude = Number(shop_longitude);
     if (profile_photo_url != null)  update.profile_photo_url = profile_photo_url;
     if (nic_image_url != null)      update.nic_image_url = nic_image_url;
     if (nic_back_image_url != null) update.nic_back_image_url = nic_back_image_url;

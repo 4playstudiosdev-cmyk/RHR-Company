@@ -125,6 +125,8 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                 ),
                 child: Column(
                   children: [
+                    _menuItem(Icons.edit_outlined, 'Edit Profile', () => context.push('/driver-profile-setup')),
+                    const Divider(height: 1, indent: 56),
                     _menuItem(Icons.location_on_outlined, 'GPS Tracking', () => context.push('/driver-gps-tracking')),
                     const Divider(height: 1, indent: 56),
                     _menuItem(Icons.event_available_outlined, 'Attendance', () => context.push('/attendance')),
