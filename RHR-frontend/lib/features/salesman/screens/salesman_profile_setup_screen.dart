@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
@@ -8,6 +9,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../shared/router/app_transitions.dart';
+import '../../../shared/utils/input_formatters.dart';
 
 /// Forced on a salesman's first login once their profile is missing any
 /// required field (see salesmen.routes.js's isProfileComplete), and also
@@ -56,7 +58,7 @@ class _SalesmanProfileSetupScreenState extends State<SalesmanProfileSetupScreen>
       if (res.data['success'] == true) {
         final data = res.data['data'] as Map<String, dynamic>;
         _nameController.text  = (data['full_name'] as String?) ?? '';
-        _phoneController.text = (data['phone'] as String?) ?? '';
+        _phoneController.text = formatLocalPhone(localPhoneDigits(data['phone'] as String?));
         _nicController.text   = (data['nic_number'] as String?) ?? '';
         _existingProfileUrl  = data['profile_photo_url'] as String?;
         _existingNicFrontUrl = data['nic_image_url'] as String?;
@@ -147,7 +149,7 @@ class _SalesmanProfileSetupScreenState extends State<SalesmanProfileSetupScreen>
 
       final res = await DioClient.instance.patch(ApiEndpoints.salesmanMyProfile, data: {
         'full_name':          _nameController.text.trim(),
-        'phone':              _phoneController.text.trim(),
+        'phone':              '+92 ${_phoneController.text.trim()}',
         'nic_number':         _nicController.text.trim(),
         'profile_photo_url':  profileUrl,
         'nic_image_url':      nicFrontUrl,
@@ -179,6 +181,8 @@ class _SalesmanProfileSetupScreenState extends State<SalesmanProfileSetupScreen>
     required TextEditingController controller,
     String? hint,
     TextInputType? keyboardType,
+    List<TextInputFormatter>? inputFormatters,
+    String? prefixText,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -188,10 +192,13 @@ class _SalesmanProfileSetupScreenState extends State<SalesmanProfileSetupScreen>
         TextField(
           controller: controller,
           keyboardType: keyboardType,
+          inputFormatters: inputFormatters,
           style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w600),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(color: AppColors.steelBlue.withValues(alpha: 0.55), fontWeight: FontWeight.normal),
+            prefixText: prefixText,
+            prefixStyle: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w600),
             prefixIcon: Icon(icon, color: AppColors.steelBlue),
             filled: true,
             fillColor: AppColors.white,
@@ -312,9 +319,11 @@ class _SalesmanProfileSetupScreenState extends State<SalesmanProfileSetupScreen>
                       const SizedBox(height: 14),
                       _field(label: 'Full Name *', icon: Icons.person, controller: _nameController, hint: 'Enter your full name'),
                       const SizedBox(height: 12),
-                      _field(label: 'Phone Number *', icon: Icons.phone_outlined, controller: _phoneController, hint: '03XX XXXXXXX', keyboardType: TextInputType.phone),
+                      _field(label: 'Phone Number *', icon: Icons.phone_outlined, controller: _phoneController, hint: '310 2110584',
+                          keyboardType: TextInputType.phone, prefixText: '+92 ', inputFormatters: [PhoneLocalInputFormatter()]),
                       const SizedBox(height: 12),
-                      _field(label: 'NIC Number *', icon: Icons.badge_outlined, controller: _nicController, hint: '42101-1234567-1'),
+                      _field(label: 'NIC Number *', icon: Icons.badge_outlined, controller: _nicController, hint: '42101-1234567-1',
+                          keyboardType: TextInputType.number, inputFormatters: [CnicInputFormatter()]),
                       const SizedBox(height: 12),
                       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Expanded(child: _imagePicker(label: 'NIC Front *', file: _nicFrontImageFile, existingUrl: _existingNicFrontUrl, onTap: () => _pickImage('nicFront'), locked: _existingNicFrontUrl != null)),

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -11,6 +12,7 @@ import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../shared/widgets/wave_header.dart';
 import '../../../shared/widgets/shop_location_picker_screen.dart';
+import '../../../shared/utils/input_formatters.dart';
 
 /// Forced on a customer's first login once their profile is missing any
 /// required field (see customers.controller.js's isProfileComplete), and
@@ -69,7 +71,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         _nameController.text     = (data['full_name'] as String?) ?? '';
         _nicController.text      = (data['nic_number'] as String?) ?? '';
         _shopNameController.text = (data['shop_name'] as String?) ?? '';
-        _phoneController.text    = (data['whatsapp_phone'] as String?) ?? '';
+        _phoneController.text    = formatLocalPhone(localPhoneDigits(data['whatsapp_phone'] as String?));
         _existingProfileUrl  = data['profile_photo_url'] as String?;
         _existingShopImageUrl = data['shop_image_url'] as String?;
         _existingNicFrontUrl = data['nic_image_url'] as String?;
@@ -201,7 +203,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         'full_name':          _nameController.text.trim(),
         'nic_number':         _nicController.text.trim(),
         'shop_name':          _shopNameController.text.trim(),
-        'whatsapp_phone':     _phoneController.text.trim(),
+        'whatsapp_phone':     '+92 ${_phoneController.text.trim()}',
         'profile_photo_url':  profileUrl,
         'shop_image_url':     shopImageUrl,
         'shop_latitude':      _shopLatitude,
@@ -235,6 +237,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     required TextEditingController controller,
     String? hint,
     TextInputType? keyboardType,
+    List<TextInputFormatter>? inputFormatters,
+    String? prefixText,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -244,10 +248,13 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         TextField(
           controller: controller,
           keyboardType: keyboardType,
+          inputFormatters: inputFormatters,
           style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurface),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: AppTextStyles.bodyMd.copyWith(color: AppColors.outline.withValues(alpha: 0.7)),
+            prefixText: prefixText,
+            prefixStyle: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurface),
             prefixIcon: Icon(icon, color: AppColors.outline),
             filled: true,
             fillColor: AppColors.surfaceContainerLowest,
@@ -486,10 +493,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                               _field(label: 'Full Name *', icon: Icons.person, controller: _nameController, hint: 'Enter your full name'),
                               const SizedBox(height: AppSpacing.sm),
                               _field(label: 'Phone Number *', icon: Icons.phone_outlined, controller: _phoneController,
-                                  hint: '03XX XXXXXXX', keyboardType: TextInputType.phone),
+                                  hint: '310 2110584', keyboardType: TextInputType.phone,
+                                  prefixText: '+92 ', inputFormatters: [PhoneLocalInputFormatter()]),
                               const SizedBox(height: AppSpacing.sm),
                               _field(label: 'NIC Number *', icon: Icons.badge_outlined, controller: _nicController,
-                                  hint: '42101-1234567-1'),
+                                  hint: '42101-1234567-1', keyboardType: TextInputType.number,
+                                  inputFormatters: [CnicInputFormatter()]),
                               const SizedBox(height: AppSpacing.sm),
                               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                 Expanded(
