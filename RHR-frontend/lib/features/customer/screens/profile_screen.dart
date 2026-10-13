@@ -5,9 +5,9 @@ import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
-import '../../../core/location/location_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../shared/widgets/rhr_bottom_nav.dart';
+import '../../../shared/widgets/shop_location_picker_screen.dart';
 import '../../../widgets/location_disclosure_dialog.dart';
 
 const _cityNames = {
@@ -33,6 +33,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _totalPaid = 'PKR 0';
   bool _hasShopLocation = false;
   bool _settingLocation = false;
+  double? _shopLat;
+  double? _shopLng;
 
   @override
   void initState() {
@@ -65,6 +67,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _business = (data['shop_name'] as String?) ?? '';
           _city     = _cityNames[data['company_id']] ?? '';
           _hasShopLocation = data['shop_latitude'] != null && data['shop_longitude'] != null;
+          if (data['shop_latitude'] != null) _shopLat = (data['shop_latitude'] as num).toDouble();
+          if (data['shop_longitude'] != null) _shopLng = (data['shop_longitude'] as num).toDouble();
         });
       }
     } catch (e) {
@@ -106,35 +110,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // Opens the drag-to-pin map picker (see shop_location_picker_screen.dart)
+  // instead of blindly grabbing the device's current GPS fix — a shop
+  // owner setting this up isn't necessarily standing inside the shop at
+  // that moment (could be at home, or just nearby), so a silent GPS grab
+  // risks saving the wrong spot with no way to correct it. The picker
+  // still offers a "locate me" button for the common case, but lets the
+  // pin be dragged to the actual shop afterward.
   Future<void> _setShopLocation() async {
     // Google Play requires a prominent in-app disclosure BEFORE the OS
-    // location-permission prompt — shown once, like the salesman/driver
-    // tracking dialog (see GPSService.startTrackingWithConsent), but with
-    // copy specific to this one-time foreground grab.
+    // location-permission prompt — the picker screen's "locate me" button
+    // still triggers one, so this still needs to run before opening it.
     if (!await SecureStorage.getShopLocationConsent()) {
       if (!mounted) return;
       final accepted = await showShopLocationDisclosureDialog(context);
       if (!accepted) return;
       await SecureStorage.saveShopLocationConsent(true);
     }
+    if (!mounted) return;
+
+    final result = await Navigator.of(context).push<Map<String, double>>(
+      MaterialPageRoute(
+        builder: (_) => ShopLocationPickerScreen(initialLatitude: _shopLat, initialLongitude: _shopLng),
+      ),
+    );
+    if (result == null) return;
 
     setState(() => _settingLocation = true);
     try {
-      final pos = await LocationService.getCurrentPosition();
-      if (pos == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Location permission denied — enable it to set your shop location.')));
-        }
-        return;
-      }
       final res = await DioClient.instance.patch(
         '${ApiEndpoints.customers}/me/location',
-        data: {'latitude': pos.latitude, 'longitude': pos.longitude},
+        data: {'latitude': result['latitude'], 'longitude': result['longitude']},
       );
       if (res.data['success'] == true) {
         if (mounted) {
-          setState(() => _hasShopLocation = true);
+          setState(() {
+            _hasShopLocation = true;
+            _shopLat = result['latitude'];
+            _shopLng = result['longitude'];
+          });
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
               content: Text('Shop location saved!'), backgroundColor: AppColors.success));
         }

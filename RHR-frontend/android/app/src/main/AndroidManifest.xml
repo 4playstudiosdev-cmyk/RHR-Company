@@ -23,16 +23,6 @@
              adb backup. networkSecurityConfig replaces the old blanket
              usesCleartextTraffic flag with per-domain HTTPS enforcement —
              see res/xml/network_security_config.xml. -->
-        <!-- Maps SDK for Android key — value injected from the gitignored
-             android/local.properties (mapsApiKey=...) via build.gradle.kts's
-             manifestPlaceholders, never committed directly here. Same
-             Google Cloud project as the desktop admin panel's Maps
-             JavaScript API key. Needs "Maps SDK for Android" enabled +
-             billing on that project before the shop-location picker will
-             actually render tiles. -->
-        <meta-data
-            android:name="com.google.android.geo.API_KEY"
-            android:value="${mapsApiKey}"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"

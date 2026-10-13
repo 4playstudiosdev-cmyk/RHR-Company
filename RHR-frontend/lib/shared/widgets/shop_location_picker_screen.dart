@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/location/location_service.dart';
 
-/// Full-screen Google Map picker for "Shop Location" on the Complete
-/// Profile / Edit Profile screens. Opens centered on the device's current
-/// GPS position (falls back to Karachi if permission is denied or the
-/// fix times out), lets the user drag the map to fine-tune the pin, and
-/// returns the chosen {latitude, longitude} via Navigator.pop when "Save
-/// Location" is tapped — the caller is responsible for persisting it.
+/// Full-screen OpenStreetMap picker for "Shop Location" on the Complete
+/// Profile / Edit Profile screens — no API key, no billing dependency
+/// (same reasoning as customer_map_screen.dart's choice of flutter_map).
+/// Opens centered on the device's current GPS position (falls back to
+/// Karachi if permission is denied or the fix times out), lets the user
+/// drag the map to fine-tune the pin, and returns the chosen
+/// {latitude, longitude} via Navigator.pop when "Save Location" is
+/// tapped — the caller is responsible for persisting it.
 class ShopLocationPickerScreen extends StatefulWidget {
   final double? initialLatitude;
   final double? initialLongitude;
@@ -21,7 +24,7 @@ class ShopLocationPickerScreen extends StatefulWidget {
 class _ShopLocationPickerScreenState extends State<ShopLocationPickerScreen> {
   static const _karachi = LatLng(24.8608, 67.0104);
 
-  GoogleMapController? _mapController;
+  final _mapController = MapController();
   LatLng _picked = _karachi;
   bool _locating = true;
 
@@ -37,12 +40,13 @@ class _ShopLocationPickerScreenState extends State<ShopLocationPickerScreen> {
   }
 
   Future<void> _locateMe() async {
+    setState(() => _locating = true);
     final pos = await LocationService.getCurrentPosition();
     if (!mounted) return;
     if (pos != null) {
       final here = LatLng(pos.latitude, pos.longitude);
       setState(() => _picked = here);
-      _mapController?.animateCamera(CameraUpdate.newLatLngZoom(here, 17));
+      _mapController.move(here, 17);
     }
     setState(() => _locating = false);
   }
@@ -56,13 +60,20 @@ class _ShopLocationPickerScreenState extends State<ShopLocationPickerScreen> {
         title: const Text('Shop Location'),
       ),
       body: Stack(children: [
-        GoogleMap(
-          initialCameraPosition: CameraPosition(target: _picked, zoom: 16),
-          onMapCreated: (c) => _mapController = c,
-          onCameraMove: (pos) => _picked = pos.target,
-          myLocationEnabled: true,
-          myLocationButtonEnabled: false,
-          zoomControlsEnabled: false,
+        FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            initialCenter: _picked,
+            initialZoom: 16,
+            onPositionChanged: (camera, hasGesture) => _picked = camera.center,
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+              subdomains: const ['a', 'b', 'c'],
+              userAgentPackageName: 'com.rhr.company.app',
+            ),
+          ],
         ),
         // Fixed center pin — the map moves under it, so wherever it points
         // when the user stops dragging IS the picked coordinate.
