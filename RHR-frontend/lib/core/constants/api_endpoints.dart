@@ -32,6 +32,9 @@ class ApiEndpoints {
   static const String salesmanMyProfile = '/api/v1/salesmen/me/profile';
   static const String driverMyProfile   = '/api/v1/drivers/me/profile';
 
+  // GEOCODING (shop-location picker search bar)
+  static const String geocodeSearch = '/api/v1/geocode/search';
+
   // ORDERS
   static const String orders          = '/api/v1/orders';
 

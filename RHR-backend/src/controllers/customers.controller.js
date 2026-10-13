@@ -4,6 +4,7 @@ const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
 const { buildCustomerProfilePDF } = require('../services/customerProfilePdf.service');
 const { withRetry } = require('../utils/withRetry');
+const { reverseGeocode } = require('../utils/geocoding');
 
 function normalizePhone(phone) {
   let digits = phone.replace(/\D/g, '');
@@ -427,12 +428,22 @@ const updateMyShopLocation = async (req, res) => {
     if (latitude == null || longitude == null)
       return error(res, 'latitude and longitude are required', 400);
 
+    // Best-effort — a human-readable address for the admin desktop's
+    // "Shop Address" field (which used to just show whatever a customer
+    // had typed by hand, often blank or garbage) so it reflects the pin
+    // that was actually dropped on the map. Never blocks the coordinate
+    // save itself if the lookup fails or times out.
+    const shopAddress = await reverseGeocode(latitude, longitude).catch(() => null);
+
+    const updatePayload = { shop_latitude: Number(latitude), shop_longitude: Number(longitude) };
+    if (shopAddress) updatePayload.shop_address = shopAddress;
+
     const { data, error: dbErr } = await supabaseAdmin
       .from('users')
-      .update({ shop_latitude: Number(latitude), shop_longitude: Number(longitude) })
+      .update(updatePayload)
       .eq('id', req.user.id)
       .eq('role', 'customer')
-      .select('id, shop_latitude, shop_longitude')
+      .select('id, shop_latitude, shop_longitude, shop_address')
       .single();
 
     if (dbErr) throw new Error(dbErr.message);
@@ -499,6 +510,16 @@ const updateMyProfile = async (req, res) => {
     if (profile_photo_url != null)  update.profile_photo_url = profile_photo_url;
     if (nic_image_url != null)      update.nic_image_url = nic_image_url;
     if (nic_back_image_url != null) update.nic_back_image_url = nic_back_image_url;
+
+    // Same as updateMyShopLocation above — fill shop_address from the
+    // dropped pin's coordinates (unless the caller already sent an
+    // explicit shop_address) so the admin desktop sees a real address
+    // instead of whatever was last typed by hand, which this Complete
+    // Profile flow no longer even collects as a text field.
+    if (shop_address == null && shop_latitude != null && shop_longitude != null) {
+      const geocoded = await reverseGeocode(shop_latitude, shop_longitude).catch(() => null);
+      if (geocoded) update.shop_address = geocoded;
+    }
 
     if (Object.keys(update).length === 0) return error(res, 'No fields to update', 400);
 
