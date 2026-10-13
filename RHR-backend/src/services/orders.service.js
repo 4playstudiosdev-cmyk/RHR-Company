@@ -131,6 +131,11 @@ async function getOrders(user, companyIdOverride) {
     query = query.eq('customer_id', user.id);
   } else if (user.role === 'salesman') {
     query = query.eq('salesman_id', user.id);
+  } else if (user.role === 'driver') {
+    // A driver's dashboard only needs orders currently out for them to
+    // deliver — once marked delivered/undelivered they drop off this
+    // list on their own (status no longer 'dispatched').
+    query = query.eq('driver_id', user.id).eq('status', 'dispatched');
   } else if (companyIdOverride) {
     // Admin — companyIdOverride is null for super_admin's "All Cities"
     // (see resolveCompanyId in utils/companyScope.js), which means no
@@ -170,14 +175,14 @@ async function getOrderById(id, user) {
   // still loads without it.
   let query = supabaseAdmin
     .from('orders')
-    .select('*, order_items(*, products(unit)), users!customer_id(full_name, phone, shop_name, shop_address), drivers(full_name, car_number, phone), salesmen!salesman_id(full_name)')
+    .select('*, order_items(*, products(unit)), users!customer_id(full_name, phone, shop_name, shop_address, shop_latitude, shop_longitude), drivers(full_name, car_number, phone), salesmen!salesman_id(full_name)')
     .eq('id', id)
     .single();
   let { data, error } = await query;
   if (error) {
     ({ data, error } = await supabaseAdmin
       .from('orders')
-      .select('*, order_items(*), users!customer_id(full_name, phone, shop_name, shop_address)')
+      .select('*, order_items(*), users!customer_id(full_name, phone, shop_name, shop_address, shop_latitude, shop_longitude)')
       .eq('id', id)
       .single());
   }
@@ -187,6 +192,8 @@ async function getOrderById(id, user) {
   if (user.role === 'customer' && data.customer_id !== user.id)
     throw new Error('Access denied');
   if (user.role === 'salesman' && data.salesman_id !== user.id)
+    throw new Error('Access denied');
+  if (user.role === 'driver' && data.driver_id !== user.id)
     throw new Error('Access denied');
 
   return data;
@@ -200,7 +207,11 @@ async function getOrderById(id, user) {
 const STATUS_PROGRESSION = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered'];
 
 function isValidTransition(from, to) {
-  if (to === 'cancelled') return from !== 'delivered' && from !== 'cancelled';
+  if (to === 'cancelled') return from !== 'delivered' && from !== 'cancelled' && from !== 'undelivered';
+  // 'undelivered' is the driver's own "Cancel" action on the delivery
+  // run — only meaningful once an order is actually out with them, and
+  // terminal like 'delivered'/'cancelled' (no further status changes).
+  if (to === 'undelivered') return from === 'dispatched';
   const fromIdx = STATUS_PROGRESSION.indexOf(from);
   const toIdx = STATUS_PROGRESSION.indexOf(to);
   return fromIdx !== -1 && toIdx !== -1 && toIdx > fromIdx;
@@ -212,17 +223,17 @@ function isValidTransition(from, to) {
 // update falls back to plain status-only if that migration hasn't run
 // yet, so advancing status still works either way.
 async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
-  const validStatuses = ['confirmed', 'preparing', 'dispatched', 'delivered', 'cancelled'];
+  const validStatuses = ['confirmed', 'preparing', 'dispatched', 'delivered', 'undelivered', 'cancelled'];
   if (!validStatuses.includes(status))
     throw new Error('Invalid status. Must be one of: ' + validStatuses.join(', '));
 
-  const existingRows = await pgrestGet('orders', { select: 'id,status,company_id', id: `eq.${id}` });
+  const existingRows = await pgrestGet('orders', { select: 'id,status,company_id,driver_id', id: `eq.${id}` });
   if (!existingRows?.[0]) throw new Error('Order not found');
 
   if (!isValidTransition(existingRows[0].status, status))
     throw new Error(`Cannot move an order from "${existingRows[0].status}" to "${status}"`);
 
-  const { driverId, carNumber, deliveryAddress } = dispatchInfo;
+  const { driverId, carNumber, deliveryAddress, deliveredBags, returnedBags, deliveryNotes } = dispatchInfo;
   if (driverId) {
     const drivers = await pgrestGet('drivers', {
       select: 'id',
@@ -234,6 +245,13 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
 
   const patchBody = { status };
   if (deliveryAddress !== undefined) patchBody.delivery_address = deliveryAddress;
+  // Driver's delivery-confirmation counts — informational for admin to
+  // double-check against, not tied to the stock deduction below (which
+  // still deducts the full ordered quantity, same as before this field
+  // existed; reconciling partial-return stock is a separate concern).
+  if (deliveredBags != null) patchBody.delivered_bags = Number(deliveredBags);
+  if (returnedBags != null)  patchBody.returned_bags = Number(returnedBags);
+  if (deliveryNotes != null) patchBody.delivery_notes = deliveryNotes;
 
   let updated;
   try {

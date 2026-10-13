@@ -6,6 +6,7 @@ const COLORS = {
   preparing: 'bg-purple-100 text-purple-800',
   dispatched: 'bg-orange/10 text-orange',
   delivered: 'bg-green-100 text-green-800',
+  undelivered: 'bg-amber-100 text-amber-800',
   cancelled: 'bg-red-100 text-red-800',
   rejected: 'bg-red-100 text-red-800',
   approved: 'bg-green-100 text-green-800'

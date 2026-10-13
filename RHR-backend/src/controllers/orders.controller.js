@@ -51,18 +51,49 @@ const updateOrderStatus = async (req, res) => {
   console.log('================================');
 
   try {
-    const { status, driver_id, car_number, delivery_address } = req.body;
+    const { status, driver_id, car_number, delivery_address, delivered_bags, returned_bags, delivery_notes } = req.body;
     if (!status) return error(res, 'status is required', 400);
     const data = await svc.updateOrderStatus(req.params.id, req.user.company_id, status, {
       driverId: driver_id,
       carNumber: car_number,
       deliveryAddress: delivery_address,
+      deliveredBags: delivered_bags,
+      returnedBags: returned_bags,
+      deliveryNotes: delivery_notes,
     });
     return success(res, data, `Order status updated to ${status}`);
   } catch (err) {
     console.log('ERROR:', err.message);
     return error(res, err.message, 400);
   }
+};
+
+// PATCH /api/v1/orders/:id/driver-status — driver's own "Mark as
+// Delivered" / "Cancel" buttons on the order-detail screen. Separate
+// from the admin-only updateOrderStatus above (not just a relaxed role
+// check on it) so a driver is hard-restricted to their own assigned
+// order and to exactly the two terminal statuses they're allowed to set
+// — everything else about an order (dispatching it, editing items,
+// invoicing) stays admin-only.
+const driverUpdateOrderStatus = async (req, res) => {
+  try {
+    const { status, delivered_bags, returned_bags, delivery_notes } = req.body;
+    if (!['delivered', 'undelivered'].includes(status))
+      return error(res, 'status must be "delivered" or "undelivered"', 400);
+
+    const orders = await pgrestGet('orders', { select: 'id,driver_id,company_id', id: `eq.${req.params.id}` });
+    const order = orders?.[0];
+    if (!order) return error(res, 'Order not found', 404);
+    if (order.driver_id !== req.user.id)
+      return error(res, 'Access denied — this order is not assigned to you', 403);
+
+    const data = await svc.updateOrderStatus(req.params.id, order.company_id, status, {
+      deliveredBags: delivered_bags,
+      returnedBags: returned_bags,
+      deliveryNotes: delivery_notes,
+    });
+    return success(res, data, `Order marked ${status}`);
+  } catch (err) { return error(res, err.message, 400); }
 };
 
 const updateOrderItems = async (req, res) => {
@@ -198,6 +229,6 @@ const getDeletedInvoices = async (req, res) => {
 };
 
 module.exports = {
-  createOrder, getOrders, getOrderById, updateOrderStatus, updateOrderItems, markInvoiceGenerated,
+  createOrder, getOrders, getOrderById, updateOrderStatus, driverUpdateOrderStatus, updateOrderItems, markInvoiceGenerated,
   deleteInvoice, getDeletedInvoices,
 };

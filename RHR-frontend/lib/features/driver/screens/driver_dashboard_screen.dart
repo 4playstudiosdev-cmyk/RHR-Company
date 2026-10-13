@@ -107,10 +107,43 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
               ),
               const SizedBox(height: 24),
 
-              // GPS status card
+              // My Deliveries — the driver's main daily to-do list
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: StaggeredFadeIn(index: 2, child: TapScale(
+                  onTap: () => context.push('/driver-orders'),
+                  child: Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: AppColors.orange,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 8)],
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.local_shipping_outlined, color: Colors.white, size: 28),
+                        SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('My Deliveries', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
+                              Text('View orders assigned to you for delivery', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                        Icon(Icons.arrow_forward_ios, size: 14, color: Colors.white),
+                      ],
+                    ),
+                  ),
+                )),
+              ),
+              const SizedBox(height: 14),
+
+              // GPS status card
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: StaggeredFadeIn(index: 3, child: TapScale(
                   onTap: () => context.push('/driver-gps-tracking'),
                   child: Container(
                     padding: const EdgeInsets.all(18),

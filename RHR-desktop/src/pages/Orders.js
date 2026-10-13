@@ -11,18 +11,21 @@ import CityFilter from '../components/CityFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
 import { buildInvoicePdf } from '../utils/invoicePdf';
 
-// Matches the backend's validStatuses in orders.service.js
-const STATUS_OPTIONS = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered', 'cancelled'];
+// Matches the backend's validStatuses in orders.service.js. 'undelivered'
+// is driver-only (set from their own Cancel button on the delivery run,
+// via PATCH /:id/driver-status) — it never appears in the admin's own
+// Update-status dropdown below, only as a tab/badge to see & filter it.
+const STATUS_OPTIONS = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered', 'undelivered', 'cancelled'];
 const TABS = ['all', ...STATUS_OPTIONS];
 
 // Forward-only progression, mirrored from orders.service.js's
 // isValidTransition — the Update dropdown only offers stages ahead of
 // where the order already is (plus Cancel), never a passed stage like
-// re-selecting "confirmed" after it's already confirmed. 'delivered' and
-// 'cancelled' are terminal — nothing to update from there.
+// re-selecting "confirmed" after it's already confirmed. 'delivered',
+// 'undelivered' and 'cancelled' are terminal — nothing to update from there.
 const STATUS_PROGRESSION = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered'];
 function availableNextStatuses(currentStatus) {
-  if (currentStatus === 'delivered' || currentStatus === 'cancelled') return [];
+  if (currentStatus === 'delivered' || currentStatus === 'undelivered' || currentStatus === 'cancelled') return [];
   const idx = STATUS_PROGRESSION.indexOf(currentStatus);
   if (idx === -1) return [];
   return [...STATUS_PROGRESSION.slice(idx + 1), 'cancelled'];
@@ -1035,6 +1038,23 @@ export default function Orders({ initialOrderNumber }) {
             <p className="text-xs text-gray-500">Phone: {selectedOrder.users?.phone || '—'}</p>
             <p className="text-xs text-gray-500">Address: {selectedOrder.delivery_address || selectedOrder.users?.shop_address || '—'}</p>
           </div>
+
+          {(selectedOrder.delivered_bags != null || selectedOrder.returned_bags != null) && (
+            <div className={`border rounded-xl px-4 py-3 mb-4 ${
+              selectedOrder.status === 'undelivered' ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'
+            }`}>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1.5">
+                Driver's Delivery Report
+              </p>
+              <div className="flex gap-4 text-sm">
+                <span className="text-green-700 font-semibold">Delivered: {selectedOrder.delivered_bags ?? 0}</span>
+                <span className="text-amber-700 font-semibold">Returned/Damaged: {selectedOrder.returned_bags ?? 0}</span>
+              </div>
+              {selectedOrder.delivery_notes && (
+                <p className="text-xs text-gray-600 mt-1.5">📝 {selectedOrder.delivery_notes}</p>
+              )}
+            </div>
+          )}
 
           <h4 className="text-sm font-semibold text-navy mb-2">Order Items</h4>
           <div className="overflow-x-auto mb-4 border border-gray-100 rounded-xl">
