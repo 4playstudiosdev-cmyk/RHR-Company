@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Users, UserCheck, BookOpen, Search, Phone, Mail, AlertTriangle, User, Tag, DollarSign, RotateCcw, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Users, UserCheck, BookOpen, Search, Phone, Mail, AlertTriangle, User, Tag, DollarSign, RotateCcw, Plus, Pencil, Trash2, MapPin } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
@@ -952,7 +952,19 @@ export default function Customers({ onViewLedger }) {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Shop Address</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-medium text-gray-700">Shop Address</label>
+                {editingCustomer?.shop_latitude != null && editingCustomer?.shop_longitude != null && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${editingCustomer.shop_latitude},${editingCustomer.shop_longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-semibold text-navy hover:underline flex items-center gap-1"
+                  >
+                    <MapPin size={12} /> View on Google Maps
+                  </a>
+                )}
+              </div>
               <textarea
                 rows={2}
                 value={customerForm.shop_address}
