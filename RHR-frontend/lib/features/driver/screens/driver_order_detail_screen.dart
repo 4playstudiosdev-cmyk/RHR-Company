@@ -152,8 +152,8 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
       backgroundColor: AppColors.warmGrey,
       appBar: AppBar(
         backgroundColor: AppColors.navy,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => goBack(context, '/driver-orders')),
-        title: Text(_order?['order_number'] ?? 'Order', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => goBack(context, '/driver-dashboard')),
+        title: Text(_order?['order_number'] ?? 'Order', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20)),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: AppColors.navy))
@@ -170,32 +170,70 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
     final lat = customer['shop_latitude'];
     final lng = customer['shop_longitude'];
     final hasLocation = lat != null && lng != null;
+    final photoUrl = customer['profile_photo_url'] as String?;
+    final isActive = order['status'] == 'dispatched';
+    final isUndelivered = order['status'] == 'undelivered';
 
     return Column(children: [
       Expanded(
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            if (!isActive)
+              Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: (isUndelivered ? AppColors.orange : AppColors.success).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(children: [
+                  Icon(isUndelivered ? Icons.cancel_outlined : Icons.check_circle,
+                      color: isUndelivered ? AppColors.orange : AppColors.success),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      isUndelivered
+                          ? 'This delivery was marked undelivered.'
+                          : 'Delivered — ${order['delivered_bags'] ?? 0} bags, ${order['returned_bags'] ?? 0} returned.',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14,
+                          color: isUndelivered ? AppColors.orange : AppColors.success),
+                    ),
+                  ),
+                ]),
+              ),
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16),
                   boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)]),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  const Icon(Icons.storefront, color: AppColors.orange),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text(customer['shop_name'] ?? customer['full_name'] ?? 'Customer',
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 16))),
-                ]),
-                const SizedBox(height: 6),
-                Text(customer['full_name'] ?? '', style: const TextStyle(color: AppColors.steelBlue, fontSize: 13)),
-                if (customer['phone'] != null) Text(customer['phone'], style: const TextStyle(color: AppColors.steelBlue, fontSize: 13)),
-                Text(order['delivery_address'] ?? customer['shop_address'] ?? '', style: const TextStyle(color: AppColors.steelBlue, fontSize: 13)),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: AppColors.orange.withValues(alpha: 0.12),
+                  backgroundImage: (photoUrl != null && photoUrl.isNotEmpty) ? NetworkImage(photoUrl) : null,
+                  child: (photoUrl == null || photoUrl.isEmpty)
+                      ? const Icon(Icons.storefront, color: AppColors.orange, size: 26)
+                      : null,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(customer['shop_name'] ?? customer['full_name'] ?? 'Customer',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 19)),
+                    const SizedBox(height: 4),
+                    Text(customer['full_name'] ?? '', style: const TextStyle(color: AppColors.steelBlue, fontSize: 15)),
+                    if (customer['phone'] != null)
+                      Text(customer['phone'], style: const TextStyle(color: AppColors.steelBlue, fontSize: 15)),
+                    const SizedBox(height: 4),
+                    Text(order['delivery_address'] ?? customer['shop_address'] ?? '',
+                        style: const TextStyle(color: AppColors.steelBlue, fontSize: 14)),
+                  ]),
+                ),
               ]),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 16),
             if (hasLocation) ...[
-              const Text('Shop Location', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 14)),
+              const Text('Shop Location', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 17)),
               const SizedBox(height: 8),
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
@@ -224,53 +262,73 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
             ],
-            const Text('Order Items', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 14)),
+            const Text('Order Items', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 17)),
             const SizedBox(height: 8),
             Container(
               decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16),
                   boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)]),
               child: Column(children: items.map((item) {
+                final imageUrl = item['products']?['image_url'] as String?;
                 return ListTile(
-                  leading: const Icon(Icons.inventory_2_outlined, color: AppColors.orange),
-                  title: Text(item['product_name'] ?? '', style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w600)),
-                  trailing: Text('x${item['quantity']}', style: const TextStyle(color: AppColors.steelBlue, fontWeight: FontWeight.bold)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  leading: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: (imageUrl != null && imageUrl.isNotEmpty)
+                        ? Image.network(imageUrl, width: 46, height: 46, fit: BoxFit.cover,
+                            errorBuilder: (c, e, s) => _itemFallback())
+                        : _itemFallback(),
+                  ),
+                  title: Text(item['product_name'] ?? '',
+                      style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w600, fontSize: 16)),
+                  trailing: Text('x${item['quantity']}',
+                      style: const TextStyle(color: AppColors.steelBlue, fontWeight: FontWeight.bold, fontSize: 16)),
                 );
               }).toList()),
             ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
-      Container(
-        padding: const EdgeInsets.all(16),
-        decoration: const BoxDecoration(color: AppColors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8)]),
-        child: Row(children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: _acting ? null : _confirmCancel,
-              style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.error, side: const BorderSide(color: AppColors.error),
-                  padding: const EdgeInsets.symmetric(vertical: 14)),
-              icon: const Icon(Icons.close),
-              label: const Text('Cancel'),
+      if (isActive)
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: const BoxDecoration(color: AppColors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8)]),
+          child: Row(children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _acting ? null : _confirmCancel,
+                style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error, side: const BorderSide(color: AppColors.error),
+                    padding: const EdgeInsets.symmetric(vertical: 14)),
+                icon: const Icon(Icons.close),
+                label: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w600)),
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: _acting ? null : _confirmDelivered,
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.success, foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14)),
-              icon: _acting
-                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.check),
-              label: const Text('Mark as Delivered'),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _acting ? null : _confirmDelivered,
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.success, foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14)),
+                icon: _acting
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.check),
+                label: const Text('Mark as Delivered', style: TextStyle(fontWeight: FontWeight.w600)),
+              ),
             ),
-          ),
-        ]),
-      ),
+          ]),
+        ),
     ]);
+  }
+
+  Widget _itemFallback() {
+    return Container(
+      width: 46, height: 46,
+      color: AppColors.orange.withValues(alpha: 0.12),
+      child: const Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 22),
+    );
   }
 }

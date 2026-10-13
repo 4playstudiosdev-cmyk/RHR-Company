@@ -33,7 +33,6 @@ import '../../features/salesman/screens/performance_screen.dart';
 import '../../features/driver/screens/driver_dashboard_screen.dart';
 import '../../features/driver/screens/driver_profile_screen.dart';
 import '../../features/driver/screens/driver_profile_setup_screen.dart';
-import '../../features/driver/screens/driver_orders_screen.dart';
 import '../../features/driver/screens/driver_order_detail_screen.dart';
 import '../../features/shared/screens/notifications_screen.dart';
 import '../../features/hrm/screens/attendance_screen.dart';
@@ -112,7 +111,6 @@ final appRouter = GoRouter(
     GoRoute(path: '/driver-dashboard',   pageBuilder: (c, s) => slidePage(s, const DriverDashboardScreen())),
     GoRoute(path: '/driver-profile',     pageBuilder: (c, s) => slidePage(s, const DriverProfileScreen())),
     GoRoute(path: '/driver-profile-setup', pageBuilder: (c, s) => slidePage(s, DriverProfileSetupScreen(forced: s.extra == true))),
-    GoRoute(path: '/driver-orders',       pageBuilder: (c, s) => slidePage(s, const DriverOrdersScreen())),
     GoRoute(path: '/driver-order-detail', pageBuilder: (c, s) => slidePage(s, DriverOrderDetailScreen(orderId: s.extra as String?))),
     GoRoute(path: '/driver-gps-tracking', pageBuilder: (c, s) => slidePage(s, const GpsTrackingScreen(backRoute: '/driver-dashboard'))),
     GoRoute(path: '/notifications',      pageBuilder: (c, s) => slidePage(s, const NotificationsScreen())),

@@ -124,7 +124,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
 async function getOrders(user, companyIdOverride) {
   let query = supabaseAdmin
     .from('orders')
-    .select('*, order_items(id, product_id, product_name, quantity, unit_price, subtotal), users!customer_id(full_name, phone, salesman_id)')
+    .select('*, order_items(id, product_id, product_name, quantity, unit_price, subtotal, products(image_url)), users!customer_id(full_name, phone, salesman_id, profile_photo_url)')
     .order('created_at', { ascending: false });
 
   if (user.role === 'customer') {
@@ -132,10 +132,11 @@ async function getOrders(user, companyIdOverride) {
   } else if (user.role === 'salesman') {
     query = query.eq('salesman_id', user.id);
   } else if (user.role === 'driver') {
-    // A driver's dashboard only needs orders currently out for them to
-    // deliver — once marked delivered/undelivered they drop off this
-    // list on their own (status no longer 'dispatched').
-    query = query.eq('driver_id', user.id).eq('status', 'dispatched');
+    // The driver dashboard shows both what's still out for delivery and
+    // what's already been completed (a "Delivered" section, so a driver
+    // can see their own history, not just the live to-do list) — the
+    // frontend splits these by status client-side.
+    query = query.eq('driver_id', user.id).in('status', ['dispatched', 'delivered', 'undelivered']);
   } else if (companyIdOverride) {
     // Admin — companyIdOverride is null for super_admin's "All Cities"
     // (see resolveCompanyId in utils/companyScope.js), which means no
@@ -175,14 +176,14 @@ async function getOrderById(id, user) {
   // still loads without it.
   let query = supabaseAdmin
     .from('orders')
-    .select('*, order_items(*, products(unit)), users!customer_id(full_name, phone, shop_name, shop_address, shop_latitude, shop_longitude), drivers(full_name, car_number, phone), salesmen!salesman_id(full_name)')
+    .select('*, order_items(*, products(unit, image_url)), users!customer_id(full_name, phone, shop_name, shop_address, shop_latitude, shop_longitude, profile_photo_url), drivers(full_name, car_number, phone), salesmen!salesman_id(full_name)')
     .eq('id', id)
     .single();
   let { data, error } = await query;
   if (error) {
     ({ data, error } = await supabaseAdmin
       .from('orders')
-      .select('*, order_items(*), users!customer_id(full_name, phone, shop_name, shop_address, shop_latitude, shop_longitude)')
+      .select('*, order_items(*), users!customer_id(full_name, phone, shop_name, shop_address, shop_latitude, shop_longitude, profile_photo_url)')
       .eq('id', id)
       .single());
   }
