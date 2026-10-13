@@ -6,6 +6,7 @@ const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { withRetry } = require('../utils/withRetry');
 
 // A salesman's profile is "complete" once every one of these is filled —
 // mirrors customers.controller.js's isProfileComplete, same required-field
@@ -52,7 +53,9 @@ router.patch('/me/profile', authenticate, isSalesman, async (req, res) => {
 
     if (Object.keys(update).length === 0) return error(res, 'No fields to update', 400);
 
-    const rows = await pgrestPatch('salesmen', { id: `eq.${req.user.id}` }, update);
+    // Same transient Railway<->Supabase blip withRetry.js documents and
+    // customers.controller.js's updateMyProfile already guards against.
+    const rows = await withRetry(() => pgrestPatch('salesmen', { id: `eq.${req.user.id}` }, update));
     const data = rows?.[0];
     if (!data) return error(res, 'Profile not found', 404);
     return success(res, { ...data, profileComplete: isProfileComplete(data) }, 'Profile updated');

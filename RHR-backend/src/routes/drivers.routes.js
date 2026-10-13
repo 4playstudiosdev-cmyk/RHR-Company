@@ -6,6 +6,7 @@ const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { withRetry } = require('../utils/withRetry');
 
 // A driver's profile is "complete" once every one of these is filled —
 // mirrors customers.controller.js's isProfileComplete, same required-field
@@ -53,7 +54,12 @@ router.patch('/me/profile', authenticate, isDriver, async (req, res) => {
 
     if (Object.keys(update).length === 0) return error(res, 'No fields to update', 400);
 
-    const rows = await pgrestPatch('drivers', { id: `eq.${req.user.id}` }, update);
+    // Same transient Railway<->Supabase blip withRetry.js documents and
+    // customers.controller.js's updateMyProfile already guards against —
+    // confirmed by a direct pgrestPatch of this exact row succeeding on
+    // the first try outside the request path, while the live driver-app
+    // Save kept throwing a raw 500.
+    const rows = await withRetry(() => pgrestPatch('drivers', { id: `eq.${req.user.id}` }, update));
     const data = rows?.[0];
     if (!data) return error(res, 'Profile not found', 404);
     return success(res, { ...data, profileComplete: isProfileComplete(data) }, 'Profile updated');
