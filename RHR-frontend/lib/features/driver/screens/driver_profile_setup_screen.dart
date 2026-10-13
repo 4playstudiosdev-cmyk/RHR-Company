@@ -157,7 +157,13 @@ class _DriverProfileSetupScreenState extends State<DriverProfileSetupScreen> {
 
       final res = await DioClient.instance.patch(ApiEndpoints.driverMyProfile, data: {
         'full_name':          _nameController.text.trim(),
-        'phone':              '+92 ${_phoneController.text.trim()}',
+        // Canonical, no spaces — this is the same `phone` column OTP
+        // login matches against (lookupByPhone in auth.service.js), so a
+        // grouped "+92 321 2211069" saved here would silently break that
+        // driver's ability to log back in. The spaced grouping is a
+        // display-only formatter (see input_formatters.dart) — only ever
+        // shown in the TextField, never persisted.
+        'phone':              '+92${_phoneController.text.replaceAll(' ', '').trim()}',
         'nic_number':         _nicController.text.trim(),
         'car_number':         _vehicleController.text.trim(),
         'profile_photo_url':  profileUrl,

@@ -149,7 +149,9 @@ class _SalesmanProfileSetupScreenState extends State<SalesmanProfileSetupScreen>
 
       final res = await DioClient.instance.patch(ApiEndpoints.salesmanMyProfile, data: {
         'full_name':          _nameController.text.trim(),
-        'phone':              '+92 ${_phoneController.text.trim()}',
+        // Canonical, no spaces — same `phone` column OTP login matches
+        // against (see driver_profile_setup_screen.dart's identical fix).
+        'phone':              '+92${_phoneController.text.replaceAll(' ', '').trim()}',
         'nic_number':         _nicController.text.trim(),
         'profile_photo_url':  profileUrl,
         'nic_image_url':      nicFrontUrl,

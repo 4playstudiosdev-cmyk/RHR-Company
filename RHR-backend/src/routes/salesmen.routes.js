@@ -45,7 +45,9 @@ router.patch('/me/profile', authenticate, isSalesman, async (req, res) => {
 
     const update = {};
     if (full_name != null)          update.full_name = full_name;
-    if (phone != null)              update.phone = phone;
+    // Stripped of spaces/dashes no matter what the client sends — see the
+    // identical fix in drivers.routes.js for why.
+    if (phone != null)              update.phone = phone.replace(/[\s-]/g, '');
     if (nic_number != null)         update.nic_number = nic_number;
     if (profile_photo_url != null)  update.profile_photo_url = profile_photo_url;
     if (nic_image_url != null)      update.nic_image_url = nic_image_url;

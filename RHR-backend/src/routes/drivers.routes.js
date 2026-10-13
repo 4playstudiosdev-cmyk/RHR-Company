@@ -45,7 +45,11 @@ router.patch('/me/profile', authenticate, isDriver, async (req, res) => {
 
     const update = {};
     if (full_name != null)          update.full_name = full_name;
-    if (phone != null)              update.phone = phone;
+    // Stripped of spaces/dashes no matter what the client sends — this is
+    // the exact column OTP login matches on (lookupByPhone in
+    // auth.service.js), so a cosmetically-grouped "+92 321 2211069" saved
+    // here silently locks that driver out of logging back in.
+    if (phone != null)              update.phone = phone.replace(/[\s-]/g, '');
     if (nic_number != null)         update.nic_number = nic_number;
     if (car_number != null)         update.car_number = car_number;
     if (profile_photo_url != null)  update.profile_photo_url = profile_photo_url;
