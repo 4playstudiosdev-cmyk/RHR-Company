@@ -933,7 +933,17 @@ export default function Orders({ initialOrderNumber }) {
               <select
                 value={orderForm.customer_id}
                 onChange={(e) => {
-                  setOrderForm({ ...orderForm, customer_id: e.target.value });
+                  const selected = customers.find((c) => c.id === e.target.value);
+                  setOrderForm({
+                    ...orderForm,
+                    customer_id: e.target.value,
+                    // Pre-fills from the customer's saved shop address (set
+                    // via the mobile app's shop-location picker) so admin
+                    // doesn't have to retype it for every order — still
+                    // freely editable below if this particular delivery
+                    // needs to go somewhere else.
+                    delivery_address: selected?.shop_address || '',
+                  });
                   loadCustomerPricing(e.target.value);
                 }}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
