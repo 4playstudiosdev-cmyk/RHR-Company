@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
@@ -79,6 +80,16 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
     } finally {
       if (mounted) setState(() => _acting = false);
     }
+  }
+
+  // Plain Google Maps web link built from the saved coordinates — no API
+  // key, no billing, works whether or not Google Maps is installed
+  // (opens the app directly if it is, the web client otherwise). Same
+  // pattern as the "View on Google Maps" link added to the admin
+  // desktop's Edit Customer panel.
+  Future<void> _openInGoogleMaps(double lat, double lng) async {
+    final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+    if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   Future<void> _confirmCancel() async {
@@ -233,7 +244,16 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
             ),
             const SizedBox(height: 16),
             if (hasLocation) ...[
-              const Text('Shop Location', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 17)),
+              Row(children: [
+                const Text('Shop Location', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 17)),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: () => _openInGoogleMaps((lat as num).toDouble(), (lng as num).toDouble()),
+                  icon: const Icon(Icons.map_outlined, size: 18),
+                  label: const Text('Open in Google Maps'),
+                  style: TextButton.styleFrom(foregroundColor: AppColors.primary, padding: EdgeInsets.zero),
+                ),
+              ]),
               const SizedBox(height: 8),
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
