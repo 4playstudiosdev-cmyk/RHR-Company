@@ -162,6 +162,20 @@ async function registerCustomer({
 
   if (userError) throw new Error(userError.message);
 
+  // Best-effort — admin currently only ever found out about a new
+  // pending customer/salesman/driver signup by manually checking the
+  // Pending tab, nothing surfaced it. Same pattern as the "New Order"
+  // notification in orders.service.js.
+  try {
+    await supabaseAdmin.from('notifications').insert({
+      company_id:     companyId,
+      recipient_role: 'branch_admin',
+      title:          'New Customer — Pending Approval',
+      body:           `${fullName} registered${shopName ? ` (${shopName})` : ''} and is waiting for approval.`,
+      type:           'registration',
+    });
+  } catch (e) { /* non-fatal */ }
+
   return newUser;
 }
 
@@ -404,6 +418,16 @@ async function registerSalesman({ phone, fullName, companyId, position }) {
 
   if (!newSalesman) throw new Error('Failed to create salesman account');
 
+  try {
+    await supabaseAdmin.from('notifications').insert({
+      company_id:     companyId,
+      recipient_role: 'branch_admin',
+      title:          'New Salesman — Pending Approval',
+      body:           `${fullName} registered as a salesman and is waiting for approval.`,
+      type:           'registration',
+    });
+  } catch (e) { /* non-fatal */ }
+
   return newSalesman;
 }
 
@@ -434,6 +458,16 @@ async function registerDriver({ phone, fullName, companyId, carNumber }) {
   });
 
   if (!newDriver) throw new Error('Failed to create driver account');
+
+  try {
+    await supabaseAdmin.from('notifications').insert({
+      company_id:     companyId,
+      recipient_role: 'branch_admin',
+      title:          'New Driver — Pending Approval',
+      body:           `${fullName} registered as a driver and is waiting for approval.`,
+      type:           'registration',
+    });
+  } catch (e) { /* non-fatal */ }
 
   return newDriver;
 }

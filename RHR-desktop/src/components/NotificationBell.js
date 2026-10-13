@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bell, BellRing, X, LogIn, Megaphone, ShoppingCart, Wallet } from 'lucide-react';
+import { Bell, BellRing, X, LogIn, Megaphone, ShoppingCart, Wallet, UserPlus } from 'lucide-react';
 import api from '../services/api';
 
 const TYPE_ICON = {
@@ -7,6 +7,7 @@ const TYPE_ICON = {
   broadcast: Megaphone,
   order: ShoppingCart,
   payment: Wallet,
+  registration: UserPlus,
 };
 
 function getTimeAgo(dateStr) {

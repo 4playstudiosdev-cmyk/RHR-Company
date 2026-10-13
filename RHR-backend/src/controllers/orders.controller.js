@@ -92,6 +92,24 @@ const driverUpdateOrderStatus = async (req, res) => {
       returnedBags: returned_bags,
       deliveryNotes: delivery_notes,
     });
+
+    // Best-effort — admin previously had no way to find out a delivery
+    // finished (or failed) except by refreshing the Orders page and
+    // noticing a status change themselves. 'undelivered' especially
+    // needs their attention since it means a customer didn't get their
+    // order and someone has to follow up.
+    try {
+      await pgrestPost('notifications', {
+        company_id:     order.company_id,
+        recipient_role: 'branch_admin',
+        title:          status === 'delivered' ? 'Order Delivered' : 'Order NOT Delivered',
+        body:           status === 'delivered'
+          ? `${req.user.full_name} delivered order ${data.order_number} — ${delivered_bags ?? 0} bags, ${returned_bags ?? 0} returned.`
+          : `${req.user.full_name} could not deliver order ${data.order_number}.${delivery_notes ? ` Note: ${delivery_notes}` : ''}`,
+        type: 'order',
+      });
+    } catch (e) { /* non-fatal */ }
+
     return success(res, data, `Order marked ${status}`);
   } catch (err) { return error(res, err.message, 400); }
 };
