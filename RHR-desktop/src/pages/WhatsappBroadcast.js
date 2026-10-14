@@ -196,11 +196,6 @@ export default function WhatsappBroadcast() {
                 Attach an image (optional)
               </label>
             )}
-            {imagePreview && (
-              <p className="text-xs text-gray-400 -mt-2 mb-3">
-                Delivered as a PDF attachment (WhatsApp Web can't reliably send native photos from this bot).
-              </p>
-            )}
             <Button onClick={handleSend} disabled={sending} className="w-full flex items-center justify-center gap-2">
               <Send size={16} />
               {sending ? 'Starting…' : `Send to ${selected.size} customer${selected.size === 1 ? '' : 's'}`}
