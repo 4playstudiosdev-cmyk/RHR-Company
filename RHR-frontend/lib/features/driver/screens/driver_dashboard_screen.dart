@@ -236,9 +236,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
             const Divider(height: 1),
             _drawerItem(context, Icons.location_on_outlined, 'GPS Tracking', '/driver-gps-tracking'),
             _drawerItem(context, Icons.person_outline, 'My Profile', '/driver-profile'),
-            _drawerItem(context, Icons.event_available_outlined, 'Attendance', '/attendance'),
-            _drawerItem(context, Icons.event_busy_outlined, 'Apply Leave', '/leave'),
-            _drawerItem(context, Icons.request_page_outlined, 'My Payslip', '/payslip'),
+            _drawerItem(context, Icons.account_balance_wallet_outlined, 'Cash Collection', '/driver-cash-collection'),
+            _drawerItem(context, Icons.groups_outlined, 'All Salesmen', '/driver-salesmen-directory'),
             _drawerItem(context, Icons.notifications_outlined, 'Notifications', '/notifications'),
           ],
         ),
@@ -302,6 +301,17 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
             boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)],
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (!delivered && o['priority'] == 'urgent')
+              Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: AppColors.error, borderRadius: BorderRadius.circular(20)),
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.priority_high, color: Colors.white, size: 13),
+                  SizedBox(width: 4),
+                  Text('URGENT', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+                ]),
+              ),
             Row(children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),

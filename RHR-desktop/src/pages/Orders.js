@@ -74,7 +74,7 @@ export default function Orders({ initialOrderNumber }) {
 
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [dispatchingOrder, setDispatchingOrder] = useState(null);
-  const [dispatchForm, setDispatchForm] = useState({ driver_id: '', car_number: '', delivery_address: '' });
+  const [dispatchForm, setDispatchForm] = useState({ driver_id: '', car_number: '', delivery_address: '', priority: 'normal' });
   const [driversList, setDriversList] = useState([]);
   const [dispatching, setDispatching] = useState(false);
 
@@ -303,7 +303,7 @@ export default function Orders({ initialOrderNumber }) {
 
   const openDispatchModal = async (order) => {
     setDispatchingOrder(order);
-    setDispatchForm({ driver_id: '', car_number: '', delivery_address: order.delivery_address || '' });
+    setDispatchForm({ driver_id: '', car_number: '', delivery_address: order.delivery_address || '', priority: 'normal' });
     setShowDispatchModal(true);
     if (driversList.length === 0) {
       try {
@@ -329,7 +329,8 @@ export default function Orders({ initialOrderNumber }) {
         status: 'dispatched',
         driver_id: dispatchForm.driver_id,
         car_number: dispatchForm.car_number,
-        delivery_address: dispatchForm.delivery_address
+        delivery_address: dispatchForm.delivery_address,
+        priority: dispatchForm.priority
       });
       setOrders((prev) =>
         prev.map((o) => (o.id === dispatchingOrder.id ? { ...o, status: 'dispatched' } : o))
@@ -1040,7 +1041,14 @@ export default function Orders({ initialOrderNumber }) {
         <Modal title={`Order #${selectedOrder.order_number}`} onClose={() => setSelectedOrder(null)}>
           <div className="flex items-center justify-between mb-4">
             <p className="text-xs text-gray-400">{new Date(selectedOrder.created_at).toLocaleDateString('en-GB')}</p>
-            <StatusBadge status={selectedOrder.status} />
+            <div className="flex items-center gap-2">
+              {selectedOrder.priority === 'urgent' && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-red-600 text-white">
+                  ⚡ URGENT
+                </span>
+              )}
+              <StatusBadge status={selectedOrder.status} />
+            </div>
           </div>
 
           <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 mb-5 space-y-1">
@@ -1056,9 +1064,14 @@ export default function Orders({ initialOrderNumber }) {
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1.5">
                 Driver's Delivery Report
               </p>
-              <div className="flex gap-4 text-sm">
+              <div className="flex gap-4 text-sm flex-wrap">
                 <span className="text-green-700 font-semibold">Delivered: {selectedOrder.delivered_bags ?? 0}</span>
                 <span className="text-amber-700 font-semibold">Returned/Damaged: {selectedOrder.returned_bags ?? 0}</span>
+                {Number(selectedOrder.amount_collected) > 0 && (
+                  <span className="text-navy font-semibold">
+                    💰 Collected: PKR {Number(selectedOrder.amount_collected).toLocaleString()}
+                  </span>
+                )}
               </div>
               {selectedOrder.delivery_notes && (
                 <p className="text-xs text-gray-600 mt-1.5">📝 {selectedOrder.delivery_notes}</p>
@@ -1148,6 +1161,30 @@ export default function Orders({ initialOrderNumber }) {
                 placeholder="Enter delivery address"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Priority</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDispatchForm({ ...dispatchForm, priority: 'normal' })}
+                  className={`flex-1 px-3 py-2.5 rounded-lg text-sm font-semibold border transition-colors ${
+                    dispatchForm.priority === 'normal' ? 'bg-navy text-white border-navy' : 'bg-white text-gray-600 border-gray-300'
+                  }`}
+                >
+                  Normal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDispatchForm({ ...dispatchForm, priority: 'urgent' })}
+                  className={`flex-1 px-3 py-2.5 rounded-lg text-sm font-semibold border transition-colors ${
+                    dispatchForm.priority === 'urgent' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-600 border-gray-300'
+                  }`}
+                >
+                  Urgent
+                </button>
+              </div>
             </div>
 
             <div className="flex justify-end gap-3 pt-2">

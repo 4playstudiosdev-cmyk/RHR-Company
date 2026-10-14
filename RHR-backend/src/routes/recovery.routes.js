@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { authenticate } = require('../middleware/auth.middleware');
-const { isAdmin, isSalesman } = require('../middleware/role.middleware');
+const { isAdmin, isSalesman, isDriver } = require('../middleware/role.middleware');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { success, error } = require('../utils/response');
@@ -383,6 +383,162 @@ router.get('/cash-closing/me', authenticate, isSalesman, async (req, res) => {
       order: 'created_at.desc',
     });
     return success(res, data);
+  } catch (err) { return error(res, err.message); }
+});
+
+// ════════════════════════════════════════════════════════════════
+// Driver self-service — identical shape to the salesman "/me" routes
+// above, same salesman_recoveries/salesman_cash_closings tables (now
+// generalized with a nullable driver_id column — see
+// sql/phase58_driver_recovery.sql), just keyed on driver_id instead of
+// salesman_id. "Cash Collection" in the driver app is this.
+// ════════════════════════════════════════════════════════════════
+
+router.post('/driver-transactions/me', authenticate, isDriver, async (req, res) => {
+  try {
+    const { customer_id, amount, notes, recovery_date } = req.body;
+    if (!customer_id || !amount || Number(amount) <= 0)
+      return error(res, 'customer_id and a positive amount are required', 400);
+
+    const [recovery] = await pgrestPost('salesman_recoveries', {
+      company_id:       req.user.company_id,
+      driver_id:        req.user.id,
+      customer_id,
+      amount:           Number(amount),
+      payment_type:     'cash',
+      payment_method:   'cash',
+      reference_number: null,
+      notes:            notes || null,
+      status:           'approved',
+      approved_by:      null,
+      approved_at:      new Date().toISOString(),
+      recovery_date:    recovery_date || new Date().toISOString().split('T')[0],
+      created_by:       null,
+    });
+
+    await creditLedger({
+      companyId: req.user.company_id,
+      customerId: customer_id,
+      amount: Number(amount),
+      description: 'Cash payment received by driver',
+      userId: null,
+    });
+
+    return success(res, recovery, 'Cash collection recorded', 201);
+  } catch (err) { return error(res, err.message); }
+});
+
+router.get('/driver-transactions/me', authenticate, isDriver, async (req, res) => {
+  try {
+    const data = await pgrestGet('salesman_recoveries', {
+      select: RECOVERY_SELECT,
+      driver_id: `eq.${req.user.id}`,
+      order: 'created_at.desc',
+    });
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
+});
+
+router.get('/my-driver-cash-in-hand', authenticate, isDriver, async (req, res) => {
+  try {
+    const collected = await pgrestGet('salesman_recoveries', {
+      select: 'amount',
+      driver_id: `eq.${req.user.id}`,
+      payment_type: 'eq.cash',
+      status: 'eq.approved',
+    });
+    const totalCash = (collected || []).reduce((s, r) => s + Number(r.amount), 0);
+
+    const closings = await pgrestGet('salesman_cash_closings', {
+      select: 'amount',
+      driver_id: `eq.${req.user.id}`,
+      status: 'eq.approved',
+    });
+    const totalClosed = (closings || []).reduce((s, c) => s + Number(c.amount), 0);
+
+    return success(res, {
+      cash_in_hand:    totalCash - totalClosed,
+      total_collected: totalCash,
+      total_deposited: totalClosed,
+    });
+  } catch (err) { return error(res, err.message); }
+});
+
+router.post('/driver-cash-closing/me', authenticate, isDriver, async (req, res) => {
+  try {
+    const { amount, deposit_to, bank_account, slip_image_url, notes } = req.body;
+    if (!amount || Number(amount) <= 0)
+      return error(res, 'a positive amount is required', 400);
+    const method = deposit_to === 'bank' ? 'bank' : 'petty_cash';
+    if (method === 'bank' && !slip_image_url)
+      return error(res, 'A bank slip photo is required for a bank deposit', 400);
+
+    const [data] = await pgrestPost('salesman_cash_closings', {
+      company_id:     req.user.company_id,
+      driver_id:      req.user.id,
+      amount:         Number(amount),
+      deposit_to:     method,
+      bank_account:   method === 'bank' ? (bank_account || null) : null,
+      slip_image_url: method === 'bank' ? (slip_image_url || null) : null,
+      notes:          notes || null,
+      status:         'pending',
+      closing_date:   new Date().toISOString().split('T')[0],
+      created_by:     null,
+    });
+
+    return success(res, data, 'Deposit submitted — pending admin approval', 201);
+  } catch (err) { return error(res, err.message); }
+});
+
+router.get('/driver-cash-closing/me', authenticate, isDriver, async (req, res) => {
+  try {
+    const data = await pgrestGet('salesman_cash_closings', {
+      select: '*',
+      driver_id: `eq.${req.user.id}`,
+      order: 'created_at.desc',
+    });
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
+});
+
+// ════════════════════════════════════════════════════════════════
+// Driver Recovery panel (admin only) — a plain log of cash a driver
+// has physically handed over to/received from a salesman. No ledger
+// write here on purpose (see sql/phase58_driver_recovery.sql's comment
+// on driver_cash_handoffs) — the underlying customer payment was
+// already credited wherever it was actually collected; this is just
+// an internal cash-custody record for admin to look up.
+// ════════════════════════════════════════════════════════════════
+
+router.get('/driver-handoffs', authenticate, isAdmin, async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const params = {
+      select: 'id,company_id,driver_id,salesman_id,amount,notes,created_at,drivers(full_name,car_number),salesmen(full_name)',
+      order: 'created_at.desc',
+    };
+    if (companyId) params.company_id = `eq.${companyId}`;
+    const data = await pgrestGet('driver_cash_handoffs', params);
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
+});
+
+router.post('/driver-handoffs', authenticate, isAdmin, async (req, res) => {
+  try {
+    const { driver_id, salesman_id, amount, notes } = req.body;
+    if (!driver_id || !amount || Number(amount) <= 0)
+      return error(res, 'driver_id and a positive amount are required', 400);
+
+    const [data] = await pgrestPost('driver_cash_handoffs', {
+      company_id:  req.user.company_id,
+      driver_id,
+      salesman_id: salesman_id || null,
+      amount:      Number(amount),
+      notes:       notes || null,
+      created_by:  req.user.id,
+    });
+
+    return success(res, data, 'Handoff recorded', 201);
   } catch (err) { return error(res, err.message); }
 });
 

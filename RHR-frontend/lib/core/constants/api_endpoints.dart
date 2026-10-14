@@ -47,6 +47,14 @@ class ApiEndpoints {
   static const String recoveryMyCashInHand   = '/api/v1/recovery/my-cash-in-hand';
   static const String recoveryCashClosingMe  = '/api/v1/recovery/cash-closing/me';
 
+  // CASH COLLECTION (driver recovery self-service)
+  static const String driverRecoveryTransactionsMe = '/api/v1/recovery/driver-transactions/me';
+  static const String driverMyCashInHand            = '/api/v1/recovery/my-driver-cash-in-hand';
+  static const String driverCashClosingMe           = '/api/v1/recovery/driver-cash-closing/me';
+
+  // SALESMEN DIRECTORY (driver-accessible)
+  static const String salesmenDirectory = '/api/v1/salesmen/directory';
+
   // ORDERS
   static const String orders          = '/api/v1/orders';
 

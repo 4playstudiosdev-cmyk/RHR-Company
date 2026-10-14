@@ -164,7 +164,19 @@ async function getOrders(user, companyIdOverride) {
     });
   }
 
-  return (data || []).map((o) => ({ ...o, paid_amount: paidByOrder[o.id] || 0 }));
+  let result = (data || []).map((o) => ({ ...o, paid_amount: paidByOrder[o.id] || 0 }));
+
+  // Urgent orders float to the top of a driver's list — impossible to
+  // miss among their other deliveries (the frontend also blinks the
+  // badge). created_at desc still breaks ties within each priority.
+  if (user.role === 'driver') {
+    result = result.sort((a, b) => {
+      if (a.priority === b.priority) return 0;
+      return a.priority === 'urgent' ? -1 : (b.priority === 'urgent' ? 1 : 0);
+    });
+  }
+
+  return result;
 }
 
 async function getOrderById(id, user) {
@@ -176,7 +188,7 @@ async function getOrderById(id, user) {
   // still loads without it.
   let query = supabaseAdmin
     .from('orders')
-    .select('*, order_items(*, products(unit, image_url)), users!customer_id(full_name, phone, shop_name, shop_address, shop_latitude, shop_longitude, profile_photo_url), drivers(full_name, car_number, phone), salesmen!salesman_id(full_name)')
+    .select('*, order_items(*, products(unit, image_url)), users!customer_id(full_name, phone, shop_name, shop_address, shop_latitude, shop_longitude, profile_photo_url), drivers(full_name, car_number, phone), salesmen!salesman_id(full_name, phone)')
     .eq('id', id)
     .single();
   let { data, error } = await query;
@@ -234,7 +246,7 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
   if (!isValidTransition(existingRows[0].status, status))
     throw new Error(`Cannot move an order from "${existingRows[0].status}" to "${status}"`);
 
-  const { driverId, carNumber, deliveryAddress, deliveredBags, returnedBags, deliveryNotes } = dispatchInfo;
+  const { driverId, carNumber, deliveryAddress, deliveredBags, returnedBags, deliveryNotes, priority, amountCollected } = dispatchInfo;
   if (driverId) {
     const drivers = await pgrestGet('drivers', {
       select: 'id',
@@ -253,6 +265,8 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
   if (deliveredBags != null) patchBody.delivered_bags = Number(deliveredBags);
   if (returnedBags != null)  patchBody.returned_bags = Number(returnedBags);
   if (deliveryNotes != null) patchBody.delivery_notes = deliveryNotes;
+  if (priority != null)      patchBody.priority = priority === 'urgent' ? 'urgent' : 'normal';
+  if (amountCollected != null) patchBody.amount_collected = Number(amountCollected);
 
   let updated;
   try {
@@ -287,6 +301,35 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
       await deductDeliveredStock(id);
     } catch (err) {
       console.error(`Stock deduction for delivered order ${id} failed:`, err.message);
+    }
+
+    // Cash-on-delivery collected at the door — credits the customer's
+    // ledger immediately, same running-balance pattern as
+    // recovery.routes.js's creditLedger (duplicated here rather than
+    // imported — this module has no existing dependency on that route
+    // file and the logic is a few lines).
+    if (amountCollected != null && Number(amountCollected) > 0) {
+      try {
+        const lastEntries = await pgrestGet('ledger_entries', {
+          select: 'running_balance',
+          customer_id: `eq.${updated.customer_id}`,
+          order: 'created_at.desc',
+          limit: '1',
+        });
+        const prevBalance = lastEntries?.[0]?.running_balance || 0;
+        await pgrestPost('ledger_entries', {
+          company_id: updated.company_id,
+          customer_id: updated.customer_id,
+          entry_type: 'credit',
+          amount: Number(amountCollected),
+          running_balance: prevBalance - Number(amountCollected),
+          description: `Cash collected on delivery — order ${updated.order_number}`,
+          reference_type: 'delivery',
+          created_by: null, // driver's own id isn't a `users` row — see recovery.routes.js's identical FK note
+        });
+      } catch (err) {
+        console.error(`Ledger credit for delivered order ${id} failed:`, err.message);
+      }
     }
   }
 

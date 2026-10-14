@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'app_transitions.dart';
 import '../../core/storage/secure_storage.dart';
 import '../../features/auth/screens/splash_screen.dart';
+import '../../features/auth/screens/location_required_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/otp_screen.dart';
 import '../../features/auth/screens/signup_screen.dart';
@@ -37,6 +38,8 @@ import '../../features/driver/screens/driver_dashboard_screen.dart';
 import '../../features/driver/screens/driver_profile_screen.dart';
 import '../../features/driver/screens/driver_profile_setup_screen.dart';
 import '../../features/driver/screens/driver_order_detail_screen.dart';
+import '../../features/driver/screens/driver_cash_collection_screen.dart';
+import '../../features/driver/screens/driver_salesmen_directory_screen.dart';
 import '../../features/shared/screens/notifications_screen.dart';
 import '../../features/hrm/screens/attendance_screen.dart';
 import '../../features/hrm/screens/leave_screen.dart';
@@ -69,6 +72,7 @@ final appRouter = GoRouter(
   },
   routes: [
     GoRoute(path: '/splash',           pageBuilder: (c, s) => slidePage(s, const SplashScreen())),
+    GoRoute(path: '/location-required', pageBuilder: (c, s) => slidePage(s, const LocationRequiredScreen())),
     GoRoute(path: '/login',            pageBuilder: (c, s) => slidePage(s, const LoginScreen())),
     GoRoute(path: '/otp',              pageBuilder: (c, s) => slidePage(s, OtpScreen(extra: s.extra))),
     GoRoute(path: '/signup',           pageBuilder: (c, s) => slidePage(s, SignupScreen(phone: s.extra as String?))),
@@ -119,6 +123,8 @@ final appRouter = GoRouter(
     GoRoute(path: '/driver-profile-setup', pageBuilder: (c, s) => slidePage(s, DriverProfileSetupScreen(forced: s.extra == true))),
     GoRoute(path: '/driver-order-detail', pageBuilder: (c, s) => slidePage(s, DriverOrderDetailScreen(orderId: s.extra as String?))),
     GoRoute(path: '/driver-gps-tracking', pageBuilder: (c, s) => slidePage(s, const GpsTrackingScreen(backRoute: '/driver-dashboard'))),
+    GoRoute(path: '/driver-cash-collection', pageBuilder: (c, s) => slidePage(s, const DriverCashCollectionScreen())),
+    GoRoute(path: '/driver-salesmen-directory', pageBuilder: (c, s) => slidePage(s, const DriverSalesmenDirectoryScreen())),
     GoRoute(path: '/notifications',      pageBuilder: (c, s) => slidePage(s, const NotificationsScreen())),
     GoRoute(path: '/attendance',         pageBuilder: (c, s) => slidePage(s, const AttendanceScreen())),
     GoRoute(path: '/leave',              pageBuilder: (c, s) => slidePage(s, const LeaveScreen())),

@@ -217,9 +217,14 @@ class _OtpScreenState extends State<OtpScreen> {
             } else {
               await SecureStorage.saveDriverProfileComplete(profileComplete);
             }
-            if (mounted) await GPSService().startTrackingWithConsent(context);
+            final locationGranted = mounted ? await GPSService().startTrackingWithConsent(context) : false;
             if (mounted) {
-              if (!profileComplete) {
+              if (!locationGranted) {
+                // Salesman/driver tracking is not optional — declining
+                // here is the same as declining at splash (see
+                // location_required_screen.dart).
+                context.go('/location-required');
+              } else if (!profileComplete) {
                 context.go(role == 'salesman' ? '/salesman-profile-setup' : '/driver-profile-setup', extra: true);
               } else {
                 context.go(role == 'salesman' ? '/salesman-dashboard' : '/driver-dashboard');

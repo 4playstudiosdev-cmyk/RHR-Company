@@ -1,12 +1,32 @@
 const express = require('express');
 const router  = express.Router();
 const { authenticate } = require('../middleware/auth.middleware');
-const { isAdmin, isSalesman } = require('../middleware/role.middleware');
+const { isAdmin, isSalesman, requireRole } = require('../middleware/role.middleware');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { withRetry } = require('../utils/withRetry');
+
+// GET /api/v1/salesmen/directory — a driver needs to see who's who
+// (name + phone) for the salesman attached to a customer they're
+// delivering to, same reasoning as the bank-accounts/list widening in
+// bank.routes.js. Deliberately placed before the admin-only GET '/'
+// below so it isn't shadowed, and before any '/:id' pattern for the
+// same reason.
+router.get('/directory', authenticate, requireRole('super_admin', 'branch_admin', 'driver'), async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const params = {
+      select: 'id,full_name,phone,position',
+      is_active: 'eq.true',
+      order: 'full_name.asc',
+    };
+    if (companyId) params.company_id = `eq.${companyId}`;
+    const data = await pgrestGet('salesmen', params);
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
+});
 
 // A salesman's profile is "complete" once every one of these is filled —
 // mirrors customers.controller.js's isProfileComplete, same required-field

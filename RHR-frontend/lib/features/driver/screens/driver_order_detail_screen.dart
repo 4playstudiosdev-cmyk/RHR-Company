@@ -52,7 +52,7 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
     }
   }
 
-  Future<void> _submitStatus(String status, {int? delivered, int? returned, String? notes}) async {
+  Future<void> _submitStatus(String status, {int? delivered, int? returned, String? notes, double? amountCollected}) async {
     setState(() => _acting = true);
     try {
       final res = await DioClient.instance.patch(
@@ -62,6 +62,7 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
           if (delivered != null) 'delivered_bags': delivered,
           if (returned != null) 'returned_bags': returned,
           if (notes != null && notes.isNotEmpty) 'delivery_notes': notes,
+          if (amountCollected != null && amountCollected > 0) 'amount_collected': amountCollected,
         },
       );
       if (res.data['success'] == true) {
@@ -114,36 +115,59 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
     final deliveredController = TextEditingController(text: totalBags.toInt().toString());
     final returnedController = TextEditingController(text: '0');
     final notesController = TextEditingController();
+    final amountController = TextEditingController();
+    bool receivedPayment = false;
 
     final result = await showDialog<bool>(
       context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Confirm Delivery'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('How many bags/items were delivered, and how many returned (damaged or not accepted)?',
-              style: TextStyle(fontSize: 13)),
-          const SizedBox(height: 16),
-          TextField(
-            controller: deliveredController,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Delivered', border: OutlineInputBorder()),
+      builder: (c) => StatefulBuilder(
+        builder: (c, setDialogState) => AlertDialog(
+          title: const Text('Confirm Delivery'),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('How many bags/items were delivered, and how many returned (damaged or not accepted)?',
+                  style: TextStyle(fontSize: 13)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: deliveredController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Delivered', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: returnedController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Returned / Damaged', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: notesController,
+                decoration: const InputDecoration(labelText: 'Notes (optional)', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 16),
+              const Divider(),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Received payment from customer?', style: TextStyle(fontSize: 14)),
+                value: receivedPayment,
+                onChanged: (v) => setDialogState(() => receivedPayment = v),
+                activeTrackColor: AppColors.success,
+              ),
+              if (receivedPayment) ...[
+                const SizedBox(height: 6),
+                TextField(
+                  controller: amountController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Amount Received (PKR)', border: OutlineInputBorder()),
+                ),
+              ],
+            ]),
           ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: returnedController,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Returned / Damaged', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: notesController,
-            decoration: const InputDecoration(labelText: 'Notes (optional)', border: OutlineInputBorder()),
-          ),
-        ]),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(c, true), child: const Text('Confirm')),
-        ],
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+            ElevatedButton(onPressed: () => Navigator.pop(c, true), child: const Text('Confirm')),
+          ],
+        ),
       ),
     );
 
@@ -153,6 +177,7 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
         delivered: int.tryParse(deliveredController.text) ?? 0,
         returned: int.tryParse(returnedController.text) ?? 0,
         notes: notesController.text.trim(),
+        amountCollected: receivedPayment ? double.tryParse(amountController.text.trim()) : null,
       );
     }
   }
@@ -184,12 +209,16 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
     final photoUrl = customer['profile_photo_url'] as String?;
     final isActive = order['status'] == 'dispatched';
     final isUndelivered = order['status'] == 'undelivered';
+    final isUrgent = order['priority'] == 'urgent';
+    final salesman = order['salesmen'] as Map<String, dynamic>?;
 
     return Column(children: [
       Expanded(
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            if (isUrgent && isActive)
+              const _UrgentBanner(),
             if (!isActive)
               Container(
                 margin: const EdgeInsets.only(bottom: 14),
@@ -242,6 +271,26 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
                 ),
               ]),
             ),
+            if (salesman != null && (salesman['full_name'] as String?)?.isNotEmpty == true) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(14),
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)]),
+                child: Row(children: [
+                  const Icon(Icons.badge_outlined, color: AppColors.navy, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('Salesman: ${salesman['full_name']}',
+                          style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.navy, fontSize: 13)),
+                      if ((salesman['phone'] as String?)?.isNotEmpty == true)
+                        Text(salesman['phone'], style: const TextStyle(color: AppColors.steelBlue, fontSize: 12)),
+                    ]),
+                  ),
+                ]),
+              ),
+            ],
             const SizedBox(height: 16),
             if (hasLocation) ...[
               Row(children: [
@@ -349,6 +398,53 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
       width: 46, height: 46,
       color: AppColors.orange.withValues(alpha: 0.12),
       child: const Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 22),
+    );
+  }
+}
+
+/// Blinking "URGENT" banner — a flat priority label wasn't attention-
+/// grabbing enough for a delivery that's supposed to jump the queue, so
+/// this fades in/out continuously while the order is still active.
+class _UrgentBanner extends StatefulWidget {
+  const _UrgentBanner();
+
+  @override
+  State<_UrgentBanner> createState() => _UrgentBannerState();
+}
+
+class _UrgentBannerState extends State<_UrgentBanner> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 700))
+      ..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: FadeTransition(
+        opacity: Tween(begin: 0.4, end: 1.0).animate(_controller),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(color: AppColors.error, borderRadius: BorderRadius.circular(12)),
+          child: const Row(children: [
+            Icon(Icons.priority_high, color: Colors.white),
+            SizedBox(width: 10),
+            Text('URGENT DELIVERY', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+          ]),
+        ),
+      ),
     );
   }
 }

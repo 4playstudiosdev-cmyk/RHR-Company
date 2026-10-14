@@ -51,7 +51,7 @@ const updateOrderStatus = async (req, res) => {
   console.log('================================');
 
   try {
-    const { status, driver_id, car_number, delivery_address, delivered_bags, returned_bags, delivery_notes } = req.body;
+    const { status, driver_id, car_number, delivery_address, delivered_bags, returned_bags, delivery_notes, priority } = req.body;
     if (!status) return error(res, 'status is required', 400);
     const data = await svc.updateOrderStatus(req.params.id, req.user.company_id, status, {
       driverId: driver_id,
@@ -60,6 +60,7 @@ const updateOrderStatus = async (req, res) => {
       deliveredBags: delivered_bags,
       returnedBags: returned_bags,
       deliveryNotes: delivery_notes,
+      priority,
     });
     return success(res, data, `Order status updated to ${status}`);
   } catch (err) {
@@ -77,7 +78,7 @@ const updateOrderStatus = async (req, res) => {
 // invoicing) stays admin-only.
 const driverUpdateOrderStatus = async (req, res) => {
   try {
-    const { status, delivered_bags, returned_bags, delivery_notes } = req.body;
+    const { status, delivered_bags, returned_bags, delivery_notes, amount_collected } = req.body;
     if (!['delivered', 'undelivered'].includes(status))
       return error(res, 'status must be "delivered" or "undelivered"', 400);
 
@@ -91,6 +92,7 @@ const driverUpdateOrderStatus = async (req, res) => {
       deliveredBags: delivered_bags,
       returnedBags: returned_bags,
       deliveryNotes: delivery_notes,
+      amountCollected: amount_collected,
     });
 
     // Best-effort — admin previously had no way to find out a delivery
@@ -104,7 +106,7 @@ const driverUpdateOrderStatus = async (req, res) => {
         recipient_role: 'branch_admin',
         title:          status === 'delivered' ? 'Order Delivered' : 'Order NOT Delivered',
         body:           status === 'delivered'
-          ? `${req.user.full_name} delivered order ${data.order_number} — ${delivered_bags ?? 0} bags, ${returned_bags ?? 0} returned.`
+          ? `${req.user.full_name} delivered order ${data.order_number} — ${delivered_bags ?? 0} bags, ${returned_bags ?? 0} returned.${Number(amount_collected) > 0 ? ` Collected PKR ${Number(amount_collected).toLocaleString()} from customer.` : ''}`
           : `${req.user.full_name} could not deliver order ${data.order_number}.${delivery_notes ? ` Note: ${delivery_notes}` : ''}`,
         type: 'order',
       });
