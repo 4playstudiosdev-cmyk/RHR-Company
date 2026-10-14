@@ -9,6 +9,8 @@ import AdminLocationService from './services/adminLocationService';
 import api, { hasPermission } from './services/api';
 import { ToastProvider } from './components/Toast';
 import NotificationBell from './components/NotificationBell';
+import Topbar from './components/Topbar';
+import GlobalSearch from './components/GlobalSearch';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import DailyDashboard from './pages/DailyDashboard';
@@ -155,6 +157,11 @@ function AppShell() {
   // order's detail view on the Orders page.
   const [targetOrderNumber, setTargetOrderNumber] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  // { page, token } — token changes on every trigger so a page's
+  // useEffect([autoOpenCreate]) fires again even if re-triggered for
+  // the same page back-to-back.
+  const [quickActionTarget, setQuickActionTarget] = useState(null);
   // Desktop-only icon-rail mode — persisted so it survives a refresh.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem('sidebar_collapsed') === 'true'
@@ -211,6 +218,24 @@ function AppShell() {
     setPage('orders');
   };
 
+  const triggerQuickAction = (pageKey, autoOpen) => {
+    setPage(pageKey);
+    setSidebarOpen(false);
+    if (autoOpen) setQuickActionTarget({ page: pageKey, token: Date.now() });
+  };
+
+  // Ctrl+K / Cmd+K opens the global search from anywhere.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   // Continuous admin location tracking, same lifecycle as the salesman
   // app's GPS service — starts whenever a session exists (fresh login or
   // still-logged-in on app relaunch), stops on logout.
@@ -256,6 +281,11 @@ function AppShell() {
           </button>
           <h1 className="text-base font-bold tracking-wide">RHR & Company</h1>
         </header>
+        <Topbar
+          onOpenSearch={() => setSearchOpen(true)}
+          onQuickAction={triggerQuickAction}
+          companyLabel={user?.full_name ? `${user.full_name} · ${user.role === 'super_admin' ? 'Head Office' : 'Branch Admin'}` : null}
+        />
         <main className="flex-1 overflow-y-auto">
           <ErrorBoundary resetKey={page}>
             <ProtectedRoute
@@ -270,6 +300,7 @@ function AppShell() {
                 initialCustomerId={ledgerCustomerId}
                 onViewOrderNumber={goToOrder}
                 initialOrderNumber={targetOrderNumber}
+                autoOpenCreate={quickActionTarget?.page === page ? quickActionTarget.token : null}
               />
             </ProtectedRoute>
           </ErrorBoundary>
@@ -278,6 +309,13 @@ function AppShell() {
       <SessionWarning />
       <LocationGate user={user} />
       {hasPermission('notifications', user) && <NotificationBell setPage={setPage} />}
+      <GlobalSearch
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        setPage={setPage}
+        onViewOrderNumber={goToOrder}
+        onViewLedger={goToLedger}
+      />
     </div>
   );
 }

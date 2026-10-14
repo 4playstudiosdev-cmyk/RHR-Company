@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
-import { Plus, ClipboardList, Check, Circle, Pencil } from 'lucide-react';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Plus, ClipboardList, Check, Circle, Pencil, Coins, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import api, { getCurrentUser } from '../../services/api';
+import { convertQuantity } from '../../utils/unitConversion';
 import PageHeader from '../../components/PageHeader';
 import Modal from '../../components/Modal';
 import Button from '../../components/Button';
@@ -9,6 +10,91 @@ import { SkeletonTable } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
 import CityFilter from '../../components/CityFilter';
 import { fetchAllCities } from '../../utils/multiCityFetch';
+
+// Scales a saved recipe (qty_required is per 1 bag/batch) up to the
+// requested production quantity, converting each ingredient's required
+// amount into its raw material's own stock unit so it can be compared
+// against current stock directly — same conversion RecipesPage's own
+// cost preview already relies on.
+function useBomPreview(recipes, rawMaterials, productName, qty) {
+  return useMemo(() => {
+    const q = Number(qty);
+    if (!productName || !q || q <= 0) return null;
+    const recipe = recipes.find((r) => r.product_name?.trim().toLowerCase() === productName.trim().toLowerCase());
+    if (!recipe) return { noRecipe: true };
+
+    const rows = (recipe.recipe_ingredients || []).map((ing) => {
+      const mat = rawMaterials.find((m) => m.id === ing.raw_materials?.id);
+      const requiredRaw = Number(ing.qty_required) * q;
+      const converted = mat ? convertQuantity(requiredRaw, ing.unit, mat.unit) : null;
+      const requiredInStockUnit = converted === null ? requiredRaw : converted;
+      const stockUnit = mat?.unit || ing.unit;
+      const currentStock = Number(mat?.stock || 0);
+      const available = currentStock >= requiredInStockUnit;
+      const cost = requiredInStockUnit * Number(mat?.cost_per_unit || 0);
+      return {
+        key: ing.id,
+        name: mat?.name || ing.raw_materials?.name || 'Unknown material',
+        requiredQty: requiredInStockUnit,
+        unit: stockUnit,
+        currentStock,
+        available,
+        cost,
+      };
+    });
+
+    return { rows, totalCost: rows.reduce((s, r) => s + r.cost, 0) };
+  }, [recipes, rawMaterials, productName, qty]);
+}
+
+function BomPreview({ preview, qty }) {
+  if (!preview) return null;
+  if (preview.noRecipe) {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-xs text-amber-800">
+        No recipe configured for this product yet — set one up in Recipe Management to see raw material requirements.
+      </div>
+    );
+  }
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden">
+      <div className="bg-navy px-4 py-2.5 flex items-center justify-between">
+        <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+          <Coins size={13} /> Estimated Material Cost
+        </span>
+        <span className="text-sm font-bold text-orange">
+          PKR {preview.totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          {Number(qty) > 0 && ` (PKR ${(preview.totalCost / Number(qty)).toFixed(0)}/bag)`}
+        </span>
+      </div>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="bg-gray-50 text-left text-gray-500">
+            <th className="px-3 py-2 font-semibold uppercase">Raw Material</th>
+            <th className="px-3 py-2 font-semibold uppercase text-right">Required</th>
+            <th className="px-3 py-2 font-semibold uppercase text-right">Current Stock</th>
+            <th className="px-3 py-2 font-semibold uppercase text-right">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {preview.rows.map((row) => (
+            <tr key={row.key} className="border-t border-gray-100">
+              <td className="px-3 py-2 font-medium text-navy">{row.name}</td>
+              <td className="px-3 py-2 text-right text-gray-600">{row.requiredQty.toFixed(2)} {row.unit}</td>
+              <td className="px-3 py-2 text-right text-gray-500">{row.currentStock.toFixed(2)} {row.unit}</td>
+              <td className="px-3 py-2 text-right">
+                <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${row.available ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {row.available ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+                  {row.available ? 'Available' : 'Insufficient'}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 const STATUS_FLOW = ['pending', 'in_production', 'ready'];
 const STATUS_LABEL = { pending: 'Pending', in_production: 'In Production', ready: 'Ready' };
@@ -27,13 +113,15 @@ const NEXT_ACTION = {
 
 const EMPTY_FORM = { product_id: '', qty: '', priority: 'normal', notes: '', start_date: new Date().toISOString().split('T')[0] };
 
-export default function ProductionOrders() {
+export default function ProductionOrders({ autoOpenCreate }) {
   const toast = useToast();
   const user = getCurrentUser();
   const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId; // KHI default
   const [selectedCity, setSelectedCity] = useState(defaultCity);
   const [orders, setOrders] = useState([]);
   const [products, setProducts] = useState([]);
+  const [recipes, setRecipes] = useState([]);
+  const [rawMaterials, setRawMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tab, setTab] = useState('All');
@@ -53,8 +141,31 @@ export default function ProductionOrders() {
   useEffect(() => {
     loadOrders();
     loadProducts();
+    loadRecipes();
+    loadRawMaterials();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
+
+  // Header's "+ Quick Action" → "Daily Production Batch".
+  useEffect(() => {
+    if (autoOpenCreate) setShowModal(true);
+  }, [autoOpenCreate]);
+
+  const loadRecipes = async () => {
+    try {
+      const r = await api.get('/production/recipes');
+      if (r.data.success) setRecipes(r.data.data || []);
+    } catch (e) { /* BOM preview just won't show without this — non-fatal */ }
+  };
+
+  // Scoped to this admin's own company_id (production_bom.company_id),
+  // same reasoning as RecipesPage.js's identical load.
+  const loadRawMaterials = async () => {
+    try {
+      const r = await api.get('/production/materials', { params: { company_id: user?.companyId } });
+      if (r.data.success) setRawMaterials(r.data.data || []);
+    } catch (e) { /* BOM preview just won't show without this — non-fatal */ }
+  };
 
   const loadOrders = async () => {
     setLoading(true);
@@ -85,6 +196,10 @@ export default function ProductionOrders() {
   };
 
   const filtered = tab === 'All' ? orders : orders.filter((o) => o.status === tab);
+
+  const selectedProductName = products.find((p) => p.id === form.product_id)?.name;
+  const createBomPreview = useBomPreview(recipes, rawMaterials, selectedProductName, form.qty);
+  const detailBomPreview = useBomPreview(recipes, rawMaterials, detailOrder?.product_name, detailOrder?.qty);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -276,6 +391,9 @@ export default function ProductionOrders() {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
               />
             </div>
+
+            <BomPreview preview={createBomPreview} qty={form.qty} />
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Priority</label>
               <div className="flex gap-4">
@@ -363,9 +481,9 @@ export default function ProductionOrders() {
               </div>
             )}
 
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-500">
-              <p className="font-semibold text-gray-600 mb-1">Raw Materials Required</p>
-              Configure recipe to see raw material requirements.
+            <div>
+              <p className="font-semibold text-navy text-sm mb-2">Raw Materials Required</p>
+              <BomPreview preview={detailBomPreview} qty={detailOrder.qty} />
             </div>
 
             <div>

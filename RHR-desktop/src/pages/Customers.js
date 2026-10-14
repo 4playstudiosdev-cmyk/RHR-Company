@@ -61,7 +61,7 @@ function filterCustomers(list, term) {
   );
 }
 
-export default function Customers({ onViewLedger }) {
+export default function Customers({ onViewLedger, autoOpenCreate }) {
   const toast = useToast();
   const user = getCurrentUser();
   const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId; // KHI default
@@ -287,6 +287,12 @@ export default function Customers({ onViewLedger }) {
     setCustomerForm(EMPTY_CUSTOMER_FORM);
     setShowCustomerModal(true);
   };
+
+  // Header's "+ Quick Action" → "Register Dealer Account".
+  useEffect(() => {
+    if (autoOpenCreate) openAddCustomerModal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenCreate]);
 
   const openEditCustomerModal = (customer) => {
     setEditingCustomer(customer);

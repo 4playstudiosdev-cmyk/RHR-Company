@@ -41,7 +41,7 @@ const EMPTY_ORDER_FORM = { customer_id: '', items: [{ product_id: '', quantity: 
 // custom price or a discount/premium tier set.
 const RATE_TIER_ADJUSTMENT = { manual: 0, discount: -10, premium: 10 };
 
-export default function Orders({ initialOrderNumber }) {
+export default function Orders({ initialOrderNumber, autoOpenCreate }) {
   const toast = useToast();
   const user = getCurrentUser();
   // Deleting an order/invoice is an admin action — available to both
@@ -127,6 +127,12 @@ export default function Orders({ initialOrderNumber }) {
     if (tab === 'deleted-invoices' && canDeleteInvoices) loadDeletedInvoices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+
+  // Header's "+ Quick Action" → "New Sales Order" — opens this page's
+  // own Create Order modal immediately on arrival.
+  useEffect(() => {
+    if (autoOpenCreate) setShowCreateOrder(true);
+  }, [autoOpenCreate]);
 
   const loadDeletedInvoices = async () => {
     setLoadingDeleted(true);
@@ -773,6 +779,7 @@ export default function Orders({ initialOrderNumber }) {
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Total</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Driver / Vehicle</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Update</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Invoice</th>
                   </tr>
@@ -795,6 +802,16 @@ export default function Orders({ initialOrderNumber }) {
                       </td>
                       <td className="px-6 py-3.5">
                         <StatusBadge status={order.status} />
+                      </td>
+                      <td className="px-6 py-3.5 text-gray-600 text-xs">
+                        {order.drivers?.full_name ? (
+                          <div>
+                            <p className="font-medium text-navy text-[13px]">{order.drivers.full_name}</p>
+                            <p className="text-gray-400">{order.car_number || order.drivers.car_number || '—'}</p>
+                          </div>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
                       </td>
                       <td className="px-6 py-3.5">
                         {(() => {
