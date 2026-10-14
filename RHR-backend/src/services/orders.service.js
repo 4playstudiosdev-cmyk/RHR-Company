@@ -246,7 +246,7 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
   if (!isValidTransition(existingRows[0].status, status))
     throw new Error(`Cannot move an order from "${existingRows[0].status}" to "${status}"`);
 
-  const { driverId, carNumber, deliveryAddress, deliveredBags, returnedBags, deliveryNotes, priority, amountCollected } = dispatchInfo;
+  const { driverId, carNumber, deliveryAddress, deliveredBags, returnedBags, deliveryNotes, priority, amountCollected, collectingDriverId } = dispatchInfo;
   if (driverId) {
     const drivers = await pgrestGet('drivers', {
       select: 'id',
@@ -329,6 +329,33 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
         });
       } catch (err) {
         console.error(`Ledger credit for delivered order ${id} failed:`, err.message);
+      }
+
+      // Also logs this as a driver cash collection (same salesman_recoveries
+      // table the Cash Collection screen's "Cash In Hand" reads — see
+      // recovery.routes.js's /driver-transactions/me) so the money the
+      // driver is now holding shows up there to be deposited later, same
+      // as a salesman's manual collection would.
+      if (collectingDriverId) {
+        try {
+          await pgrestPost('salesman_recoveries', {
+            company_id: updated.company_id,
+            driver_id: collectingDriverId,
+            customer_id: updated.customer_id,
+            amount: Number(amountCollected),
+            payment_type: 'cash',
+            payment_method: 'cash',
+            reference_number: null,
+            notes: `Collected on delivery — order ${updated.order_number}`,
+            status: 'approved',
+            approved_by: null,
+            approved_at: new Date().toISOString(),
+            recovery_date: new Date().toISOString().split('T')[0],
+            created_by: null,
+          });
+        } catch (err) {
+          console.error(`Cash-in-hand log for delivered order ${id} failed:`, err.message);
+        }
       }
     }
   }

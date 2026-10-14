@@ -93,6 +93,7 @@ const driverUpdateOrderStatus = async (req, res) => {
       returnedBags: returned_bags,
       deliveryNotes: delivery_notes,
       amountCollected: amount_collected,
+      collectingDriverId: req.user.id,
     });
 
     // Best-effort — admin previously had no way to find out a delivery

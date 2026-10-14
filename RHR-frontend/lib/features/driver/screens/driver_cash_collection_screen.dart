@@ -8,10 +8,13 @@ import '../../../core/network/dio_client.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/router/app_transitions.dart';
 
-/// Cash Collection Management — what a salesman has collected from
-/// customers in cash (salesman_recoveries, auto-approved + credits the
-/// customer's ledger immediately) and depositing that cash back to the
-/// company (salesman_cash_closings — pending until an admin approves it,
+/// Cash Collection Management for drivers — cash is collected
+/// automatically whenever a delivery is marked "Delivered" with a
+/// payment amount (see driver_order_detail_screen.dart's "Received
+/// payment?" toggle, logged server-side into salesman_recoveries), so
+/// there is no manual "Collect Cash" entry point here, only Cash In
+/// Hand and depositing that cash back to the company
+/// (salesman_cash_closings — pending until an admin approves it,
 /// either as a bank deposit with a slip photo, or handed over as petty
 /// cash). "Cash in hand" is simply collected-minus-deposited.
 class DriverCashCollectionScreen extends StatefulWidget {
@@ -27,7 +30,6 @@ class _DriverCashCollectionScreenState extends State<DriverCashCollectionScreen>
   num _totalCollected = 0;
   num _totalDeposited = 0;
   List<Map<String, dynamic>> _closingHistory = [];
-  List<Map<String, dynamic>> _customers = [];
 
   @override
   void initState() {
@@ -41,7 +43,6 @@ class _DriverCashCollectionScreenState extends State<DriverCashCollectionScreen>
       final results = await Future.wait([
         DioClient.instance.get(ApiEndpoints.driverMyCashInHand),
         DioClient.instance.get(ApiEndpoints.driverCashClosingMe),
-        DioClient.instance.get(ApiEndpoints.customers),
       ]);
       if (results[0].data['success'] == true) {
         final d = results[0].data['data'];
@@ -52,9 +53,6 @@ class _DriverCashCollectionScreenState extends State<DriverCashCollectionScreen>
       if (results[1].data['success'] == true) {
         _closingHistory = List<Map<String, dynamic>>.from(results[1].data['data'] ?? []);
       }
-      if (results[2].data['success'] == true) {
-        _customers = List<Map<String, dynamic>>.from(results[2].data['data'] ?? []);
-      }
     } catch (e) {
       debugPrint('Cash collection load error: $e');
     } finally {
@@ -63,66 +61,6 @@ class _DriverCashCollectionScreenState extends State<DriverCashCollectionScreen>
   }
 
   num _asNum(dynamic v) => v is num ? v : num.tryParse(v?.toString() ?? '0') ?? 0;
-
-  Future<void> _collectCash() async {
-    String? customerId;
-    final amountController = TextEditingController();
-    final notesController = TextEditingController();
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Collect Cash from Customer'),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            DropdownButtonFormField<String>(
-              value: customerId,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Customer', border: OutlineInputBorder()),
-              items: _customers.map((c) => DropdownMenuItem(
-                value: c['id'] as String,
-                child: Text(c['full_name'] ?? '', overflow: TextOverflow.ellipsis),
-              )).toList(),
-              onChanged: (v) => setDialogState(() => customerId = v),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: amountController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Amount (PKR)', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: notesController,
-              decoration: const InputDecoration(labelText: 'Notes (optional)', border: OutlineInputBorder()),
-            ),
-          ]),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            ElevatedButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Submit')),
-          ],
-        ),
-      ),
-    );
-    if (confirmed != true) return;
-    if (customerId == null || amountController.text.trim().isEmpty) return;
-
-    try {
-      final res = await DioClient.instance.post(ApiEndpoints.driverRecoveryTransactionsMe, data: {
-        'customer_id': customerId,
-        'amount': double.tryParse(amountController.text.trim()) ?? 0,
-        if (notesController.text.trim().isNotEmpty) 'notes': notesController.text.trim(),
-      });
-      if (res.data['success'] == true) {
-        if (mounted) await showSuccessCheck(context, message: 'Cash Collected!');
-        _load();
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res.data['message'] ?? 'Failed')));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-    }
-  }
 
   Future<void> _depositDialog() async {
     final choice = await showModalBottomSheet<String>(
@@ -188,25 +126,54 @@ class _DriverCashCollectionScreenState extends State<DriverCashCollectionScreen>
   }
 
   Future<void> _submitBankDeposit() async {
-    final bankController = TextEditingController();
     final amountController = TextEditingController();
     File? slipFile;
     String? uploadedSlipUrl;
     bool uploading = false;
+    bool loadingBanks = true;
+    List<Map<String, dynamic>> bankAccounts = [];
+    String? selectedBankAccountId;
+
+    Future<void> loadBanks(void Function(void Function()) setDialogState) async {
+      try {
+        final res = await DioClient.instance.get(ApiEndpoints.bankAccountsList);
+        if (res.data['success'] == true) {
+          bankAccounts = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
+        }
+      } catch (e) {
+        debugPrint('Bank accounts load error: $e');
+      } finally {
+        setDialogState(() => loadingBanks = false);
+      }
+    }
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
+        builder: (dialogContext, setDialogState) {
+          if (loadingBanks && bankAccounts.isEmpty) loadBanks(setDialogState);
+          return AlertDialog(
           title: const Text('Deposit Via Bank'),
           content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('Date: ${DateTime.now().toString().split(' ')[0]} (today, locked)',
                 style: const TextStyle(color: AppColors.steelBlue, fontSize: 12)),
             const SizedBox(height: 10),
-            TextField(
-              controller: bankController,
-              decoration: const InputDecoration(labelText: 'Bank Name', border: OutlineInputBorder()),
-            ),
+            loadingBanks
+                ? const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: LinearProgressIndicator())
+                : DropdownButtonFormField<String>(
+                    initialValue: selectedBankAccountId,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: 'Bank',
+                      border: const OutlineInputBorder(),
+                      hintText: bankAccounts.isEmpty ? 'No bank accounts set up' : 'Select bank',
+                    ),
+                    items: bankAccounts.map((a) => DropdownMenuItem(
+                      value: a['id'] as String,
+                      child: Text('${a['bank_name']} — ${a['account_name']}', overflow: TextOverflow.ellipsis),
+                    )).toList(),
+                    onChanged: (v) => setDialogState(() => selectedBankAccountId = v),
+                  ),
             const SizedBox(height: 10),
             TextField(
               controller: amountController,
@@ -247,23 +214,26 @@ class _DriverCashCollectionScreenState extends State<DriverCashCollectionScreen>
             TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
             ElevatedButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Submit')),
           ],
-        ),
+        );
+        },
       ),
     );
     if (confirmed != true) return;
-    if (amountController.text.trim().isEmpty || uploadedSlipUrl == null) {
+    if (amountController.text.trim().isEmpty || uploadedSlipUrl == null || selectedBankAccountId == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Amount and bank slip photo are required.')));
+            const SnackBar(content: Text('Bank, amount and slip photo are required.')));
       }
       return;
     }
+
+    final selectedBank = bankAccounts.firstWhere((a) => a['id'] == selectedBankAccountId, orElse: () => {});
 
     try {
       final res = await DioClient.instance.post(ApiEndpoints.driverCashClosingMe, data: {
         'amount': double.tryParse(amountController.text.trim()) ?? 0,
         'deposit_to': 'bank',
-        'bank_account': bankController.text.trim(),
+        'bank_account': '${selectedBank['bank_name']} — ${selectedBank['account_name']}',
         'slip_image_url': uploadedSlipUrl,
       });
       if (res.data['success'] == true) {
@@ -315,27 +285,16 @@ class _DriverCashCollectionScreenState extends State<DriverCashCollectionScreen>
                   ]),
                 ),
                 const SizedBox(height: 16),
-                Row(children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _collectCash,
-                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.success, foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14)),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Collect Cash'),
-                    ),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _depositDialog,
+                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.orange, foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14)),
+                    icon: const Icon(Icons.upload_outlined),
+                    label: const Text('Deposit Cash'),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _depositDialog,
-                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.orange, foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14)),
-                      icon: const Icon(Icons.upload_outlined),
-                      label: const Text('Deposit'),
-                    ),
-                  ),
-                ]),
+                ),
                 const SizedBox(height: 24),
                 const Text('Deposit History', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 16)),
                 const SizedBox(height: 10),
