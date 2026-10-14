@@ -1,7 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { authenticate } = require('../middleware/auth.middleware');
-const { isAdmin }      = require('../middleware/role.middleware');
+const { isAdmin, isSalesman } = require('../middleware/role.middleware');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { success, error } = require('../utils/response');
@@ -237,6 +237,140 @@ router.get('/pending-approvals', authenticate, isAdmin, async (req, res) => {
       cash_closings:   cashClosings || [],
       total_pending:   (onlinePayments?.length || 0) + (cashClosings?.length || 0),
     });
+  } catch (err) { return error(res, err.message); }
+});
+
+// ════════════════════════════════════════════════════════════════
+// Self-service — a salesman acting on their own recoveries/cash-in-hand/
+// closings, scoped to req.user.id so they can never touch anyone else's.
+// Everything above this point stays isAdmin-only (approvals, viewing
+// every salesman's data); these are the matching "/me" endpoints the
+// Cash Collection screen in the app actually calls.
+// ════════════════════════════════════════════════════════════════
+
+// POST /api/v1/recovery/transactions/me — salesman records a cash
+// payment they just collected from a customer. Mirrors the admin
+// version above (cash auto-approves + credits the ledger immediately)
+// but salesman_id is always req.user.id, never client-supplied, and
+// only 'cash' is allowed here — an "online" payment collected by a
+// salesman still needs an admin to key it in with a reference number,
+// not something this self-service endpoint hands out approval for.
+router.post('/transactions/me', authenticate, isSalesman, async (req, res) => {
+  try {
+    const { customer_id, amount, notes, recovery_date } = req.body;
+    if (!customer_id || !amount || Number(amount) <= 0)
+      return error(res, 'customer_id and a positive amount are required', 400);
+
+    const [recovery] = await pgrestPost('salesman_recoveries', {
+      company_id:       req.user.company_id,
+      salesman_id:      req.user.id,
+      customer_id,
+      amount:           Number(amount),
+      payment_type:     'cash',
+      payment_method:   'cash',
+      reference_number: null,
+      notes:            notes || null,
+      status:           'approved',
+      approved_by:      req.user.id,
+      approved_at:      new Date().toISOString(),
+      recovery_date:    recovery_date || new Date().toISOString().split('T')[0],
+      created_by:       req.user.id,
+    });
+
+    await creditLedger({
+      companyId: req.user.company_id,
+      customerId: customer_id,
+      amount: Number(amount),
+      description: 'Cash payment received by salesman',
+      userId: req.user.id,
+    });
+
+    return success(res, recovery, 'Cash collection recorded', 201);
+  } catch (err) { return error(res, err.message); }
+});
+
+// GET /api/v1/recovery/transactions/me — this salesman's own collection
+// history (what "Shows total cash recovered by this salesman" reads).
+router.get('/transactions/me', authenticate, isSalesman, async (req, res) => {
+  try {
+    const data = await pgrestGet('salesman_recoveries', {
+      select: RECOVERY_SELECT,
+      salesman_id: `eq.${req.user.id}`,
+      order: 'created_at.desc',
+    });
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
+});
+
+// GET /api/v1/recovery/my-cash-in-hand — NOT /cash-in-hand/me: that would
+// collide with the admin route above (/cash-in-hand/:salesmanId, which
+// Express registered first and would match "me" as the param literally).
+router.get('/my-cash-in-hand', authenticate, isSalesman, async (req, res) => {
+  try {
+    const collected = await pgrestGet('salesman_recoveries', {
+      select: 'amount',
+      salesman_id: `eq.${req.user.id}`,
+      payment_type: 'eq.cash',
+      status: 'eq.approved',
+    });
+    const totalCash = (collected || []).reduce((s, r) => s + Number(r.amount), 0);
+
+    const closings = await pgrestGet('salesman_cash_closings', {
+      select: 'amount',
+      salesman_id: `eq.${req.user.id}`,
+      status: 'eq.approved',
+    });
+    const totalClosed = (closings || []).reduce((s, c) => s + Number(c.amount), 0);
+
+    return success(res, {
+      cash_in_hand:    totalCash - totalClosed,
+      total_collected: totalCash,
+      total_deposited: totalClosed,
+    });
+  } catch (err) { return error(res, err.message); }
+});
+
+// POST /api/v1/recovery/cash-closing/me — salesman deposits cash they're
+// holding (to the bank, or hands petty cash to the branch). Pending
+// until an admin approves it, same as the admin-entered version.
+// closing_date is always server-computed as today — never taken from
+// the client — so it can't be backdated, matching the spec's "date
+// locked to today" requirement for a bank deposit.
+router.post('/cash-closing/me', authenticate, isSalesman, async (req, res) => {
+  try {
+    const { amount, deposit_to, bank_account, slip_image_url, notes } = req.body;
+    if (!amount || Number(amount) <= 0)
+      return error(res, 'a positive amount is required', 400);
+    const method = deposit_to === 'bank' ? 'bank' : 'petty_cash';
+    if (method === 'bank' && !slip_image_url)
+      return error(res, 'A bank slip photo is required for a bank deposit', 400);
+
+    const [data] = await pgrestPost('salesman_cash_closings', {
+      company_id:     req.user.company_id,
+      salesman_id:    req.user.id,
+      amount:         Number(amount),
+      deposit_to:     method,
+      bank_account:   method === 'bank' ? (bank_account || null) : null,
+      slip_image_url: method === 'bank' ? (slip_image_url || null) : null,
+      notes:          notes || null,
+      status:         'pending',
+      closing_date:   new Date().toISOString().split('T')[0],
+      created_by:     req.user.id,
+    });
+
+    return success(res, data, 'Deposit submitted — pending admin approval', 201);
+  } catch (err) { return error(res, err.message); }
+});
+
+// GET /api/v1/recovery/cash-closing/me — this salesman's own deposit history.
+router.get('/cash-closing/me', authenticate, isSalesman, async (req, res) => {
+  try {
+    const data = await pgrestGet('salesman_cash_closings', {
+      select: '*',
+      salesman_id: `eq.${req.user.id}`,
+      order: 'created_at.desc',
+    });
+    return success(res, data);
   } catch (err) { return error(res, err.message); }
 });
 

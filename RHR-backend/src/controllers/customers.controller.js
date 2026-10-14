@@ -42,6 +42,33 @@ const getCustomers = async (req, res) => {
     } catch (e) {
       data = await pgrestGet('users', { ...baseParams, select: CUSTOMER_COLUMNS_FALLBACK });
     }
+
+    // A salesman's "Your Customers" list needs last-order-date and
+    // outstanding balance per customer to be useful at a glance — two
+    // extra small batch queries (same small-dataset tradeoff already
+    // made for recipe labels/salesman customer_count elsewhere in this
+    // codebase) rather than N+1 per-customer calls.
+    if (user.role === 'salesman' && data?.length) {
+      const ids = data.map((c) => c.id);
+      const idList = ids.join(',');
+      try {
+        const [orders, ledgerEntries] = await Promise.all([
+          pgrestGet('orders', { select: 'customer_id,created_at', customer_id: `in.(${idList})`, order: 'created_at.desc' }),
+          pgrestGet('ledger_entries', { select: 'customer_id,running_balance,created_at', customer_id: `in.(${idList})`, order: 'created_at.desc' }),
+        ]);
+        const lastOrderByCustomer = {};
+        (orders || []).forEach((o) => { if (!lastOrderByCustomer[o.customer_id]) lastOrderByCustomer[o.customer_id] = o.created_at; });
+        const balanceByCustomer = {};
+        (ledgerEntries || []).forEach((l) => { if (!(l.customer_id in balanceByCustomer)) balanceByCustomer[l.customer_id] = Number(l.running_balance); });
+
+        data = data.map((c) => ({
+          ...c,
+          last_order_date: lastOrderByCustomer[c.id] || null,
+          outstanding_balance: balanceByCustomer[c.id] ?? 0,
+        }));
+      } catch (e) { /* best-effort — the plain customer list still works without these */ }
+    }
+
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 };

@@ -321,13 +321,15 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                         crossAxisSpacing: 12,
                         childAspectRatio: 0.95,
                         children: [
-                          _toolItem(context, Icons.location_on_outlined, 'GPS Tracking', '/gps-tracking', 0),
-                          _toolItem(context, Icons.map_outlined, 'Customer Map', '/customer-map', 1),
-                          _toolItem(context, Icons.bar_chart_outlined, 'My Performance', '/performance', 2),
-                          _toolItem(context, Icons.event_available_outlined, 'Attendance', '/attendance', 3),
-                          _toolItem(context, Icons.event_busy_outlined, 'Apply Leave', '/leave', 4),
-                          _toolItem(context, Icons.request_page_outlined, 'My Payslip', '/payslip', 5),
-                          _toolItem(context, Icons.notifications_outlined, 'Notifications', '/notifications', 6),
+                          _toolItem(context, Icons.storefront_outlined, 'Products', '/salesman-products', 0),
+                          _toolItem(context, Icons.event_note_outlined, 'Record Visit', '/record-visit', 1),
+                          _toolItem(context, Icons.account_balance_wallet_outlined, 'Cash Collection', '/cash-collection', 2),
+                          _toolItem(context, Icons.location_on_outlined, 'GPS Tracking', '/gps-tracking', 3),
+                          _toolItem(context, Icons.map_outlined, 'Customer Map', '/customer-map', 4),
+                          _toolItem(context, Icons.bar_chart_outlined, 'My Performance', '/performance', 5),
+                          _toolItem(context, Icons.event_available_outlined, 'Attendance', '/attendance', 6),
+                          _toolItem(context, Icons.event_busy_outlined, 'Apply Leave', '/leave', 7),
+                          _toolItem(context, Icons.request_page_outlined, 'My Payslip', '/payslip', 8),
                         ],
                       ),
                     ),
@@ -367,6 +369,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                             context,
                             entry.value['full_name'] ?? 'Customer',
                             entry.value['phone'] ?? '',
+                            _asNum(entry.value['outstanding_balance']),
                             entry.key,
                           )),
                     const SizedBox(height: 24),
@@ -438,7 +441,9 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
     );
   }
 
-  Widget _customerCard(BuildContext context, String name, String phone, int index) {
+  num _asNum(dynamic v) => v is num ? v : num.tryParse(v?.toString() ?? '0') ?? 0;
+
+  Widget _customerCard(BuildContext context, String name, String phone, num outstanding, int index) {
     return StaggeredFadeIn(
       index: index,
       child: TapScale(
@@ -478,8 +483,12 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                 ],
               ),
             ),
-            const Icon(Icons.arrow_forward_ios,
-                color: AppColors.steelBlue, size: 14),
+            if (outstanding > 0)
+              Text('PKR ${outstanding.toStringAsFixed(0)}',
+                  style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.bold, fontSize: 12))
+            else
+              const Icon(Icons.arrow_forward_ios,
+                  color: AppColors.steelBlue, size: 14),
           ],
         ),
       ),

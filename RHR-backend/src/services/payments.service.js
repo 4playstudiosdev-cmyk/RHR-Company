@@ -18,8 +18,9 @@ async function createPayment({ companyId, customerId, salesmanId, orderId, amoun
     photo_url:   photoUrl || null
   };
   // Admin-recorded recoveries can be backdated (e.g. logging a collection
-  // from earlier in the week) — the mobile salesman flow always uses "now".
-  if (recordedByAdmin && date) baseRow.created_at = new Date(date).toISOString();
+  // from earlier in the week). A salesman's bank-transfer report can too
+  // (see payments.controller.js) — cash stays locked to "now" either way.
+  if (date) baseRow.created_at = new Date(date).toISOString();
 
   // bank_account_id/notes are a phase18 addition — fall back to
   // inserting without them if that migration hasn't run yet, rather

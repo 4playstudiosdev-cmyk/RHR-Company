@@ -30,6 +30,9 @@ import '../../features/salesman/screens/salesman_profile_screen.dart';
 import '../../features/salesman/screens/salesman_profile_setup_screen.dart';
 import '../../features/salesman/screens/gps_tracking_screen.dart';
 import '../../features/salesman/screens/performance_screen.dart';
+import '../../features/salesman/screens/record_visit_screen.dart';
+import '../../features/salesman/screens/salesman_products_screen.dart';
+import '../../features/salesman/screens/cash_collection_screen.dart';
 import '../../features/driver/screens/driver_dashboard_screen.dart';
 import '../../features/driver/screens/driver_profile_screen.dart';
 import '../../features/driver/screens/driver_profile_setup_screen.dart';
@@ -100,6 +103,9 @@ final appRouter = GoRouter(
     GoRoute(path: '/track-salesman',     pageBuilder: (c, s) => slidePage(s, const TrackSalesmanScreen())),
     GoRoute(path: '/customer-map',       pageBuilder: (c, s) => slidePage(s, const CustomerMapScreen())),
     GoRoute(path: '/salesman-dashboard', pageBuilder: (c, s) => slidePage(s, const SalesmanDashboardScreen())),
+    GoRoute(path: '/record-visit',       pageBuilder: (c, s) => slidePage(s, const RecordVisitScreen())),
+    GoRoute(path: '/salesman-products',  pageBuilder: (c, s) => slidePage(s, const SalesmanProductsScreen())),
+    GoRoute(path: '/cash-collection',    pageBuilder: (c, s) => slidePage(s, const CashCollectionScreen())),
     GoRoute(path: '/salesman-profile',   pageBuilder: (c, s) => slidePage(s, const SalesmanProfileScreen())),
     GoRoute(path: '/salesman-profile-setup', pageBuilder: (c, s) => slidePage(s, SalesmanProfileSetupScreen(forced: s.extra == true))),
     GoRoute(path: '/my-customers',       pageBuilder: (c, s) => slidePage(s, const CustomersListScreen())),

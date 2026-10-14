@@ -21,6 +21,7 @@ class ApiEndpoints {
 
   // PRODUCTS
   static const String products        = '/api/v1/products';
+  static const String categories      = '/api/v1/categories';
 
   // CUSTOMERS
   static const String customers       = '/api/v1/customers';
@@ -34,6 +35,17 @@ class ApiEndpoints {
 
   // GEOCODING (shop-location picker search bar)
   static const String geocodeSearch = '/api/v1/geocode/search';
+
+  // BANK ACCOUNTS (salesman Record Payment bank-transfer picker)
+  static const String bankAccountsList = '/api/v1/bank/accounts/list';
+
+  // VISITS
+  static const String visits = '/api/v1/visits';
+
+  // CASH COLLECTION (salesman recovery self-service)
+  static const String recoveryTransactionsMe = '/api/v1/recovery/transactions/me';
+  static const String recoveryMyCashInHand   = '/api/v1/recovery/my-cash-in-hand';
+  static const String recoveryCashClosingMe  = '/api/v1/recovery/cash-closing/me';
 
   // ORDERS
   static const String orders          = '/api/v1/orders';

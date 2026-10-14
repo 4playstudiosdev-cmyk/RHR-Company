@@ -23,10 +23,12 @@ const getSalesmanAnalytics = async (req, res) => {
       period = `${m}/${y}`;
     }
 
-    // Orders this month
+    // Orders this month — customer_id/name included so the frontend can
+    // group into a per-customer breakdown (My Performance's date-range
+    // view) without a second round trip.
     const { data: orders } = await supabaseAdmin
       .from('orders')
-      .select('id, total_amount, status, created_at')
+      .select('id, total_amount, status, created_at, customer_id, users!customer_id(full_name)')
       .eq('salesman_id', id)
       .gte('created_at', start)
       .lte('created_at', end);

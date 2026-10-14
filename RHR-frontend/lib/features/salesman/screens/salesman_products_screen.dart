@@ -1,0 +1,229 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/api_endpoints.dart';
+import '../../../core/network/dio_client.dart';
+import '../../../shared/widgets/success_check.dart';
+import '../../../shared/router/app_transitions.dart';
+
+/// Product catalogue browse screen for salesmen — category chips up top,
+/// a grid of tiles (image/name/price/quick-add) below. Separate from
+/// create_order_screen.dart's dropdown-based picker, which still exists
+/// for the "I already know what they want" flow; this is the visual
+/// "browse and build a cart" flow.
+class SalesmanProductsScreen extends StatefulWidget {
+  const SalesmanProductsScreen({super.key});
+
+  @override
+  State<SalesmanProductsScreen> createState() => _SalesmanProductsScreenState();
+}
+
+class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
+  List<Map<String, dynamic>> _categories = [];
+  List<Map<String, dynamic>> _products = [];
+  List<Map<String, dynamic>> _customers = [];
+  bool _loading = true;
+  String? _selectedCategoryId; // null = All
+
+  // product_id -> quantity
+  final Map<String, int> _cart = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final results = await Future.wait([
+        DioClient.instance.get(ApiEndpoints.categories),
+        DioClient.instance.get(ApiEndpoints.products, queryParameters: {'limit': 200}),
+        DioClient.instance.get(ApiEndpoints.customers),
+      ]);
+      if (results[0].data['success'] == true) {
+        _categories = List<Map<String, dynamic>>.from(results[0].data['data'] ?? []);
+      }
+      if (results[1].data['success'] == true) {
+        final raw = results[1].data['data'];
+        _products = List<Map<String, dynamic>>.from(raw is Map ? (raw['products'] ?? raw['data'] ?? []) : raw ?? []);
+      }
+      if (results[2].data['success'] == true) {
+        _customers = List<Map<String, dynamic>>.from(results[2].data['data'] ?? []);
+      }
+    } catch (e) {
+      debugPrint('Products browse load error: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  List<Map<String, dynamic>> get _filteredProducts {
+    if (_selectedCategoryId == null) return _products;
+    return _products.where((p) => p['category_id'] == _selectedCategoryId).toList();
+  }
+
+  int get _cartCount => _cart.values.fold(0, (s, q) => s + q);
+
+  void _addToCart(String productId) {
+    setState(() => _cart[productId] = (_cart[productId] ?? 0) + 1);
+  }
+
+  Future<void> _checkout() async {
+    String? selectedCustomerId;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Place Order'),
+          content: DropdownButtonFormField<String>(
+            value: selectedCustomerId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Customer', border: OutlineInputBorder()),
+            items: _customers.map((c) => DropdownMenuItem(
+              value: c['id'] as String,
+              child: Text(c['full_name'] ?? '', overflow: TextOverflow.ellipsis),
+            )).toList(),
+            onChanged: (v) => setDialogState(() => selectedCustomerId = v),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: selectedCustomerId == null ? null : () => Navigator.pop(dialogContext, true),
+              child: const Text('Place Order'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || selectedCustomerId == null) return;
+
+    try {
+      final items = _cart.entries.map((e) => {'product_id': e.key, 'quantity': e.value}).toList();
+      final res = await DioClient.instance.post(ApiEndpoints.orders, data: {
+        'customer_id': selectedCustomerId,
+        'items': items,
+      });
+      if (res.data['success'] == true) {
+        if (mounted) {
+          setState(() => _cart.clear());
+          await showSuccessCheck(context, message: 'Order Placed!');
+          if (mounted) context.go('/salesman-dashboard');
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(res.data['message'] ?? 'Failed to place order')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.warmGrey,
+      appBar: AppBar(
+        backgroundColor: AppColors.navy,
+        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => goBack(context, '/salesman-dashboard')),
+        title: const Text('Products', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: AppColors.orange))
+          : Column(children: [
+              SizedBox(
+                height: 48,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  children: [
+                    _categoryChip(null, 'All'),
+                    ..._categories.map((c) => _categoryChip(c['id'] as String, c['name'] ?? '')),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: _filteredProducts.isEmpty
+                    ? const Center(child: Text('No products in this category.', style: TextStyle(color: AppColors.steelBlue)))
+                    : GridView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 0.78),
+                        itemCount: _filteredProducts.length,
+                        itemBuilder: (context, i) => _productTile(_filteredProducts[i]),
+                      ),
+              ),
+            ]),
+      floatingActionButton: _cartCount > 0
+          ? FloatingActionButton.extended(
+              backgroundColor: AppColors.orange,
+              onPressed: _checkout,
+              icon: const Icon(Icons.shopping_cart, color: Colors.white),
+              label: Text('$_cartCount item(s) — Checkout', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            )
+          : null,
+    );
+  }
+
+  Widget _categoryChip(String? id, String label) {
+    final selected = _selectedCategoryId == id;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        selectedColor: AppColors.orange,
+        labelStyle: TextStyle(color: selected ? Colors.white : AppColors.navy, fontWeight: FontWeight.w600),
+        backgroundColor: AppColors.white,
+        onSelected: (_) => setState(() => _selectedCategoryId = id),
+      ),
+    );
+  }
+
+  Widget _productTile(Map<String, dynamic> p) {
+    final qty = _cart[p['id']] ?? 0;
+    final imageUrl = p['image_url'] as String?;
+    return Container(
+      decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(14),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)]),
+      clipBehavior: Clip.antiAlias,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        AspectRatio(
+          aspectRatio: 1.3,
+          child: (imageUrl != null && imageUrl.isNotEmpty)
+              ? Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (c, e, s) => _imageFallback())
+              : _imageFallback(),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(p['name'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 13)),
+            const SizedBox(height: 2),
+            Text('PKR ${p['price'] ?? 0}', style: const TextStyle(color: AppColors.steelBlue, fontSize: 12)),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _addToCart(p['id'] as String),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: qty > 0 ? AppColors.success : AppColors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: Icon(qty > 0 ? Icons.check : Icons.add, size: 16),
+                label: Text(qty > 0 ? 'Added ($qty)' : 'Add', style: const TextStyle(fontSize: 12)),
+              ),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  Widget _imageFallback() => Container(
+      color: AppColors.orange.withValues(alpha: 0.12),
+      child: const Center(child: Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 32)));
+}

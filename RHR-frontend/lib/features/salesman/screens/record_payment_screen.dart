@@ -30,6 +30,38 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
 
   final List<String> _methods = ['Cash', 'Bank Transfer', 'Credit Account'];
 
+  // Bank Transfer specifics — backend only special-cases method=='bank'
+  // (bank_account_id required), so the label above is display-only.
+  List<Map<String, dynamic>> _bankAccounts = [];
+  bool _loadingBankAccounts = false;
+  String? _selectedBankAccountId;
+  DateTime _transferDate = DateTime.now();
+
+  Future<void> _loadBankAccounts() async {
+    if (_bankAccounts.isNotEmpty || _loadingBankAccounts) return;
+    setState(() => _loadingBankAccounts = true);
+    try {
+      final res = await DioClient.instance.get(ApiEndpoints.bankAccountsList);
+      if (res.data['success'] == true) {
+        setState(() => _bankAccounts = List<Map<String, dynamic>>.from(res.data['data'] ?? []));
+      }
+    } catch (e) {
+      debugPrint('Bank accounts load error: $e');
+    } finally {
+      if (mounted) setState(() => _loadingBankAccounts = false);
+    }
+  }
+
+  Future<void> _pickTransferDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _transferDate,
+      firstDate: DateTime.now().subtract(const Duration(days: 30)),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) setState(() => _transferDate = picked);
+  }
+
   @override
   void dispose() {
     _amountController.dispose();
@@ -94,17 +126,31 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           const SnackBar(content: Text('Please upload a payment photo.')));
       return;
     }
+    if (_selectedMethod == 'Bank Transfer' && _selectedBankAccountId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select which bank account it went to.')));
+      return;
+    }
     setState(() => _isLoading = true);
     try {
-      // Backend (payments.controller.js) expects customer_id + method
-      // (not payment_method) and requires customer_id, amount, photo_url
+      // method must be exactly 'bank' for Bank Transfer — that's the one
+      // value payments.controller.js special-cases (requires
+      // bank_account_id). Everything else is free text for display.
+      final method = _selectedMethod == 'Bank Transfer'
+          ? 'bank'
+          : _selectedMethod.toLowerCase().replaceAll(' ', '_');
       final response = await DioClient.instance.post(
         ApiEndpoints.payments,
         data: {
           'customer_id': widget.customerId,
           'amount':      double.parse(_amountController.text),
-          'method':      _selectedMethod.toLowerCase().replaceAll(' ', '_'),
+          'method':      method,
           'photo_url':   _uploadedPhotoUrl,
+          if (_selectedMethod == 'Bank Transfer') ...{
+            'bank_account_id': _selectedBankAccountId,
+            'date': _transferDate.toIso8601String(),
+          },
+          if (_notesController.text.trim().isNotEmpty) 'notes': _notesController.text.trim(),
         },
       );
       if (response.data['success'] == true) {
@@ -195,8 +241,10 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                     children: _methods.map((method) {
                       final selected = _selectedMethod == method;
                       return TapScale(
-                        onTap: () =>
-                            setState(() => _selectedMethod = method),
+                        onTap: () {
+                          setState(() => _selectedMethod = method);
+                          if (method == 'Bank Transfer') _loadBankAccounts();
+                        },
                         child: Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 14, vertical: 8),
@@ -225,6 +273,51 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                       );
                     }).toList(),
                   ),
+
+                  if (_selectedMethod == 'Bank Transfer') ...[
+                    const SizedBox(height: 20),
+                    const Text('Bank Account',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
+                    const SizedBox(height: 10),
+                    _loadingBankAccounts
+                        ? const Center(child: Padding(
+                            padding: EdgeInsets.all(8),
+                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.orange)))
+                        : DropdownButtonFormField<String>(
+                            value: _selectedBankAccountId,
+                            isExpanded: true,
+                            decoration: InputDecoration(
+                              filled: true,
+                              fillColor: AppColors.warmGrey,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              hintText: _bankAccounts.isEmpty ? 'No bank accounts set up' : 'Select account',
+                            ),
+                            items: _bankAccounts.map((a) => DropdownMenuItem(
+                              value: a['id'] as String,
+                              child: Text('${a['bank_name']} — ${a['account_name']}', overflow: TextOverflow.ellipsis),
+                            )).toList(),
+                            onChanged: (v) => setState(() => _selectedBankAccountId = v),
+                          ),
+                    const SizedBox(height: 20),
+                    const Text('Transfer Date',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
+                    const SizedBox(height: 10),
+                    TapScale(
+                      onTap: _pickTransferDate,
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        decoration: BoxDecoration(color: AppColors.warmGrey, borderRadius: BorderRadius.circular(10)),
+                        child: Row(children: [
+                          const Icon(Icons.calendar_today_outlined, size: 18, color: AppColors.steelBlue),
+                          const SizedBox(width: 10),
+                          Text('${_transferDate.year}-${_transferDate.month.toString().padLeft(2, '0')}-${_transferDate.day.toString().padLeft(2, '0')}',
+                              style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w600)),
+                        ]),
+                      ),
+                    ),
+                  ],
 
                   const SizedBox(height: 24),
 

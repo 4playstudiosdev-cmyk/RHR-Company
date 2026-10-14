@@ -54,6 +54,18 @@ class _CustomersListScreenState extends State<CustomersListScreen> {
     }
   }
 
+  num _asNum(dynamic v) => v is num ? v : num.tryParse(v?.toString() ?? '0') ?? 0;
+
+  String _lastOrderLabel(String? iso) {
+    if (iso == null) return 'No orders yet';
+    final date = DateTime.tryParse(iso);
+    if (date == null) return 'No orders yet';
+    final days = DateTime.now().difference(date).inDays;
+    if (days == 0) return 'Last order: Today';
+    if (days == 1) return 'Last order: Yesterday';
+    return 'Last order: $days days ago';
+  }
+
   List<Map<String, dynamic>> get _filtered => _customers
       .where((c) => (c['full_name'] ?? '')
           .toLowerCase()
@@ -154,11 +166,28 @@ class _CustomersListScreenState extends State<CustomersListScreen> {
                                       style: const TextStyle(
                                           color: AppColors.steelBlue,
                                           fontSize: 12)),
+                                  const SizedBox(height: 4),
+                                  Text(_lastOrderLabel(c['last_order_date'] as String?),
+                                      style: const TextStyle(
+                                          color: AppColors.steelBlue,
+                                          fontSize: 11)),
                                 ],
                               ),
                             ),
-                            const Icon(Icons.arrow_forward_ios,
-                                size: 12, color: AppColors.steelBlue),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                if (_asNum(c['outstanding_balance']) > 0)
+                                  Text('PKR ${_asNum(c['outstanding_balance']).toStringAsFixed(0)}',
+                                      style: const TextStyle(
+                                          color: AppColors.error,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13)),
+                                const SizedBox(height: 4),
+                                const Icon(Icons.arrow_forward_ios,
+                                    size: 12, color: AppColors.steelBlue),
+                              ],
+                            ),
                           ],
                         ),
                       ),

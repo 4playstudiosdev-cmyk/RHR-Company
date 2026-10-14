@@ -35,7 +35,12 @@ const createPayment = async (req, res) => {
       bankAccountId:  bank_account_id,
       notes,
       recordedByAdmin: isAdminUser,
-      date:           isAdminUser ? date : null
+      // A salesman reporting a bank transfer may legitimately be logging
+      // one that landed a day or two earlier, not necessarily "right
+      // now" — admin review (every salesman payment starts 'pending')
+      // is the integrity check either way, so this is allowed alongside
+      // the admin-recorded case, not gated to admin-only like cash is.
+      date: (isAdminUser || method === 'bank') ? date : null
     });
 
     // Admin-recorded payments are self-verified — approve immediately

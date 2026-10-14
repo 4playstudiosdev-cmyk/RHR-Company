@@ -16,6 +16,7 @@ class PerformanceScreen extends StatefulWidget {
 class _PerformanceScreenState extends State<PerformanceScreen> with SingleTickerProviderStateMixin {
   bool _isLoading = true;
   Map<String, dynamic>? _data;
+  String _rangeLabel = 'Today';
 
   late final AnimationController _controller;
   late final Animation<double> _chartAnim;
@@ -28,14 +29,56 @@ class _PerformanceScreenState extends State<PerformanceScreen> with SingleTicker
     _load();
   }
 
-  Future<void> _load() async {
+  String _fmt(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  Future<void> _selectRange(String label) async {
+    setState(() => _rangeLabel = label);
+    final now = DateTime.now();
+    DateTime from;
+    DateTime to = now;
+    switch (label) {
+      case 'Today':
+        from = DateTime(now.year, now.month, now.day);
+        break;
+      case 'Last 7 Days':
+        from = now.subtract(const Duration(days: 6));
+        break;
+      case 'This Month':
+        from = DateTime(now.year, now.month, 1);
+        break;
+      case 'Custom':
+        final picked = await showDateRangePicker(
+          context: context,
+          firstDate: DateTime(now.year - 1),
+          lastDate: now,
+          initialDateRange: DateTimeRange(start: now.subtract(const Duration(days: 6)), end: now),
+        );
+        if (picked == null) {
+          setState(() => _rangeLabel = 'Today');
+          return;
+        }
+        from = picked.start;
+        to = picked.end;
+        break;
+      default:
+        from = DateTime(now.year, now.month, now.day);
+    }
+    _load(from: from, to: to);
+  }
+
+  Future<void> _load({DateTime? from, DateTime? to}) async {
     setState(() => _isLoading = true);
     try {
       final userId = await SecureStorage.getUserId();
-      final response = await DioClient.instance.get('/api/v1/analytics/salesman/$userId');
+      final effectiveFrom = from ?? DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+      final effectiveTo = to ?? DateTime.now();
+      final response = await DioClient.instance.get('/api/v1/analytics/salesman/$userId', queryParameters: {
+        'from': _fmt(effectiveFrom),
+        'to': _fmt(effectiveTo),
+      });
       if (response.data['success'] == true) {
         setState(() => _data = response.data['data'] as Map<String, dynamic>);
-        _controller.forward();
+        _controller.forward(from: 0);
       }
     } catch (e) {
       debugPrint('Performance error: $e');
@@ -77,9 +120,34 @@ class _PerformanceScreenState extends State<PerformanceScreen> with SingleTicker
         title: const Text('My Performance',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.orange))
-          : SingleChildScrollView(padding: const EdgeInsets.all(16), child: Column(children: [
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: SizedBox(
+            height: 38,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: ['Today', 'Last 7 Days', 'This Month', 'Custom'].map((label) {
+                final selected = _rangeLabel == label;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(label),
+                    selected: selected,
+                    selectedColor: AppColors.orange,
+                    labelStyle: TextStyle(color: selected ? Colors.white : AppColors.navy, fontWeight: FontWeight.w600, fontSize: 12),
+                    backgroundColor: AppColors.white,
+                    onSelected: (_) => _selectRange(label),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+        Expanded(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator(color: AppColors.orange))
+              : SingleChildScrollView(padding: const EdgeInsets.all(16), child: Column(children: [
         // Sales card
         Container(padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(color: AppColors.navy, borderRadius: BorderRadius.circular(20)),
@@ -166,8 +234,39 @@ class _PerformanceScreenState extends State<PerformanceScreen> with SingleTicker
                 ...orders.take(5).toList().asMap().entries.map((e) => StaggeredFadeIn(
                     index: e.key, child: _orow(e.value))),
             ])),
-      ])),
+        const SizedBox(height: 16),
+        Container(padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16)),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('Per-Customer Breakdown', style: TextStyle(
+                  fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 15)),
+              const SizedBox(height: 12),
+              if (orders.isEmpty)
+                const Text('No orders in this range.', style: TextStyle(color: AppColors.steelBlue, fontSize: 13))
+              else
+                ..._customerBreakdown(orders).map((row) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(children: [
+                        Expanded(child: Text(row.key, style: const TextStyle(color: AppColors.navy, fontSize: 13))),
+                        Text('PKR ${row.value.toStringAsFixed(0)}',
+                            style: const TextStyle(color: AppColors.orange, fontWeight: FontWeight.bold, fontSize: 13)),
+                      ]),
+                    )),
+            ])),
+          ])),
+        ),
+      ]),
     );
+  }
+
+  List<MapEntry<String, double>> _customerBreakdown(List<Map<String, dynamic>> orders) {
+    final totals = <String, double>{};
+    for (final o in orders) {
+      final name = (o['users']?['full_name'] as String?) ?? 'Unknown';
+      totals[name] = (totals[name] ?? 0) + (o['total_amount'] as num? ?? 0).toDouble();
+    }
+    final entries = totals.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    return entries;
   }
 
   Widget _sbox(String l, String v, IconData i, Color c) => Expanded(child: Container(
