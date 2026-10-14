@@ -261,6 +261,14 @@ router.post('/transactions/me', authenticate, isSalesman, async (req, res) => {
     if (!customer_id || !amount || Number(amount) <= 0)
       return error(res, 'customer_id and a positive amount are required', 400);
 
+    // approved_by/created_by are FKs to `users(id)` — the admin table —
+    // left over from this schema's original admin-only design (see
+    // sql/phase27_salesman_recovery.sql). A salesman's own id lives in
+    // the separate `salesmen` table and does NOT satisfy that FK, so
+    // these must stay null for a self-service entry (confirmed by
+    // reproducing a 23503 FK-violation directly against production
+    // when this was first set to req.user.id) — salesman_id already
+    // identifies who this belongs to either way.
     const [recovery] = await pgrestPost('salesman_recoveries', {
       company_id:       req.user.company_id,
       salesman_id:      req.user.id,
@@ -271,18 +279,20 @@ router.post('/transactions/me', authenticate, isSalesman, async (req, res) => {
       reference_number: null,
       notes:            notes || null,
       status:           'approved',
-      approved_by:      req.user.id,
+      approved_by:      null,
       approved_at:      new Date().toISOString(),
       recovery_date:    recovery_date || new Date().toISOString().split('T')[0],
-      created_by:       req.user.id,
+      created_by:       null,
     });
 
+    // Same FK caveat as above — ledger_entries.created_by also only
+    // accepts a `users(id)` row, which a salesman's own id isn't.
     await creditLedger({
       companyId: req.user.company_id,
       customerId: customer_id,
       amount: Number(amount),
       description: 'Cash payment received by salesman',
-      userId: req.user.id,
+      userId: null,
     });
 
     return success(res, recovery, 'Cash collection recorded', 201);
@@ -345,6 +355,8 @@ router.post('/cash-closing/me', authenticate, isSalesman, async (req, res) => {
     if (method === 'bank' && !slip_image_url)
       return error(res, 'A bank slip photo is required for a bank deposit', 400);
 
+    // created_by is a `users(id)` FK (admin table) — same caveat as
+    // /transactions/me above; salesman_id already identifies the owner.
     const [data] = await pgrestPost('salesman_cash_closings', {
       company_id:     req.user.company_id,
       salesman_id:    req.user.id,
@@ -355,7 +367,7 @@ router.post('/cash-closing/me', authenticate, isSalesman, async (req, res) => {
       notes:          notes || null,
       status:         'pending',
       closing_date:   new Date().toISOString().split('T')[0],
-      created_by:     req.user.id,
+      created_by:     null,
     });
 
     return success(res, data, 'Deposit submitted — pending admin approval', 201);
