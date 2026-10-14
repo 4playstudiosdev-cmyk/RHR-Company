@@ -16,7 +16,7 @@ function normalizePhone(phone) {
 // outright if that migration hasn't run (unlike select('*'), which just
 // omits missing columns), so this tries with them first and falls back
 // to the old column list rather than breaking the whole Customers page.
-const CUSTOMER_COLUMNS = 'id, company_id, full_name, phone, email, is_approved, salesman_id, driver_id, shop_name, shop_address, shop_latitude, shop_longitude, rate_tier, city, area, profile_photo_url, created_at';
+const CUSTOMER_COLUMNS = 'id, company_id, full_name, phone, email, is_approved, salesman_id, driver_id, shop_name, shop_address, shop_latitude, shop_longitude, rate_tier, credit_limit, city, area, profile_photo_url, created_at';
 const CUSTOMER_COLUMNS_FALLBACK = 'id, company_id, full_name, phone, email, is_approved, salesman_id, driver_id, shop_name, shop_address, shop_latitude, shop_longitude, rate_tier, created_at';
 
 const getCustomers = async (req, res) => {
@@ -319,6 +319,30 @@ const updateRateTier = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+// PATCH /api/v1/customers/:id/credit-limit — max outstanding ledger
+// balance (debit running_balance) this customer can carry before
+// createOrder starts rejecting new orders. null/0 means no limit —
+// see orders.service.js's createOrder credit-limit check.
+const updateCreditLimit = async (req, res) => {
+  try {
+    const { credit_limit } = req.body;
+    if (credit_limit != null && (isNaN(Number(credit_limit)) || Number(credit_limit) < 0)) {
+      return error(res, 'credit_limit must be a non-negative number or null', 400);
+    }
+
+    let query = supabaseAdmin
+      .from('users')
+      .update({ credit_limit: credit_limit == null ? null : Number(credit_limit) })
+      .eq('id', req.params.id)
+      .eq('role', 'customer');
+    if (req.user.role !== 'super_admin') query = query.eq('company_id', req.user.company_id);
+
+    const { data, error: dbErr } = await query.select('id, full_name, credit_limit').single();
+    if (dbErr) return error(res, 'Customer not found or access denied', 404);
+    return success(res, data, 'Credit limit updated');
+  } catch (err) { return error(res, err.message); }
+};
+
 // Resolves the target customer, enforcing the same branch-scoping as
 // updateRateTier (super_admin: any branch, branch_admin: own only), and
 // returns their company_id — every pricing handler below needs it to
@@ -501,13 +525,33 @@ function isProfileComplete(user) {
 const getMyProfile = async (req, res) => {
   try {
     const rows = await pgrestGet('users', {
-      select: 'id,full_name,phone,email,nic_number,nic_image_url,nic_back_image_url,whatsapp_phone,shop_name,shop_address,shop_image_url,shop_latitude,shop_longitude,profile_photo_url',
+      select: 'id,full_name,phone,email,nic_number,nic_image_url,nic_back_image_url,whatsapp_phone,shop_name,shop_address,shop_image_url,shop_latitude,shop_longitude,profile_photo_url,credit_limit',
       id: `eq.${req.user.id}`,
       role: 'eq.customer',
     });
     const data = rows?.[0];
     if (!data) return error(res, 'Profile not found', 404);
     return success(res, { ...data, profileComplete: isProfileComplete(data) });
+  } catch (err) { return error(res, err.message); }
+};
+
+// GET /api/v1/customers/me/salesman — replaces the old live-location
+// "Track Salesman" screen with a plain profile card (name, phone,
+// photo) — customers no longer see their salesman's position.
+const getMySalesman = async (req, res) => {
+  try {
+    const customerRows = await pgrestGet('users', { select: 'salesman_id', id: `eq.${req.user.id}` });
+    const salesmanId = customerRows?.[0]?.salesman_id;
+    if (!salesmanId) return success(res, { assigned: false }, 'No salesman assigned yet');
+
+    const salesmanRows = await pgrestGet('salesmen', {
+      select: 'id,full_name,phone,profile_photo_url,position',
+      id: `eq.${salesmanId}`,
+    });
+    const salesman = salesmanRows?.[0];
+    if (!salesman) return success(res, { assigned: false }, 'Assigned salesman not found');
+
+    return success(res, { assigned: true, salesman });
   } catch (err) { return error(res, err.message); }
 };
 
@@ -589,8 +633,8 @@ const downloadCustomerProfilePDF = async (req, res) => {
 };
 
 module.exports = {
-  getCustomers, getPendingCustomers, getCustomerById, updateMyShopLocation, updateRateTier,
+  getCustomers, getPendingCustomers, getCustomerById, updateMyShopLocation, updateRateTier, updateCreditLimit,
   getCustomerPricing, setCustomerPricing, deleteCustomerPricing,
   createCustomer, updateCustomer, assignSalesman, assignDriver, deleteCustomer,
-  getMyProfile, updateMyProfile, downloadCustomerProfilePDF,
+  getMyProfile, updateMyProfile, downloadCustomerProfilePDF, getMySalesman,
 };

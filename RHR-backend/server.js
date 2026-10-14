@@ -79,6 +79,8 @@ app.use('/api/v1/opening-balances', require('./src/routes/opening-balances.route
 app.use('/api/v1/daily-dashboard', require('./src/routes/daily-dashboard.routes'));
 app.use('/api/v1/manufacturing', require('./src/routes/manufacturing.routes'));
 app.use('/api/v1/geocode',    require('./src/routes/geocode.routes'));
+app.use('/api/v1/promo-banners', require('./src/routes/promoBanners.routes'));
+app.use('/api/v1/broadcast', require('./src/routes/broadcast.routes'));
 
 // 404 handler
 app.use((req, res) => {

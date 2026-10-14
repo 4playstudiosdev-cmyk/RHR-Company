@@ -474,11 +474,15 @@ async function registerDriver({ phone, fullName, companyId, carNumber }) {
 
 const VALID_RATE_TIERS = ['manual', 'discount', 'premium'];
 
-async function approveCustomer(customerId, adminUser, rateTier) {
+async function approveCustomer(customerId, adminUser, rateTier, creditLimit) {
   const update = { is_approved: true };
   if (rateTier) {
     if (!VALID_RATE_TIERS.includes(rateTier)) throw new Error('Invalid rate_tier');
     update.rate_tier = rateTier;
+  }
+  if (creditLimit != null) {
+    if (isNaN(Number(creditLimit)) || Number(creditLimit) < 0) throw new Error('Invalid credit_limit');
+    update.credit_limit = Number(creditLimit);
   }
 
   let query = supabaseAdmin

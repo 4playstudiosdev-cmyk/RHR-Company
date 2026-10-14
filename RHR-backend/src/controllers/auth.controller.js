@@ -152,7 +152,7 @@ const logoutHandler = async (req, res) => {
 const approveCustomerHandler = async (req, res) => {
   try {
     const { id } = req.params;
-    const approvedUser = await approveCustomer(id, req.user, req.body.rate_tier);
+    const approvedUser = await approveCustomer(id, req.user, req.body.rate_tier, req.body.credit_limit);
     return success(res, approvedUser, 'Customer approved successfully');
   } catch (err) {
     return error(res, err.message, 400);

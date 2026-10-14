@@ -19,14 +19,14 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
   // the customer's actual custom price, which is what looked like "custom
   // pricing isn't working" even though it had been saved correctly.
   const productIds = items.map(i => i.product_id);
-  const [products, customerRows, customPrices] = await Promise.all([
+  const [products, customerRows, customPrices, activeOrders, lastLedgerEntries] = await Promise.all([
     pgrestGet('products', {
       select: 'id,name,price,stock_quantity',
       id: `in.(${productIds.join(',')})`,
       company_id: `eq.${companyId}`,
       is_active: 'eq.true',
     }),
-    pgrestGet('users', { select: 'rate_tier,full_name', id: `eq.${customerId}` }),
+    pgrestGet('users', { select: 'rate_tier,full_name,credit_limit', id: `eq.${customerId}` }),
     // Per-customer, per-product override (Customers page → Set Custom
     // Pricing) — takes precedence over rate_tier for whichever products
     // it covers; anything not overridden still falls through to the
@@ -36,12 +36,40 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       customer_id: `eq.${customerId}`,
       product_id: `in.(${productIds.join(',')})`,
     }),
+    // One-order-at-a-time (customer self-service only — see the
+    // salesmanId check below): any order not yet in a terminal state
+    // counts as "still out", including a failed 'undelivered' run,
+    // which needs admin/driver follow-up before the slot frees up.
+    pgrestGet('orders', {
+      select: 'id,status',
+      customer_id: `eq.${customerId}`,
+      status: 'in.(pending,confirmed,preparing,dispatched)',
+    }),
+    // Credit limit check — current outstanding balance is the most
+    // recent ledger_entries running_balance (debit-positive).
+    pgrestGet('ledger_entries', {
+      select: 'running_balance',
+      customer_id: `eq.${customerId}`,
+      order: 'created_at.desc',
+      limit: '1',
+    }),
   ]);
   const customer = customerRows?.[0];
 
   if (!products || products.length !== items.length) {
     throw new Error('One or more products not found');
   }
+
+  // Self-service only — a salesman placing an order on a customer's
+  // behalf (salesmanId set) isn't subject to this; that's a trusted,
+  // supervised workflow, not the "spam multiple orders" case this guards
+  // against in the app.
+  if (!salesmanId && activeOrders?.length) {
+    throw new Error('You already have an order in progress — place a new one after it is delivered.');
+  }
+
+  const currentBalance = lastLedgerEntries?.[0]?.running_balance || 0;
+  const creditLimit = customer?.credit_limit != null ? Number(customer.credit_limit) : null;
 
   const tierAdjustment = RATE_TIER_ADJUSTMENT[customer?.rate_tier] || 0;
   const customPriceByProduct = Object.fromEntries((customPrices || []).map(c => [c.product_id, Number(c.price)]));
@@ -67,6 +95,14 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       subtotal
     };
   });
+
+  if (creditLimit != null && creditLimit > 0 && currentBalance + totalAmount > creditLimit) {
+    const remaining = Math.max(0, creditLimit - currentBalance);
+    throw new Error(
+      `This order exceeds your credit limit. You can order up to PKR ${remaining.toLocaleString()} more — ` +
+      `clear your outstanding balance to free up more credit.`
+    );
+  }
 
   // Step 3: Create the order
   const date    = new Date();
@@ -287,6 +323,65 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
     generateInvoice(id).catch(err =>
       console.error('Background invoice generation failed:', err.message)
     );
+
+    // Debits the customer's ledger for the order total — this was
+    // missing entirely before (confirmed orders never appeared in the
+    // ledger anywhere, admin/salesman/customer alike, since nothing
+    // else in the order lifecycle wrote a ledger_entries row for the
+    // order amount itself, only for cash collected after the fact).
+    // Same running-balance pattern as creditLedger in recovery.routes.js.
+    try {
+      const lastEntries = await pgrestGet('ledger_entries', {
+        select: 'running_balance',
+        customer_id: `eq.${updated.customer_id}`,
+        order: 'created_at.desc',
+        limit: '1',
+      });
+      const prevBalance = lastEntries?.[0]?.running_balance || 0;
+      await pgrestPost('ledger_entries', {
+        company_id: updated.company_id,
+        customer_id: updated.customer_id,
+        entry_type: 'debit',
+        amount: Number(updated.total_amount),
+        running_balance: prevBalance + Number(updated.total_amount),
+        description: `Order ${updated.order_number} confirmed`,
+        reference_type: 'order',
+        created_by: null,
+      });
+    } catch (err) {
+      console.error(`Ledger debit for confirmed order ${id} failed:`, err.message);
+    }
+  }
+
+  // Cancelling an order that had already been confirmed (and therefore
+  // already debited above) must reverse that debit — otherwise the
+  // customer's outstanding balance keeps counting an order that's no
+  // longer actually owed. existingRows[0].status is the status *before*
+  // this transition, so this only fires when the order had actually
+  // reached 'confirmed' or later (a still-'pending' order was never
+  // debited in the first place, so cancelling it needs no reversal).
+  if (status === 'cancelled' && STATUS_PROGRESSION.indexOf(existingRows[0].status) >= STATUS_PROGRESSION.indexOf('confirmed')) {
+    try {
+      const lastEntries = await pgrestGet('ledger_entries', {
+        select: 'running_balance',
+        customer_id: `eq.${updated.customer_id}`,
+        order: 'created_at.desc',
+        limit: '1',
+      });
+      const prevBalance = lastEntries?.[0]?.running_balance || 0;
+      await pgrestPost('ledger_entries', {
+        company_id: updated.company_id,
+        customer_id: updated.customer_id,
+        entry_type: 'credit',
+        amount: Number(updated.total_amount),
+        running_balance: prevBalance - Number(updated.total_amount),
+        description: `Order ${updated.order_number} cancelled — debit reversed`,
+        reference_type: 'order',
+        created_by: null,
+      });
+    } catch (err) {
+      console.error(`Ledger reversal for cancelled order ${id} failed:`, err.message);
+    }
   }
 
   // Stock leaves inventory when the order actually goes out the door, not

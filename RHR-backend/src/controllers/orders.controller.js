@@ -129,6 +129,31 @@ const updateOrderItems = async (req, res) => {
   } catch (err) { return error(res, err.message, 400); }
 };
 
+// PATCH /api/v1/orders/:id/customer-items — customer edits their own
+// order's items, but only while it's still 'pending' (not yet confirmed
+// by admin) — matches the "edit until confirmed" window shown as an
+// Edit button on My Orders / order detail. No ledger adjustment needed
+// here since a pending order was never debited in the first place (see
+// orders.service.js's updateOrderStatus — the debit only happens at the
+// 'confirmed' transition).
+const customerUpdateOrderItems = async (req, res) => {
+  try {
+    const { items, removed_ids, added_items } = req.body;
+    const orders = await pgrestGet('orders', { select: 'id,status,customer_id,company_id', id: `eq.${req.params.id}` });
+    const order = orders?.[0];
+    if (!order) return error(res, 'Order not found', 404);
+    if (order.customer_id !== req.user.id) return error(res, 'Access denied', 403);
+    if (order.status !== 'pending') return error(res, 'This order can no longer be edited', 400);
+
+    const data = await svc.updateOrderItems(
+      req.params.id,
+      order.company_id,
+      { items: items || [], removedIds: removed_ids || [], addedItems: added_items || [] }
+    );
+    return success(res, data, 'Order updated');
+  } catch (err) { return error(res, err.message, 400); }
+};
+
 const markInvoiceGenerated = async (req, res) => {
   try {
     const { with_tax, conveyance } = req.body;
@@ -250,6 +275,6 @@ const getDeletedInvoices = async (req, res) => {
 };
 
 module.exports = {
-  createOrder, getOrders, getOrderById, updateOrderStatus, driverUpdateOrderStatus, updateOrderItems, markInvoiceGenerated,
+  createOrder, getOrders, getOrderById, updateOrderStatus, driverUpdateOrderStatus, updateOrderItems, customerUpdateOrderItems, markInvoiceGenerated,
   deleteInvoice, getDeletedInvoices,
 };

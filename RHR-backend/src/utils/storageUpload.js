@@ -38,6 +38,11 @@ const BUCKET_RULES = {
     allowedTypes: ['application/pdf'],
     maxSizeMB: 5,
     isPublic: true
+  },
+  'promo-banners': {
+    allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'video/mp4'],
+    maxSizeMB: 50,
+    isPublic: true
   }
 };
 
@@ -62,9 +67,21 @@ async function uploadBase64ToStorage({ bucket, fileName, fileBase64, mimeType, c
   const safeName  = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
   const filePath  = `${companyId || 'unassigned'}/${timestamp}_${safeName}`;
 
-  const { error: uploadError } = await supabaseAdmin.storage
+  let { error: uploadError } = await supabaseAdmin.storage
     .from(bucket)
     .upload(filePath, fileBuffer, { contentType: mimeType, upsert: false });
+
+  // Every other bucket here was created once by hand in the Supabase
+  // dashboard — a newly-added bucket (like promo-banners) hasn't been,
+  // so the very first upload to it 404s. Create it on demand and retry
+  // once rather than requiring a manual dashboard step before this
+  // feature can be used at all.
+  if (uploadError && /bucket.*not.*found/i.test(uploadError.message || '')) {
+    await supabaseAdmin.storage.createBucket(bucket, { public: rules.isPublic });
+    ({ error: uploadError } = await supabaseAdmin.storage
+      .from(bucket)
+      .upload(filePath, fileBuffer, { contentType: mimeType, upsert: false }));
+  }
   if (uploadError) throw new Error(uploadError.message);
 
   let fileUrl;
