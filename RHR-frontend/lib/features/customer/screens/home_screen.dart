@@ -6,6 +6,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../shared/widgets/rhr_bottom_nav.dart';
+import '../widgets/promo_slider.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -154,6 +155,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               label: Text('Browse Products', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSecondaryContainer)),
                             ),
                           ),
+                          const SizedBox(height: AppSpacing.md),
+
+                          const PromoSlider(),
                           const SizedBox(height: AppSpacing.md),
 
                           Row(

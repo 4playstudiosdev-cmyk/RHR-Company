@@ -63,6 +63,7 @@ class ApiEndpoints {
 
   // LEDGER
   static const String ledger          = '/api/v1/ledger/';
+  static const String promoBanners    = '/api/v1/promo-banners';
 
   // STORAGE
   static const String storageUpload   = '/api/v1/storage/upload';

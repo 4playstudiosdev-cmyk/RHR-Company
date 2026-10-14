@@ -151,7 +151,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 
   Future<void> _save() async {
     if (_nameController.text.trim().isEmpty ||
-        _nicController.text.trim().isEmpty ||
+        (widget.forced && _nicController.text.trim().isEmpty) ||
         _shopNameController.text.trim().isEmpty ||
         _phoneController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -173,12 +173,15 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           const SnackBar(content: Text('Please set your shop location on the map.')));
       return;
     }
-    if (_nicFrontImageFile == null && _existingNicFrontUrl == null) {
+    // NIC is only collected once, at first-login account creation — see
+    // the "forced" NIC fields below in build(); re-editing the profile
+    // later never shows or re-validates them.
+    if (widget.forced && _nicFrontImageFile == null && _existingNicFrontUrl == null) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('NIC front image is required.')));
       return;
     }
-    if (_nicBackImageFile == null && _existingNicBackUrl == null) {
+    if (widget.forced && _nicBackImageFile == null && _existingNicBackUrl == null) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('NIC back image is required.')));
       return;
@@ -192,25 +195,29 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       final shopImageUrl = _shopImageFile != null
           ? await _uploadImage(_shopImageFile!, 'shop-photos')
           : _existingShopImageUrl!;
-      final nicFrontUrl = _nicFrontImageFile != null
-          ? await _uploadImage(_nicFrontImageFile!, 'nic-images')
-          : _existingNicFrontUrl!;
-      final nicBackUrl = _nicBackImageFile != null
-          ? await _uploadImage(_nicBackImageFile!, 'nic-images')
-          : _existingNicBackUrl!;
 
-      final res = await DioClient.instance.patch(ApiEndpoints.myProfile, data: {
+      final data = {
         'full_name':          _nameController.text.trim(),
-        'nic_number':         _nicController.text.trim(),
         'shop_name':          _shopNameController.text.trim(),
         'whatsapp_phone':     '+92 ${_phoneController.text.trim()}',
         'profile_photo_url':  profileUrl,
         'shop_image_url':     shopImageUrl,
         'shop_latitude':      _shopLatitude,
         'shop_longitude':     _shopLongitude,
-        'nic_image_url':      nicFrontUrl,
-        'nic_back_image_url': nicBackUrl,
-      });
+      };
+      if (widget.forced) {
+        final nicFrontUrl = _nicFrontImageFile != null
+            ? await _uploadImage(_nicFrontImageFile!, 'nic-images')
+            : _existingNicFrontUrl!;
+        final nicBackUrl = _nicBackImageFile != null
+            ? await _uploadImage(_nicBackImageFile!, 'nic-images')
+            : _existingNicBackUrl!;
+        data['nic_number'] = _nicController.text.trim();
+        data['nic_image_url'] = nicFrontUrl;
+        data['nic_back_image_url'] = nicBackUrl;
+      }
+
+      final res = await DioClient.instance.patch(ApiEndpoints.myProfile, data: data);
 
       if (res.data['success'] == true) {
         await SecureStorage.saveProfileComplete(true);
@@ -496,32 +503,39 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                                   hint: '310 2110584', keyboardType: TextInputType.phone,
                                   prefixText: '+92 ', inputFormatters: [PhoneLocalInputFormatter()]),
                               const SizedBox(height: AppSpacing.sm),
-                              _field(label: 'NIC Number *', icon: Icons.badge_outlined, controller: _nicController,
-                                  hint: '42101-1234567-1', keyboardType: TextInputType.number,
-                                  inputFormatters: [CnicInputFormatter()]),
-                              const SizedBox(height: AppSpacing.sm),
-                              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Expanded(
-                                  child: _imagePicker(
-                                    label: 'NIC Front *',
-                                    file: _nicFrontImageFile,
-                                    existingUrl: _existingNicFrontUrl,
-                                    onTap: () => _pickImage('nicFront'),
-                                    locked: _existingNicFrontUrl != null,
+                              // NIC is only collected once, at first-login account
+                              // creation (forced == true) — never shown again from
+                              // Settings > Edit Profile. It's still saved to the
+                              // database and visible to admin, just not re-editable
+                              // by the customer here.
+                              if (widget.forced) ...[
+                                _field(label: 'NIC Number *', icon: Icons.badge_outlined, controller: _nicController,
+                                    hint: '42101-1234567-1', keyboardType: TextInputType.number,
+                                    inputFormatters: [CnicInputFormatter()]),
+                                const SizedBox(height: AppSpacing.sm),
+                                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Expanded(
+                                    child: _imagePicker(
+                                      label: 'NIC Front *',
+                                      file: _nicFrontImageFile,
+                                      existingUrl: _existingNicFrontUrl,
+                                      onTap: () => _pickImage('nicFront'),
+                                      locked: _existingNicFrontUrl != null,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: AppSpacing.sm),
-                                Expanded(
-                                  child: _imagePicker(
-                                    label: 'NIC Back *',
-                                    file: _nicBackImageFile,
-                                    existingUrl: _existingNicBackUrl,
-                                    onTap: () => _pickImage('nicBack'),
-                                    locked: _existingNicBackUrl != null,
+                                  const SizedBox(width: AppSpacing.sm),
+                                  Expanded(
+                                    child: _imagePicker(
+                                      label: 'NIC Back *',
+                                      file: _nicBackImageFile,
+                                      existingUrl: _existingNicBackUrl,
+                                      onTap: () => _pickImage('nicBack'),
+                                      locked: _existingNicBackUrl != null,
+                                    ),
                                   ),
-                                ),
-                              ]),
-                              const SizedBox(height: AppSpacing.sm),
+                                ]),
+                                const SizedBox(height: AppSpacing.sm),
+                              ],
                               _field(label: 'Shop Name *', icon: Icons.store_outlined, controller: _shopNameController,
                                   hint: 'Shop or company name'),
                               const SizedBox(height: AppSpacing.sm),

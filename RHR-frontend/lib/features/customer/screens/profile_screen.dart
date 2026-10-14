@@ -268,7 +268,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
                         _menuItem(Icons.picture_as_pdf, 'Download Statement', () => context.push('/payment-history')),
                         const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
-                        _menuItem(Icons.person_pin_circle_outlined, 'Track My Salesman', () => context.push('/track-salesman')),
+                        _menuItem(Icons.person_pin_circle_outlined, 'My Salesman', () => context.push('/track-salesman')),
                         const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
                         ListTile(
                           leading: const Icon(Icons.storefront, color: AppColors.primaryContainer),

@@ -4,7 +4,8 @@ import {
   BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
   Gauge, Boxes, ClipboardList, FileBarChart2, ChevronDown, ChevronLeft, ChevronRight, X,
   PackageCheck, ArrowLeftRight, PackageSearch, Landmark, Receipt, Store, RotateCcw,
-  HandCoins, Car, CalendarCheck, WalletCards, LayoutPanelTop, Trash2, HardHat, Truck
+  HandCoins, Car, CalendarCheck, WalletCards, LayoutPanelTop, Trash2, HardHat, Truck,
+  Image as ImageIcon, MessageCircle
 } from 'lucide-react';
 import api, { hasPermission } from '../services/api';
 
@@ -41,6 +42,8 @@ const NAV_ITEMS = [
   { key: 'reports', label: 'Sales Report', icon: FileSpreadsheet, requiredPermission: 'can_export_reports' },
   { key: 'gps', label: 'Live GPS', icon: MapPin, requiredPermission: 'can_view_gps' },
   { key: 'notifications', label: 'Notifications', icon: Bell, requiredPermission: 'notifications' },
+  { key: 'promotions', label: 'Home Screen Slider', icon: ImageIcon, requiredPermission: 'promotions' },
+  { key: 'whatsapp-broadcast', label: 'WhatsApp Notification', icon: MessageCircle, requiredRole: 'super_admin' },
   { key: 'production-dashboard', label: 'Production Dashboard', icon: Gauge, requiredPermission: 'can_manage_production' },
   { key: 'production-orders', label: 'Production Orders', icon: ClipboardList, requiredPermission: 'can_manage_production' },
   { key: 'production-log', label: 'Production History', icon: PackageCheck, requiredPermission: 'can_manage_production' },
@@ -94,7 +97,7 @@ export const TOGGLEABLE_PANELS = NAV_ITEMS
 const GROUPS = [
   {
     key: 'dash', label: 'Dashboard & Tracking', icon: LayoutPanelTop,
-    children: ['daily-dashboard', 'dashboard', 'gps', 'notifications']
+    children: ['daily-dashboard', 'dashboard', 'gps', 'notifications', 'promotions', 'whatsapp-broadcast']
   },
   {
     key: 'sales', label: 'Sales & Recovery', icon: ShoppingCart,

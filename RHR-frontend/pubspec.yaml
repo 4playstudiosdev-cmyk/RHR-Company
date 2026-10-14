@@ -56,6 +56,9 @@ dependencies:
   pdf: ^3.10.8
   location: ^10.0.2
 
+  # Video playback for the customer home screen's promo slider
+  video_player: ^2.9.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

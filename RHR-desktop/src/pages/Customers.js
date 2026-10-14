@@ -75,6 +75,8 @@ export default function Customers({ onViewLedger }) {
   const [error, setError] = useState('');
   const [approvingId, setApprovingId] = useState(null);
   const [approvingCustomer, setApprovingCustomer] = useState(null);
+  const [approveRateTier, setApproveRateTier] = useState('manual');
+  const [approveCreditLimit, setApproveCreditLimit] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [filterCity, setFilterCity] = useState('');
@@ -134,13 +136,18 @@ export default function Customers({ onViewLedger }) {
 
   const handleApprove = (customer) => {
     setApprovingCustomer(customer);
+    setApproveRateTier('manual');
+    setApproveCreditLimit('');
   };
 
-  const confirmApprove = async (rateTier) => {
+  const confirmApprove = async () => {
     const customer = approvingCustomer;
     setApprovingId(customer.id);
     try {
-      await api.patch(`/auth/approve-customer/${customer.id}`, { rate_tier: rateTier });
+      await api.patch(`/auth/approve-customer/${customer.id}`, {
+        rate_tier: approveRateTier,
+        credit_limit: approveCreditLimit === '' ? null : Number(approveCreditLimit),
+      });
       setPending((prev) => prev.filter((c) => c.id !== customer.id));
       toast.success(`${customer.full_name} approved.`);
       loadCustomers();
@@ -149,6 +156,16 @@ export default function Customers({ onViewLedger }) {
     } finally {
       setApprovingId(null);
       setApprovingCustomer(null);
+    }
+  };
+
+  const handleChangeCreditLimit = async (customer, creditLimit) => {
+    try {
+      await api.patch(`/customers/${customer.id}/credit-limit`, { credit_limit: creditLimit === '' ? null : Number(creditLimit) });
+      setAll((prev) => prev.map((c) => (c.id === customer.id ? { ...c, credit_limit: creditLimit === '' ? null : Number(creditLimit) } : c)));
+      toast.success(`${customer.full_name}'s credit limit updated.`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update credit limit.');
     }
   };
 
@@ -577,6 +594,7 @@ export default function Customers({ onViewLedger }) {
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Area</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Orders</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Outstanding</th>
+                      <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Credit Limit</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-center">Status</th>
                       <th className="py-3 px-6 font-semibold text-xs uppercase tracking-wide text-right">Actions</th>
                     </tr>
@@ -653,6 +671,20 @@ export default function Customers({ onViewLedger }) {
                             ) : (
                               <span className="text-gray-400">PKR 0</span>
                             )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <input
+                              type="number"
+                              min="0"
+                              defaultValue={customer.credit_limit ?? ''}
+                              placeholder="No limit"
+                              onBlur={(e) => {
+                                const val = e.target.value;
+                                if (Number(val || 0) === Number(customer.credit_limit || 0)) return;
+                                handleChangeCreditLimit(customer, val);
+                              }}
+                              className="w-24 border border-gray-200 rounded-md px-2 py-1 text-[12px] text-right text-gray-600 focus:outline-none focus:ring-1 focus:ring-navy-chip focus:border-navy"
+                            />
                           </td>
                           <td className="py-3 px-4 text-center">
                             <span
@@ -798,9 +830,9 @@ export default function Customers({ onViewLedger }) {
       )}
 
       {approvingCustomer && (
-        <Modal title={`Select Rate Tier — ${approvingCustomer.full_name}`} onClose={() => setApprovingCustomer(null)}>
+        <Modal title={`Approve — ${approvingCustomer.full_name}`} onClose={() => setApprovingCustomer(null)}>
           <p className="text-sm text-gray-500 mb-4">
-            This sets the pricing tier applied to every order this customer places going forward.
+            Select the pricing tier applied to every order this customer places going forward.
           </p>
           <div className="space-y-2.5">
             {RATE_TIERS.map((tier) => (
@@ -808,8 +840,10 @@ export default function Customers({ onViewLedger }) {
                 key={tier.value}
                 type="button"
                 disabled={approvingId === approvingCustomer.id}
-                onClick={() => confirmApprove(tier.value)}
-                className="w-full flex items-center justify-between gap-3 text-left border border-gray-200 rounded-xl px-4 py-3.5 hover:border-navy hover:bg-navy-chip/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => setApproveRateTier(tier.value)}
+                className={`w-full flex items-center justify-between gap-3 text-left border rounded-xl px-4 py-3.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  approveRateTier === tier.value ? 'border-navy bg-navy-chip/30' : 'border-gray-200 hover:border-navy hover:bg-navy-chip/30'
+                }`}
               >
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-lg bg-navy-chip text-navy flex items-center justify-center flex-shrink-0">
@@ -823,7 +857,21 @@ export default function Customers({ onViewLedger }) {
               </button>
             ))}
           </div>
-          <div className="flex justify-end pt-4">
+          <div className="mt-4">
+            <label className="text-sm font-medium text-navy">Credit Limit (PKR)</label>
+            <p className="text-xs text-gray-400 mb-1.5">
+              Max outstanding balance this customer can carry on credit. Leave blank for no limit.
+            </p>
+            <input
+              type="number"
+              min="0"
+              value={approveCreditLimit}
+              onChange={(e) => setApproveCreditLimit(e.target.value)}
+              placeholder="e.g. 50000"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-navy"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-4">
             <Button
               type="button"
               variant="secondary"
@@ -831,6 +879,13 @@ export default function Customers({ onViewLedger }) {
               onClick={() => setApprovingCustomer(null)}
             >
               Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={approvingId === approvingCustomer.id}
+              onClick={confirmApprove}
+            >
+              Approve
             </Button>
           </div>
         </Modal>

@@ -42,6 +42,8 @@ import StockReports from './pages/StockReports';
 import OpeningBalances from './pages/OpeningBalances';
 import DeletedItems from './pages/DeletedItems';
 import ManufacturingEmployees from './pages/ManufacturingEmployees';
+import Promotions from './pages/Promotions';
+import WhatsappBroadcast from './pages/WhatsappBroadcast';
 
 const PAGES = {
   dashboard: Dashboard,
@@ -52,6 +54,8 @@ const PAGES = {
   salesmen: Salesmen,
   recovery: SalesmanRecovery,
   'driver-recovery': DriverRecovery,
+  promotions: Promotions,
+  'whatsapp-broadcast': WhatsappBroadcast,
   vehicles: VehicleManagement,
   suppliers: Suppliers,
   returns: Returns,
@@ -106,7 +110,9 @@ const PAGE_ACCESS = {
   'production-recipes': { requiredPermission: 'can_manage_production' },
   'production-daily': { requiredPermission: 'can_manage_production' },
   'manufacturing-employees': { requiredPermission: 'can_manage_production' },
-  'opening-balances': { requiredRole: 'super_admin' }
+  'opening-balances': { requiredRole: 'super_admin' },
+  'whatsapp-broadcast': { requiredRole: 'super_admin' },
+  promotions: { requiredPermission: 'promotions' }
 };
 
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 hours

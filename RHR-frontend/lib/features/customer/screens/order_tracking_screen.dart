@@ -19,6 +19,8 @@ class OrderTrackingScreen extends StatefulWidget {
 class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   Map<String, dynamic>? _order;
   bool _isLoading = true;
+  num? _creditLimit;
+  num _outstandingBalance = 0;
 
   static const _steps = ['confirmed', 'preparing', 'dispatched', 'delivered'];
   static const _stepLabels = ['Order Placed', 'Preparing', 'Dispatched', 'Delivered'];
@@ -27,6 +29,27 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   void initState() {
     super.initState();
     if (widget.orderId != null) _loadOrder();
+    _loadCreditInfo();
+  }
+
+  Future<void> _loadCreditInfo() async {
+    try {
+      final customerId = await SecureStorage.getUserId();
+      if (customerId == null) return;
+      final results = await Future.wait([
+        DioClient.instance.get(ApiEndpoints.myProfile),
+        DioClient.instance.get('${ApiEndpoints.ledger}$customerId'),
+      ]);
+      if (results[0].data['success'] == true) {
+        _creditLimit = results[0].data['data']?['credit_limit'] as num?;
+      }
+      if (results[1].data['success'] == true) {
+        _outstandingBalance = (results[1].data['data']?['currentBalance'] ?? 0) as num;
+      }
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('Credit info load error: $e');
+    }
   }
 
   Future<void> _loadOrder() async {
@@ -83,6 +106,12 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => goBack(context, '/orders')),
         title: Text('Order Tracking', style: AppTextStyles.headlineLgMobile.copyWith(color: AppColors.onPrimaryFixed, fontSize: 20)),
         actions: [
+          if (_order != null && status == 'pending')
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: 'Edit order',
+              onPressed: () => context.push('/order-edit', extra: orderId).then((_) => _loadOrder()),
+            ),
           if (_order != null)
             IconButton(
               icon: const Icon(Icons.download),
@@ -134,6 +163,33 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                         ]),
                       ),
                       const SizedBox(height: AppSpacing.md),
+
+                      if (_creditLimit != null && _creditLimit! > 0) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(AppSpacing.md),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(AppRadius.lg),
+                            border: Border.all(color: AppColors.outlineVariant),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text('YOUR CREDIT LIMIT', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant, fontSize: 11)),
+                                Text('PKR ${_creditLimit!.toStringAsFixed(0)}', style: AppTextStyles.headlineSm.copyWith(color: AppColors.onPrimaryFixed)),
+                              ]),
+                              Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                                Text('AVAILABLE', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant, fontSize: 11)),
+                                Text('PKR ${(_creditLimit! - _outstandingBalance).clamp(0, _creditLimit!).toStringAsFixed(0)}',
+                                    style: AppTextStyles.headlineSm.copyWith(color: AppColors.success)),
+                              ]),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                      ],
 
                       // Tracking stepper
                       if (status != 'cancelled') ...[

@@ -14,6 +14,7 @@ import '../../features/customer/screens/catalogue_screen.dart';
 import '../../features/customer/screens/product_detail_screen.dart';
 import '../../features/customer/screens/cart_screen.dart';
 import '../../features/customer/screens/order_placement_screen.dart';
+import '../../features/customer/screens/order_edit_screen.dart';
 import '../../features/customer/screens/order_success_screen.dart';
 import '../../features/customer/screens/orders_screen.dart';
 import '../../features/customer/screens/order_tracking_screen.dart';
@@ -101,6 +102,7 @@ final appRouter = GoRouter(
     GoRoute(path: '/orders',             pageBuilder: (c, s) => slidePage(s, const OrdersScreen())),
     GoRoute(path: '/order-success',      pageBuilder: (c, s) => slidePage(s, OrderSuccessScreen(extra: s.extra))),
     GoRoute(path: '/order-tracking',     pageBuilder: (c, s) => slidePage(s, OrderTrackingScreen(orderId: s.extra as String?))),
+    GoRoute(path: '/order-edit',         pageBuilder: (c, s) => slidePage(s, OrderEditScreen(orderId: s.extra as String?))),
     GoRoute(path: '/profile',            pageBuilder: (c, s) => slidePage(s, const ProfileScreen())),
     GoRoute(path: '/ledger',             pageBuilder: (c, s) => slidePage(s, const LedgerScreen())),
     GoRoute(path: '/payment-history',    pageBuilder: (c, s) => slidePage(s, const PaymentHistoryScreen())),

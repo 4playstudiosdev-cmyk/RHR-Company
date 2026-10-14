@@ -145,15 +145,29 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                       Text('Total Amount', style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurfaceVariant)),
                                       Text('PKR $total', style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary)),
                                     ]),
-                                    OutlinedButton(
-                                      onPressed: () => context.push('/order-tracking', extra: orderId),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: AppColors.primary,
-                                        side: const BorderSide(color: AppColors.primary),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.base)),
+                                    Row(children: [
+                                      if (status == 'pending') ...[
+                                        OutlinedButton(
+                                          onPressed: () => context.push('/order-edit', extra: orderId),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: AppColors.onTertiaryFixedVariant,
+                                            side: BorderSide(color: AppColors.onTertiaryFixedVariant),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.base)),
+                                          ),
+                                          child: Text('Edit', style: AppTextStyles.labelMd.copyWith(color: AppColors.onTertiaryFixedVariant)),
+                                        ),
+                                        const SizedBox(width: 8),
+                                      ],
+                                      OutlinedButton(
+                                        onPressed: () => context.push('/order-tracking', extra: orderId),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: AppColors.primary,
+                                          side: const BorderSide(color: AppColors.primary),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.base)),
+                                        ),
+                                        child: Text('Track', style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
                                       ),
-                                      child: Text('Track', style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
-                                    ),
+                                    ]),
                                   ],
                                 ),
                               ]),
