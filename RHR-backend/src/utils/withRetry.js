@@ -8,7 +8,7 @@
 
 // For calls that throw on failure (e.g. .single()/.signInWithPassword()
 // rejecting) — retries on the thrown error.
-async function withRetry(fn, attempts = 2, delayMs = 400) {
+async function withRetry(fn, attempts = 3, delayMs = 400) {
   let lastErr;
   for (let i = 0; i < attempts; i++) {
     try {
