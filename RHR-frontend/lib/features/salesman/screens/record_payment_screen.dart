@@ -43,7 +43,13 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
     try {
       final res = await DioClient.instance.get(ApiEndpoints.bankAccountsList);
       if (res.data['success'] == true) {
-        setState(() => _bankAccounts = List<Map<String, dynamic>>.from(res.data['data'] ?? []));
+        // Admin's bank_accounts list includes a "Cash" petty-cash entry
+        // used elsewhere (e.g. expenses) — not a real bank, so it has no
+        // place here (Bank Transfer is a separate method from Cash above).
+        final banks = List<Map<String, dynamic>>.from(res.data['data'] ?? [])
+            .where((a) => (a['bank_name']?.toString().trim().toLowerCase() ?? '') != 'cash')
+            .toList();
+        setState(() => _bankAccounts = banks);
       }
     } catch (e) {
       debugPrint('Bank accounts load error: $e');
@@ -284,7 +290,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                             padding: EdgeInsets.all(8),
                             child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.orange)))
                         : DropdownButtonFormField<String>(
-                            value: _selectedBankAccountId,
+                            initialValue: _selectedBankAccountId,
                             isExpanded: true,
                             decoration: InputDecoration(
                               filled: true,

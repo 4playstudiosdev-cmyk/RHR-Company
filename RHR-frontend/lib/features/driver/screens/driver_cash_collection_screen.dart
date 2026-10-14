@@ -138,7 +138,13 @@ class _DriverCashCollectionScreenState extends State<DriverCashCollectionScreen>
       try {
         final res = await DioClient.instance.get(ApiEndpoints.bankAccountsList);
         if (res.data['success'] == true) {
-          bankAccounts = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
+          // Admin's bank_accounts list includes a "Cash" petty-cash entry
+          // used elsewhere (e.g. expenses) — not a real bank, so it has no
+          // place in a Bank Transfer picker (that's what "Via Cash" above
+          // is already for).
+          bankAccounts = List<Map<String, dynamic>>.from(res.data['data'] ?? [])
+              .where((a) => (a['bank_name']?.toString().trim().toLowerCase() ?? '') != 'cash')
+              .toList();
         }
       } catch (e) {
         debugPrint('Bank accounts load error: $e');
