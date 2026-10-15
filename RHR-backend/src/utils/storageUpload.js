@@ -11,7 +11,7 @@ const BUCKET_RULES = {
   },
   'payment-proofs': {
     allowedTypes: ['image/jpeg', 'image/png'],
-    maxSizeMB: 5,
+    maxSizeMB: 12,
     isPublic: false
   },
   'invoices': {

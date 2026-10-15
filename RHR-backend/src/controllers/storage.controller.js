@@ -28,6 +28,15 @@ const uploadFile = async (req, res) => {
 
     return success(res, result, 'File uploaded successfully', 201);
   } catch (err) {
+    // Validation failures (wrong bucket, wrong type, file too large) are
+    // deterministic — they fail identically on every withRetry attempt
+    // and aren't the transient blip withRetry exists for. Surfacing them
+    // as a plain 400 instead of the default 500 is what actually tells
+    // the user/app what went wrong (e.g. "File too large") instead of a
+    // generic server-error dump.
+    if (/invalid bucket|invalid file type|file too large/i.test(err.message || '')) {
+      return error(res, err.message, 400);
+    }
     return error(res, err.message);
   }
 };

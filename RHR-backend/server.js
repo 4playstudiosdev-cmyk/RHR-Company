@@ -29,8 +29,8 @@ app.use(removeFingerprint);
 // images, payment-proof photos, invoices — see storage.controller.js)
 // are sent as base64 JSON, which inflates ~33% over the original file
 // size, so 5mb would start rejecting real phone-camera photos.
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 app.use(sanitizeRequest);
 app.use(generalLimiter);
 

@@ -168,12 +168,29 @@ const createCustomer = async (req, res) => {
     });
     if (existingRows?.[0]) return error(res, 'A customer with this phone number already exists', 400);
 
-    const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({
-      phone: canonical,
-      phone_confirm: true,
-      user_metadata: { full_name, role: 'customer' }
-    });
-    if (authErr) throw new Error(authErr.message);
+    // Same transient Railway<->Supabase blip documented in withRetry.js —
+    // this Admin Auth API call isn't a PostgREST table write so it can't
+    // use the pgrest bypass, but is exposed to the same occasional
+    // failure, which showed up as a raw 500 on Add Customer. One retry
+    // papers over the blip; a genuinely duplicate phone still fails
+    // every attempt and surfaces as its own clean error below.
+    let authData;
+    try {
+      authData = await withRetry(async () => {
+        const { data, error: authErr } = await supabaseAdmin.auth.admin.createUser({
+          phone: canonical,
+          phone_confirm: true,
+          user_metadata: { full_name, role: 'customer' }
+        });
+        if (authErr) throw new Error(authErr.message);
+        return data;
+      });
+    } catch (authErr) {
+      if (/already registered|already exists/i.test(authErr.message || '')) {
+        return error(res, 'A customer with this phone number already exists', 400);
+      }
+      throw authErr;
+    }
 
     const baseRow = {
       id:           authData.user.id,

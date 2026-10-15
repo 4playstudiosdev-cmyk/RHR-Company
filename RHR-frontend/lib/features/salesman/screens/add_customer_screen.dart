@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:dio/dio.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
@@ -82,7 +83,10 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
       }
     } catch (e) {
       if (mounted) {
-        final msg = e.toString().contains('already exists') ? 'A customer with this phone number already exists.' : 'Error: $e';
+        final backendMsg = e is DioException ? (e.response?.data?['message'] as String?) : null;
+        final msg = backendMsg ?? (e.toString().contains('already exists')
+            ? 'A customer with this phone number already exists.'
+            : 'Error: $e');
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       }
     } finally {

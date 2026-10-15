@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:dio/dio.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
@@ -76,8 +77,38 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
   }
 
   Future<void> _pickAndUploadPhoto() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: const BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: SafeArea(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined, color: AppColors.orange),
+              title: const Text('Take Photo'),
+              onTap: () => Navigator.of(sheetContext).pop(ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined, color: AppColors.orange),
+              title: const Text('Choose from Gallery'),
+              onTap: () => Navigator.of(sheetContext).pop(ImageSource.gallery),
+            ),
+          ]),
+        ),
+      ),
+    );
+    if (source == null) return;
+
     final picker = ImagePicker();
-    final image  = await picker.pickImage(source: ImageSource.camera);
+    // imageQuality compresses at pick time — a raw camera photo can run
+    // 8-15MB, well past what's worth sending over a salesman's mobile
+    // data; 70% keeps the receipt legible at a fraction of the size.
+    final image = await picker.pickImage(source: source, imageQuality: 70);
     if (image == null) return;
 
     setState(() => _isLoading = true);
@@ -108,8 +139,9 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final msg = e is DioException ? (e.response?.data?['message'] ?? e.message) : e.toString();
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Upload error: $e')));
+            SnackBar(content: Text('Upload error: $msg')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
