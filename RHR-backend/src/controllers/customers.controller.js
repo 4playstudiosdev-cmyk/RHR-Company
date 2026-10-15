@@ -120,7 +120,7 @@ const getCustomerById = async (req, res) => {
 // that queue since an admin is entering it by hand.
 const createCustomer = async (req, res) => {
   try {
-    const { full_name, phone, email, shop_name, shop_address, city, area, company_id, rate_tier, driver_id } = req.body;
+    const { full_name, phone, email, shop_name, shop_address, city, area, company_id, rate_tier, driver_id, shop_latitude, shop_longitude } = req.body;
     if (!full_name || !phone)
       return error(res, 'full_name and phone are required', 400);
 
@@ -188,7 +188,10 @@ const createCustomer = async (req, res) => {
       driver_id:    driver_id || null,
       salesman_id:  salesman_id || null,
       is_approved:  true,
-      is_active:    true
+      is_active:    true,
+      ...(shop_latitude != null && shop_longitude != null
+        ? { shop_latitude: Number(shop_latitude), shop_longitude: Number(shop_longitude) }
+        : {}),
     };
 
     // city/area are a phase31 addition — fall back to inserting without
@@ -208,7 +211,7 @@ const createCustomer = async (req, res) => {
 // PATCH /api/v1/customers/:id — edit an existing customer's details
 const updateCustomer = async (req, res) => {
   try {
-    const { full_name, phone, email, shop_name, shop_address, city, area } = req.body;
+    const { full_name, phone, email, shop_name, shop_address, city, area, shop_latitude, shop_longitude } = req.body;
 
     const filter = { id: `eq.${req.params.id}`, role: 'eq.customer' };
     if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
@@ -218,7 +221,10 @@ const updateCustomer = async (req, res) => {
       phone: phone ? normalizePhone(phone) : undefined,
       email,
       shop_name,
-      shop_address
+      shop_address,
+      ...(shop_latitude != null && shop_longitude != null
+        ? { shop_latitude: Number(shop_latitude), shop_longitude: Number(shop_longitude) }
+        : {}),
     };
 
     // city/area are a phase31 addition — fall back to patching without

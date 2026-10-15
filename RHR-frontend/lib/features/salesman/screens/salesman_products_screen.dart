@@ -34,8 +34,8 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  Future<void> _load({bool showSpinner = true}) async {
+    if (showSpinner) setState(() => _loading = true);
     try {
       final results = await Future.wait([
         DioClient.instance.get(ApiEndpoints.categories),
@@ -155,13 +155,26 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
                 ),
               ),
               Expanded(
-                child: _filteredProducts.isEmpty
-                    ? const Center(child: Text('No products in this category.', style: TextStyle(color: AppColors.steelBlue)))
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                        itemCount: _filteredProducts.length,
-                        itemBuilder: (context, i) => _productRow(_filteredProducts[i]),
-                      ),
+                child: RefreshIndicator(
+                  color: AppColors.orange,
+                  onRefresh: () => _load(showSpinner: false),
+                  child: _filteredProducts.isEmpty
+                      ? ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: const [
+                            Padding(
+                              padding: EdgeInsets.only(top: 80),
+                              child: Center(child: Text('No products in this category.', style: TextStyle(color: AppColors.steelBlue))),
+                            ),
+                          ],
+                        )
+                      : ListView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                          itemCount: _filteredProducts.length,
+                          itemBuilder: (context, i) => _productRow(_filteredProducts[i]),
+                        ),
+                ),
               ),
             ]),
       floatingActionButton: _cartCount > 0

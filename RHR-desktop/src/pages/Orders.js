@@ -34,6 +34,28 @@ const PAGE_SIZE = 10;
 const TAX_RATE = 0.18; // 18% sales tax
 const EMPTY_ORDER_FORM = { customer_id: '', items: [{ product_id: '', quantity: 1 }], delivery_address: '', notes: '' };
 
+// created_by_role (phase61) — who actually clicked "create", independent
+// of salesman_id (always the customer's assigned salesman, not
+// necessarily the creator). Older orders predate the column and read as
+// null — shown as "—" rather than guessed at.
+const SOURCE_OPTIONS = [
+  { value: 'all', label: 'All Sources' },
+  { value: 'admin', label: 'Admin' },
+  { value: 'salesman', label: 'Salesman' },
+  { value: 'customer', label: 'Customer' },
+];
+const SOURCE_BADGE = {
+  super_admin:  { label: 'Admin',    classes: 'bg-navy-chip text-navy' },
+  branch_admin: { label: 'Admin',    classes: 'bg-navy-chip text-navy' },
+  salesman:     { label: 'Salesman', classes: 'bg-orange/10 text-orange' },
+  customer:     { label: 'Customer', classes: 'bg-emerald-50 text-emerald-700' },
+};
+function SourceBadge({ role }) {
+  const badge = SOURCE_BADGE[role];
+  if (!badge) return <span className="text-gray-300 text-xs">—</span>;
+  return <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${badge.classes}`}>{badge.label}</span>;
+}
+
 // Mirrors RATE_TIER_ADJUSTMENT in orders.service.js — used here only to
 // preview the price a customer will actually be charged (custom price >
 // rate tier > catalog) while building an order, so the dropdown and
@@ -56,6 +78,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
   const [updatingId, setUpdatingId] = useState(null);
   const [pdfLoadingId, setPdfLoadingId] = useState(null);
   const [tab, setTab] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [deletedInvoices, setDeletedInvoices] = useState([]);
@@ -652,6 +675,13 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
 
   const filtered = useMemo(() => {
     let list = tab === 'all' ? visibleOrders : visibleOrders.filter((o) => o.status === tab);
+    if (sourceFilter !== 'all') {
+      list = list.filter((o) =>
+        sourceFilter === 'admin'
+          ? o.created_by_role === 'super_admin' || o.created_by_role === 'branch_admin'
+          : o.created_by_role === sourceFilter
+      );
+    }
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(
@@ -659,7 +689,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
       );
     }
     return list;
-  }, [visibleOrders, tab, search]);
+  }, [visibleOrders, tab, sourceFilter, search]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageOrders = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -670,6 +700,15 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
         <h1 className="text-2xl font-bold text-navy">Orders</h1>
         <div className="flex items-center gap-3 flex-wrap">
           <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
+          <select
+            value={sourceFilter}
+            onChange={(e) => { setSourceFilter(e.target.value); setPage(1); }}
+            className="bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-all shadow-sm"
+          >
+            {SOURCE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
           <div className="relative w-full sm:w-72">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -779,6 +818,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Total</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Source</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Driver / Vehicle</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Update</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Invoice</th>
@@ -802,6 +842,9 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
                       </td>
                       <td className="px-6 py-3.5">
                         <StatusBadge status={order.status} />
+                      </td>
+                      <td className="px-6 py-3.5">
+                        <SourceBadge role={order.created_by_role} />
                       </td>
                       <td className="px-6 py-3.5 text-gray-600 text-xs">
                         {order.drivers?.full_name ? (

@@ -136,8 +136,12 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
               ? const Center(
                   key: ValueKey('loading'),
                   child: CircularProgressIndicator(color: AppColors.orange))
-              : SingleChildScrollView(
+              : RefreshIndicator(
                 key: const ValueKey('content'),
+                color: AppColors.orange,
+                onRefresh: _loadDashboard,
+                child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
                 child: Column(
                   children: [
                     // Header
@@ -417,6 +421,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                   ],
                 ),
               ),
+            ),
         ),
       ),
     );

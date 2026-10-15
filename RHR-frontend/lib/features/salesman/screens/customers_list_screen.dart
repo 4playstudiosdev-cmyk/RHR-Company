@@ -116,13 +116,23 @@ class _CustomersListScreenState extends State<CustomersListScreen> {
                 itemCount: 6,
                 itemBuilder: (_, i) => const ShimmerListRow(),
               )
-            : _filtered.isEmpty
-              ? const Center(
-                  key: ValueKey('empty'),
-                  child: Text('No customers found.',
-                      style: TextStyle(color: AppColors.steelBlue)))
-              : ListView.builder(
-                  key: const ValueKey('list'),
+            : RefreshIndicator(
+                key: const ValueKey('list'),
+                color: AppColors.orange,
+                onRefresh: _loadCustomers,
+                child: _filtered.isEmpty
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: const [
+                        Padding(
+                          padding: EdgeInsets.only(top: 80),
+                          child: Center(child: Text('No customers found.',
+                              style: TextStyle(color: AppColors.steelBlue))),
+                        ),
+                      ],
+                    )
+                  : ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(16),
                   itemCount: _filtered.length,
                   itemBuilder: (_, i) {
@@ -195,6 +205,7 @@ class _CustomersListScreenState extends State<CustomersListScreen> {
                     );
                   },
                 ),
+              ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: AppColors.orange,

@@ -21,7 +21,9 @@ const createOrder = async (req, res) => {
       companyId:       user.company_id,
       items,
       notes,
-      deliveryAddress: delivery_address
+      deliveryAddress: delivery_address,
+      createdByRole:   user.role,
+      createdById:     user.id
     });
     return success(res, data, 'Order placed successfully', 201);
   } catch (err) { return error(res, err.message, 400); }

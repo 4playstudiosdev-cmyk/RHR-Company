@@ -5,6 +5,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/success_check.dart';
+import '../../../shared/widgets/shop_location_picker_screen.dart';
 import '../../../shared/router/app_transitions.dart';
 
 /// Lets a salesman register a new customer/dealer on the spot — the
@@ -26,6 +27,8 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   final _cityController = TextEditingController();
   final _areaController = TextEditingController();
   bool _saving = false;
+  double? _shopLatitude;
+  double? _shopLongitude;
 
   @override
   void dispose() {
@@ -36,6 +39,21 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     _cityController.dispose();
     _areaController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickLocation() async {
+    final result = await Navigator.of(context).push<Map<String, dynamic>>(
+      MaterialPageRoute(builder: (_) => ShopLocationPickerScreen(
+        initialLatitude: _shopLatitude,
+        initialLongitude: _shopLongitude,
+      )),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _shopLatitude = (result['latitude'] as num).toDouble();
+        _shopLongitude = (result['longitude'] as num).toDouble();
+      });
+    }
   }
 
   Future<void> _save() async {
@@ -53,6 +71,8 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         if (_addressController.text.trim().isNotEmpty) 'shop_address': _addressController.text.trim(),
         if (_cityController.text.trim().isNotEmpty) 'city': _cityController.text.trim(),
         if (_areaController.text.trim().isNotEmpty) 'area': _areaController.text.trim(),
+        if (_shopLatitude != null) 'shop_latitude': _shopLatitude,
+        if (_shopLongitude != null) 'shop_longitude': _shopLongitude,
       });
       if (res.data['success'] == true) {
         if (mounted) await showSuccessCheck(context, message: 'Customer Added!');
@@ -164,6 +184,29 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
             _field('Shop Address', _addressController, icon: Icons.home_outlined),
             _field('City', _cityController, icon: Icons.location_city_outlined),
             _field('Area', _areaController, icon: Icons.map_outlined),
+            OutlinedButton.icon(
+              onPressed: _pickLocation,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.orange,
+                side: const BorderSide(color: AppColors.orange),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: const Icon(Icons.my_location, size: 18),
+              label: Text(_shopLatitude != null ? 'Update Location' : 'Set Shop Location'),
+            ),
+            if (_shopLatitude != null && _shopLongitude != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(children: [
+                  const Icon(Icons.check_circle, size: 14, color: AppColors.success),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Location captured (${_shopLatitude!.toStringAsFixed(5)}, ${_shopLongitude!.toStringAsFixed(5)})',
+                    style: const TextStyle(color: AppColors.success, fontSize: 11),
+                  ),
+                ]),
+              ),
           ]),
           const SizedBox(height: 4),
           RHRButton(text: 'Save Customer', onPressed: _save, isLoading: _saving),

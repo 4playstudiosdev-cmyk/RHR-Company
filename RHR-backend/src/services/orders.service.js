@@ -9,7 +9,7 @@ const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 // heavily-discounted, cheap item can't price negative.
 const RATE_TIER_ADJUSTMENT = { manual: 0, discount: -10, premium: 10 };
 
-async function createOrder({ customerId, salesmanId, companyId, items, notes, deliveryAddress }) {
+async function createOrder({ customerId, salesmanId, companyId, items, notes, deliveryAddress, createdByRole, createdById }) {
   // Step 1: Validate all products exist and have enough stock. Routed
   // through the pgrestGet raw-https bypass (see utils/directQuery.js) —
   // these three reads were still on plain supabase-js, the exact pattern
@@ -116,21 +116,40 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
   // Orders", not just when the salesman was the one who clicked Create.
   const effectiveSalesmanId = salesmanId || customer?.salesman_id || null;
 
-  const { data: order, error: oErr } = await supabaseAdmin
-    .from('orders')
-    .insert({
-      company_id:       companyId,
-      customer_id:      customerId,
-      salesman_id:      effectiveSalesmanId,
-      order_number:     orderNumber,
-      total_amount:     totalAmount,
-      notes,
-      delivery_address: deliveryAddress
-    })
-    .select()
-    .single();
+  const orderRow = {
+    company_id:       companyId,
+    customer_id:      customerId,
+    salesman_id:      effectiveSalesmanId,
+    order_number:     orderNumber,
+    total_amount:     totalAmount,
+    notes,
+    delivery_address: deliveryAddress
+  };
 
-  if (oErr) throw new Error(oErr.message);
+  // created_by_role/created_by_id are a phase61 addition — who actually
+  // placed the order (admin / salesman / customer), independent of
+  // salesman_id above (always the customer's assigned salesman, not
+  // necessarily the creator). Falls back to inserting without them if
+  // that migration hasn't run yet, same pattern used elsewhere in this
+  // codebase for new columns on an already-live table.
+  let order;
+  try {
+    const { data, error: oErr } = await supabaseAdmin
+      .from('orders')
+      .insert({ ...orderRow, created_by_role: createdByRole || null, created_by_id: createdById || null })
+      .select()
+      .single();
+    if (oErr) throw new Error(oErr.message);
+    order = data;
+  } catch (e) {
+    const { data, error: oErr } = await supabaseAdmin
+      .from('orders')
+      .insert(orderRow)
+      .select()
+      .single();
+    if (oErr) throw new Error(oErr.message);
+    order = data;
+  }
 
   // Step 4: Insert order items
   const { error: iErr } = await supabaseAdmin

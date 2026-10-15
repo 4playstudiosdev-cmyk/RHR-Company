@@ -25,7 +25,7 @@ const RATE_BADGE = {
 // same default the Products/Raw Materials pages use, since there's no
 // single real branch a "combined view" create action could target.
 const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
-const EMPTY_CUSTOMER_FORM = { full_name: '', phone: '', email: '', shop_name: '', shop_address: '', city: '', area: '', rate_tier: 'manual', salesman_id: '', opening_balance_type: 'debit', opening_balance_amount: '' };
+const EMPTY_CUSTOMER_FORM = { full_name: '', phone: '', email: '', shop_name: '', shop_address: '', city: '', area: '', rate_tier: 'manual', salesman_id: '', opening_balance_amount: '', shop_latitude: null, shop_longitude: null };
 
 const PAGE_SIZE = 10;
 
@@ -281,6 +281,57 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [customerForm, setCustomerForm] = useState(EMPTY_CUSTOMER_FORM);
   const [savingCustomer, setSavingCustomer] = useState(false);
+  const [locatingMe, setLocatingMe] = useState(false);
+  const [locationSearch, setLocationSearch] = useState('');
+  const [locationResults, setLocationResults] = useState([]);
+  const [searchingLocation, setSearchingLocation] = useState(false);
+
+  const handleUseCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error('Location isn\'t available in this browser.');
+      return;
+    }
+    setLocatingMe(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCustomerForm((prev) => ({ ...prev, shop_latitude: pos.coords.latitude, shop_longitude: pos.coords.longitude }));
+        setLocatingMe(false);
+        toast.success('Current location captured.');
+      },
+      () => {
+        setLocatingMe(false);
+        toast.error('Could not get your location — check browser permission.');
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  const handleSearchLocation = async () => {
+    if (locationSearch.trim().length < 3) {
+      toast.error('Type at least 3 characters to search.');
+      return;
+    }
+    setSearchingLocation(true);
+    try {
+      const res = await api.get('/geocode/search', { params: { q: locationSearch.trim() } });
+      setLocationResults(res.data?.data || []);
+    } catch (err) {
+      toast.error('Search failed.');
+    } finally {
+      setSearchingLocation(false);
+    }
+  };
+
+  const handlePickLocationResult = (result) => {
+    setCustomerForm((prev) => ({
+      ...prev,
+      shop_latitude: result.latitude,
+      shop_longitude: result.longitude,
+      shop_address: prev.shop_address || result.display_name
+    }));
+    setLocationResults([]);
+    setLocationSearch('');
+  };
 
   const openAddCustomerModal = () => {
     setEditingCustomer(null);
@@ -304,7 +355,9 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
       shop_address: customer.shop_address || '',
       city:         customer.city || '',
       area:         customer.area || '',
-      salesman_id:  customer.salesman_id || ''
+      salesman_id:  customer.salesman_id || '',
+      shop_latitude:  customer.shop_latitude ?? null,
+      shop_longitude: customer.shop_longitude ?? null
     });
     setShowCustomerModal(true);
   };
@@ -326,7 +379,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
         toast.success('Customer updated.');
       } else {
         const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
-        const { opening_balance_type, opening_balance_amount, ...customerPayload } = customerForm;
+        const { opening_balance_amount, ...customerPayload } = customerForm;
         const res = await api.post('/customers', {
           ...customerPayload,
           salesman_id: customerForm.salesman_id || null,
@@ -338,7 +391,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
             entity_type: 'customer',
             entity_id: newCustomer.id,
             entity_name: customerForm.full_name,
-            balance_type: opening_balance_type,
+            balance_type: 'debit',
             amount: Number(opening_balance_amount),
             notes: 'Opening balance at customer creation'
           });
@@ -1045,6 +1098,54 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Shop Location</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleUseCurrentLocation}
+                  disabled={locatingMe}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-navy hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap"
+                >
+                  <MapPin size={14} /> {locatingMe ? 'Locating...' : 'Update Location'}
+                </button>
+                <input
+                  type="text"
+                  placeholder="Or search an address..."
+                  value={locationSearch}
+                  onChange={(e) => setLocationSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearchLocation())}
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+                <button
+                  type="button"
+                  onClick={handleSearchLocation}
+                  disabled={searchingLocation}
+                  className="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-navy hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <Search size={14} />
+                </button>
+              </div>
+              {locationResults.length > 0 && (
+                <div className="mt-1.5 border border-gray-200 rounded-lg overflow-hidden max-h-40 overflow-y-auto">
+                  {locationResults.map((r, i) => (
+                    <button
+                      type="button"
+                      key={i}
+                      onClick={() => handlePickLocationResult(r)}
+                      className="block w-full text-left px-3 py-2 text-xs text-gray-600 hover:bg-gray-50 border-b border-gray-100 last:border-0"
+                    >
+                      {r.display_name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {customerForm.shop_latitude != null && customerForm.shop_longitude != null && (
+                <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1">
+                  <MapPin size={12} /> Location captured ({Number(customerForm.shop_latitude).toFixed(5)}, {Number(customerForm.shop_longitude).toFixed(5)})
+                </p>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">City</label>
@@ -1069,28 +1170,18 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
             </div>
             {!editingCustomer && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Opening Balance (optional)</label>
-                <div className="grid grid-cols-2 gap-4">
-                  <select
-                    value={customerForm.opening_balance_type}
-                    onChange={(e) => setCustomerForm({ ...customerForm, opening_balance_type: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-                  >
-                    <option value="debit">Owes Us (Debit)</option>
-                    <option value="credit">We Owe Them (Credit)</option>
-                  </select>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="Amount (PKR)"
-                    value={customerForm.opening_balance_amount}
-                    onChange={(e) => setCustomerForm({ ...customerForm, opening_balance_amount: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-                  />
-                </div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Opening Balance — Amount Owed (optional)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Amount (PKR)"
+                  value={customerForm.opening_balance_amount}
+                  onChange={(e) => setCustomerForm({ ...customerForm, opening_balance_amount: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
                 <p className="text-xs text-gray-400 mt-1.5">
-                  Leave the amount blank for a fresh account. If set, it's recorded as the first ledger entry — visible to the customer, their salesman, and in the admin ledger.
+                  Leave blank for a fresh account. If set, it's recorded as the customer's first ledger entry (what they already owe) — visible to the customer, their salesman, and in the admin ledger.
                 </p>
               </div>
             )}
