@@ -28,7 +28,7 @@ function getTimeAgo(dateStr) {
 // update + the real mark-read call), same as opening the Notifications
 // page already did — the whole point of a bell preview is to let the
 // admin dismiss it at a glance without a second trip to that page.
-export default function NotificationBell({ setPage }) {
+export default function NotificationBell({ setPage, onViewOrderNumber }) {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const containerRef = useRef(null);
@@ -61,6 +61,22 @@ export default function NotificationBell({ setPage }) {
   const goToNotifications = () => {
     setOpen(false);
     setPage('notifications');
+  };
+
+  // Jumps straight to what the notification is actually about — an
+  // order (via the existing initialOrderNumber deep-link Orders.js
+  // already supports, now matching a raw id too, not just order_number)
+  // or the Payments page — instead of only ever landing on the generic
+  // Notifications list.
+  const handleNotificationClick = (n) => {
+    setOpen(false);
+    if ((n.type === 'order' || n.type === 'order_urgent') && n.reference_id) {
+      onViewOrderNumber?.(n.reference_id);
+    } else if (n.type === 'payment') {
+      setPage('payments');
+    } else {
+      setPage('notifications');
+    }
   };
 
   const handleToggle = () => {
@@ -105,7 +121,8 @@ export default function NotificationBell({ setPage }) {
                 return (
                   <div
                     key={n.id}
-                    className={`px-4 py-3 hover:bg-gray-50 transition-colors ${
+                    onClick={() => handleNotificationClick(n)}
+                    className={`px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer ${
                       !n.is_read ? 'bg-blue-50 border-l-2 border-l-blue-500' : ''
                     }`}
                   >
@@ -123,7 +140,7 @@ export default function NotificationBell({ setPage }) {
                         <div className="flex items-center justify-between mt-1.5">
                           <span className="text-xs text-gray-400">{getTimeAgo(n.created_at)}</span>
                           <button
-                            onClick={goToNotifications}
+                            onClick={(e) => { e.stopPropagation(); handleNotificationClick(n); }}
                             className="text-xs text-blue-600 hover:text-blue-800 font-medium hover:underline"
                           >
                             View Details →

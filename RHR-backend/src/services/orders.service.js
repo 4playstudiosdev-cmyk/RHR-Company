@@ -183,6 +183,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       title:          'New Order',
       body:           `${customer?.full_name || 'A customer'} placed order ${orderNumber} — PKR ${totalAmount.toLocaleString()}`,
       type:           'order',
+      reference_id:   order.id,
     });
   } catch (e) { /* non-fatal */ }
 
@@ -196,6 +197,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       title: 'New Order',
       body: `${customer?.full_name || 'Your customer'} placed order ${orderNumber} — PKR ${totalAmount.toLocaleString()}`,
       type: 'order',
+      referenceId: order.id,
     });
   }
 
@@ -281,6 +283,23 @@ async function getOrderById(id, user) {
       .single());
   }
   if (error) throw new Error('Order not found');
+
+  // The drivers(...) embed above intermittently comes back null even
+  // when driver_id is correctly set — the same proven Railway/supabase-js
+  // "silently empty result" class of bug documented throughout this
+  // codebase (see utils/directQuery.js), just showing up on an embedded
+  // join instead of a plain select this time. Backfills it through the
+  // raw-https bypass so the customer app's driver card (name/vehicle/
+  // phone, shown once an order is dispatched) doesn't silently go blank.
+  if (data.driver_id && !data.drivers) {
+    try {
+      const driverRows = await pgrestGet('drivers', {
+        select: 'full_name,car_number,phone',
+        id: `eq.${data.driver_id}`,
+      });
+      if (driverRows?.[0]) data.drivers = driverRows[0];
+    } catch (e) { /* best-effort — order detail still loads without it */ }
+  }
 
   // Security check
   if (user.role === 'customer' && data.customer_id !== user.id)
@@ -527,6 +546,7 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
           title: 'Payment Collected',
           body: `Driver collected PKR ${Number(amountCollected).toLocaleString()} on delivery of order ${updated.order_number}`,
           type: 'payment',
+          referenceId: updated.id,
         });
       }
     }

@@ -32,7 +32,7 @@ function getMessagingClient() {
 // if they have a token on file. Best-effort — a failure here (bad token,
 // Firebase down, DB hiccup) must never block the caller's main action
 // (e.g. a payment being recorded), so this never throws.
-async function notifyUser({ companyId, recipientId, title, body, type }) {
+async function notifyUser({ companyId, recipientId, title, body, type, referenceId }) {
   try {
     await supabaseAdmin.from('notifications').insert({
       company_id:   companyId,
@@ -40,6 +40,7 @@ async function notifyUser({ companyId, recipientId, title, body, type }) {
       title,
       body,
       type: type || 'payment',
+      reference_id: referenceId || null,
     });
 
     const { data: user } = await supabaseAdmin

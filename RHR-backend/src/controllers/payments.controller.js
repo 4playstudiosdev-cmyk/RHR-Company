@@ -66,6 +66,7 @@ const createPayment = async (req, res) => {
         title: 'Payment Submitted',
         body: `Your customer submitted a PKR ${Number(amount).toLocaleString()} payment — awaiting admin approval`,
         type: 'payment',
+        referenceId: data.id,
       });
     }
 
@@ -97,6 +98,7 @@ const createPayment = async (req, res) => {
         title:          'New Payment — Pending Approval',
         body:           `PKR ${Number(amount).toLocaleString()} (${method || 'cash'}) submitted, awaiting review`,
         type:           'payment',
+        reference_id:   data.id,
       });
     } catch (e) { /* non-fatal */ }
 
@@ -139,6 +141,7 @@ const reviewPayment = async (req, res) => {
         title: 'Payment Approved',
         body: `A PKR ${Number(data.amount).toLocaleString()} payment for your customer has been approved`,
         type: 'payment',
+        referenceId: data.id,
       });
     }
 

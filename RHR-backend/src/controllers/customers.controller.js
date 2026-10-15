@@ -272,13 +272,19 @@ const assignSalesman = async (req, res) => {
     if (!customer) return error(res, 'Customer not found or access denied', 404);
 
     if (salesman_id) {
-      const { data: sm } = await supabaseAdmin
-        .from('salesmen')
-        .select('id')
-        .eq('id', salesman_id)
-        .eq('company_id', customer.company_id)
-        .maybeSingle();
-      if (!sm) return error(res, 'Salesman not found in this customer\'s branch', 404);
+      // Routed through the raw-https bypass (see utils/directQuery.js) —
+      // this was still on plain supabase-js, the exact pattern proven
+      // elsewhere in this codebase to silently return an empty/null
+      // result on Railway even for a salesman that genuinely exists in
+      // this branch, which is what showed up as "Salesman not found in
+      // this customer's branch" despite the salesman being right there
+      // in the desktop's own branch-filtered dropdown.
+      const smRows = await pgrestGet('salesmen', {
+        select: 'id',
+        id: `eq.${salesman_id}`,
+        company_id: `eq.${customer.company_id}`,
+      });
+      if (!smRows?.[0]) return error(res, 'Salesman not found in this customer\'s branch', 404);
     }
 
     const data = await pgrestPatch('users', { id: `eq.${customer.id}` }, { salesman_id: salesman_id || null });
@@ -295,13 +301,14 @@ const assignDriver = async (req, res) => {
     if (!customer) return error(res, 'Customer not found or access denied', 404);
 
     if (driver_id) {
-      const { data: dr } = await supabaseAdmin
-        .from('drivers')
-        .select('id')
-        .eq('id', driver_id)
-        .eq('company_id', customer.company_id)
-        .maybeSingle();
-      if (!dr) return error(res, 'Driver not found in this customer\'s branch', 404);
+      // Same raw-https bypass fix as assignSalesman above, and for the
+      // identical reason.
+      const drRows = await pgrestGet('drivers', {
+        select: 'id',
+        id: `eq.${driver_id}`,
+        company_id: `eq.${customer.company_id}`,
+      });
+      if (!drRows?.[0]) return error(res, 'Driver not found in this customer\'s branch', 404);
     }
 
     const data = await pgrestPatch('users', { id: `eq.${customer.id}` }, { driver_id: driver_id || null });
@@ -603,7 +610,12 @@ const updateMyProfile = async (req, res) => {
     if (full_name != null)          update.full_name = full_name;
     if (email != null)              update.email = email;
     if (nic_number != null)         update.nic_number = nic_number;
-    if (whatsapp_phone != null)     update.whatsapp_phone = whatsapp_phone;
+    // Stripped of spaces/dashes no matter what the client sends — same
+    // fix already applied to salesmen.routes.js/drivers.routes.js's
+    // identical phone field, for consistency (this column isn't the OTP
+    // login lookup key for customers, but a cosmetically-grouped value
+    // here is still wrong to store).
+    if (whatsapp_phone != null)     update.whatsapp_phone = whatsapp_phone.replace(/[\s-]/g, '');
     if (shop_name != null)          update.shop_name = shop_name;
     if (shop_address != null)       update.shop_address = shop_address;
     if (shop_image_url != null)     update.shop_image_url = shop_image_url;

@@ -72,8 +72,34 @@ class _SalesmanProfileSetupScreenState extends State<SalesmanProfileSetupScreen>
   }
 
   Future<void> _pickImage(String target) async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: SafeArea(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined, color: AppColors.orange),
+              title: const Text('Take Photo'),
+              onTap: () => Navigator.of(sheetContext).pop(ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined, color: AppColors.orange),
+              title: const Text('Choose from Gallery'),
+              onTap: () => Navigator.of(sheetContext).pop(ImageSource.gallery),
+            ),
+          ]),
+        ),
+      ),
+    );
+    if (source == null) return;
     final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    final image = await picker.pickImage(source: source, imageQuality: 70);
     if (image == null) return;
     setState(() {
       switch (target) {

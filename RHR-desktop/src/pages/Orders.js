@@ -139,10 +139,12 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
 
   // Ledger.js's clickable "Order #KHI-2026-00008" links land here —
   // find that order in whatever's loaded and open its detail modal,
-  // same as clicking "View" on it directly.
+  // same as clicking "View" on it directly. Also accepts a raw order id
+  // (what Notifications.js has on hand from a notification's
+  // reference_id, not the human-readable order_number), so either works.
   useEffect(() => {
     if (!initialOrderNumber || orders.length === 0) return;
-    const match = orders.find((o) => o.order_number === initialOrderNumber);
+    const match = orders.find((o) => o.order_number === initialOrderNumber || o.id === initialOrderNumber);
     if (match) handleViewOrder(match);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialOrderNumber, orders]);

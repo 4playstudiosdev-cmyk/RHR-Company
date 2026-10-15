@@ -114,6 +114,7 @@ router.post('/transactions', authenticate, isAdmin, async (req, res) => {
       title: 'Payment Recorded',
       body: `A PKR ${Number(amount).toLocaleString()} payment was recorded for one of your customers`,
       type: 'payment',
+      referenceId: recovery.id,
     });
 
     return success(res, recovery,
@@ -154,6 +155,7 @@ router.patch('/transactions/:id/approve', authenticate, isAdmin, async (req, res
       title: 'Payment Approved',
       body: `A PKR ${Number(recovery.amount).toLocaleString()} payment for your customer has been approved`,
       type: 'payment',
+      referenceId: recovery.id,
     });
 
     return success(res, { approved: true }, 'Payment approved — customer balance updated');
@@ -230,6 +232,7 @@ router.patch('/cash-closing/:id/approve', authenticate, isAdmin, async (req, res
       title: 'Deposit Approved',
       body: `Your deposit of PKR ${Number(updated[0].amount).toLocaleString()} has been approved`,
       type: 'payment',
+      referenceId: updated[0].id,
     });
 
     return success(res, { approved: true }, 'Cash closing approved — salesman balance cleared');

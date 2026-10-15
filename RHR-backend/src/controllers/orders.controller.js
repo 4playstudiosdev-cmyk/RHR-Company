@@ -115,6 +115,7 @@ const driverUpdateOrderStatus = async (req, res) => {
           ? `${req.user.full_name} delivered order ${data.order_number} — ${delivered_bags ?? 0} bags, ${returned_bags ?? 0} returned.${Number(amount_collected) > 0 ? ` Collected PKR ${Number(amount_collected).toLocaleString()} from customer.` : ''}`
           : `${req.user.full_name} could not deliver order ${data.order_number}.${delivery_notes ? ` Note: ${delivery_notes}` : ''}`,
         type: 'order',
+        reference_id: data.id,
       });
     } catch (e) { /* non-fatal */ }
 
@@ -317,6 +318,7 @@ const setOrderPriority = async (req, res) => {
           title:          'Urgent Order',
           body:           `Order ${order.order_number} for ${order.users?.full_name || 'a customer'} was flagged urgent — needs delivery ASAP.`,
           type:           'order_urgent',
+          reference_id:   order.id,
         });
       } catch (e) { /* non-fatal */ }
     }

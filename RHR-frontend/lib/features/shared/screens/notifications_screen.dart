@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/storage/secure_storage.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/widgets/tap_scale.dart';
 import '../../../shared/router/app_transitions.dart';
@@ -40,6 +42,38 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   int get _unread => _notifs.where((n) => !_readIds.contains(n['id'])).length;
+
+  // Routes a tap to wherever the notification is actually about — an
+  // order, a payment — instead of just marking it read and sitting
+  // there. 'broadcast'/'admin_login' have no per-user screen to land on
+  // in this app, so those just mark read.
+  Future<void> _handleTap(Map<String, dynamic> n) async {
+    setState(() => _readIds.add(n['id'].toString()));
+
+    final type = (n['type'] ?? '') as String;
+    final referenceId = n['reference_id']?.toString();
+    if (!mounted) return;
+
+    if ((type == 'order' || type == 'order_urgent') && referenceId != null) {
+      context.push('/order-tracking', extra: referenceId);
+      return;
+    }
+
+    if (type == 'payment') {
+      final role = await SecureStorage.getRole();
+      if (!mounted) return;
+      if (role == 'salesman') {
+        context.push('/salesman-payments-collected');
+      } else if (role == 'customer') {
+        context.push('/payment-history');
+      }
+      return;
+    }
+
+    if (type == 'attendance') {
+      context.push('/attendance');
+    }
+  }
 
   IconData _icon(String t) {
     if (t == 'order') return Icons.shopping_bag_outlined;
@@ -100,7 +134,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 return StaggeredFadeIn(
                   index: i,
                   child: TapScale(
-                  onTap: () => setState(() => _readIds.add(id)),
+                  onTap: () => _handleTap(n),
                   child: Container(
                     margin: const EdgeInsets.only(bottom: 10),
                     padding: const EdgeInsets.all(14),

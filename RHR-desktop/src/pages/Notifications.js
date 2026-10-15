@@ -24,7 +24,17 @@ const ROLE_BADGE = {
 const EMPTY_FORM = { title: '', body: '', type: 'broadcast', targetMode: 'role', recipient_role: 'customer', recipient_id: '' };
 const PAGE_SIZE = 8;
 
-export default function Notifications() {
+// Routes a row to wherever it's actually about — mirrors the same
+// type/reference_id scheme the mobile app's notifications screen uses.
+// 'order'/'order_urgent' deep-link into Orders.js's existing
+// initialOrderNumber mechanism (it now also matches a raw id, not just
+// order_number — see Orders.js); 'payment' just opens the Payments page,
+// since there's no per-row payment detail view to land on precisely.
+function isClickable(n) {
+  return (n.type === 'order' || n.type === 'order_urgent') ? !!n.reference_id : n.type === 'payment';
+}
+
+export default function Notifications({ setPage, onViewOrderNumber }) {
   const toast = useToast();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -116,6 +126,15 @@ export default function Notifications() {
   }, [notifications, search]);
 
   const visible = filtered.slice(0, visibleCount);
+
+  const handleRowClick = (n) => {
+    if (!isClickable(n)) return;
+    if (n.type === 'order' || n.type === 'order_urgent') {
+      onViewOrderNumber?.(n.reference_id);
+    } else if (n.type === 'payment') {
+      setPage?.('payments');
+    }
+  };
 
   return (
     <div className="p-6">
@@ -253,12 +272,14 @@ export default function Notifications() {
                       {visible.map((n, i) => {
                         const roleMeta = n.recipient_role ? ROLE_BADGE[n.recipient_role] : null;
                         const RoleIcon = roleMeta?.icon || Users2;
+                        const clickable = isClickable(n);
                         return (
                           <tr
                             key={n.id}
+                            onClick={() => handleRowClick(n)}
                             className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${
                               i % 2 === 1 ? 'bg-gray-50/40' : ''
-                            }`}
+                            } ${clickable ? 'cursor-pointer' : ''}`}
                           >
                             <td className="px-6 py-3.5 whitespace-nowrap text-gray-500">
                               {new Date(n.created_at).toLocaleDateString('en-GB')}
