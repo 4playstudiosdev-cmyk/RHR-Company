@@ -732,31 +732,45 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                           <td className="py-3 px-4 text-right text-navy font-medium">
                             {ordersByCustomer[customer.id] || 0}
                           </td>
-                          <td className="py-3 px-4 text-right font-semibold">
-                            {balance === undefined ? (
-                              <span className="text-gray-300 text-xs">loading…</span>
-                            ) : balance === null ? (
-                              <span className="text-gray-300 text-xs">—</span>
-                            ) : balance > 0 ? (
-                              <span className="text-red-600">PKR {Number(balance).toLocaleString()}</span>
-                            ) : (
-                              <span className="text-gray-400">PKR 0</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            <input
-                              type="number"
-                              min="0"
-                              defaultValue={customer.credit_limit ?? ''}
-                              placeholder="No limit"
-                              onBlur={(e) => {
-                                const val = e.target.value;
-                                if (Number(val || 0) === Number(customer.credit_limit || 0)) return;
-                                handleChangeCreditLimit(customer, val);
-                              }}
-                              className="w-24 border border-gray-200 rounded-md px-2 py-1 text-[12px] text-right text-gray-600 focus:outline-none focus:ring-1 focus:ring-navy-chip focus:border-navy"
-                            />
-                          </td>
+                          {(() => {
+                            const limit = customer.credit_limit;
+                            const overLimit = typeof balance === 'number' && limit && Number(limit) > 0 && balance > Number(limit);
+                            return (
+                              <>
+                                <td className="py-3 px-4 text-right font-semibold">
+                                  {balance === undefined ? (
+                                    <span className="text-gray-300 text-xs">loading…</span>
+                                  ) : balance === null ? (
+                                    <span className="text-gray-300 text-xs">—</span>
+                                  ) : balance > 0 ? (
+                                    <span className={overLimit ? 'inline-flex items-center gap-1 text-red-700' : 'text-red-600'}>
+                                      {overLimit && <AlertTriangle size={13} />}
+                                      PKR {Number(balance).toLocaleString()}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">PKR 0</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    defaultValue={customer.credit_limit ?? ''}
+                                    placeholder="No limit"
+                                    onBlur={(e) => {
+                                      const val = e.target.value;
+                                      if (Number(val || 0) === Number(customer.credit_limit || 0)) return;
+                                      handleChangeCreditLimit(customer, val);
+                                    }}
+                                    title={overLimit ? `Over limit by PKR ${(balance - Number(limit)).toLocaleString()}` : undefined}
+                                    className={`w-24 border rounded-md px-2 py-1 text-[12px] text-right focus:outline-none focus:ring-1 focus:ring-navy-chip focus:border-navy ${
+                                      overLimit ? 'border-red-300 bg-red-50 text-red-700 font-semibold' : 'border-gray-200 text-gray-600'
+                                    }`}
+                                  />
+                                </td>
+                              </>
+                            );
+                          })()}
                           <td className="py-3 px-4 text-center">
                             <span
                               className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${

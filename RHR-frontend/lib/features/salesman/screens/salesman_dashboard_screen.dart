@@ -398,14 +398,25 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                   color: AppColors.navy)),
-                          GestureDetector(
-                            onTap: () => context.push('/my-customers'),
-                            child: const Text('View All',
-                                style: TextStyle(
-                                    color: AppColors.orange,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600)),
-                          ),
+                          Row(children: [
+                            GestureDetector(
+                              onTap: () => context.push('/salesman-outstanding'),
+                              child: const Text('Outstanding',
+                                  style: TextStyle(
+                                      color: AppColors.error,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                            const SizedBox(width: 14),
+                            GestureDetector(
+                              onTap: () => context.push('/my-customers'),
+                              child: const Text('View All',
+                                  style: TextStyle(
+                                      color: AppColors.orange,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                          ]),
                         ],
                       ),
                     ),
@@ -621,6 +632,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                   _drawerItem(context, Icons.person_add_alt_outlined, 'Add Customer', '/add-customer'),
                   _drawerItem(context, Icons.people_outline, 'My Customers', '/my-customers'),
                   _drawerItem(context, Icons.local_shipping_outlined, 'Delivered Orders', '/salesman-delivered-orders'),
+                  _drawerItem(context, Icons.account_balance_wallet_outlined, 'Outstanding Balances', '/salesman-outstanding'),
                   _drawerItem(context, Icons.camera_alt_outlined, 'Record Payment', '/record-payment'),
                   _drawerItem(context, Icons.event_note_outlined, 'Record Visit', '/record-visit'),
                   _drawerItem(context, Icons.account_balance_wallet_outlined, 'Cash Collection', '/cash-collection'),

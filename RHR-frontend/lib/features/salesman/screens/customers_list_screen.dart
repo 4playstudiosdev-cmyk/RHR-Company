@@ -193,6 +193,11 @@ class _CustomersListScreenState extends State<CustomersListScreen> {
                                           color: AppColors.error,
                                           fontWeight: FontWeight.bold,
                                           fontSize: 13)),
+                                if (c['credit_limit'] != null)
+                                  Text('Limit: PKR ${_asNum(c['credit_limit']).toStringAsFixed(0)}',
+                                      style: const TextStyle(
+                                          color: AppColors.steelBlue,
+                                          fontSize: 10)),
                                 const SizedBox(height: 4),
                                 const Icon(Icons.arrow_forward_ios,
                                     size: 12, color: AppColors.steelBlue),
