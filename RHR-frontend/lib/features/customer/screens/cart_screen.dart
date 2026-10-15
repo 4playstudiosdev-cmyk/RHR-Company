@@ -37,7 +37,7 @@ class CartScreen extends StatelessWidget {
                       const SizedBox(height: AppSpacing.xs),
                       TextButton(
                         onPressed: () => goBack(context, '/catalogue'),
-                        child: Text('Browse Products', style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
+                        child: Text('Order Now', style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
                       ),
                     ],
                   ),
