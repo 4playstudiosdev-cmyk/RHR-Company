@@ -2,24 +2,31 @@ const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { generatePayslip } = require('../services/payslip.service');
 const { resolveCompanyId } = require('../utils/companyScope');
+const { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { withRetry } = require('../utils/withRetry');
 
 // ═══════════════════════════════════════
 // ATTENDANCE
 // ═══════════════════════════════════════
 
-// POST /api/v1/hrm/attendance/checkin
+// POST /api/v1/hrm/attendance/checkin — routed through the pgrestGet/
+// pgrestPost/pgrestPatch raw-https bypass (see utils/directQuery.js),
+// not plain supabase-js — this endpoint was 500ing for salesmen on
+// Railway, the same documented silent-failure class every other
+// self-service write in this codebase already had to route around.
+// No native upsert over that bypass, so this does the
+// check-then-insert-or-update by hand instead of a single .upsert().
 const checkIn = async (req, res) => {
   try {
     const { latitude, longitude } = req.body;
     const today = new Date().toISOString().split('T')[0];
 
-    // Check if already checked in today
-    const { data: existing } = await supabaseAdmin
-      .from('attendance')
-      .select('id, check_in')
-      .eq('user_id', req.user.id)
-      .eq('date', today)
-      .single();
+    const existingRows = await withRetry(() => pgrestGet('attendance', {
+      select: 'id,check_in',
+      user_id: `eq.${req.user.id}`,
+      date: `eq.${today}`,
+    }));
+    const existing = existingRows?.[0];
 
     if (existing?.check_in)
       return error(res, 'Already checked in today', 400);
@@ -28,22 +35,34 @@ const checkIn = async (req, res) => {
     const now    = new Date();
     const isLate = now.getHours() >= 9 && now.getMinutes() > 0;
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('attendance')
-      .upsert({
-        company_id:    req.user.company_id,
-        user_id:       req.user.id,
-        date:          today,
-        check_in:      new Date().toISOString(),
-        check_in_lat:  latitude  || null,
-        check_in_lng:  longitude || null,
-        status:        'present',
-        is_late:       isLate
-      }, { onConflict: 'user_id,date' })
-      .select()
-      .single();
+    const body = {
+      company_id:    req.user.company_id,
+      user_id:       req.user.id,
+      date:          today,
+      check_in:      new Date().toISOString(),
+      check_in_lat:  latitude  || null,
+      check_in_lng:  longitude || null,
+      status:        'present',
+      is_late:       isLate,
+    };
 
-    if (dbErr) throw new Error(dbErr.message);
+    const rows = existing?.id
+      ? await pgrestPatch('attendance', { id: `eq.${existing.id}` }, body)
+      : await pgrestPost('attendance', body);
+    const data = rows?.[0];
+
+    // Best-effort — admin sees who checked in/out and exactly when,
+    // without having to open the HRM page and look it up.
+    try {
+      await pgrestPost('notifications', {
+        company_id:     req.user.company_id,
+        recipient_role: 'branch_admin',
+        title:          isLate ? 'Late Check-In' : 'Check-In',
+        body:           `${req.user.full_name || 'An employee'} checked in${isLate ? ' late' : ''} at ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}.`,
+        type:           'attendance',
+      });
+    } catch (e) { /* non-fatal */ }
+
     return success(res, data, isLate ? 'Checked in (Late)' : 'Checked in successfully');
   } catch (err) { return error(res, err.message); }
 };
@@ -54,19 +73,27 @@ const checkOut = async (req, res) => {
     const { latitude, longitude } = req.body;
     const today = new Date().toISOString().split('T')[0];
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('attendance')
-      .update({
-        check_out:     new Date().toISOString(),
-        check_out_lat: latitude  || null,
-        check_out_lng: longitude || null,
-      })
-      .eq('user_id', req.user.id)
-      .eq('date', today)
-      .select()
-      .single();
+    const rows = await pgrestPatch('attendance', {
+      user_id: `eq.${req.user.id}`,
+      date: `eq.${today}`,
+    }, {
+      check_out:     new Date().toISOString(),
+      check_out_lat: latitude  || null,
+      check_out_lng: longitude || null,
+    });
+    const data = rows?.[0];
+    if (!data) return error(res, 'No check-in found for today', 400);
 
-    if (dbErr) throw new Error(dbErr.message);
+    try {
+      await pgrestPost('notifications', {
+        company_id:     req.user.company_id,
+        recipient_role: 'branch_admin',
+        title:          'Check-Out',
+        body:           `${req.user.full_name || 'An employee'} checked out at ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}.`,
+        type:           'attendance',
+      });
+    } catch (e) { /* non-fatal */ }
+
     return success(res, data, 'Checked out successfully');
   } catch (err) { return error(res, err.message); }
 };
@@ -82,15 +109,14 @@ const getAttendance = async (req, res) => {
     const start = new Date(y, m - 1, 1).toISOString().split('T')[0];
     const end   = new Date(y, m, 0).toISOString().split('T')[0];
 
-    const { data, error: dbErr } = await supabaseAdmin
-      .from('attendance')
-      .select('*')
-      .eq('user_id', userId)
-      .gte('date', start)
-      .lte('date', end)
-      .order('date', { ascending: true });
-
-    if (dbErr) throw new Error(dbErr.message);
+    // Two conditions on the same column (date between start/end) need
+    // repeated query params PostgREST-side — the plain pgrestGet helper
+    // can only carry one value per key, so this goes through
+    // pgrestGetRaw with a hand-built query string instead (same pattern
+    // bank.controller.js's getBankTransactions already uses).
+    const data = await withRetry(() => pgrestGetRaw(
+      `attendance?select=*&user_id=eq.${userId}&date=gte.${start}&date=lte.${end}&order=date.asc`
+    ));
 
     const presentDays = data?.filter(a => a.status === 'present').length || 0;
     const lateDays    = data?.filter(a => a.is_late).length || 0;

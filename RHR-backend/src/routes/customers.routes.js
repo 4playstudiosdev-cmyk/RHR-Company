@@ -2,10 +2,14 @@ const express = require('express');
 const router  = express.Router();
 const ctrl    = require('../controllers/customers.controller');
 const { authenticate } = require('../middleware/auth.middleware');
-const { isAdmin, isCustomer, isSuperAdmin } = require('../middleware/role.middleware');
+const { isAdmin, isCustomer, isSuperAdmin, requireRole } = require('../middleware/role.middleware');
 
 router.get('/',              authenticate,             ctrl.getCustomers);
-router.post('/',              authenticate, isAdmin,    ctrl.createCustomer);
+// A salesman registering a new customer on the spot uses this same
+// endpoint — createCustomer forces their own company_id/salesman_id
+// when the caller is a salesman, so they can't assign a customer to
+// another branch or another salesman.
+router.post('/',              authenticate, requireRole('super_admin', 'branch_admin', 'salesman'), ctrl.createCustomer);
 router.get('/pending',       authenticate, isAdmin,     ctrl.getPendingCustomers);
 router.patch('/me/location', authenticate, isCustomer,  ctrl.updateMyShopLocation);
 router.get('/me/profile',    authenticate, isCustomer,  ctrl.getMyProfile);

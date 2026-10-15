@@ -96,7 +96,7 @@ const getCustomerById = async (req, res) => {
     const user = req.user;
     let query  = supabaseAdmin
       .from('users')
-      .select('id, full_name, phone, email, is_approved, salesman_id, company_id, shop_name, shop_address, shop_latitude, shop_longitude, created_at')
+      .select('id, full_name, phone, email, is_approved, salesman_id, company_id, shop_name, shop_address, shop_latitude, shop_longitude, city, area, profile_photo_url, credit_limit, created_at')
       .eq('id', req.params.id)
       .eq('role', 'customer')
       .single();
@@ -120,14 +120,19 @@ const getCustomerById = async (req, res) => {
 // that queue since an admin is entering it by hand.
 const createCustomer = async (req, res) => {
   try {
-    const { full_name, phone, email, shop_name, shop_address, city, area, company_id, rate_tier, driver_id, salesman_id } = req.body;
+    const { full_name, phone, email, shop_name, shop_address, city, area, company_id, rate_tier, driver_id } = req.body;
     if (!full_name || !phone)
       return error(res, 'full_name and phone are required', 400);
 
-    const targetCompanyId = req.user.role === 'branch_admin'
+    const isSalesman = req.user.role === 'salesman';
+    const targetCompanyId = (req.user.role === 'branch_admin' || isSalesman)
       ? req.user.company_id
       : (company_id || req.user.company_id);
     if (!targetCompanyId) return error(res, 'company_id is required', 400);
+
+    // A salesman registering their own customer always assigns
+    // themselves — never another salesman, and never left unassigned.
+    const salesman_id = isSalesman ? req.user.id : req.body.salesman_id;
 
     if (rate_tier && !VALID_RATE_TIERS.includes(rate_tier))
       return error(res, `rate_tier must be one of: ${VALID_RATE_TIERS.join(', ')}`, 400);
