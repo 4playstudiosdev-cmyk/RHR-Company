@@ -5,7 +5,8 @@
 const RULES = {
   tileBond: { min: 50, step: 10 },
   grout: { min: 6, step: 6 },
-  maproCement: { min: 25, step: 25 },
+  maproCement1kg: { min: 25, step: 25 },
+  maproCement5kg: { min: 5, step: 5 },
   normal: { min: 1, step: 1 },
 };
 
@@ -14,7 +15,7 @@ export function qtyRuleFor(name = '', category = '') {
   const c = String(category).toLowerCase();
   if (c.includes('tile bond')) return RULES.tileBond;
   if (c.includes('grout')) return RULES.grout;
-  if (n.includes('mapro')) return RULES.maproCement;
+  if (n.includes('mapro')) return n.includes('5kg') ? RULES.maproCement5kg : RULES.maproCement1kg;
   return RULES.normal;
 }
 
