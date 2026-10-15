@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/api_endpoints.dart';
@@ -116,6 +117,18 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     return idx == -1 ? 0 : idx;
   }
 
+  String get _deliveredAtLabel {
+    final raw = _order?['updated_at']?.toString();
+    final parsed = raw == null ? null : DateTime.tryParse(raw);
+    if (parsed == null) return '';
+    final local = parsed.toLocal();
+    final datePart = '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
+    final hour12 = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final minute = local.minute.toString().padLeft(2, '0');
+    final ampm = local.hour >= 12 ? 'PM' : 'AM';
+    return '$datePart, $hour12:$minute $ampm';
+  }
+
   @override
   Widget build(BuildContext context) {
     final orderId  = _order?['id']?.toString() ?? widget.orderId ?? '';
@@ -124,6 +137,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     final amount   = _order?['total_amount'] ?? _order?['total'] ?? 0;
     final date     = _order?['created_at']?.toString() ?? '—';
     final items    = (_order?['order_items'] as List?) ?? [];
+    final driver   = _order?['drivers'] is Map ? _order!['drivers'] as Map : null;
+    final showDriver = driver != null && (status == 'dispatched' || status == 'delivered') &&
+        (driver['full_name'] ?? '').toString().trim().isNotEmpty;
 
     return Scaffold(
       backgroundColor: AppColors.surfaceContainerLowest,
@@ -287,8 +303,15 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                             Text(_stepLabels[i], style: AppTextStyles.headlineSm.copyWith(
                                                 color: done ? AppColors.onSurface : AppColors.outline, fontSize: 15)),
-                                            if (current)
-                                              Text('Your order is on the way!', style: AppTextStyles.bodySm.copyWith(color: AppColors.primary, fontWeight: FontWeight.w600)),
+                                            if (current && _steps[i] == 'delivered') ...[
+                                              Text('Thanks for working with us! Your order has been delivered.',
+                                                  style: AppTextStyles.bodySm.copyWith(color: AppColors.success, fontWeight: FontWeight.w600)),
+                                              if (_deliveredAtLabel.isNotEmpty)
+                                                Text(_deliveredAtLabel, style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurfaceVariant)),
+                                            ] else if (current && _steps[i] == 'dispatched')
+                                              Text('Your order is on the way!', style: AppTextStyles.bodySm.copyWith(color: AppColors.primary, fontWeight: FontWeight.w600))
+                                            else if (current)
+                                              Text('In progress', style: AppTextStyles.bodySm.copyWith(color: AppColors.primary, fontWeight: FontWeight.w600)),
                                           ]),
                                         ),
                                       ),
@@ -297,6 +320,43 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                 );
                               }),
                             ),
+                          ]),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                      ],
+
+                      if (showDriver) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(AppSpacing.md),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(AppRadius.lg),
+                            border: Border.all(color: AppColors.outlineVariant),
+                          ),
+                          child: Row(children: [
+                            CircleAvatar(
+                              radius: 24,
+                              backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+                              child: const Icon(Icons.local_shipping_outlined, color: AppColors.primary),
+                            ),
+                            const SizedBox(width: AppSpacing.base),
+                            Expanded(
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text('Your Driver', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant, fontSize: 11)),
+                                Text(driver['full_name']?.toString() ?? 'Driver', style: AppTextStyles.headlineSm.copyWith(color: AppColors.onSurface, fontSize: 15)),
+                                if ((driver['car_number'] ?? '').toString().trim().isNotEmpty)
+                                  Text('Vehicle: ${driver['car_number']}', style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurfaceVariant)),
+                              ]),
+                            ),
+                            if ((driver['phone'] ?? '').toString().trim().isNotEmpty)
+                              IconButton(
+                                icon: const Icon(Icons.phone, color: AppColors.primary),
+                                onPressed: () async {
+                                  final uri = Uri(scheme: 'tel', path: driver['phone'].toString());
+                                  if (await canLaunchUrl(uri)) await launchUrl(uri);
+                                },
+                              ),
                           ]),
                         ),
                         const SizedBox(height: AppSpacing.md),
@@ -321,13 +381,20 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                               final name  = item['product_name'] ?? item['name'] ?? 'Item';
                               final qty   = item['quantity'] ?? item['qty'] ?? 1;
                               final price = item['unit_price'] ?? item['price'] ?? 0;
+                              final imageUrl = item['products'] is Map ? item['products']['image_url'] as String? : null;
                               return Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 6),
                                 child: Row(children: [
                                   Container(
                                     width: 44, height: 44,
                                     decoration: BoxDecoration(color: AppColors.surfaceVariant, borderRadius: BorderRadius.circular(AppRadius.sm)),
-                                    child: const Icon(Icons.inventory_2_outlined, color: AppColors.outline, size: 20),
+                                    child: (imageUrl != null && imageUrl.isNotEmpty)
+                                        ? ClipRRect(
+                                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                                            child: Image.network(imageUrl, fit: BoxFit.cover,
+                                                errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, color: AppColors.outline, size: 20)),
+                                          )
+                                        : const Icon(Icons.inventory_2_outlined, color: AppColors.outline, size: 20),
                                   ),
                                   const SizedBox(width: AppSpacing.sm),
                                   Expanded(

@@ -16,8 +16,11 @@ import { qtyRuleForProduct } from '../utils/orderQtyRules';
 // is driver-only (set from their own Cancel button on the delivery run,
 // via PATCH /:id/driver-status) — it never appears in the admin's own
 // Update-status dropdown below, only as a tab/badge to see & filter it.
-const STATUS_OPTIONS = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered', 'cancelled', 'undelivered'];
-const TABS = ['all', ...STATUS_OPTIONS];
+// 'undelivered' is intentionally not a tab here — it's rare enough
+// (driver-cancelled delivery run) that it doesn't need its own filter;
+// those orders still show up under All and in an order's own detail view.
+const STATUS_OPTIONS = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered', 'cancelled'];
+const TABS = [...STATUS_OPTIONS, 'all'];
 
 // Forward-only progression, mirrored from orders.service.js's
 // isValidTransition — the Update dropdown only offers stages ahead of
@@ -78,7 +81,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
   const [error, setError] = useState('');
   const [updatingId, setUpdatingId] = useState(null);
   const [pdfLoadingId, setPdfLoadingId] = useState(null);
-  const [tab, setTab] = useState('all');
+  const [tab, setTab] = useState('pending');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
