@@ -132,12 +132,37 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     }
   }
 
-  Future<void> _save() async {
-    if (_nameController.text.trim().isEmpty || _phoneController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Name and phone are required.')));
-      return;
+  // Every one of these mirrors customers.controller.js's own
+  // REQUIRED_PROFILE_FIELDS (isProfileComplete) — a customer registered
+  // here with any of them missing would immediately be flagged
+  // incomplete anyway, so Add Customer requires them up front instead
+  // of letting a salesman create a half-filled record.
+  bool _validate() {
+    final checks = <String, bool>{
+      'Full Name': _nameController.text.trim().isNotEmpty,
+      'Phone Number': _phoneController.text.trim().isNotEmpty,
+      'Shop Name': _shopNameController.text.trim().isNotEmpty,
+      'Shop Address': _addressController.text.trim().isNotEmpty,
+      'City': _cityController.text.trim().isNotEmpty,
+      'Area': _areaController.text.trim().isNotEmpty,
+      'Shop Location': _shopLatitude != null && _shopLongitude != null,
+      'NIC Number': _nicNumberController.text.trim().isNotEmpty,
+      'Shop Photo': _shopImageFile != null,
+      'NIC Front Image': _nicFrontImageFile != null,
+      'NIC Back Image': _nicBackImageFile != null,
+    };
+    for (final entry in checks.entries) {
+      if (!entry.value) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${entry.key} is required.')));
+        return false;
+      }
     }
+    return true;
+  }
+
+  Future<void> _save() async {
+    if (!_validate()) return;
     setState(() => _saving = true);
     try {
       // Upload whichever photos were picked before submitting — same
@@ -153,15 +178,15 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
       final res = await DioClient.instance.post(ApiEndpoints.customers, data: {
         'full_name': _nameController.text.trim(),
         'phone': _phoneController.text.trim(),
-        if (_shopNameController.text.trim().isNotEmpty) 'shop_name': _shopNameController.text.trim(),
-        if (_addressController.text.trim().isNotEmpty) 'shop_address': _addressController.text.trim(),
-        if (_cityController.text.trim().isNotEmpty) 'city': _cityController.text.trim(),
-        if (_areaController.text.trim().isNotEmpty) 'area': _areaController.text.trim(),
-        if (_shopLatitude != null) 'shop_latitude': _shopLatitude,
-        if (_shopLongitude != null) 'shop_longitude': _shopLongitude,
+        'shop_name': _shopNameController.text.trim(),
+        'shop_address': _addressController.text.trim(),
+        'city': _cityController.text.trim(),
+        'area': _areaController.text.trim(),
+        'shop_latitude': _shopLatitude,
+        'shop_longitude': _shopLongitude,
         if (_creditLimitController.text.trim().isNotEmpty)
           'credit_limit': double.tryParse(_creditLimitController.text.trim()),
-        if (_nicNumberController.text.trim().isNotEmpty) 'nic_number': _nicNumberController.text.trim(),
+        'nic_number': _nicNumberController.text.trim(),
         if (shopImageUrl != null) 'shop_image_url': shopImageUrl,
         if (nicFrontUrl != null) 'nic_image_url': nicFrontUrl,
         if (nicBackUrl != null) 'nic_back_image_url': nicBackUrl,
@@ -320,10 +345,10 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
             _field('Phone Number', _phoneController, required: true, keyboardType: TextInputType.phone, icon: Icons.phone_outlined),
           ]),
           _sectionCard(title: 'Shop Details', icon: Icons.storefront_outlined, children: [
-            _field('Shop Name', _shopNameController, icon: Icons.store_outlined),
-            _field('Shop Address', _addressController, icon: Icons.home_outlined),
-            _field('City', _cityController, icon: Icons.location_city_outlined),
-            _field('Area', _areaController, icon: Icons.map_outlined),
+            _field('Shop Name', _shopNameController, required: true, icon: Icons.store_outlined),
+            _field('Shop Address', _addressController, required: true, icon: Icons.home_outlined),
+            _field('City', _cityController, required: true, icon: Icons.location_city_outlined),
+            _field('Area', _areaController, required: true, icon: Icons.map_outlined),
             OutlinedButton.icon(
               onPressed: _pickLocation,
               style: OutlinedButton.styleFrom(
@@ -348,15 +373,15 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
                 ]),
               ),
             const SizedBox(height: 14),
-            _imagePicker(label: 'Shop Photo', file: _shopImageFile, onTap: () => _pickImage('shop')),
+            _imagePicker(label: 'Shop Photo *', file: _shopImageFile, onTap: () => _pickImage('shop')),
           ]),
-          _sectionCard(title: 'Identification (optional)', icon: Icons.badge_outlined, children: [
-            _field('NIC Number', _nicNumberController, icon: Icons.badge_outlined, hint: '42101-1234567-1',
+          _sectionCard(title: 'Identification', icon: Icons.badge_outlined, children: [
+            _field('NIC Number', _nicNumberController, required: true, icon: Icons.badge_outlined, hint: '42101-1234567-1',
                 keyboardType: TextInputType.number, inputFormatters: [CnicInputFormatter()]),
             Row(children: [
-              Expanded(child: _imagePicker(label: 'NIC Front', file: _nicFrontImageFile, onTap: () => _pickImage('nicFront'))),
+              Expanded(child: _imagePicker(label: 'NIC Front *', file: _nicFrontImageFile, onTap: () => _pickImage('nicFront'))),
               const SizedBox(width: 12),
-              Expanded(child: _imagePicker(label: 'NIC Back', file: _nicBackImageFile, onTap: () => _pickImage('nicBack'))),
+              Expanded(child: _imagePicker(label: 'NIC Back *', file: _nicBackImageFile, onTap: () => _pickImage('nicBack'))),
             ]),
           ]),
           _sectionCard(title: 'Account Setup (optional)', icon: Icons.account_balance_wallet_outlined, children: [
