@@ -327,7 +327,7 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
   if (!isValidTransition(existingRows[0].status, status))
     throw new Error(`Cannot move an order from "${existingRows[0].status}" to "${status}"`);
 
-  const { driverId, carNumber, deliveryAddress, deliveredBags, returnedBags, deliveryNotes, priority, amountCollected, collectingDriverId } = dispatchInfo;
+  const { driverId, carNumber, deliveryAddress, deliveredBags, returnedBags, deliveryNotes, priority, amountCollected, collectingDriverId, cancellationReason } = dispatchInfo;
   if (driverId) {
     const drivers = await pgrestGet('drivers', {
       select: 'id',
@@ -348,6 +348,7 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
   if (deliveryNotes != null) patchBody.delivery_notes = deliveryNotes;
   if (priority != null)      patchBody.priority = priority === 'urgent' ? 'urgent' : 'normal';
   if (amountCollected != null) patchBody.amount_collected = Number(amountCollected);
+  if (status === 'cancelled' && cancellationReason) patchBody.cancellation_reason = cancellationReason;
 
   let updated;
   try {
@@ -358,7 +359,10 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
     });
     updated = rows?.[0];
   } catch (e) {
-    const rows = await pgrestPatch('orders', { id: `eq.${id}` }, patchBody);
+    // cancellation_reason column may not exist yet (sql/phase64) — retry
+    // without it rather than failing the whole status update.
+    const { cancellation_reason, ...bodyWithoutReason } = patchBody;
+    const rows = await pgrestPatch('orders', { id: `eq.${id}` }, bodyWithoutReason);
     updated = rows?.[0];
   }
   if (!updated) throw new Error('Order updated but failed to fetch result');

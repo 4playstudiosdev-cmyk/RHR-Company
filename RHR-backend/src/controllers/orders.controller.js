@@ -53,8 +53,10 @@ const updateOrderStatus = async (req, res) => {
   console.log('================================');
 
   try {
-    const { status, driver_id, car_number, delivery_address, delivered_bags, returned_bags, delivery_notes, priority } = req.body;
+    const { status, driver_id, car_number, delivery_address, delivered_bags, returned_bags, delivery_notes, priority, cancellation_reason } = req.body;
     if (!status) return error(res, 'status is required', 400);
+    if (status === 'cancelled' && !cancellation_reason)
+      return error(res, 'A cancellation reason is required', 400);
     const data = await svc.updateOrderStatus(req.params.id, req.user.company_id, status, {
       driverId: driver_id,
       carNumber: car_number,
@@ -63,6 +65,7 @@ const updateOrderStatus = async (req, res) => {
       returnedBags: returned_bags,
       deliveryNotes: delivery_notes,
       priority,
+      cancellationReason: cancellation_reason,
     });
     return success(res, data, `Order status updated to ${status}`);
   } catch (err) {

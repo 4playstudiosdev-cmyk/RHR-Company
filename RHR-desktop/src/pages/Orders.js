@@ -16,7 +16,7 @@ import { qtyRuleForProduct } from '../utils/orderQtyRules';
 // is driver-only (set from their own Cancel button on the delivery run,
 // via PATCH /:id/driver-status) — it never appears in the admin's own
 // Update-status dropdown below, only as a tab/badge to see & filter it.
-const STATUS_OPTIONS = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered', 'undelivered', 'cancelled'];
+const STATUS_OPTIONS = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered', 'cancelled', 'undelivered'];
 const TABS = ['all', ...STATUS_OPTIONS];
 
 // Forward-only progression, mirrored from orders.service.js's
@@ -337,11 +337,22 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
       openDispatchModal(order);
       return;
     }
+
+    let cancellation_reason;
+    if (newStatus === 'cancelled') {
+      const reason = window.prompt(`Why is order #${order.order_number} being cancelled?`);
+      if (!reason || !reason.trim()) {
+        if (reason !== null) toast.error('A cancellation reason is required.');
+        return;
+      }
+      cancellation_reason = reason.trim();
+    }
+
     setUpdatingId(order.id);
     try {
-      await api.patch(`/orders/${order.id}/status`, { status: newStatus });
+      await api.patch(`/orders/${order.id}/status`, { status: newStatus, cancellation_reason });
       setOrders((prev) =>
-        prev.map((o) => (o.id === order.id ? { ...o, status: newStatus } : o))
+        prev.map((o) => (o.id === order.id ? { ...o, status: newStatus, cancellation_reason } : o))
       );
       toast.success(`Order ${order.order_number} marked as ${newStatus}.`);
     } catch (err) {
@@ -1147,6 +1158,13 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
             <p className="text-xs text-gray-500">Phone: {selectedOrder.users?.phone || '—'}</p>
             <p className="text-xs text-gray-500">Address: {selectedOrder.delivery_address || selectedOrder.users?.shop_address || '—'}</p>
           </div>
+
+          {selectedOrder.status === 'cancelled' && selectedOrder.cancellation_reason && (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-red-400 mb-1">Cancellation Reason</p>
+              <p className="text-sm text-red-700">{selectedOrder.cancellation_reason}</p>
+            </div>
+          )}
 
           {(selectedOrder.delivered_bags != null || selectedOrder.returned_bags != null) && (
             <div className={`border rounded-xl px-4 py-3 mb-4 ${
