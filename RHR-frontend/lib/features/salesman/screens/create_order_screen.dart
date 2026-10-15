@@ -5,7 +5,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/hive_service.dart';
 import '../../../core/storage/sync_service.dart';
-import '../../../shared/cart_store.dart';
+import '../../../shared/order_qty_rules.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/router/app_transitions.dart';
@@ -422,6 +422,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                     final p = _filteredProducts[i];
                     final qty = (p['qty'] ?? 0) as int;
                     final price = ((p['price'] ?? 0) as num).toDouble();
+                    final qtyRule = qtyRuleForProduct(p);
                     return Container(
                       margin: const EdgeInsets.only(bottom: 10),
                       padding: const EdgeInsets.all(12),
@@ -461,7 +462,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                         Row(children: [
                           GestureDetector(
                             onTap: () => setState(() {
-                              _products[allIndex]['qty'] = qty <= CartStore.kMinQty ? 0 : qty - CartStore.kQtyStep;
+                              _products[allIndex]['qty'] = qty <= qtyRule.min ? 0 : qty - qtyRule.step;
                             }),
                             child: Container(
                               width: 30,
@@ -479,7 +480,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                           ),
                           GestureDetector(
                             onTap: () => setState(() =>
-                                _products[allIndex]['qty'] = qty == 0 ? CartStore.kMinQty : qty + CartStore.kQtyStep),
+                                _products[allIndex]['qty'] = qty == 0 ? qtyRule.min : qty + qtyRule.step),
                             child: Container(
                               width: 30,
                               height: 30,

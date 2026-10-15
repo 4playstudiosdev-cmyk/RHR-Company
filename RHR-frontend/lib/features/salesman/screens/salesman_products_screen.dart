@@ -5,7 +5,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/router/app_transitions.dart';
-import '../../../shared/cart_store.dart';
+import '../../../shared/order_qty_rules.dart';
 
 /// Product catalogue browse screen for salesmen — category chips up top,
 /// a grid of tiles (image/name/price/quick-add) below. Separate from
@@ -87,20 +87,27 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
 
   int get _cartCount => _cart.values.fold(0, (s, q) => s + q);
 
+  OrderQtyRule _ruleFor(String productId) {
+    final p = _products.firstWhere((p) => p['id'] == productId, orElse: () => {});
+    return qtyRuleForProduct(p);
+  }
+
   void _addToCart(String productId) {
     setState(() {
+      final rule = _ruleFor(productId);
       final current = _cart[productId] ?? 0;
-      _cart[productId] = current == 0 ? CartStore.kMinQty : current + CartStore.kQtyStep;
+      _cart[productId] = current == 0 ? rule.min : current + rule.step;
     });
   }
 
   void _removeFromCart(String productId) {
     setState(() {
+      final rule = _ruleFor(productId);
       final current = _cart[productId] ?? 0;
-      if (current <= CartStore.kMinQty) {
+      if (current <= rule.min) {
         _cart.remove(productId);
       } else {
-        _cart[productId] = current - CartStore.kQtyStep;
+        _cart[productId] = current - rule.step;
       }
     });
   }

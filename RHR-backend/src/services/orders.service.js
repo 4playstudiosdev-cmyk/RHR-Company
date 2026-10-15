@@ -1,6 +1,7 @@
 const { supabaseAdmin }    = require('../config/supabase');
 const { generateInvoice }  = require('./invoice.service');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { qtyRuleFor } = require('../utils/orderQtyRules');
 
 // Flat PKR 10 adjustment set on the customer's rate_tier at approval time
 // (see the Rate Tier dialog on Customers.js / auth.service.js's
@@ -21,7 +22,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
   const productIds = items.map(i => i.product_id);
   const [products, customerRows, customPrices, activeOrders, lastLedgerEntries] = await Promise.all([
     pgrestGet('products', {
-      select: 'id,name,price,stock_quantity',
+      select: 'id,name,price,stock_quantity,categories(name)',
       id: `in.(${productIds.join(',')})`,
       company_id: `eq.${companyId}`,
       is_active: 'eq.true',
@@ -73,14 +74,15 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
 
   // Step 2: Build order items with price snapshot
   let totalAmount = 0;
-  // Wholesale-order rule — every line must be at least 50 units (bag,
-  // pcs, dozen, kg, bottle, pouch alike); mirrors the frontend's
-  // CartStore (kMinQty = 50) so a direct API call can't bypass it.
-  const MIN_ORDER_QTY = 50;
+  // Per-product minimum order quantity — Tile Bond (50), Grout (6),
+  // Mapro Gray/White Cement (25), everything else normal (1). Mirrors
+  // the frontend's lib/shared/order_qty_rules.dart so a direct API call
+  // can't bypass what the UI itself enforces.
   const orderItems = items.map(item => {
     const product = products.find(p => p.id === item.product_id);
-    if (Number(item.quantity) < MIN_ORDER_QTY) {
-      throw new Error(`Minimum order quantity is ${MIN_ORDER_QTY} per product — ${product.name} has ${item.quantity}`);
+    const rule = qtyRuleFor(product.name, product.categories?.name);
+    if (Number(item.quantity) < rule.min) {
+      throw new Error(`Minimum order quantity for ${product.name} is ${rule.min} — you entered ${item.quantity}`);
     }
     if (product.stock_quantity < item.quantity) {
       throw new Error(`Insufficient stock for ${product.name}`);

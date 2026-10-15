@@ -5,6 +5,7 @@ import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/cart_store.dart';
+import '../../../shared/order_qty_rules.dart';
 import '../../../shared/router/app_transitions.dart';
 
 class ProductDetailScreen extends StatefulWidget {
@@ -18,7 +19,7 @@ class ProductDetailScreen extends StatefulWidget {
 class _ProductDetailScreenState extends State<ProductDetailScreen> {
   Map<String, dynamic>? _product;
   bool _isLoading = true;
-  int _quantity = CartStore.kMinQty;
+  int _quantity = 1;
 
   @override
   void initState() {
@@ -32,7 +33,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         '${ApiEndpoints.products}/${widget.productId}',
       );
       if (response.data['success'] == true) {
-        setState(() => _product = response.data['data']);
+        final product = response.data['data'] as Map<String, dynamic>;
+        setState(() {
+          _product = product;
+          _quantity = qtyRuleForProduct(product).min;
+        });
       }
     } catch (e) {
       debugPrint('Product detail error: $e');
@@ -52,6 +57,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     final imageUrl   = _product?['image_url']       as String?;
     final inStock    = stock > 0;
     final totalPrice = price * _quantity;
+    final qtyRule    = qtyRuleFor(name: name, category: category);
 
     return Scaffold(
       backgroundColor: AppColors.surfaceContainerLowest,
@@ -161,7 +167,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                       decoration: BoxDecoration(border: Border.all(color: AppColors.outlineVariant), borderRadius: BorderRadius.circular(AppRadius.base)),
                                       child: Row(children: [
                                         IconButton(
-                                          onPressed: () { if (_quantity > CartStore.kMinQty) setState(() => _quantity -= CartStore.kQtyStep); },
+                                          onPressed: () { if (_quantity > qtyRule.min) setState(() => _quantity -= qtyRule.step); },
                                           icon: const Icon(Icons.remove, color: AppColors.primaryContainer),
                                         ),
                                         Container(
@@ -172,7 +178,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                           child: Text('$_quantity', style: AppTextStyles.bodyMd.copyWith(fontWeight: FontWeight.w600, color: AppColors.primaryContainer)),
                                         ),
                                         IconButton(
-                                          onPressed: () => setState(() => _quantity += CartStore.kQtyStep),
+                                          onPressed: () => setState(() => _quantity += qtyRule.step),
                                           icon: const Icon(Icons.add, color: AppColors.primaryContainer),
                                         ),
                                       ]),
@@ -213,7 +219,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                               Expanded(
                                 child: OutlinedButton.icon(
                                   onPressed: () {
-                                    CartStore.instance.add(id: widget.productId ?? '', name: name, price: price, unit: unit, qty: _quantity);
+                                    CartStore.instance.add(id: widget.productId ?? '', name: name, price: price, unit: unit, category: category, qty: _quantity);
                                     context.push('/cart');
                                   },
                                   style: OutlinedButton.styleFrom(
@@ -230,7 +236,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                               Expanded(
                                 child: ElevatedButton(
                                   onPressed: () {
-                                    CartStore.instance.add(id: widget.productId ?? '', name: name, price: price, unit: unit, qty: _quantity);
+                                    CartStore.instance.add(id: widget.productId ?? '', name: name, price: price, unit: unit, category: category, qty: _quantity);
                                     context.push('/place-order', extra: CartStore.instance.items);
                                   },
                                   style: ElevatedButton.styleFrom(

@@ -10,6 +10,7 @@ import Button from '../components/Button';
 import CityFilter from '../components/CityFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
 import { buildInvoicePdf } from '../utils/invoicePdf';
+import { qtyRuleForProduct } from '../utils/orderQtyRules';
 
 // Matches the backend's validStatuses in orders.service.js. 'undelivered'
 // is driver-only (set from their own Cancel button on the delivery run,
@@ -32,12 +33,7 @@ function availableNextStatuses(currentStatus) {
 }
 const PAGE_SIZE = 10;
 const TAX_RATE = 0.18; // 18% sales tax
-// Wholesale-order rule — every line must be at least 50 units, moving in
-// steps of 10 after that; mirrors the mobile app's CartStore (kMinQty/
-// kQtyStep) and the backend's own floor in orders.service.js#createOrder.
-const MIN_ORDER_QTY = 50;
-const ORDER_QTY_STEP = 10;
-const EMPTY_ORDER_FORM = { customer_id: '', items: [{ product_id: '', quantity: MIN_ORDER_QTY }], delivery_address: '', notes: '' };
+const EMPTY_ORDER_FORM = { customer_id: '', items: [{ product_id: '', quantity: 1 }], delivery_address: '', notes: '' };
 
 // created_by_role (phase61) — who actually clicked "create", independent
 // of salesman_id (always the customer's assigned salesman, not
@@ -227,12 +223,23 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
   const updateItem = (index, field, value) => {
     setOrderForm((prev) => ({
       ...prev,
-      items: prev.items.map((it, i) => (i === index ? { ...it, [field]: value } : it))
+      items: prev.items.map((it, i) => {
+        if (i !== index) return it;
+        // Picking a product snaps quantity to that product's own floor
+        // (Tile Bond 50, Grout 6, Mapro cement 25, everything else 1)
+        // instead of leaving behind a quantity from the previously
+        // selected product that might not even be valid for this one.
+        if (field === 'product_id') {
+          const product = products.find((p) => p.id === value);
+          return { ...it, product_id: value, quantity: qtyRuleForProduct(product).min };
+        }
+        return { ...it, [field]: value };
+      })
     }));
   };
 
   const addItemRow = () => {
-    setOrderForm((prev) => ({ ...prev, items: [...prev.items, { product_id: '', quantity: MIN_ORDER_QTY }] }));
+    setOrderForm((prev) => ({ ...prev, items: [...prev.items, { product_id: '', quantity: 1 }] }));
   };
 
   const removeItemRow = (index) => {
@@ -252,8 +259,15 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
       .filter((it) => it.product_id && Number(it.quantity) > 0)
       .map((it) => ({ product_id: it.product_id, quantity: Number(it.quantity) }));
     if (items.length === 0) { toast.error('Add at least one product.'); return; }
-    const belowMin = items.find((it) => it.quantity < MIN_ORDER_QTY);
-    if (belowMin) { toast.error(`Minimum order quantity is ${MIN_ORDER_QTY} per product.`); return; }
+    const belowMin = items.find((it) => {
+      const product = products.find((p) => p.id === it.product_id);
+      return it.quantity < qtyRuleForProduct(product).min;
+    });
+    if (belowMin) {
+      const product = products.find((p) => p.id === belowMin.product_id);
+      toast.error(`Minimum order quantity for ${product?.name || 'this product'} is ${qtyRuleForProduct(product).min}.`);
+      return;
+    }
 
     setCreating(true);
     try {
@@ -1054,8 +1068,8 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
                     </select>
                     <input
                       type="number"
-                      min={MIN_ORDER_QTY}
-                      step={ORDER_QTY_STEP}
+                      min={qtyRuleForProduct(products.find((p) => p.id === item.product_id)).min}
+                      step={qtyRuleForProduct(products.find((p) => p.id === item.product_id)).step}
                       value={item.quantity}
                       onChange={(e) => updateItem(i, 'quantity', e.target.value)}
                       className="w-20 flex-shrink-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"

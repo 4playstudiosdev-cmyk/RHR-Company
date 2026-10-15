@@ -5,6 +5,7 @@ import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/cart_store.dart';
+import '../../../shared/order_qty_rules.dart';
 import '../../../shared/widgets/rhr_bottom_nav.dart';
 import '../../../shared/widgets/shimmer_box.dart';
 
@@ -179,6 +180,8 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
                                 final qty    = _qtyFor(pid);
                                 final price  = (p['price'] ?? 0).toDouble();
                                 final unit   = (p['unit'] ?? '') as String;
+                                final category = (p['categories'] is Map ? p['categories']['name'] : '') ?? '';
+                                final step   = qty > 0 ? CartStore.instance.stepFor(pid) : qtyRuleFor(name: p['name'] ?? '', category: category).step;
 
                                 return Container(
                                   decoration: BoxDecoration(
@@ -231,7 +234,7 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
                                                     child: OutlinedButton(
                                                       onPressed: () => CartStore.instance.add(
                                                           id: pid, name: p['name'] ?? 'Product',
-                                                          price: price, unit: unit),
+                                                          price: price, unit: unit, category: category),
                                                       style: OutlinedButton.styleFrom(
                                                         foregroundColor: AppColors.primary,
                                                         side: const BorderSide(color: AppColors.primary),
@@ -245,7 +248,7 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
                                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                     children: [
                                                       GestureDetector(
-                                                        onTap: () => CartStore.instance.updateQty(pid, qty - CartStore.kQtyStep),
+                                                        onTap: () => CartStore.instance.updateQty(pid, qty - step),
                                                         child: Container(
                                                           width: 28, height: 28,
                                                           decoration: BoxDecoration(color: AppColors.surfaceContainerLow, borderRadius: BorderRadius.circular(6)),
@@ -254,7 +257,7 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
                                                       ),
                                                       Text('$qty', style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary, fontSize: 15)),
                                                       GestureDetector(
-                                                        onTap: () => CartStore.instance.updateQty(pid, qty + CartStore.kQtyStep),
+                                                        onTap: () => CartStore.instance.updateQty(pid, qty + step),
                                                         child: Container(
                                                           width: 28, height: 28,
                                                           decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(6)),

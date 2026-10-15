@@ -1,15 +1,9 @@
 import 'package:flutter/foundation.dart';
+import 'order_qty_rules.dart';
 
 class CartStore extends ChangeNotifier {
   CartStore._();
   static final CartStore instance = CartStore._();
-
-  // Wholesale-order rule: no cart line can sit between 1 and 49 — it's
-  // either 0 (not in the cart) or at least 50, moving in steps of 10
-  // after that (50, 60, 70, ...). Applies to every product regardless
-  // of unit (bag, pcs, dozen, kg, bottle, pouch).
-  static const int kMinQty = 50;
-  static const int kQtyStep = 10;
 
   final List<Map<String, dynamic>> _items = [];
 
@@ -20,18 +14,42 @@ class CartStore extends ChangeNotifier {
 
   int get itemCount => _items.fold(0, (sum, i) => sum + (i['qty'] as int));
 
+  // Each item's own floor/step (set once, at add time) — a grout pouch
+  // moves in 6s, a Tile Bond bag in 10s starting at 50, a Mapro cement
+  // bag in 25s, everything else one at a time. See order_qty_rules.dart.
+  int minQtyFor(String id) {
+    final idx = _items.indexWhere((i) => i['id'] == id);
+    return idx == -1 ? 1 : (_items[idx]['minQty'] as int? ?? 1);
+  }
+
+  int stepFor(String id) {
+    final idx = _items.indexWhere((i) => i['id'] == id);
+    return idx == -1 ? 1 : (_items[idx]['qtyStep'] as int? ?? 1);
+  }
+
   void add({
     required String id,
     required String name,
     required num price,
     String unit = '',
-    int qty = kMinQty,
+    String category = '',
+    int? qty,
   }) {
+    final rule = qtyRuleFor(name: name, category: category);
+    final addQty = qty ?? rule.min;
     final idx = _items.indexWhere((i) => i['id'] == id);
     if (idx >= 0) {
-      _items[idx]['qty'] = (_items[idx]['qty'] as int) + qty;
+      _items[idx]['qty'] = (_items[idx]['qty'] as int) + addQty;
     } else {
-      _items.add({'id': id, 'name': name, 'price': price, 'unit': unit, 'qty': qty < kMinQty ? kMinQty : qty});
+      _items.add({
+        'id': id,
+        'name': name,
+        'price': price,
+        'unit': unit,
+        'qty': addQty < rule.min ? rule.min : addQty,
+        'minQty': rule.min,
+        'qtyStep': rule.step,
+      });
     }
     notifyListeners();
   }
@@ -39,7 +57,8 @@ class CartStore extends ChangeNotifier {
   void updateQty(String id, int qty) {
     final idx = _items.indexWhere((i) => i['id'] == id);
     if (idx == -1) return;
-    if (qty < kMinQty) {
+    final minQty = (_items[idx]['minQty'] as int?) ?? 1;
+    if (qty < minQty) {
       _items.removeAt(idx);
     } else {
       _items[idx]['qty'] = qty;
