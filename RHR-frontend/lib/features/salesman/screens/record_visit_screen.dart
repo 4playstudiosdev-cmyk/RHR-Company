@@ -179,7 +179,7 @@ class _RecordVisitScreenState extends State<RecordVisitScreen> {
                 ? const Center(child: Padding(padding: EdgeInsets.all(8),
                     child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.orange)))
                 : DropdownButtonFormField<String>(
-                    value: _selectedCustomerId,
+                    initialValue: _selectedCustomerId,
                     isExpanded: true,
                     decoration: InputDecoration(
                       filled: true, fillColor: AppColors.warmGrey,

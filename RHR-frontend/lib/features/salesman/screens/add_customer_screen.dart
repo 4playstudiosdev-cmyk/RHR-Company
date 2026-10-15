@@ -70,7 +70,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     }
   }
 
-  Widget _field(String label, TextEditingController controller, {bool required = false, TextInputType? keyboardType}) {
+  Widget _field(String label, TextEditingController controller, {bool required = false, TextInputType? keyboardType, IconData? icon}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -81,12 +81,39 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
           controller: controller,
           keyboardType: keyboardType,
           decoration: InputDecoration(
+            prefixIcon: icon != null ? Icon(icon, color: AppColors.orange, size: 20) : null,
             filled: true,
             fillColor: AppColors.warmGrey,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           ),
         ),
+      ]),
+    );
+  }
+
+  Widget _sectionCard({required String title, required IconData icon, required List<Widget> children}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 3))],
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(color: AppColors.orange.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(9)),
+            child: Icon(icon, color: AppColors.orange, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 15)),
+        ]),
+        const SizedBox(height: 16),
+        ...children,
       ]),
     );
   }
@@ -101,16 +128,46 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         title: const Text('Add Customer', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       ),
       body: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         children: [
-          _field('Full Name', _nameController, required: true),
-          _field('Phone Number', _phoneController, required: true, keyboardType: TextInputType.phone),
-          _field('Shop Name', _shopNameController),
-          _field('Shop Address', _addressController),
-          _field('City', _cityController),
-          _field('Area', _areaController),
-          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: AppColors.navy,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(color: AppColors.orange.withValues(alpha: 0.18), borderRadius: BorderRadius.circular(12)),
+                child: const Icon(Icons.person_add_alt_1, color: AppColors.orange, size: 24),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('New Customer', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                  SizedBox(height: 3),
+                  Text('They will be auto-approved and linked to you', style: TextStyle(color: Colors.white60, fontSize: 12)),
+                ]),
+              ),
+            ]),
+          ),
+          _sectionCard(title: 'Customer Details', icon: Icons.badge_outlined, children: [
+            _field('Full Name', _nameController, required: true, icon: Icons.person_outline),
+            _field('Phone Number', _phoneController, required: true, keyboardType: TextInputType.phone, icon: Icons.phone_outlined),
+          ]),
+          _sectionCard(title: 'Shop Details', icon: Icons.storefront_outlined, children: [
+            _field('Shop Name', _shopNameController, icon: Icons.store_outlined),
+            _field('Shop Address', _addressController, icon: Icons.home_outlined),
+            _field('City', _cityController, icon: Icons.location_city_outlined),
+            _field('Area', _areaController, icon: Icons.map_outlined),
+          ]),
+          const SizedBox(height: 4),
           RHRButton(text: 'Save Customer', onPressed: _save, isLoading: _saving),
+          const SizedBox(height: 20),
         ],
       ),
     );

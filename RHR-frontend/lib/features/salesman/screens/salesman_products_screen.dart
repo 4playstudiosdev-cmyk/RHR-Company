@@ -70,6 +70,17 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
     setState(() => _cart[productId] = (_cart[productId] ?? 0) + 1);
   }
 
+  void _removeFromCart(String productId) {
+    setState(() {
+      final current = _cart[productId] ?? 0;
+      if (current <= 1) {
+        _cart.remove(productId);
+      } else {
+        _cart[productId] = current - 1;
+      }
+    });
+  }
+
   Future<void> _checkout() async {
     String? selectedCustomerId;
     final confirmed = await showDialog<bool>(
@@ -78,7 +89,7 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
         builder: (dialogContext, setDialogState) => AlertDialog(
           title: const Text('Place Order'),
           content: DropdownButtonFormField<String>(
-            value: selectedCustomerId,
+            initialValue: selectedCustomerId,
             isExpanded: true,
             decoration: const InputDecoration(labelText: 'Customer', border: OutlineInputBorder()),
             items: _customers.map((c) => DropdownMenuItem(
@@ -146,12 +157,10 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
               Expanded(
                 child: _filteredProducts.isEmpty
                     ? const Center(child: Text('No products in this category.', style: TextStyle(color: AppColors.steelBlue)))
-                    : GridView.builder(
+                    : ListView.builder(
                         padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 0.78),
                         itemCount: _filteredProducts.length,
-                        itemBuilder: (context, i) => _productTile(_filteredProducts[i]),
+                        itemBuilder: (context, i) => _productRow(_filteredProducts[i]),
                       ),
               ),
             ]),
@@ -181,49 +190,76 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
     );
   }
 
-  Widget _productTile(Map<String, dynamic> p) {
-    final qty = _cart[p['id']] ?? 0;
+  Widget _productRow(Map<String, dynamic> p) {
+    final productId = p['id'] as String;
+    final qty = _cart[productId] ?? 0;
     final imageUrl = p['image_url'] as String?;
+    final price = ((p['price'] ?? 0) as num).toDouble();
     return Container(
-      decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(14),
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)]),
-      clipBehavior: Clip.antiAlias,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        AspectRatio(
-          aspectRatio: 1.3,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: qty > 0 ? Border.all(color: AppColors.orange, width: 1.5) : null,
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6)],
+      ),
+      child: Row(children: [
+        Container(
+          width: 50,
+          height: 50,
+          decoration: BoxDecoration(color: AppColors.warmGrey, borderRadius: BorderRadius.circular(8)),
           child: (imageUrl != null && imageUrl.isNotEmpty)
-              ? Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (c, e, s) => _imageFallback())
-              : _imageFallback(),
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(imageUrl, fit: BoxFit.cover,
+                      errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, color: AppColors.steelBlue)))
+              : const Icon(Icons.inventory_2_outlined, color: AppColors.steelBlue),
         ),
-        Padding(
-          padding: const EdgeInsets.all(10),
+        const SizedBox(width: 12),
+        Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(p['name'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 13)),
-            const SizedBox(height: 2),
-            Text('PKR ${p['price'] ?? 0}', style: const TextStyle(color: AppColors.steelBlue, fontSize: 12)),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () => _addToCart(p['id'] as String),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: qty > 0 ? AppColors.success : AppColors.orange,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                icon: Icon(qty > 0 ? Icons.check : Icons.add, size: 16),
-                label: Text(qty > 0 ? 'Added ($qty)' : 'Add', style: const TextStyle(fontSize: 12)),
+            Text('PKR ${price.toStringAsFixed(0)}', style: const TextStyle(color: AppColors.orange, fontSize: 12)),
+          ]),
+        ),
+        if (qty == 0)
+          GestureDetector(
+            onTap: () => _addToCart(productId),
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(color: AppColors.orange, borderRadius: BorderRadius.circular(8)),
+              child: const Icon(Icons.add, size: 18, color: Colors.white),
+            ),
+          )
+        else
+          Row(children: [
+            GestureDetector(
+              onTap: () => _removeFromCart(productId),
+              child: Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(color: AppColors.warmGrey, borderRadius: BorderRadius.circular(6)),
+                child: const Icon(Icons.remove, size: 16, color: AppColors.navy),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Text('$qty', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 16)),
+            ),
+            GestureDetector(
+              onTap: () => _addToCart(productId),
+              child: Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(color: AppColors.orange, borderRadius: BorderRadius.circular(6)),
+                child: const Icon(Icons.add, size: 16, color: Colors.white),
               ),
             ),
           ]),
-        ),
       ]),
     );
   }
-
-  Widget _imageFallback() => Container(
-      color: AppColors.orange.withValues(alpha: 0.12),
-      child: const Center(child: Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 32)));
 }

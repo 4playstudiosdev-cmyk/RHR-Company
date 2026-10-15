@@ -62,11 +62,13 @@ class _OrderPlacementScreenState extends State<OrderPlacementScreen> {
         CartStore.instance.clear();
         if (mounted) {
           await showSuccessCheck(context, message: 'Order Placed!');
-          if (mounted) context.go('/order-success', extra: {
+          if (mounted) {
+            context.go('/order-success', extra: {
             'orderId': orderId,
             'itemCount': _displayItems.length,
             'total': _total,
           });
+          }
         }
       } else {
         if (mounted) {

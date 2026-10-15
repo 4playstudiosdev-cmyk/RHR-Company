@@ -76,7 +76,7 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
           title: const Text('Collect Cash from Customer'),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
             DropdownButtonFormField<String>(
-              value: customerId,
+              initialValue: customerId,
               isExpanded: true,
               decoration: const InputDecoration(labelText: 'Customer', border: OutlineInputBorder()),
               items: _customers.map((c) => DropdownMenuItem(

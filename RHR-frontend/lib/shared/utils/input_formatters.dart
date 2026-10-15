@@ -73,8 +73,9 @@ String formatLocalPhone(String digits) {
 String localPhoneDigits(String? raw) {
   if (raw == null) return '';
   var digits = raw.replaceAll(RegExp(r'\D'), '');
-  if (digits.startsWith('92')) digits = digits.substring(2);
-  else if (digits.startsWith('0')) digits = digits.substring(1);
+  if (digits.startsWith('92')) {
+    digits = digits.substring(2);
+  } else if (digits.startsWith('0')) digits = digits.substring(1);
   if (digits.length > 10) digits = digits.substring(digits.length - 10);
   return digits;
 }
