@@ -828,11 +828,20 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
                   {pageOrders.map((order, i) => (
                     <tr
                       key={order.id}
-                      className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${
-                        i % 2 === 1 ? 'bg-gray-50/40' : ''
+                      className={`border-b last:border-0 transition-colors ${
+                        order.priority === 'urgent'
+                          ? 'bg-red-50 border-red-100 hover:bg-red-100/70'
+                          : `border-gray-50 hover:bg-gray-50/80 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`
                       }`}
                     >
-                      <td className="px-6 py-3.5 font-medium text-navy">{order.order_number}</td>
+                      <td className="px-6 py-3.5 font-medium text-navy">
+                        <div className="flex items-center gap-1.5">
+                          {order.priority === 'urgent' && (
+                            <span title="Urgent" className="text-red-600">🔥</span>
+                          )}
+                          {order.order_number}
+                        </div>
+                      </td>
                       <td className="px-6 py-3.5 text-gray-600 text-[15px]">{order.users?.full_name || '—'}</td>
                       <td className="px-6 py-3.5 text-gray-600 font-medium">
                         PKR {Number(order.total_amount).toLocaleString()}

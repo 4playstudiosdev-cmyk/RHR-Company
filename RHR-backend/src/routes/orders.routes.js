@@ -2,13 +2,14 @@ const express = require('express');
 const router  = express.Router();
 const ctrl    = require('../controllers/orders.controller');
 const { authenticate } = require('../middleware/auth.middleware');
-const { isAdmin, isDriver, isCustomer } = require('../middleware/role.middleware');
+const { isAdmin, isDriver, isCustomer, requireRole } = require('../middleware/role.middleware');
 
 router.post('/',            authenticate,          ctrl.createOrder);
 router.get('/',             authenticate,          ctrl.getOrders);
 router.get('/deleted-invoices', authenticate, isAdmin, ctrl.getDeletedInvoices);
 router.get('/:id',          authenticate,          ctrl.getOrderById);
 router.patch('/:id/status', authenticate, isAdmin, ctrl.updateOrderStatus);
+router.patch('/:id/priority', authenticate, requireRole('super_admin', 'branch_admin', 'salesman'), ctrl.setOrderPriority);
 router.patch('/:id/driver-status', authenticate, isDriver, ctrl.driverUpdateOrderStatus);
 router.patch('/:id/items',  authenticate, isAdmin, ctrl.updateOrderItems);
 router.patch('/:id/customer-items', authenticate, isCustomer, ctrl.customerUpdateOrderItems);

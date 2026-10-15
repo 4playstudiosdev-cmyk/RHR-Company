@@ -21,6 +21,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   bool _isLoading = true;
   num? _creditLimit;
   num _outstandingBalance = 0;
+  bool _isSalesman = false;
+  bool _markingUrgent = false;
 
   static const _steps = ['confirmed', 'preparing', 'dispatched', 'delivered'];
   static const _stepLabels = ['Order Placed', 'Preparing', 'Dispatched', 'Delivered'];
@@ -61,6 +63,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         final order = response.data['data'];
 
         final role = await SecureStorage.getRole();
+        if (mounted) setState(() => _isSalesman = role == 'salesman');
         if (role == 'customer') {
           final myId = await SecureStorage.getUserId();
           if (myId != null && order?['customer_id'] != null && order['customer_id'] != myId) {
@@ -79,6 +82,31 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       debugPrint('Order tracking error: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _markUrgent() async {
+    final orderId = _order?['id']?.toString();
+    if (orderId == null) return;
+    setState(() => _markingUrgent = true);
+    try {
+      final res = await DioClient.instance.patch(
+        '${ApiEndpoints.orders}/$orderId/priority',
+        data: {'priority': 'urgent'},
+      );
+      if (res.data['success'] == true) {
+        if (mounted) {
+          setState(() => _order = {...?_order, 'priority': 'urgent'});
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Marked urgent — admin has been notified.')));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _markingUrgent = false);
     }
   }
 
@@ -163,6 +191,29 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                         ]),
                       ),
                       const SizedBox(height: AppSpacing.md),
+
+                      if (_isSalesman && !['delivered', 'cancelled', 'undelivered'].contains(status)) ...[
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: (_order?['priority'] == 'urgent' || _markingUrgent) ? null : _markUrgent,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.error,
+                              side: const BorderSide(color: AppColors.error),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+                            ),
+                            icon: Icon(_order?['priority'] == 'urgent' ? Icons.local_fire_department : Icons.local_fire_department_outlined),
+                            label: Text(
+                              _order?['priority'] == 'urgent'
+                                  ? 'Marked Urgent — Admin Notified'
+                                  : (_markingUrgent ? 'Marking...' : 'Prioritize This Order (Urgent)'),
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                      ],
 
                       if (_creditLimit != null && _creditLimit! > 0) ...[
                         Container(

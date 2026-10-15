@@ -36,10 +36,11 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       customer_id: `eq.${customerId}`,
       product_id: `in.(${productIds.join(',')})`,
     }),
-    // One-order-at-a-time (customer self-service only — see the
-    // salesmanId check below): any order not yet in a terminal state
-    // counts as "still out", including a failed 'undelivered' run,
-    // which needs admin/driver follow-up before the slot frees up.
+    // One-order-at-a-time — applies regardless of who's placing it
+    // (customer self-service, admin, or a salesman on the customer's
+    // behalf): any order not yet in a terminal state counts as "still
+    // out", including a failed 'undelivered' run, which needs
+    // admin/driver follow-up before the slot frees up.
     pgrestGet('orders', {
       select: 'id,status',
       customer_id: `eq.${customerId}`,
@@ -60,12 +61,8 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
     throw new Error('One or more products not found');
   }
 
-  // Self-service only — a salesman placing an order on a customer's
-  // behalf (salesmanId set) isn't subject to this; that's a trusted,
-  // supervised workflow, not the "spam multiple orders" case this guards
-  // against in the app.
-  if (!salesmanId && activeOrders?.length) {
-    throw new Error('You already have an order in progress — place a new one after it is delivered.');
+  if (activeOrders?.length) {
+    throw new Error('This customer already has an order in progress — place a new one after it is delivered.');
   }
 
   const currentBalance = lastLedgerEntries?.[0]?.running_balance || 0;

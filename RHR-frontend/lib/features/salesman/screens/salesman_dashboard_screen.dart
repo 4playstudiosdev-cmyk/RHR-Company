@@ -474,7 +474,8 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
     return StaggeredFadeIn(
       index: index,
       child: TapScale(
-        onTap: () => context.push('/order-tracking', extra: order['id']?.toString()),
+        onTap: () => context.push('/order-tracking', extra: order['id']?.toString())
+            .then((_) => _loadDashboard()),
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
           padding: const EdgeInsets.all(14),

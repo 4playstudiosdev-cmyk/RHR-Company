@@ -276,7 +276,50 @@ const getDeletedInvoices = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+// PATCH /api/v1/orders/:id/priority — a salesman flags their own
+// customer's order as needing urgent delivery (admin/branch_admin can
+// too). Separate from updateOrderStatus (admin-only, full status
+// transitions) since this is a narrower, salesman-reachable action that
+// only ever touches the priority flag — never status, stock, or ledger.
+const setOrderPriority = async (req, res) => {
+  try {
+    const { priority } = req.body;
+    if (!['urgent', 'normal'].includes(priority))
+      return error(res, "priority must be 'urgent' or 'normal'", 400);
+
+    const existingRows = await pgrestGet('orders', {
+      select: 'id,order_number,company_id,salesman_id,customer_id,status,priority,users!customer_id(full_name)',
+      id: `eq.${req.params.id}`,
+    });
+    const order = existingRows?.[0];
+    if (!order) return error(res, 'Order not found', 404);
+
+    if (req.user.role === 'salesman' && order.salesman_id !== req.user.id)
+      return error(res, 'Access denied', 403);
+
+    if (['delivered', 'cancelled', 'undelivered'].includes(order.status))
+      return error(res, `Cannot change priority on a ${order.status} order`, 400);
+
+    const updated = await pgrestPatch('orders', { id: `eq.${req.params.id}` }, { priority });
+    if (!updated?.[0]) return error(res, 'Failed to update priority', 400);
+
+    if (priority === 'urgent' && order.priority !== 'urgent') {
+      try {
+        await pgrestPost('notifications', {
+          company_id:     order.company_id,
+          recipient_role: 'branch_admin',
+          title:          'Urgent Order',
+          body:           `Order ${order.order_number} for ${order.users?.full_name || 'a customer'} was flagged urgent — needs delivery ASAP.`,
+          type:           'order_urgent',
+        });
+      } catch (e) { /* non-fatal */ }
+    }
+
+    return success(res, updated[0], 'Priority updated');
+  } catch (err) { return error(res, err.message); }
+};
+
 module.exports = {
   createOrder, getOrders, getOrderById, updateOrderStatus, driverUpdateOrderStatus, updateOrderItems, customerUpdateOrderItems, markInvoiceGenerated,
-  deleteInvoice, getDeletedInvoices,
+  deleteInvoice, getDeletedInvoices, setOrderPriority,
 };
