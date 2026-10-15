@@ -69,10 +69,9 @@ async function deleteProduct(id, companyId) {
 // see runProduction in production.controller.js), "OUT" from quantities
 // sold on customer orders (order_items, via each order's created_at for
 // date filtering — order_items itself carries no date/company_id of its
-// own). "Closing balance" is simply the product's current stock_quantity,
-// which is the live running total both of those already feed into — not
-// derived by summing history, so it's always correct even if in/out
-// logging gaps ever existed.
+// own). "Closing balance" must reflect stock as of the end of `to`, not
+// live current stock_quantity — so when `to` is a past date, the balance
+// is rolled back by whatever IN/OUT happened strictly after `to`.
 async function getStockReport({ companyId, from, to }) {
   const products = await pgrestGet('products', {
     select: 'id,name,unit,stock_quantity,categories(name)',
@@ -110,6 +109,32 @@ async function getStockReport({ companyId, from, to }) {
     inByProduct[r.finished_item_id] = (inByProduct[r.finished_item_id] || 0) + Number(r.qty_produced);
   });
 
+  // Roll the live stock_quantity back by whatever IN/OUT happened strictly
+  // after `to`, so picking a past date doesn't still show today's balance.
+  const netAfterByProduct = {};
+  if (to) {
+    const laterOrders = await pgrestGet('orders', {
+      select: 'created_at,order_items(product_id,quantity)',
+      company_id: `eq.${companyId}`,
+      created_at: `gt.${to}T23:59:59`,
+    });
+    (laterOrders || []).forEach((o) => {
+      (o.order_items || []).forEach((item) => {
+        netAfterByProduct[item.product_id] = (netAfterByProduct[item.product_id] || 0) - Number(item.quantity);
+      });
+    });
+
+    const laterRuns = await pgrestGet('productions', {
+      select: 'finished_item_id,qty_produced,date',
+      company_id: `eq.${companyId}`,
+      date: `gt.${to}`,
+    });
+    (laterRuns || []).forEach((r) => {
+      if (!r.finished_item_id) return;
+      netAfterByProduct[r.finished_item_id] = (netAfterByProduct[r.finished_item_id] || 0) + Number(r.qty_produced);
+    });
+  }
+
   return (products || []).map((p) => ({
     id: p.id,
     name: p.name,
@@ -117,7 +142,7 @@ async function getStockReport({ companyId, from, to }) {
     category: p.categories?.name || null,
     stockIn: inByProduct[p.id] || 0,
     stockOut: outByProduct[p.id] || 0,
-    closingBalance: Number(p.stock_quantity)
+    closingBalance: Number(p.stock_quantity) - (netAfterByProduct[p.id] || 0)
   }));
 }
 

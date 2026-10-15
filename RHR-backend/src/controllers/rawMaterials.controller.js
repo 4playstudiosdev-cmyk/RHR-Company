@@ -502,6 +502,23 @@ const getStockReport = async (req, res) => {
       else outByMaterial[l.material_id] = (outByMaterial[l.material_id] || 0) + Math.abs(qty);
     });
 
+    // "Closing balance" must reflect stock as of the end of `to`, not the
+    // live current stock — otherwise picking "Yesterday" still shows
+    // today's stock. Roll the live stock back by movements logged AFTER
+    // `to` (if any) to get the as-of balance.
+    const netAfterByMaterial = {};
+    if (to) {
+      const { data: laterLogs, error: laterErr } = await supabaseAdmin
+        .from('raw_material_stock_logs')
+        .select('material_id, quantity')
+        .eq('company_id', companyId)
+        .gt('logged_date', to);
+      if (laterErr) throw new Error(laterErr.message);
+      (laterLogs || []).forEach((l) => {
+        netAfterByMaterial[l.material_id] = (netAfterByMaterial[l.material_id] || 0) + Number(l.quantity);
+      });
+    }
+
     const data = materials.map((m) => ({
       id: m.id,
       name: m.name,
@@ -510,7 +527,7 @@ const getStockReport = async (req, res) => {
       minLevel: Number(m.min_level) || 0,
       stockIn: inByMaterial[m.id] || 0,
       stockOut: outByMaterial[m.id] || 0,
-      closingBalance: Number(m.stock)
+      closingBalance: Number(m.stock) - (netAfterByMaterial[m.id] || 0)
     }));
     return success(res, data);
   } catch (err) { return error(res, err.message); }
