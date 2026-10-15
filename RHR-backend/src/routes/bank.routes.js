@@ -10,7 +10,8 @@ router.get('/transactions',  authenticate, isAdmin, ctrl.getBankTransactions);
 // A salesman/driver needs the account list to pick one on Record
 // Payment's / Cash Collection's Bank Transfer flow — same controller/
 // fields as the admin route above (no balance exposed, just
-// name/number/bank/branch), just a wider role gate.
-router.get('/accounts/list', authenticate, requireRole('super_admin', 'branch_admin', 'salesman', 'driver'), ctrl.getBankAccounts);
+// name/number/bank/branch), just a wider role gate. Customer added for
+// the self-service Add Payment flow on their own home screen.
+router.get('/accounts/list', authenticate, requireRole('super_admin', 'branch_admin', 'salesman', 'driver', 'customer'), ctrl.getBankAccounts);
 
 module.exports = router;

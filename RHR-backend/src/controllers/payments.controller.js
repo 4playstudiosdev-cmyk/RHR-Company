@@ -1,24 +1,40 @@
 const svc = require('../services/payments.service');
 const { supabaseAdmin } = require('../config/supabase');
+const { pgrestGet } = require('../utils/directQuery');
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { sendPaymentReceipt } = require('../services/paymentReceipt.service');
+const { notifyUser } = require('../services/notify.service');
 
 const createPayment = async (req, res) => {
   try {
-    const { customer_id, order_id, amount, method, photo_url, salesman_id, bank_account_id, notes, date } = req.body;
+    const { order_id, amount, method, photo_url, salesman_id, bank_account_id, notes, date } = req.body;
+    const isCustomerUser = req.user.role === 'customer';
+    // A customer can only ever submit a payment for themselves — never
+    // trust a client-supplied customer_id for that role. Every other
+    // role (admin, salesman) still names who it's for explicitly.
+    const customer_id = isCustomerUser ? req.user.id : req.body.customer_id;
     if (!customer_id || !amount)
       return error(res, 'customer_id and amount are required', 400);
 
     // payments.salesman_id is a NOT NULL FK to salesmen(id) — an admin's
     // own id won't satisfy it, so an admin recording a payment must name
     // the salesman to credit it to (defaults to the customer's assigned
-    // one on the frontend).
+    // one on the frontend). A customer self-submitting doesn't know or
+    // choose their salesman either — it's looked up server-side from
+    // their own assigned one.
     const isAdminUser = ['super_admin', 'branch_admin'].includes(req.user.role);
+    let effectiveSalesmanId = isAdminUser ? salesman_id : req.user.id;
+    if (isCustomerUser) {
+      const customerRows = await pgrestGet('users', { select: 'salesman_id', id: `eq.${req.user.id}` });
+      effectiveSalesmanId = customerRows?.[0]?.salesman_id || null;
+      if (!effectiveSalesmanId) return error(res, 'No salesman assigned to your account yet — contact RHR & Company.', 400);
+    }
     if (isAdminUser && !salesman_id)
       return error(res, 'salesman_id is required when recording a payment as admin', 400);
-    // Photo proof is still required from the salesman mobile app —
-    // only an admin typing a Recovery entry in directly can skip it.
+    // Photo proof is still required from the salesman mobile app and
+    // customer self-service flow — only an admin typing a Recovery entry
+    // in directly can skip it.
     if (!isAdminUser && !photo_url)
       return error(res, 'photo_url is required', 400);
     if (method === 'bank' && !bank_account_id)
@@ -27,7 +43,7 @@ const createPayment = async (req, res) => {
     const data = await svc.createPayment({
       companyId:      req.user.company_id,
       customerId:     customer_id,
-      salesmanId:     isAdminUser ? salesman_id : req.user.id,
+      salesmanId:     effectiveSalesmanId,
       orderId:        order_id,
       amount,
       method,
@@ -42,6 +58,16 @@ const createPayment = async (req, res) => {
       // the admin-recorded case, not gated to admin-only like cash is.
       date: (isAdminUser || method === 'bank') ? date : null
     });
+
+    if (isCustomerUser && effectiveSalesmanId) {
+      await notifyUser({
+        companyId: req.user.company_id,
+        recipientId: effectiveSalesmanId,
+        title: 'Payment Submitted',
+        body: `Your customer submitted a PKR ${Number(amount).toLocaleString()} payment — awaiting admin approval`,
+        type: 'payment',
+      });
+    }
 
     // Admin-recorded payments are self-verified — approve immediately
     // (via the same update path the manual Approve button uses) so the
@@ -105,6 +131,17 @@ const reviewPayment = async (req, res) => {
       req.params.id, req.user.company_id, req.user.id,
       { status, adminNote: admin_note }
     );
+
+    if (status === 'approved' && data.salesman_id) {
+      await notifyUser({
+        companyId: data.company_id,
+        recipientId: data.salesman_id,
+        title: 'Payment Approved',
+        body: `A PKR ${Number(data.amount).toLocaleString()} payment for your customer has been approved`,
+        type: 'payment',
+      });
+    }
+
     return success(res, data, `Payment ${status}`);
   } catch (err) { return error(res, err.message, 400); }
 };
