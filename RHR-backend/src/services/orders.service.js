@@ -26,7 +26,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       company_id: `eq.${companyId}`,
       is_active: 'eq.true',
     }),
-    pgrestGet('users', { select: 'rate_tier,full_name,credit_limit', id: `eq.${customerId}` }),
+    pgrestGet('users', { select: 'rate_tier,full_name,credit_limit,salesman_id', id: `eq.${customerId}` }),
     // Per-customer, per-product override (Customers page → Set Custom
     // Pricing) — takes precedence over rate_tier for whichever products
     // it covers; anything not overridden still falls through to the
@@ -110,12 +110,18 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
   const randPart = Math.floor(1000 + Math.random() * 9000);
   const orderNumber = `ORD-${datePart}-${randPart}`;
 
+  // Whoever placed the order (customer self-service, admin on their behalf,
+  // or the assigned salesman themselves), the order still belongs to this
+  // customer's salesman — so it must show up in that salesman's "My
+  // Orders", not just when the salesman was the one who clicked Create.
+  const effectiveSalesmanId = salesmanId || customer?.salesman_id || null;
+
   const { data: order, error: oErr } = await supabaseAdmin
     .from('orders')
     .insert({
       company_id:       companyId,
       customer_id:      customerId,
-      salesman_id:      salesmanId || null,
+      salesman_id:      effectiveSalesmanId,
       order_number:     orderNumber,
       total_amount:     totalAmount,
       notes,
@@ -331,23 +337,37 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
     // order amount itself, only for cash collected after the fact).
     // Same running-balance pattern as creditLedger in recovery.routes.js.
     try {
-      const lastEntries = await pgrestGet('ledger_entries', {
-        select: 'running_balance',
-        customer_id: `eq.${updated.customer_id}`,
-        order: 'created_at.desc',
-        limit: '1',
+      // Idempotency guard: a double-click/retry of the confirm action can
+      // race past isValidTransition (both requests read 'pending' before
+      // either PATCH lands), each posting its own debit and doubling the
+      // customer's balance for one order. Checking for an existing debit
+      // keyed to this order closes that window.
+      const existingDebit = await pgrestGet('ledger_entries', {
+        select: 'id',
+        reference_type: 'eq.order',
+        reference_id: `eq.${updated.id}`,
+        entry_type: 'eq.debit',
       });
-      const prevBalance = lastEntries?.[0]?.running_balance || 0;
-      await pgrestPost('ledger_entries', {
-        company_id: updated.company_id,
-        customer_id: updated.customer_id,
-        entry_type: 'debit',
-        amount: Number(updated.total_amount),
-        running_balance: prevBalance + Number(updated.total_amount),
-        description: `Order ${updated.order_number} confirmed`,
-        reference_type: 'order',
-        created_by: null,
-      });
+      if (!existingDebit?.length) {
+        const lastEntries = await pgrestGet('ledger_entries', {
+          select: 'running_balance',
+          customer_id: `eq.${updated.customer_id}`,
+          order: 'created_at.desc',
+          limit: '1',
+        });
+        const prevBalance = lastEntries?.[0]?.running_balance || 0;
+        await pgrestPost('ledger_entries', {
+          company_id: updated.company_id,
+          customer_id: updated.customer_id,
+          entry_type: 'debit',
+          amount: Number(updated.total_amount),
+          running_balance: prevBalance + Number(updated.total_amount),
+          description: `Order ${updated.order_number} confirmed`,
+          reference_type: 'order',
+          reference_id: updated.id,
+          created_by: null,
+        });
+      }
     } catch (err) {
       console.error(`Ledger debit for confirmed order ${id} failed:`, err.message);
     }
@@ -377,6 +397,7 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
         running_balance: prevBalance - Number(updated.total_amount),
         description: `Order ${updated.order_number} cancelled — debit reversed`,
         reference_type: 'order',
+        reference_id: updated.id,
         created_by: null,
       });
     } catch (err) {
