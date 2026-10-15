@@ -9,6 +9,7 @@ import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
 import { CITY_IDS } from '../utils/multiCityFetch';
+import { sortByMerchandisingOrder } from '../utils/productSort';
 
 // Karachi is where a new product goes when it's created while "All
 // Cities" is selected — you can't add a row to a virtual combined view,
@@ -161,7 +162,7 @@ export default function Products() {
       list = list.filter((p) => p.name.toLowerCase().includes(q));
     }
 
-    return [...list].sort((a, b) => a.name.localeCompare(b.name));
+    return sortByMerchandisingOrder(list);
   }, [rawProducts, selectedCity, activeCategory, search]);
 
   const total = displayProducts.length;

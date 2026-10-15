@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth.middleware');
-const { isAdmin } = require('../middleware/role.middleware');
+const { isAdmin, requireRole } = require('../middleware/role.middleware');
 const { success, error } = require('../utils/response');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { resolveCompanyId } = require('../utils/companyScope');
@@ -26,7 +26,11 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 // finished good entries directly set the live stock on that item, the same
 // way the existing "set stock" PATCHes (production/materials/:id and
 // products/:id/stock) already work.
-router.post('/', authenticate, isAdmin, async (req, res) => {
+// A salesman may only post a 'customer' opening balance (their required
+// photo-free ledger-entry FK note below), and only for a customer
+// actually assigned to them — never raw_material/finished_good/vendor,
+// and never backdating another salesman's customer.
+router.post('/', authenticate, requireRole('super_admin', 'branch_admin', 'salesman'), async (req, res) => {
   try {
     const {
       entity_type, entity_id, entity_name,
@@ -37,7 +41,17 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
       return error(res, 'entity_type and entity_name are required', 400);
     }
 
+    const isSalesman = req.user.role === 'salesman';
+    if (isSalesman && entity_type !== 'customer') {
+      return error(res, 'Salesmen can only set a customer opening balance', 403);
+    }
+
     const companyId = req.user.company_id;
+
+    // created_by is a FK to `users(id)` — the admin/customer table — a
+    // salesman's own id lives in the separate `salesmen` table and does
+    // not satisfy it, so it must stay null for a salesman-created entry,
+    // same pattern used throughout recovery.routes.js.
     const row = {
       company_id:   companyId,
       entity_type,
@@ -49,7 +63,7 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
       unit:         unit || null,
       notes:        notes || null,
       balance_date: balance_date || new Date().toISOString().split('T')[0],
-      created_by:   req.user.id,
+      created_by:   isSalesman ? null : req.user.id,
     };
 
     if (entity_type === 'customer') {
@@ -58,6 +72,13 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
         return error(res, "balance_type must be 'debit' or 'credit' for a customer opening balance", 400);
       }
       if (!amount || Number(amount) <= 0) return error(res, 'A positive amount is required', 400);
+
+      if (isSalesman) {
+        const customerRows = await pgrestGet('users', { select: 'id,salesman_id', id: `eq.${entity_id}` });
+        if (customerRows?.[0]?.salesman_id !== req.user.id) {
+          return error(res, 'You can only set an opening balance for your own customer', 403);
+        }
+      }
 
       const last = await pgrestGet('ledger_entries', {
         select: 'running_balance',
@@ -76,7 +97,7 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
         running_balance: newBalance,
         description:     notes || 'Opening balance',
         reference_type:  'opening_balance',
-        created_by:      req.user.id,
+        created_by:      isSalesman ? null : req.user.id,
       });
     }
 

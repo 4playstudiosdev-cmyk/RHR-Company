@@ -27,6 +27,8 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   final _addressController = TextEditingController();
   final _cityController = TextEditingController();
   final _areaController = TextEditingController();
+  final _creditLimitController = TextEditingController();
+  final _openingBalanceController = TextEditingController();
   bool _saving = false;
   double? _shopLatitude;
   double? _shopLongitude;
@@ -39,6 +41,8 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     _addressController.dispose();
     _cityController.dispose();
     _areaController.dispose();
+    _creditLimitController.dispose();
+    _openingBalanceController.dispose();
     super.dispose();
   }
 
@@ -74,8 +78,26 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         if (_areaController.text.trim().isNotEmpty) 'area': _areaController.text.trim(),
         if (_shopLatitude != null) 'shop_latitude': _shopLatitude,
         if (_shopLongitude != null) 'shop_longitude': _shopLongitude,
+        if (_creditLimitController.text.trim().isNotEmpty)
+          'credit_limit': double.tryParse(_creditLimitController.text.trim()),
       });
       if (res.data['success'] == true) {
+        final newCustomerId = res.data['data']?['id'] as String?;
+        final openingAmount = double.tryParse(_openingBalanceController.text.trim());
+        if (newCustomerId != null && openingAmount != null && openingAmount > 0) {
+          try {
+            await DioClient.instance.post(ApiEndpoints.openingBalances, data: {
+              'entity_type': 'customer',
+              'entity_id': newCustomerId,
+              'entity_name': _nameController.text.trim(),
+              'balance_type': 'debit',
+              'amount': openingAmount,
+              'notes': 'Opening balance at customer creation',
+            });
+          } catch (e) {
+            debugPrint('Opening balance save failed: $e');
+          }
+        }
         if (mounted) await showSuccessCheck(context, message: 'Customer Added!');
         if (mounted) context.pop(true);
       } else if (mounted) {
@@ -211,6 +233,16 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
                   ),
                 ]),
               ),
+          ]),
+          _sectionCard(title: 'Account Setup (optional)', icon: Icons.account_balance_wallet_outlined, children: [
+            _field('Credit Limit (PKR)', _creditLimitController,
+                keyboardType: TextInputType.number, icon: Icons.speed_outlined),
+            _field('Opening Balance — Amount Owed (PKR)', _openingBalanceController,
+                keyboardType: TextInputType.number, icon: Icons.account_balance_outlined),
+            const Text(
+              'Both are visible to the customer and in the admin panel. Leave blank for no limit / a fresh account.',
+              style: TextStyle(color: AppColors.steelBlue, fontSize: 11),
+            ),
           ]),
           const SizedBox(height: 4),
           RHRButton(text: 'Save Customer', onPressed: _save, isLoading: _saving),

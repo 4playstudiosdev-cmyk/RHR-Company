@@ -25,6 +25,7 @@ class ApiEndpoints {
 
   // CUSTOMERS
   static const String customers       = '/api/v1/customers';
+  static const String openingBalances = '/api/v1/opening-balances';
   static const String pendingCustomers = '/api/v1/customers/pending';
   static const String myProfile       = '/api/v1/customers/me/profile';
   static const String myShopLocation  = '/api/v1/customers/me/location';

@@ -52,29 +52,13 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
     }
   }
 
-  // Default ("All") view leads with Tile Bond products and anything
-  // branded Readymix — the two lines salesmen sell most — before
-  // everything else, instead of whatever order the API happened to
-  // return. A picked category still shows that category's own order.
-  static bool _isPriority(Map<String, dynamic> p) {
-    final name = (p['name'] ?? '').toString().toLowerCase();
-    final category = (p['categories']?['name'] ?? '').toString().toLowerCase();
-    return name.contains('readymix') || category.contains('tile bond');
-  }
-
+  // Already in the right merchandising order from the backend
+  // (products.service.js#sortByMerchandisingOrder) — filtering by
+  // category just narrows that same ordered list, no re-sort needed.
   List<Map<String, dynamic>> get _filteredProducts {
-    final list = _selectedCategoryId == null
+    return _selectedCategoryId == null
         ? _products
         : _products.where((p) => p['category_id'] == _selectedCategoryId).toList();
-    if (_selectedCategoryId != null) return list;
-    final indexed = list.asMap().entries.toList();
-    indexed.sort((a, b) {
-      final pa = _isPriority(a.value) ? 0 : 1;
-      final pb = _isPriority(b.value) ? 0 : 1;
-      if (pa != pb) return pa.compareTo(pb);
-      return a.key.compareTo(b.key);
-    });
-    return indexed.map((e) => e.value).toList();
   }
 
   void _openDetail(Map<String, dynamic> p) {

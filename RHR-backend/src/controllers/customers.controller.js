@@ -120,9 +120,11 @@ const getCustomerById = async (req, res) => {
 // that queue since an admin is entering it by hand.
 const createCustomer = async (req, res) => {
   try {
-    const { full_name, phone, email, shop_name, shop_address, city, area, company_id, rate_tier, driver_id, shop_latitude, shop_longitude } = req.body;
+    const { full_name, phone, email, shop_name, shop_address, city, area, company_id, rate_tier, driver_id, shop_latitude, shop_longitude, credit_limit } = req.body;
     if (!full_name || !phone)
       return error(res, 'full_name and phone are required', 400);
+    if (credit_limit != null && (isNaN(Number(credit_limit)) || Number(credit_limit) < 0))
+      return error(res, 'credit_limit must be a non-negative number or null', 400);
 
     const isSalesman = req.user.role === 'salesman';
     const targetCompanyId = (req.user.role === 'branch_admin' || isSalesman)
@@ -209,6 +211,7 @@ const createCustomer = async (req, res) => {
       ...(shop_latitude != null && shop_longitude != null
         ? { shop_latitude: Number(shop_latitude), shop_longitude: Number(shop_longitude) }
         : {}),
+      ...(credit_limit != null ? { credit_limit: Number(credit_limit) } : {}),
     };
 
     // city/area are a phase31 addition — fall back to inserting without
