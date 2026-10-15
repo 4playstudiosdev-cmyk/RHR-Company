@@ -470,11 +470,17 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
         children: [
           Icon(icon, color: AppColors.orange, size: 22),
           const SizedBox(height: 6),
-          Text(value,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15)),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(value,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15)),
+          ),
+          const SizedBox(height: 2),
           Text(label,
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.white60, fontSize: 10)),
@@ -651,7 +657,6 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                   _drawerItem(context, Icons.camera_alt_outlined, 'Record Payment', '/record-payment'),
                   _drawerItem(context, Icons.event_note_outlined, 'Record Visit', '/record-visit'),
                   _drawerItem(context, Icons.account_balance_wallet_outlined, 'Cash Collection', '/cash-collection'),
-                  _drawerItem(context, Icons.location_on_outlined, 'GPS Tracking', '/gps-tracking'),
                   _drawerItem(context, Icons.bar_chart_outlined, 'My Performance', '/performance'),
                   _drawerItem(context, Icons.event_available_outlined, 'Attendance', '/attendance'),
                   _drawerItem(context, Icons.request_page_outlined, 'My Payslip', '/payslip'),

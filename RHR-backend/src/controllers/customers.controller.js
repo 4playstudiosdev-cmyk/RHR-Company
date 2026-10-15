@@ -120,7 +120,7 @@ const getCustomerById = async (req, res) => {
 // that queue since an admin is entering it by hand.
 const createCustomer = async (req, res) => {
   try {
-    const { full_name, phone, email, shop_name, shop_address, city, area, company_id, rate_tier, driver_id, shop_latitude, shop_longitude, credit_limit } = req.body;
+    const { full_name, phone, email, shop_name, shop_address, city, area, company_id, rate_tier, driver_id, shop_latitude, shop_longitude, credit_limit, shop_image_url, nic_number, nic_image_url, nic_back_image_url } = req.body;
     if (!full_name || !phone)
       return error(res, 'full_name and phone are required', 400);
     if (credit_limit != null && (isNaN(Number(credit_limit)) || Number(credit_limit) < 0))
@@ -203,6 +203,10 @@ const createCustomer = async (req, res) => {
       email:        email || null,
       shop_name:    shop_name || null,
       shop_address: shop_address || null,
+      shop_image_url:    shop_image_url || null,
+      nic_number:        nic_number || null,
+      nic_image_url:     nic_image_url || null,
+      nic_back_image_url: nic_back_image_url || null,
       rate_tier:    rate_tier || 'manual',
       driver_id:    driver_id || null,
       salesman_id:  salesman_id || null,

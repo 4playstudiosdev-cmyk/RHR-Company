@@ -1,6 +1,10 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
@@ -8,6 +12,7 @@ import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/widgets/shop_location_picker_screen.dart';
 import '../../../shared/router/app_transitions.dart';
+import '../../../shared/utils/input_formatters.dart';
 
 /// Lets a salesman register a new customer/dealer on the spot — the
 /// backend auto-assigns the new customer to the creating salesman and
@@ -29,9 +34,13 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   final _areaController = TextEditingController();
   final _creditLimitController = TextEditingController();
   final _openingBalanceController = TextEditingController();
+  final _nicNumberController = TextEditingController();
   bool _saving = false;
   double? _shopLatitude;
   double? _shopLongitude;
+  File? _shopImageFile;
+  File? _nicFrontImageFile;
+  File? _nicBackImageFile;
 
   @override
   void dispose() {
@@ -43,7 +52,69 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     _areaController.dispose();
     _creditLimitController.dispose();
     _openingBalanceController.dispose();
+    _nicNumberController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickImage(String target) async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: const BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: SafeArea(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined, color: AppColors.orange),
+              title: const Text('Take Photo'),
+              onTap: () => Navigator.of(sheetContext).pop(ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined, color: AppColors.orange),
+              title: const Text('Choose from Gallery'),
+              onTap: () => Navigator.of(sheetContext).pop(ImageSource.gallery),
+            ),
+          ]),
+        ),
+      ),
+    );
+    if (source == null) return;
+    final picker = ImagePicker();
+    final image = await picker.pickImage(source: source, imageQuality: 70);
+    if (image == null) return;
+    setState(() {
+      switch (target) {
+        case 'shop':
+          _shopImageFile = File(image.path);
+          break;
+        case 'nicFront':
+          _nicFrontImageFile = File(image.path);
+          break;
+        case 'nicBack':
+          _nicBackImageFile = File(image.path);
+          break;
+      }
+    });
+  }
+
+  Future<String> _uploadImage(File file, String bucket) async {
+    final bytes = await file.readAsBytes();
+    final ext = file.path.split('.').last.toLowerCase();
+    final mimeType = ext == 'png' ? 'image/png' : (ext == 'webp' ? 'image/webp' : 'image/jpeg');
+    final res = await DioClient.instance.post(ApiEndpoints.storageUpload, data: {
+      'bucket':     bucket,
+      'fileName':   '${DateTime.now().millisecondsSinceEpoch}.$ext',
+      'fileBase64': base64Encode(bytes),
+      'mimeType':   mimeType,
+    });
+    if (res.data['success'] == true) {
+      return res.data['data']['url'] as String;
+    }
+    throw Exception(res.data['message'] ?? 'Image upload failed');
   }
 
   Future<void> _pickLocation() async {
@@ -69,6 +140,16 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     }
     setState(() => _saving = true);
     try {
+      // Upload whichever photos were picked before submitting — same
+      // buckets the customer's own Complete Profile flow uses, so these
+      // show up identically in the admin desktop either way.
+      String? shopImageUrl;
+      String? nicFrontUrl;
+      String? nicBackUrl;
+      if (_shopImageFile != null) shopImageUrl = await _uploadImage(_shopImageFile!, 'shop-photos');
+      if (_nicFrontImageFile != null) nicFrontUrl = await _uploadImage(_nicFrontImageFile!, 'nic-images');
+      if (_nicBackImageFile != null) nicBackUrl = await _uploadImage(_nicBackImageFile!, 'nic-images');
+
       final res = await DioClient.instance.post(ApiEndpoints.customers, data: {
         'full_name': _nameController.text.trim(),
         'phone': _phoneController.text.trim(),
@@ -80,6 +161,10 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         if (_shopLongitude != null) 'shop_longitude': _shopLongitude,
         if (_creditLimitController.text.trim().isNotEmpty)
           'credit_limit': double.tryParse(_creditLimitController.text.trim()),
+        if (_nicNumberController.text.trim().isNotEmpty) 'nic_number': _nicNumberController.text.trim(),
+        if (shopImageUrl != null) 'shop_image_url': shopImageUrl,
+        if (nicFrontUrl != null) 'nic_image_url': nicFrontUrl,
+        if (nicBackUrl != null) 'nic_back_image_url': nicBackUrl,
       });
       if (res.data['success'] == true) {
         final newCustomerId = res.data['data']?['id'] as String?;
@@ -116,7 +201,8 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     }
   }
 
-  Widget _field(String label, TextEditingController controller, {bool required = false, TextInputType? keyboardType, IconData? icon}) {
+  Widget _field(String label, TextEditingController controller,
+      {bool required = false, TextInputType? keyboardType, IconData? icon, List<TextInputFormatter>? inputFormatters, String? hint}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -126,7 +212,9 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         TextField(
           controller: controller,
           keyboardType: keyboardType,
+          inputFormatters: inputFormatters,
           decoration: InputDecoration(
+            hintText: hint,
             prefixIcon: icon != null ? Icon(icon, color: AppColors.orange, size: 20) : null,
             filled: true,
             fillColor: AppColors.warmGrey,
@@ -135,6 +223,32 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
           ),
         ),
       ]),
+    );
+  }
+
+  Widget _imagePicker({required String label, required File? file, required VoidCallback onTap}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.navy)),
+        const SizedBox(height: 6),
+        GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: double.infinity,
+            height: 110,
+            decoration: BoxDecoration(color: AppColors.warmGrey, borderRadius: BorderRadius.circular(10), border: Border.all(color: AppColors.disabled)),
+            clipBehavior: Clip.antiAlias,
+            child: file != null
+                ? Image.file(file, fit: BoxFit.cover, width: double.infinity)
+                : Column(mainAxisAlignment: MainAxisAlignment.center, children: const [
+                    Icon(Icons.add_photo_alternate_outlined, color: AppColors.steelBlue, size: 26),
+                    SizedBox(height: 6),
+                    Text('Tap to upload', style: TextStyle(color: AppColors.steelBlue, fontSize: 12)),
+                  ]),
+          ),
+        ),
+      ],
     );
   }
 
@@ -233,6 +347,17 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
                   ),
                 ]),
               ),
+            const SizedBox(height: 14),
+            _imagePicker(label: 'Shop Photo', file: _shopImageFile, onTap: () => _pickImage('shop')),
+          ]),
+          _sectionCard(title: 'Identification (optional)', icon: Icons.badge_outlined, children: [
+            _field('NIC Number', _nicNumberController, icon: Icons.badge_outlined, hint: '42101-1234567-1',
+                keyboardType: TextInputType.number, inputFormatters: [CnicInputFormatter()]),
+            Row(children: [
+              Expanded(child: _imagePicker(label: 'NIC Front', file: _nicFrontImageFile, onTap: () => _pickImage('nicFront'))),
+              const SizedBox(width: 12),
+              Expanded(child: _imagePicker(label: 'NIC Back', file: _nicBackImageFile, onTap: () => _pickImage('nicBack'))),
+            ]),
           ]),
           _sectionCard(title: 'Account Setup (optional)', icon: Icons.account_balance_wallet_outlined, children: [
             _field('Credit Limit (PKR)', _creditLimitController,
