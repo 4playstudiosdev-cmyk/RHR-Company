@@ -208,13 +208,13 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
         Container(
           width: 50,
           height: 50,
-          decoration: BoxDecoration(color: AppColors.warmGrey, borderRadius: BorderRadius.circular(8)),
+          decoration: BoxDecoration(color: AppColors.orange.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)),
           child: (imageUrl != null && imageUrl.isNotEmpty)
               ? ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.network(imageUrl, fit: BoxFit.cover,
-                      errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, color: AppColors.steelBlue)))
-              : const Icon(Icons.inventory_2_outlined, color: AppColors.steelBlue),
+                      errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 24)))
+              : const Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 24),
         ),
         const SizedBox(width: 12),
         Expanded(
