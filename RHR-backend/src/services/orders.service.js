@@ -2,6 +2,7 @@ const { supabaseAdmin }    = require('../config/supabase');
 const { generateInvoice }  = require('./invoice.service');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { qtyRuleFor } = require('../utils/orderQtyRules');
+const { notifyUser } = require('./notify.service');
 
 // Flat PKR 10 adjustment set on the customer's rate_tier at approval time
 // (see the Rate Tier dialog on Customers.js / auth.service.js's
@@ -184,6 +185,19 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       type:           'order',
     });
   } catch (e) { /* non-fatal */ }
+
+  // Also notify the customer's own salesman directly — unless the
+  // salesman is the one who just placed this order themselves, in
+  // which case they obviously already know.
+  if (effectiveSalesmanId && !(createdByRole === 'salesman' && createdById === effectiveSalesmanId)) {
+    await notifyUser({
+      companyId,
+      recipientId: effectiveSalesmanId,
+      title: 'New Order',
+      body: `${customer?.full_name || 'Your customer'} placed order ${orderNumber} — PKR ${totalAmount.toLocaleString()}`,
+      type: 'order',
+    });
+  }
 
   return order;
 }
@@ -497,6 +511,19 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
         } catch (err) {
           console.error(`Cash-in-hand log for delivered order ${id} failed:`, err.message);
         }
+      }
+
+      // Let the customer's own salesman know a driver just collected cash
+      // on their behalf — they weren't present for it, so it wouldn't show
+      // up on their radar otherwise.
+      if (updated.salesman_id) {
+        await notifyUser({
+          companyId: updated.company_id,
+          recipientId: updated.salesman_id,
+          title: 'Payment Collected',
+          body: `Driver collected PKR ${Number(amountCollected).toLocaleString()} on delivery of order ${updated.order_number}`,
+          type: 'payment',
+        });
       }
     }
   }

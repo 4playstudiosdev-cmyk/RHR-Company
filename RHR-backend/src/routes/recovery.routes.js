@@ -5,6 +5,7 @@ const { isAdmin, isSalesman, isDriver } = require('../middleware/role.middleware
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { success, error } = require('../utils/response');
+const { notifyUser } = require('../services/notify.service');
 
 // Salesman Recovery — cash/online payment collections plus end-of-day
 // cash-in-hand closings. Separate from the existing /payments table:
@@ -107,6 +108,14 @@ router.post('/transactions', authenticate, isAdmin, async (req, res) => {
       });
     }
 
+    await notifyUser({
+      companyId,
+      recipientId: salesman_id,
+      title: 'Payment Recorded',
+      body: `A PKR ${Number(amount).toLocaleString()} payment was recorded for one of your customers`,
+      type: 'payment',
+    });
+
     return success(res, recovery,
       isCash ? 'Cash payment recorded & auto-approved' : 'Online payment recorded — pending approval',
       201);
@@ -137,6 +146,14 @@ router.patch('/transactions/:id/approve', authenticate, isAdmin, async (req, res
       amount: Number(recovery.amount),
       description: `Online payment approved — ${recovery.payment_method}`,
       userId: req.user.id,
+    });
+
+    await notifyUser({
+      companyId: recovery.company_id,
+      recipientId: recovery.salesman_id,
+      title: 'Payment Approved',
+      body: `A PKR ${Number(recovery.amount).toLocaleString()} payment for your customer has been approved`,
+      type: 'payment',
     });
 
     return success(res, { approved: true }, 'Payment approved — customer balance updated');
@@ -206,6 +223,15 @@ router.patch('/cash-closing/:id/approve', authenticate, isAdmin, async (req, res
       approved_at: new Date().toISOString(),
     });
     if (!updated?.[0]) return error(res, 'Cash closing not found or access denied', 404);
+
+    await notifyUser({
+      companyId: updated[0].company_id,
+      recipientId: updated[0].salesman_id,
+      title: 'Deposit Approved',
+      body: `Your deposit of PKR ${Number(updated[0].amount).toLocaleString()} has been approved`,
+      type: 'payment',
+    });
+
     return success(res, { approved: true }, 'Cash closing approved — salesman balance cleared');
   } catch (err) { return error(res, err.message); }
 });
