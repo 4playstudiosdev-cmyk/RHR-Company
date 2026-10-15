@@ -25,7 +25,7 @@ const RATE_BADGE = {
 // same default the Products/Raw Materials pages use, since there's no
 // single real branch a "combined view" create action could target.
 const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
-const EMPTY_CUSTOMER_FORM = { full_name: '', phone: '', email: '', shop_name: '', shop_address: '', city: '', area: '', rate_tier: 'manual', salesman_id: '' };
+const EMPTY_CUSTOMER_FORM = { full_name: '', phone: '', email: '', shop_name: '', shop_address: '', city: '', area: '', rate_tier: 'manual', salesman_id: '', opening_balance_type: 'debit', opening_balance_amount: '' };
 
 const PAGE_SIZE = 10;
 
@@ -326,11 +326,23 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
         toast.success('Customer updated.');
       } else {
         const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
-        await api.post('/customers', {
-          ...customerForm,
+        const { opening_balance_type, opening_balance_amount, ...customerPayload } = customerForm;
+        const res = await api.post('/customers', {
+          ...customerPayload,
           salesman_id: customerForm.salesman_id || null,
           company_id: targetCompanyId
         });
+        const newCustomer = res.data?.data;
+        if (newCustomer?.id && opening_balance_amount && Number(opening_balance_amount) > 0) {
+          await api.post('/opening-balances', {
+            entity_type: 'customer',
+            entity_id: newCustomer.id,
+            entity_name: customerForm.full_name,
+            balance_type: opening_balance_type,
+            amount: Number(opening_balance_amount),
+            notes: 'Opening balance at customer creation'
+          });
+        }
         toast.success('Customer account created.');
       }
       setShowCustomerModal(false);
@@ -1057,16 +1069,29 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
             </div>
             {!editingCustomer && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Rate Tier</label>
-                <select
-                  value={customerForm.rate_tier}
-                  onChange={(e) => setCustomerForm({ ...customerForm, rate_tier: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-                >
-                  {RATE_TIERS.map((t) => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
-                </select>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Opening Balance (optional)</label>
+                <div className="grid grid-cols-2 gap-4">
+                  <select
+                    value={customerForm.opening_balance_type}
+                    onChange={(e) => setCustomerForm({ ...customerForm, opening_balance_type: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                  >
+                    <option value="debit">Owes Us (Debit)</option>
+                    <option value="credit">We Owe Them (Credit)</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Amount (PKR)"
+                    value={customerForm.opening_balance_amount}
+                    onChange={(e) => setCustomerForm({ ...customerForm, opening_balance_amount: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                  />
+                </div>
+                <p className="text-xs text-gray-400 mt-1.5">
+                  Leave the amount blank for a fresh account. If set, it's recorded as the first ledger entry — visible to the customer, their salesman, and in the admin ledger.
+                </p>
               </div>
             )}
             <div>
