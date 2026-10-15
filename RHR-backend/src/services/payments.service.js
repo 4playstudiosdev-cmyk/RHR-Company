@@ -1,4 +1,5 @@
 const { supabaseAdmin } = require('../config/supabase');
+const { pgrestGet, pgrestPost } = require('../utils/directQuery');
 
 // photoUrl is required for the salesman mobile-app flow (field proof of
 // a cash/receipt handoff) but not for a Recovery entry an admin types in
@@ -98,8 +99,37 @@ async function reviewPayment(id, companyId, adminId, { status, adminNote }) {
   if (companyId) query = query.eq('company_id', companyId);
 
   const { data, error } = await query.select().single();
-  // Note: ledger CREDIT entry is auto-created by DB trigger on approval
   if (error) throw new Error(error.message || 'Payment not found');
+
+  // Credits the customer's ledger on approval — this used to rely on a
+  // DB trigger (per the old comment here), but that trigger was
+  // confirmed (via a live end-to-end test: submit, approve, re-check
+  // the ledger) to not actually create anything, leaving every approved
+  // payment invisible in both the customer app's and desktop's ledger.
+  // Same running-balance computation as recovery.routes.js's
+  // creditLedger, reference_type 'payment' instead of 'recovery' to
+  // keep these distinguishable.
+  if (status === 'approved') {
+    const lastEntries = await pgrestGet('ledger_entries', {
+      select: 'running_balance',
+      customer_id: `eq.${data.customer_id}`,
+      order: 'created_at.desc',
+      limit: '1',
+    });
+    const prevBalance = lastEntries?.[0]?.running_balance || 0;
+    const newBalance = prevBalance - Number(data.amount);
+    await pgrestPost('ledger_entries', {
+      company_id: data.company_id,
+      customer_id: data.customer_id,
+      entry_type: 'credit',
+      amount: Number(data.amount),
+      running_balance: newBalance,
+      description: `Payment approved — ${data.method}`,
+      reference_type: 'payment',
+      created_by: adminId,
+    });
+  }
+
   return data;
 }
 
