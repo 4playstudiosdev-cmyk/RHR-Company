@@ -125,6 +125,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.warmGrey,
+      drawer: _buildDrawer(context),
       body: SafeArea(
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 300),
@@ -151,6 +152,19 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
+                              Builder(
+                                builder: (ctx) => GestureDetector(
+                                  onTap: () => Scaffold.of(ctx).openDrawer(),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.1),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(Icons.menu, color: Colors.white),
+                                  ),
+                                ),
+                              ),
                               Expanded(
                                 child: GestureDetector(
                                   onTap: () => context.push('/salesman-profile'),
@@ -241,7 +255,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                             child: TapScale(
                               onTap: () => context.push('/create-order'),
                               child: Container(
-                                padding: const EdgeInsets.all(18),
+                                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 10),
                                 decoration: BoxDecoration(
                                   color: AppColors.navy,
                                   borderRadius: BorderRadius.circular(16),
@@ -252,26 +266,28 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                                         offset: const Offset(0, 4))
                                   ],
                                 ),
-                                child: const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
+                                child: const Column(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(Icons.add_circle_outline, color: Colors.white),
-                                    SizedBox(width: 8),
+                                    SizedBox(height: 6),
                                     Text('New Order',
+                                        textAlign: TextAlign.center,
                                         style: TextStyle(
                                             color: Colors.white,
+                                            fontSize: 12,
                                             fontWeight: FontWeight.bold)),
                                   ],
                                 ),
                               ),
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 10),
                           Expanded(
                             child: TapScale(
                               onTap: () => context.push('/record-payment'),
                               child: Container(
-                                padding: const EdgeInsets.all(18),
+                                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 10),
                                 decoration: BoxDecoration(
                                   color: AppColors.orange,
                                   borderRadius: BorderRadius.circular(16),
@@ -282,14 +298,48 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                                         offset: const Offset(0, 4))
                                   ],
                                 ),
-                                child: const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
+                                child: const Column(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(Icons.camera_alt_outlined, color: Colors.white),
-                                    SizedBox(width: 8),
+                                    SizedBox(height: 6),
                                     Text('Record Payment',
+                                        textAlign: TextAlign.center,
                                         style: TextStyle(
                                             color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TapScale(
+                              onTap: () => context.push('/add-customer'),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 10),
+                                decoration: BoxDecoration(
+                                  color: AppColors.success,
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: [
+                                    BoxShadow(
+                                        color: AppColors.success.withValues(alpha: 0.3),
+                                        blurRadius: 12,
+                                        offset: const Offset(0, 4))
+                                  ],
+                                ),
+                                child: const Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.person_add_alt_outlined, color: Colors.white),
+                                    SizedBox(height: 6),
+                                    Text('Add Customer',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
                                             fontWeight: FontWeight.bold)),
                                   ],
                                 ),
@@ -325,11 +375,9 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                           _toolItem(context, Icons.event_note_outlined, 'Record Visit', '/record-visit', 1),
                           _toolItem(context, Icons.account_balance_wallet_outlined, 'Cash Collection', '/cash-collection', 2),
                           _toolItem(context, Icons.location_on_outlined, 'GPS Tracking', '/gps-tracking', 3),
-                          _toolItem(context, Icons.map_outlined, 'Customer Map', '/customer-map', 4),
-                          _toolItem(context, Icons.bar_chart_outlined, 'My Performance', '/performance', 5),
-                          _toolItem(context, Icons.event_available_outlined, 'Attendance', '/attendance', 6),
-                          _toolItem(context, Icons.event_busy_outlined, 'Apply Leave', '/leave', 7),
-                          _toolItem(context, Icons.request_page_outlined, 'My Payslip', '/payslip', 8),
+                          _toolItem(context, Icons.bar_chart_outlined, 'My Performance', '/performance', 4),
+                          _toolItem(context, Icons.event_available_outlined, 'Attendance', '/attendance', 5),
+                          _toolItem(context, Icons.request_page_outlined, 'My Payslip', '/payslip', 6),
                         ],
                       ),
                     ),
@@ -493,6 +541,64 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
         ),
       ),
       ),
+    );
+  }
+
+  Drawer _buildDrawer(BuildContext context) {
+    return Drawer(
+      backgroundColor: AppColors.warmGrey,
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              child: Row(children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: AppColors.orange,
+                  child: Text(
+                    _salesmanName.isNotEmpty ? _salesmanName[0].toUpperCase() : 'S',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(_salesmanName, style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 15)),
+                    const Text('Salesman', style: TextStyle(color: AppColors.steelBlue, fontSize: 12)),
+                  ]),
+                ),
+              ]),
+            ),
+            const Divider(height: 1),
+            _drawerItem(context, Icons.person_outline, 'My Profile', '/salesman-profile'),
+            _drawerItem(context, Icons.storefront_outlined, 'Products', '/salesman-products'),
+            _drawerItem(context, Icons.add_circle_outline, 'New Order', '/create-order'),
+            _drawerItem(context, Icons.person_add_alt_outlined, 'Add Customer', '/add-customer'),
+            _drawerItem(context, Icons.people_outline, 'My Customers', '/my-customers'),
+            _drawerItem(context, Icons.camera_alt_outlined, 'Record Payment', '/record-payment'),
+            _drawerItem(context, Icons.event_note_outlined, 'Record Visit', '/record-visit'),
+            _drawerItem(context, Icons.account_balance_wallet_outlined, 'Cash Collection', '/cash-collection'),
+            _drawerItem(context, Icons.location_on_outlined, 'GPS Tracking', '/gps-tracking'),
+            _drawerItem(context, Icons.bar_chart_outlined, 'My Performance', '/performance'),
+            _drawerItem(context, Icons.event_available_outlined, 'Attendance', '/attendance'),
+            _drawerItem(context, Icons.request_page_outlined, 'My Payslip', '/payslip'),
+            _drawerItem(context, Icons.notifications_outlined, 'Notifications', '/notifications'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _drawerItem(BuildContext context, IconData icon, String label, String route) {
+    return ListTile(
+      leading: Icon(icon, color: AppColors.orange),
+      title: Text(label, style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w600)),
+      onTap: () {
+        Navigator.of(context).pop();
+        context.push(route);
+      },
     );
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
@@ -57,9 +58,17 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final name  = _customer?['full_name'] ?? '—';
-    final phone = _customer?['phone']     ?? '—';
-    final addr  = _customer?['address']   ?? '';
+    final name     = _customer?['full_name'] ?? '—';
+    final phone    = _customer?['phone']     ?? '—';
+    final shopName = (_customer?['shop_name'] ?? '').toString();
+    final addr     = (_customer?['shop_address'] ?? '').toString();
+    final city     = (_customer?['city'] ?? '').toString();
+    final area     = (_customer?['area'] ?? '').toString();
+    final lat      = _customer?['shop_latitude'];
+    final lng      = _customer?['shop_longitude'];
+    final hasLocation = lat != null && lng != null;
+    final creditLimit = _customer?['credit_limit'];
+    final photoUrl = (_customer?['profile_photo_url'] ?? '').toString();
 
     return Scaffold(
       backgroundColor: AppColors.warmGrey,
@@ -102,11 +111,13 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                         ),
                         child: Row(
                           children: [
-                            const CircleAvatar(
+                            CircleAvatar(
                               radius: 32,
                               backgroundColor: AppColors.orange,
-                              child: Icon(Icons.business,
-                                  color: Colors.white, size: 32),
+                              backgroundImage: photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
+                              child: photoUrl.isEmpty
+                                  ? const Icon(Icons.business, color: Colors.white, size: 32)
+                                  : null,
                             ),
                             const SizedBox(width: 16),
                             Expanded(
@@ -118,6 +129,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                                           color: Colors.white,
                                           fontWeight: FontWeight.bold,
                                           fontSize: 18)),
+                                  if (shopName.isNotEmpty)
+                                    Text(shopName,
+                                        style: const TextStyle(color: Colors.white70, fontSize: 13)),
                                   Text(phone,
                                       style: const TextStyle(
                                           color: Colors.white60, fontSize: 13)),
@@ -126,6 +140,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                                         style: const TextStyle(
                                             color: Colors.white60,
                                             fontSize: 13)),
+                                  if (city.isNotEmpty || area.isNotEmpty)
+                                    Text([area, city].where((s) => s.isNotEmpty).join(', '),
+                                        style: const TextStyle(color: Colors.white60, fontSize: 12)),
                                 ],
                               ),
                             ),
@@ -134,17 +151,36 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                       )),
                       const SizedBox(height: 16),
 
+                      if (hasLocation)
+                        StaggeredFadeIn(index: 1, child: SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+                              if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.navy,
+                              side: const BorderSide(color: AppColors.navy),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            icon: const Icon(Icons.location_on_outlined, size: 18),
+                            label: const Text('Open in Google Maps'),
+                          ),
+                        )),
+                      if (hasLocation) const SizedBox(height: 16),
+
                       // Stats
                       Row(
                         children: [
-                          Expanded(child: StaggeredFadeIn(index: 1, child: _statCard(
+                          Expanded(child: StaggeredFadeIn(index: 2, child: _statCard(
                               'Outstanding',
                               'PKR $_outstandingBalance',
                               AppColors.orange))),
                           const SizedBox(width: 12),
-                          Expanded(child: StaggeredFadeIn(index: 2, child: _statCard(
-                              'Ledger Entries',
-                              '${_ledger.length}',
+                          Expanded(child: StaggeredFadeIn(index: 3, child: _statCard(
+                              creditLimit != null ? 'Credit Limit' : 'Ledger Entries',
+                              creditLimit != null ? 'PKR $creditLimit' : '${_ledger.length}',
                               AppColors.navy))),
                         ],
                       ),

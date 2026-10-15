@@ -19,7 +19,10 @@ class CreateOrderScreen extends StatefulWidget {
 class _CreateOrderScreenState extends State<CreateOrderScreen> {
   List<Map<String, dynamic>> _products = [];
   List<Map<String, dynamic>> _customers = [];
+  List<Map<String, dynamic>> _categories = [];
+  String? _selectedCategoryId; // null = All
   String? _selectedCustomerId;
+  final _customerSearchController = TextEditingController();
   bool _isLoading = true;
   bool _isSubmitting = false;
   bool _isOnline = true;
@@ -32,12 +35,19 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     _loadData();
   }
 
+  @override
+  void dispose() {
+    _customerSearchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
       final pRes = await DioClient.instance.get(
           ApiEndpoints.products, queryParameters: {'limit': 50});
       final cRes = await DioClient.instance.get(ApiEndpoints.customers);
+      final catRes = await DioClient.instance.get(ApiEndpoints.categories);
       setState(() {
         _isOnline = true;
         if (pRes.data['success'] == true) {
@@ -49,6 +59,9 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         if (cRes.data['success'] == true) {
           _customers = List<Map<String, dynamic>>.from(cRes.data['data'] ?? []);
         }
+        if (catRes.data['success'] == true) {
+          _categories = List<Map<String, dynamic>>.from(catRes.data['data'] ?? []);
+        }
       });
     } catch (e) {
       setState(() => _isOnline = false);
@@ -56,6 +69,25 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
+
+  List<Map<String, dynamic>> get _filteredProducts {
+    if (_selectedCategoryId == null) return _products;
+    return _products.where((p) => p['category_id'] == _selectedCategoryId).toList();
+  }
+
+  List<Map<String, dynamic>> get _filteredCustomers {
+    final q = _customerSearchController.text.trim().toLowerCase();
+    if (q.isEmpty) return _customers;
+    return _customers.where((c) {
+      final name = (c['full_name'] ?? c['name'] ?? '').toString().toLowerCase();
+      final phone = (c['phone'] ?? '').toString().toLowerCase();
+      return name.contains(q) || phone.contains(q);
+    }).toList();
+  }
+
+  Map<String, dynamic>? get _selectedCustomer =>
+      _selectedCustomerId == null ? null : _customers.firstWhere(
+          (c) => c['id'] == _selectedCustomerId, orElse: () => {});
 
   Future<void> _syncNow() async {
     final r = await SyncService.syncOfflineOrders();
@@ -191,34 +223,96 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
             const Text('Select Customer',
                 style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 13)),
             const SizedBox(height: 8),
-            _isLoading
-                ? const LinearProgressIndicator(color: AppColors.orange)
-                : DropdownButtonFormField<String>(
-                    initialValue: _selectedCustomerId,
-                    hint: const Text('Choose customer...'),
-                    decoration: InputDecoration(
-                        filled: true,
-                        fillColor: AppColors.warmGrey,
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                        contentPadding:
-                            const EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
-                    items: _customers
-                        .map((c) => DropdownMenuItem(
-                            value: c['id'] as String,
-                            child: Text(c['full_name'] ?? c['name'] ?? '')))
-                        .toList(),
-                    onChanged: (v) => setState(() => _selectedCustomerId = v)),
+            if (_isLoading)
+              const LinearProgressIndicator(color: AppColors.orange)
+            else if (_selectedCustomer != null && (_selectedCustomer!['id'] != null))
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                    color: AppColors.orange.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.orange)),
+                child: Row(children: [
+                  const Icon(Icons.business, color: AppColors.orange, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(_selectedCustomer!['full_name'] ?? _selectedCustomer!['name'] ?? '',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
+                  ),
+                  GestureDetector(
+                    onTap: () => setState(() {
+                      _selectedCustomerId = null;
+                      _customerSearchController.clear();
+                    }),
+                    child: const Icon(Icons.close, color: AppColors.steelBlue, size: 18),
+                  ),
+                ]),
+              )
+            else ...[
+              TextField(
+                controller: _customerSearchController,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                    hintText: 'Search customer by name or phone...',
+                    prefixIcon: const Icon(Icons.search, color: AppColors.steelBlue),
+                    filled: true,
+                    fillColor: AppColors.warmGrey,
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
+              ),
+              if (_customerSearchController.text.trim().isNotEmpty)
+                Container(
+                  margin: const EdgeInsets.only(top: 6),
+                  constraints: const BoxConstraints(maxHeight: 220),
+                  decoration: BoxDecoration(
+                      color: AppColors.warmGrey, borderRadius: BorderRadius.circular(10)),
+                  child: _filteredCustomers.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.all(14),
+                          child: Text('No matching customers.', style: TextStyle(color: AppColors.steelBlue)))
+                      : ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: _filteredCustomers.length,
+                          itemBuilder: (_, i) {
+                            final c = _filteredCustomers[i];
+                            return ListTile(
+                              dense: true,
+                              title: Text(c['full_name'] ?? c['name'] ?? '',
+                                  style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.navy, fontSize: 13)),
+                              subtitle: Text(c['phone'] ?? '', style: const TextStyle(fontSize: 11)),
+                              onTap: () => setState(() {
+                                _selectedCustomerId = c['id'] as String;
+                                _customerSearchController.text = c['full_name'] ?? c['name'] ?? '';
+                              }),
+                            );
+                          },
+                        ),
+                ),
+            ],
           ]),
         ),
+        if (!_isLoading && _categories.isNotEmpty)
+          SizedBox(
+            height: 44,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              children: [
+                _categoryChip(null, 'All'),
+                ..._categories.map((c) => _categoryChip(c['id'] as String, c['name'] ?? '')),
+              ],
+            ),
+          ),
         Expanded(
           child: _isLoading
               ? const Center(child: CircularProgressIndicator(color: AppColors.orange))
               : ListView.builder(
                   padding: const EdgeInsets.all(12),
-                  itemCount: _products.length,
+                  itemCount: _filteredProducts.length,
                   itemBuilder: (_, i) {
-                    final p = _products[i];
+                    final allIndex = _products.indexOf(_filteredProducts[i]);
+                    final p = _filteredProducts[i];
                     final qty = (p['qty'] ?? 0) as int;
                     final price = ((p['price'] ?? 0) as num).toDouble();
                     return Container(
@@ -260,7 +354,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                         Row(children: [
                           GestureDetector(
                             onTap: () => setState(() {
-                              if (qty > 0) _products[i]['qty'] = qty - 1;
+                              if (qty > 0) _products[allIndex]['qty'] = qty - 1;
                             }),
                             child: Container(
                               width: 30,
@@ -277,7 +371,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                                     fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 16)),
                           ),
                           GestureDetector(
-                            onTap: () => setState(() => _products[i]['qty'] = qty + 1),
+                            onTap: () => setState(() => _products[allIndex]['qty'] = qty + 1),
                             child: Container(
                               width: 30,
                               height: 30,
@@ -301,6 +395,21 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                 isLoading: _isSubmitting),
           ),
       ]),
+    );
+  }
+
+  Widget _categoryChip(String? id, String label) {
+    final selected = _selectedCategoryId == id;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        selectedColor: AppColors.orange,
+        labelStyle: TextStyle(color: selected ? Colors.white : AppColors.navy, fontWeight: FontWeight.w600),
+        backgroundColor: AppColors.white,
+        onSelected: (_) => setState(() => _selectedCategoryId = id),
+      ),
     );
   }
 }
