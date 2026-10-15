@@ -136,7 +136,10 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   // REQUIRED_PROFILE_FIELDS (isProfileComplete) — a customer registered
   // here with any of them missing would immediately be flagged
   // incomplete anyway, so Add Customer requires them up front instead
-  // of letting a salesman create a half-filled record.
+  // of letting a salesman create a half-filled record. Credit Limit and
+  // Opening Balance aren't part of that backend list but are required
+  // here too — a number must actually be entered (0 is fine), not left
+  // blank.
   bool _validate() {
     final checks = <String, bool>{
       'Full Name': _nameController.text.trim().isNotEmpty,
@@ -150,6 +153,8 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
       'Shop Photo': _shopImageFile != null,
       'NIC Front Image': _nicFrontImageFile != null,
       'NIC Back Image': _nicBackImageFile != null,
+      'Credit Limit': double.tryParse(_creditLimitController.text.trim()) != null,
+      'Opening Balance': double.tryParse(_openingBalanceController.text.trim()) != null,
     };
     for (final entry in checks.entries) {
       if (!entry.value) {
@@ -384,13 +389,13 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
               Expanded(child: _imagePicker(label: 'NIC Back *', file: _nicBackImageFile, onTap: () => _pickImage('nicBack'))),
             ]),
           ]),
-          _sectionCard(title: 'Account Setup (optional)', icon: Icons.account_balance_wallet_outlined, children: [
-            _field('Credit Limit (PKR)', _creditLimitController,
-                keyboardType: TextInputType.number, icon: Icons.speed_outlined),
-            _field('Opening Balance — Amount Owed (PKR)', _openingBalanceController,
-                keyboardType: TextInputType.number, icon: Icons.account_balance_outlined),
+          _sectionCard(title: 'Account Setup', icon: Icons.account_balance_wallet_outlined, children: [
+            _field('Credit Limit (PKR)', _creditLimitController, required: true,
+                keyboardType: TextInputType.number, icon: Icons.speed_outlined, hint: '0 for no limit'),
+            _field('Opening Balance — Amount Owed (PKR)', _openingBalanceController, required: true,
+                keyboardType: TextInputType.number, icon: Icons.account_balance_outlined, hint: '0 for a fresh account'),
             const Text(
-              'Both are visible to the customer and in the admin panel. Leave blank for no limit / a fresh account.',
+              'Both are visible to the customer and in the admin panel. Enter 0 for no limit / a fresh account.',
               style: TextStyle(color: AppColors.steelBlue, fontSize: 11),
             ),
           ]),
