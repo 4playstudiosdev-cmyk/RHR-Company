@@ -64,11 +64,19 @@ class _OrderPlacementScreenState extends State<OrderPlacementScreen> {
         if (mounted) {
           await showSuccessCheck(context, message: 'Order Placed!');
           if (mounted) {
-            context.go('/order-success', extra: {
-            'orderId': orderId,
-            'itemCount': _displayItems.length,
-            'total': _total,
-          });
+            // .go() alone would leave Order Success as the only entry on
+            // the stack (it replaces the whole stack, not just this
+            // screen) — then the Android back button has nothing left to
+            // pop to and exits the app instead of navigating anywhere.
+            // Resetting to home first, then pushing Order Success on top
+            // of it, means back correctly returns to Home (and skips
+            // the now-stale, already-cleared checkout form underneath).
+            context.go('/home');
+            context.push('/order-success', extra: {
+              'orderId': orderId,
+              'itemCount': _displayItems.length,
+              'total': _total,
+            });
           }
         }
       } else {

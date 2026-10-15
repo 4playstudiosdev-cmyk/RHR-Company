@@ -21,6 +21,7 @@ import '../../features/customer/screens/order_tracking_screen.dart';
 import '../../features/customer/screens/profile_screen.dart';
 import '../../features/customer/screens/ledger_screen.dart';
 import '../../features/customer/screens/payment_history_screen.dart';
+import '../../features/customer/screens/add_payment_screen.dart';
 import '../../features/customer/screens/track_salesman_screen.dart';
 import '../../features/salesman/screens/customer_map_screen.dart';
 import '../../features/salesman/screens/salesman_dashboard_screen.dart';
@@ -111,6 +112,7 @@ final appRouter = GoRouter(
     GoRoute(path: '/profile',            pageBuilder: (c, s) => slidePage(s, const ProfileScreen())),
     GoRoute(path: '/ledger',             pageBuilder: (c, s) => slidePage(s, const LedgerScreen())),
     GoRoute(path: '/payment-history',    pageBuilder: (c, s) => slidePage(s, const PaymentHistoryScreen())),
+    GoRoute(path: '/add-payment',        pageBuilder: (c, s) => slidePage(s, const AddPaymentScreen())),
     GoRoute(path: '/track-salesman',     pageBuilder: (c, s) => slidePage(s, const TrackSalesmanScreen())),
     GoRoute(path: '/customer-map',       pageBuilder: (c, s) => slidePage(s, const CustomerMapScreen())),
     GoRoute(path: '/salesman-dashboard', pageBuilder: (c, s) => slidePage(s, const SalesmanDashboardScreen())),

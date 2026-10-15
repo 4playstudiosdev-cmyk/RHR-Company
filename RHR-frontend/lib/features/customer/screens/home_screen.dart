@@ -18,6 +18,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> _recentOrders = [];
   String _balance  = 'PKR 0';
+  num? _creditLimit;
   String _userName = 'Customer';
   int _totalOrders = 0;
   bool _isLoading  = true;
@@ -55,6 +56,13 @@ class _HomeScreenState extends State<HomeScreen> {
           final balance = (ledgerData['currentBalance'] ?? 0) as num;
           setState(() => _balance = 'PKR ${balance.toStringAsFixed(0)}');
         }
+      }
+
+      final profileRes = await DioClient.instance.get(ApiEndpoints.myProfile);
+      if (profileRes.data['success'] == true) {
+        final profile = profileRes.data['data'] as Map<String, dynamic>? ?? {};
+        final limit = profile['credit_limit'];
+        if (limit != null) setState(() => _creditLimit = limit is num ? limit : num.tryParse(limit.toString()));
       }
     } catch (e) {
       debugPrint('Home load error: $e');
@@ -140,32 +148,53 @@ class _HomeScreenState extends State<HomeScreen> {
                             Expanded(child: _StatCard(label: 'Total Orders', value: '$_totalOrders', color: AppColors.primary)),
                           ]),
                           const SizedBox(height: AppSpacing.base),
-                          SizedBox(
-                            width: double.infinity,
-                            child: _StatCard(
+                          Row(children: [
+                            Expanded(child: _StatCard(
+                              label: 'Credit Limit',
+                              value: _creditLimit != null ? 'PKR ${_creditLimit!.toStringAsFixed(0)}' : 'Not set',
+                              color: AppColors.secondary,
+                            )),
+                            const SizedBox(width: AppSpacing.base),
+                            Expanded(child: _StatCard(
                               label: 'Delivered Orders',
                               value: 'View all',
                               color: AppColors.success,
                               icon: Icons.chevron_right,
                               onTap: () => context.push('/delivered-orders'),
-                            ),
-                          ),
+                            )),
+                          ]),
                           const SizedBox(height: AppSpacing.base),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: () => context.push('/catalogue'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.secondaryContainer,
-                                foregroundColor: AppColors.onSecondaryContainer,
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-                                elevation: 0,
+                          Row(children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () => context.push('/catalogue'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.secondaryContainer,
+                                  foregroundColor: AppColors.onSecondaryContainer,
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                                  elevation: 0,
+                                ),
+                                icon: const Icon(Icons.shopping_bag),
+                                label: Text('Order Now', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSecondaryContainer)),
                               ),
-                              icon: const Icon(Icons.shopping_bag),
-                              label: Text('Browse Products', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSecondaryContainer)),
                             ),
-                          ),
+                            const SizedBox(width: AppSpacing.base),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () => context.push('/add-payment'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                                  elevation: 0,
+                                ),
+                                icon: const Icon(Icons.add_card_outlined),
+                                label: Text('Add Payment', style: AppTextStyles.labelMd.copyWith(color: Colors.white)),
+                              ),
+                            ),
+                          ]),
                           const SizedBox(height: AppSpacing.md),
 
                           const PromoSlider(),
