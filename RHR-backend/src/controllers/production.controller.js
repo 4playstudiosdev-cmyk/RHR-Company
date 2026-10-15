@@ -120,40 +120,34 @@ const createProductionOrder = async (req, res) => {
 // Throws Error with .statusCode set for expected failures (no recipe,
 // insufficient stock) so callers can map them to the right HTTP status.
 const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, remarks, wastageQty, wastageUnit }) => {
+  // Routed through the pgrestGet raw-https bypass (see
+  // utils/directQuery.js) — this lookup was still on plain supabase-js's
+  // .maybeSingle(), the exact pattern that's intermittently returned a
+  // spurious null on Railway elsewhere in this codebase. GET
+  // /production/bom-recipes (the Daily Production Entry preview this
+  // recipe_id was picked from) already reads through the same bypass,
+  // which is why the preview could find and price out a recipe that
+  // then 404'd as "No recipe configured" the moment the admin actually
+  // submitted it — this read a moment later, same id, same company,
+  // just came back empty.
   // cost_per_unit is a phase36 addition — fall back to the plain embed
   // (and effectively $0 cost, same as before this feature existed) if
   // that migration hasn't run yet on this environment.
-  let bomRecipe;
+  let bomRows;
   try {
-    const res = await supabaseAdmin
-      .from('production_bom')
-      .select(`
-        *,
-        production_bom_items(
-          id, qty_required, unit, raw_material_id,
-          raw_materials(id, name, stock, unit, cost_per_unit)
-        )
-      `)
-      .eq('id', recipeId)
-      .eq('company_id', companyId)
-      .maybeSingle();
-    if (res.error) throw new Error(res.error.message);
-    bomRecipe = res.data;
+    bomRows = await pgrestGet('production_bom', {
+      select: '*,production_bom_items(id,qty_required,unit,raw_material_id,raw_materials(id,name,stock,unit,cost_per_unit))',
+      id: `eq.${recipeId}`,
+      company_id: `eq.${companyId}`,
+    });
   } catch (e) {
-    const res = await supabaseAdmin
-      .from('production_bom')
-      .select(`
-        *,
-        production_bom_items(
-          id, qty_required, unit, raw_material_id,
-          raw_materials(id, name, stock, unit)
-        )
-      `)
-      .eq('id', recipeId)
-      .eq('company_id', companyId)
-      .maybeSingle();
-    bomRecipe = res.data;
+    bomRows = await pgrestGet('production_bom', {
+      select: '*,production_bom_items(id,qty_required,unit,raw_material_id,raw_materials(id,name,stock,unit))',
+      id: `eq.${recipeId}`,
+      company_id: `eq.${companyId}`,
+    });
   }
+  const bomRecipe = bomRows?.[0];
 
   if (!bomRecipe) {
     throw Object.assign(new Error(
@@ -161,12 +155,12 @@ const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, r
     ), { statusCode: 404 });
   }
 
-  const { data: matchedProduct } = await supabaseAdmin
-    .from('products')
-    .select('id')
-    .eq('company_id', companyId)
-    .ilike('name', bomRecipe.product_name)
-    .maybeSingle();
+  const matchedProductRows = await pgrestGet('products', {
+    select: 'id',
+    company_id: `eq.${companyId}`,
+    name: `ilike.${bomRecipe.product_name}`,
+  });
+  const matchedProduct = matchedProductRows?.[0];
 
   if (!matchedProduct) {
     throw Object.assign(new Error(
