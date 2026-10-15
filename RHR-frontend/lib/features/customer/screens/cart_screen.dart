@@ -87,13 +87,13 @@ class CartScreen extends StatelessWidget {
                                   border: Border.all(color: AppColors.outlineVariant.withValues(alpha: 0.5))),
                               child: Row(children: [
                                 IconButton(
-                                  onPressed: () => CartStore.instance.updateQty(pid, qty - 1),
+                                  onPressed: () => CartStore.instance.updateQty(pid, qty - CartStore.kQtyStep),
                                   icon: const Icon(Icons.remove, size: 16),
                                   visualDensity: VisualDensity.compact,
                                 ),
                                 Text('$qty', style: AppTextStyles.bodySm),
                                 IconButton(
-                                  onPressed: () => CartStore.instance.updateQty(pid, qty + 1),
+                                  onPressed: () => CartStore.instance.updateQty(pid, qty + CartStore.kQtyStep),
                                   icon: const Icon(Icons.add, size: 16),
                                   visualDensity: VisualDensity.compact,
                                 ),

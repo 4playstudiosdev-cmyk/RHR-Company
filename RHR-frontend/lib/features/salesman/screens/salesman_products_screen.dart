@@ -5,6 +5,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/router/app_transitions.dart';
+import '../../../shared/cart_store.dart';
 
 /// Product catalogue browse screen for salesmen — category chips up top,
 /// a grid of tiles (image/name/price/quick-add) below. Separate from
@@ -59,24 +60,47 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
     }
   }
 
+  // Default ("All") view leads with Tile Bond products and anything
+  // branded Readymix — the two lines salesmen sell most — before
+  // everything else, instead of whatever order the API happened to
+  // return. A picked category still shows that category's own order.
+  static bool _isPriority(Map<String, dynamic> p) {
+    final name = (p['name'] ?? '').toString().toLowerCase();
+    final category = (p['categories']?['name'] ?? '').toString().toLowerCase();
+    return name.contains('readymix') || category.contains('tile bond');
+  }
+
   List<Map<String, dynamic>> get _filteredProducts {
-    if (_selectedCategoryId == null) return _products;
-    return _products.where((p) => p['category_id'] == _selectedCategoryId).toList();
+    final list = _selectedCategoryId == null
+        ? _products
+        : _products.where((p) => p['category_id'] == _selectedCategoryId).toList();
+    if (_selectedCategoryId != null) return list;
+    final indexed = list.asMap().entries.toList();
+    indexed.sort((a, b) {
+      final pa = _isPriority(a.value) ? 0 : 1;
+      final pb = _isPriority(b.value) ? 0 : 1;
+      if (pa != pb) return pa.compareTo(pb);
+      return a.key.compareTo(b.key);
+    });
+    return indexed.map((e) => e.value).toList();
   }
 
   int get _cartCount => _cart.values.fold(0, (s, q) => s + q);
 
   void _addToCart(String productId) {
-    setState(() => _cart[productId] = (_cart[productId] ?? 0) + 1);
+    setState(() {
+      final current = _cart[productId] ?? 0;
+      _cart[productId] = current == 0 ? CartStore.kMinQty : current + CartStore.kQtyStep;
+    });
   }
 
   void _removeFromCart(String productId) {
     setState(() {
       final current = _cart[productId] ?? 0;
-      if (current <= 1) {
+      if (current <= CartStore.kMinQty) {
         _cart.remove(productId);
       } else {
-        _cart[productId] = current - 1;
+        _cart[productId] = current - CartStore.kQtyStep;
       }
     });
   }

@@ -5,6 +5,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/hive_service.dart';
 import '../../../core/storage/sync_service.dart';
+import '../../../shared/cart_store.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/router/app_transitions.dart';
@@ -23,6 +24,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
   String? _selectedCategoryId; // null = All
   String? _selectedCustomerId;
   final _customerSearchController = TextEditingController();
+  final _customerSearchFocus = FocusNode();
   bool _isLoading = true;
   bool _isSubmitting = false;
   bool _isOnline = true;
@@ -33,11 +35,13 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     super.initState();
     _pendingSync = HiveService.getOfflineOrderCount();
     _loadData();
+    _customerSearchFocus.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
     _customerSearchController.dispose();
+    _customerSearchFocus.dispose();
     super.dispose();
   }
 
@@ -101,6 +105,105 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
   int get _total => _products.fold(0, (s, p) =>
       s + ((p['price'] ?? 0) as num).toInt() * ((p['qty'] ?? 0) as int));
+
+  Future<void> _openCheckout() async {
+    if (_selectedCustomerId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Select a customer first')));
+      return;
+    }
+    final sel = _products.where((p) => (p['qty'] ?? 0) > 0).toList();
+    if (sel.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Add at least one product')));
+      return;
+    }
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => DraggableScrollableSheet(
+        initialChildSize: 0.75,
+        maxChildSize: 0.9,
+        minChildSize: 0.5,
+        expand: false,
+        builder: (_, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: AppColors.warmGrey,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(children: [
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 10),
+              width: 40, height: 4,
+              decoration: BoxDecoration(color: AppColors.steelBlue.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(2)),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20),
+              child: Align(alignment: Alignment.centerLeft,
+                  child: Text('Review Order', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 18))),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(12)),
+                    child: Row(children: [
+                      const Icon(Icons.business, color: AppColors.orange, size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(child: Text(_selectedCustomer?['full_name'] ?? _selectedCustomer?['name'] ?? '',
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy))),
+                    ]),
+                  ),
+                  const SizedBox(height: 12),
+                  ...sel.map((p) => Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(10)),
+                        child: Row(children: [
+                          Expanded(
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(p['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.navy, fontSize: 13)),
+                              Text('${p['qty']} × PKR ${((p['price'] ?? 0) as num).toStringAsFixed(0)}',
+                                  style: const TextStyle(color: AppColors.steelBlue, fontSize: 12)),
+                            ]),
+                          ),
+                          Text('PKR ${(((p['price'] ?? 0) as num) * (p['qty'] as int)).toStringAsFixed(0)}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 13)),
+                        ]),
+                      )),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(color: AppColors.navy, borderRadius: BorderRadius.circular(12)),
+                    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                      const Text('Total', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
+                      Text('PKR $_total', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+                    ]),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              child: RHRButton(
+                text: _isOnline ? 'Confirm & Place Order' : 'Confirm & Save Offline',
+                onPressed: () => Navigator.of(sheetContext).pop(true),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+
+    if (confirmed == true) await _submit();
+  }
 
   Future<void> _submit() async {
     if (_selectedCustomerId == null) {
@@ -251,9 +354,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
             else ...[
               TextField(
                 controller: _customerSearchController,
+                focusNode: _customerSearchFocus,
                 onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
-                    hintText: 'Search customer by name or phone...',
+                    hintText: 'Tap to see all customers, or search by name/phone...',
                     prefixIcon: const Icon(Icons.search, color: AppColors.steelBlue),
                     filled: true,
                     fillColor: AppColors.warmGrey,
@@ -261,7 +365,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                         borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
               ),
-              if (_customerSearchController.text.trim().isNotEmpty)
+              if (_customerSearchFocus.hasFocus || _customerSearchController.text.trim().isNotEmpty)
                 Container(
                   margin: const EdgeInsets.only(top: 6),
                   constraints: const BoxConstraints(maxHeight: 220),
@@ -281,10 +385,13 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                               title: Text(c['full_name'] ?? c['name'] ?? '',
                                   style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.navy, fontSize: 13)),
                               subtitle: Text(c['phone'] ?? '', style: const TextStyle(fontSize: 11)),
-                              onTap: () => setState(() {
-                                _selectedCustomerId = c['id'] as String;
-                                _customerSearchController.text = c['full_name'] ?? c['name'] ?? '';
-                              }),
+                              onTap: () {
+                                _customerSearchFocus.unfocus();
+                                setState(() {
+                                  _selectedCustomerId = c['id'] as String;
+                                  _customerSearchController.text = c['full_name'] ?? c['name'] ?? '';
+                                });
+                              },
                             );
                           },
                         ),
@@ -354,7 +461,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                         Row(children: [
                           GestureDetector(
                             onTap: () => setState(() {
-                              if (qty > 0) _products[allIndex]['qty'] = qty - 1;
+                              _products[allIndex]['qty'] = qty <= CartStore.kMinQty ? 0 : qty - CartStore.kQtyStep;
                             }),
                             child: Container(
                               width: 30,
@@ -371,7 +478,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                                     fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 16)),
                           ),
                           GestureDetector(
-                            onTap: () => setState(() => _products[allIndex]['qty'] = qty + 1),
+                            onTap: () => setState(() =>
+                                _products[allIndex]['qty'] = qty == 0 ? CartStore.kMinQty : qty + CartStore.kQtyStep),
                             child: Container(
                               width: 30,
                               height: 30,
@@ -390,8 +498,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
             padding: const EdgeInsets.all(16),
             color: AppColors.white,
             child: RHRButton(
-                text: _isOnline ? 'Place Order — PKR $_total' : 'Save Offline — PKR $_total',
-                onPressed: _submit,
+                text: 'Review & Checkout — PKR $_total',
+                onPressed: _openCheckout,
                 isLoading: _isSubmitting),
           ),
       ]),

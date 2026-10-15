@@ -18,7 +18,7 @@ class ProductDetailScreen extends StatefulWidget {
 class _ProductDetailScreenState extends State<ProductDetailScreen> {
   Map<String, dynamic>? _product;
   bool _isLoading = true;
-  int _quantity = 1;
+  int _quantity = CartStore.kMinQty;
 
   @override
   void initState() {
@@ -161,7 +161,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                       decoration: BoxDecoration(border: Border.all(color: AppColors.outlineVariant), borderRadius: BorderRadius.circular(AppRadius.base)),
                                       child: Row(children: [
                                         IconButton(
-                                          onPressed: () { if (_quantity > 1) setState(() => _quantity--); },
+                                          onPressed: () { if (_quantity > CartStore.kMinQty) setState(() => _quantity -= CartStore.kQtyStep); },
                                           icon: const Icon(Icons.remove, color: AppColors.primaryContainer),
                                         ),
                                         Container(
@@ -172,7 +172,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                           child: Text('$_quantity', style: AppTextStyles.bodyMd.copyWith(fontWeight: FontWeight.w600, color: AppColors.primaryContainer)),
                                         ),
                                         IconButton(
-                                          onPressed: () => setState(() => _quantity++),
+                                          onPressed: () => setState(() => _quantity += CartStore.kQtyStep),
                                           icon: const Icon(Icons.add, color: AppColors.primaryContainer),
                                         ),
                                       ]),

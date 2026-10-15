@@ -40,16 +40,37 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
         } else if (data is Map && data['products'] != null) {
           products = List<Map<String, dynamic>>.from(data['products']);
         }
+        products = _sortedByPriority(products);
         setState(() { _products = products; _filtered = products; });
       }
     } catch (e) { debugPrint('Products error: $e'); }
     finally { if (mounted) setState(() => _isLoading = false); }
   }
 
+  // Leads with Tile Bond products and anything branded Readymix — the
+  // two lines sold most — before everything else, instead of whatever
+  // order the API happened to return.
+  static bool _isPriority(Map<String, dynamic> p) {
+    final name = (p['name'] ?? '').toString().toLowerCase();
+    final category = (p['categories']?['name'] ?? '').toString().toLowerCase();
+    return name.contains('readymix') || category.contains('tile bond');
+  }
+
+  static List<Map<String, dynamic>> _sortedByPriority(List<Map<String, dynamic>> list) {
+    final indexed = list.asMap().entries.toList();
+    indexed.sort((a, b) {
+      final pa = _isPriority(a.value) ? 0 : 1;
+      final pb = _isPriority(b.value) ? 0 : 1;
+      if (pa != pb) return pa.compareTo(pb);
+      return a.key.compareTo(b.key);
+    });
+    return indexed.map((e) => e.value).toList();
+  }
+
   void _filterProducts() {
     setState(() {
-      _filtered = _products.where((p) => _search.isEmpty ||
-          (p['name'] ?? '').toLowerCase().contains(_search.toLowerCase())).toList();
+      _filtered = _sortedByPriority(_products.where((p) => _search.isEmpty ||
+          (p['name'] ?? '').toLowerCase().contains(_search.toLowerCase())).toList());
     });
   }
 
@@ -210,7 +231,7 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
                                                     child: OutlinedButton(
                                                       onPressed: () => CartStore.instance.add(
                                                           id: pid, name: p['name'] ?? 'Product',
-                                                          price: price, unit: unit, qty: 1),
+                                                          price: price, unit: unit),
                                                       style: OutlinedButton.styleFrom(
                                                         foregroundColor: AppColors.primary,
                                                         side: const BorderSide(color: AppColors.primary),
@@ -224,7 +245,7 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
                                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                     children: [
                                                       GestureDetector(
-                                                        onTap: () => CartStore.instance.updateQty(pid, qty - 1),
+                                                        onTap: () => CartStore.instance.updateQty(pid, qty - CartStore.kQtyStep),
                                                         child: Container(
                                                           width: 28, height: 28,
                                                           decoration: BoxDecoration(color: AppColors.surfaceContainerLow, borderRadius: BorderRadius.circular(6)),
@@ -233,7 +254,7 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
                                                       ),
                                                       Text('$qty', style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary, fontSize: 15)),
                                                       GestureDetector(
-                                                        onTap: () => CartStore.instance.updateQty(pid, qty + 1),
+                                                        onTap: () => CartStore.instance.updateQty(pid, qty + CartStore.kQtyStep),
                                                         child: Container(
                                                           width: 28, height: 28,
                                                           decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(6)),

@@ -73,8 +73,15 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
 
   // Step 2: Build order items with price snapshot
   let totalAmount = 0;
+  // Wholesale-order rule — every line must be at least 50 units (bag,
+  // pcs, dozen, kg, bottle, pouch alike); mirrors the frontend's
+  // CartStore (kMinQty = 50) so a direct API call can't bypass it.
+  const MIN_ORDER_QTY = 50;
   const orderItems = items.map(item => {
     const product = products.find(p => p.id === item.product_id);
+    if (Number(item.quantity) < MIN_ORDER_QTY) {
+      throw new Error(`Minimum order quantity is ${MIN_ORDER_QTY} per product — ${product.name} has ${item.quantity}`);
+    }
     if (product.stock_quantity < item.quantity) {
       throw new Error(`Insufficient stock for ${product.name}`);
     }
