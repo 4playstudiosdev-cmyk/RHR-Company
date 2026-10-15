@@ -38,6 +38,47 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
   String? _selectedBankAccountId;
   DateTime _transferDate = DateTime.now();
 
+  // Opened standalone (e.g. the dashboard's "Record Payment" quick
+  // action) instead of from a specific customer's page — needs its own
+  // customer picker, same search-on-focus pattern as New Order's.
+  String? _selectedCustomerId;
+  List<Map<String, dynamic>> _customers = [];
+  final _customerSearchController = TextEditingController();
+  final _customerSearchFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedCustomerId = widget.customerId;
+    if (widget.customerId == null) _loadCustomers();
+    _customerSearchFocus.addListener(() => setState(() {}));
+  }
+
+  Future<void> _loadCustomers() async {
+    try {
+      final res = await DioClient.instance.get(ApiEndpoints.customers);
+      if (res.data['success'] == true && mounted) {
+        setState(() => _customers = List<Map<String, dynamic>>.from(res.data['data'] ?? []));
+      }
+    } catch (e) {
+      debugPrint('Customers load error: $e');
+    }
+  }
+
+  List<Map<String, dynamic>> get _filteredCustomers {
+    final q = _customerSearchController.text.trim().toLowerCase();
+    if (q.isEmpty) return _customers;
+    return _customers.where((c) {
+      final name = (c['full_name'] ?? '').toString().toLowerCase();
+      final phone = (c['phone'] ?? '').toString().toLowerCase();
+      return name.contains(q) || phone.contains(q);
+    }).toList();
+  }
+
+  Map<String, dynamic>? get _selectedCustomer => _selectedCustomerId == null
+      ? null
+      : _customers.firstWhere((c) => c['id'] == _selectedCustomerId, orElse: () => {});
+
   Future<void> _loadBankAccounts() async {
     if (_bankAccounts.isNotEmpty || _loadingBankAccounts) return;
     setState(() => _loadingBankAccounts = true);
@@ -73,6 +114,8 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
   void dispose() {
     _amountController.dispose();
     _notesController.dispose();
+    _customerSearchController.dispose();
+    _customerSearchFocus.dispose();
     super.dispose();
   }
 
@@ -149,9 +192,9 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
   }
 
   Future<void> _submitPayment() async {
-    if (widget.customerId == null) {
+    if (_selectedCustomerId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No customer selected — open this from a customer\'s page first.')));
+          const SnackBar(content: Text('Select a customer first.')));
       return;
     }
     if (_amountController.text.isEmpty) {
@@ -171,26 +214,46 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
     }
     setState(() => _isLoading = true);
     try {
-      // method must be exactly 'bank' for Bank Transfer — that's the one
-      // value payments.controller.js special-cases (requires
-      // bank_account_id). Everything else is free text for display.
-      final method = _selectedMethod == 'Bank Transfer'
-          ? 'bank'
-          : _selectedMethod.toLowerCase().replaceAll(' ', '_');
-      final response = await DioClient.instance.post(
-        ApiEndpoints.payments,
-        data: {
-          'customer_id': widget.customerId,
-          'amount':      double.parse(_amountController.text),
-          'method':      method,
-          'photo_url':   _uploadedPhotoUrl,
-          if (_selectedMethod == 'Bank Transfer') ...{
-            'bank_account_id': _selectedBankAccountId,
-            'date': _transferDate.toIso8601String(),
+      final amount = double.parse(_amountController.text);
+      final notes = _notesController.text.trim().isNotEmpty ? _notesController.text.trim() : null;
+
+      // Cash and Bank Transfer both now post through the same
+      // instant-credit recovery flow Cash Collection's own button
+      // already used — Cash shows up in Cash In Hand, Bank Transfer
+      // (never physical cash) shows straight in Deposit History
+      // instead. Credit Account is the one case still going through
+      // the admin-reviewed /payments table.
+      late Response response;
+      if (_selectedMethod == 'Cash') {
+        response = await DioClient.instance.post(ApiEndpoints.recoveryTransactionsMe, data: {
+          'customer_id': _selectedCustomerId,
+          'amount': amount,
+          'photo_url': _uploadedPhotoUrl,
+          if (notes != null) 'notes': notes,
+        });
+      } else if (_selectedMethod == 'Bank Transfer') {
+        final bankLabel = _bankAccounts.firstWhere(
+            (a) => a['id'] == _selectedBankAccountId, orElse: () => {})['bank_name'];
+        response = await DioClient.instance.post(ApiEndpoints.recoveryBankTransferMe, data: {
+          'customer_id': _selectedCustomerId,
+          'amount': amount,
+          'bank_account_id': _selectedBankAccountId,
+          if (bankLabel != null) 'bank_account_label': bankLabel,
+          'photo_url': _uploadedPhotoUrl,
+          if (notes != null) 'notes': notes,
+        });
+      } else {
+        response = await DioClient.instance.post(
+          ApiEndpoints.payments,
+          data: {
+            'customer_id': _selectedCustomerId,
+            'amount': amount,
+            'method': _selectedMethod.toLowerCase().replaceAll(' ', '_'),
+            'photo_url': _uploadedPhotoUrl,
+            if (notes != null) 'notes': notes,
           },
-          if (_notesController.text.trim().isNotEmpty) 'notes': _notesController.text.trim(),
-        },
-      );
+        );
+      }
       if (response.data['success'] == true) {
         if (mounted) {
           await showSuccessCheck(context, message: 'Payment Recorded!');
@@ -257,6 +320,81 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
+
+                  if (widget.customerId == null) ...[
+                    const Text('Customer',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
+                    const SizedBox(height: 10),
+                    if (_selectedCustomer != null && _selectedCustomer!['id'] != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                            color: AppColors.orange.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.orange)),
+                        child: Row(children: [
+                          const Icon(Icons.business, color: AppColors.orange, size: 18),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(_selectedCustomer!['full_name'] ?? '',
+                                style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
+                          ),
+                          GestureDetector(
+                            onTap: () => setState(() {
+                              _selectedCustomerId = null;
+                              _customerSearchController.clear();
+                            }),
+                            child: const Icon(Icons.close, color: AppColors.steelBlue, size: 18),
+                          ),
+                        ]),
+                      )
+                    else ...[
+                      TextField(
+                        controller: _customerSearchController,
+                        focusNode: _customerSearchFocus,
+                        onChanged: (_) => setState(() {}),
+                        decoration: InputDecoration(
+                          hintText: 'Tap to see all customers, or search...',
+                          prefixIcon: const Icon(Icons.search, color: AppColors.steelBlue),
+                          filled: true,
+                          fillColor: AppColors.warmGrey,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        ),
+                      ),
+                      if (_customerSearchFocus.hasFocus || _customerSearchController.text.trim().isNotEmpty)
+                        Container(
+                          margin: const EdgeInsets.only(top: 6),
+                          constraints: const BoxConstraints(maxHeight: 220),
+                          decoration: BoxDecoration(color: AppColors.warmGrey, borderRadius: BorderRadius.circular(10)),
+                          child: _filteredCustomers.isEmpty
+                              ? const Padding(
+                                  padding: EdgeInsets.all(14),
+                                  child: Text('No matching customers.', style: TextStyle(color: AppColors.steelBlue)))
+                              : ListView.builder(
+                                  shrinkWrap: true,
+                                  itemCount: _filteredCustomers.length,
+                                  itemBuilder: (_, i) {
+                                    final c = _filteredCustomers[i];
+                                    return ListTile(
+                                      dense: true,
+                                      title: Text(c['full_name'] ?? '',
+                                          style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.navy, fontSize: 13)),
+                                      subtitle: Text(c['phone'] ?? '', style: const TextStyle(fontSize: 11)),
+                                      onTap: () {
+                                        _customerSearchFocus.unfocus();
+                                        setState(() {
+                                          _selectedCustomerId = c['id'] as String;
+                                          _customerSearchController.text = c['full_name'] ?? '';
+                                        });
+                                      },
+                                    );
+                                  },
+                                ),
+                        ),
+                    ],
+                    const SizedBox(height: 24),
+                  ],
 
                   RHRInputField(
                     label: 'Amount Collected',

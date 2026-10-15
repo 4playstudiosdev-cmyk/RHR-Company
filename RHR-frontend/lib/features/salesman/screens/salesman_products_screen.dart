@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
-import '../../../shared/widgets/success_check.dart';
 import '../../../shared/router/app_transitions.dart';
-import '../../../shared/order_qty_rules.dart';
 
 /// Product catalogue browse screen for salesmen — category chips up top,
-/// a grid of tiles (image/name/price/quick-add) below. Separate from
-/// create_order_screen.dart's dropdown-based picker, which still exists
-/// for the "I already know what they want" flow; this is the visual
-/// "browse and build a cart" flow.
+/// a list of products below. View-only: tapping a product opens its full
+/// description/detail, same as the customer app's catalogue, so a
+/// salesman can show a customer exactly what they're getting. Actually
+/// placing an order always goes through create_order_screen.dart ("New
+/// Order") — this screen used to also let a salesman build a cart and
+/// checkout directly, which meant two different places could create an
+/// order; that's now the New Order screen's job alone.
 class SalesmanProductsScreen extends StatefulWidget {
   const SalesmanProductsScreen({super.key});
 
@@ -22,12 +22,8 @@ class SalesmanProductsScreen extends StatefulWidget {
 class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
   List<Map<String, dynamic>> _categories = [];
   List<Map<String, dynamic>> _products = [];
-  List<Map<String, dynamic>> _customers = [];
   bool _loading = true;
   String? _selectedCategoryId; // null = All
-
-  // product_id -> quantity
-  final Map<String, int> _cart = {};
 
   @override
   void initState() {
@@ -41,7 +37,6 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
       final results = await Future.wait([
         DioClient.instance.get(ApiEndpoints.categories),
         DioClient.instance.get(ApiEndpoints.products, queryParameters: {'limit': 200}),
-        DioClient.instance.get(ApiEndpoints.customers),
       ]);
       if (results[0].data['success'] == true) {
         _categories = List<Map<String, dynamic>>.from(results[0].data['data'] ?? []);
@@ -49,9 +44,6 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
       if (results[1].data['success'] == true) {
         final raw = results[1].data['data'];
         _products = List<Map<String, dynamic>>.from(raw is Map ? (raw['products'] ?? raw['data'] ?? []) : raw ?? []);
-      }
-      if (results[2].data['success'] == true) {
-        _customers = List<Map<String, dynamic>>.from(results[2].data['data'] ?? []);
       }
     } catch (e) {
       debugPrint('Products browse load error: $e');
@@ -85,81 +77,92 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
     return indexed.map((e) => e.value).toList();
   }
 
-  int get _cartCount => _cart.values.fold(0, (s, q) => s + q);
-
-  OrderQtyRule _ruleFor(String productId) {
-    final p = _products.firstWhere((p) => p['id'] == productId, orElse: () => {});
-    return qtyRuleForProduct(p);
-  }
-
-  void _addToCart(String productId) {
-    setState(() {
-      final rule = _ruleFor(productId);
-      final current = _cart[productId] ?? 0;
-      _cart[productId] = current == 0 ? rule.min : current + rule.step;
-    });
-  }
-
-  void _removeFromCart(String productId) {
-    setState(() {
-      final rule = _ruleFor(productId);
-      final current = _cart[productId] ?? 0;
-      if (current <= rule.min) {
-        _cart.remove(productId);
-      } else {
-        _cart[productId] = current - rule.step;
-      }
-    });
-  }
-
-  Future<void> _checkout() async {
-    String? selectedCustomerId;
-    final confirmed = await showDialog<bool>(
+  void _openDetail(Map<String, dynamic> p) {
+    showModalBottomSheet(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Place Order'),
-          content: DropdownButtonFormField<String>(
-            initialValue: selectedCustomerId,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Customer', border: OutlineInputBorder()),
-            items: _customers.map((c) => DropdownMenuItem(
-              value: c['id'] as String,
-              child: Text(c['full_name'] ?? '', overflow: TextOverflow.ellipsis),
-            )).toList(),
-            onChanged: (v) => setDialogState(() => selectedCustomerId = v),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => DraggableScrollableSheet(
+        initialChildSize: 0.65,
+        maxChildSize: 0.9,
+        minChildSize: 0.4,
+        expand: false,
+        builder: (_, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: AppColors.warmGrey,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: selectedCustomerId == null ? null : () => Navigator.pop(dialogContext, true),
-              child: const Text('Place Order'),
-            ),
-          ],
+          child: ListView(
+            controller: scrollController,
+            padding: const EdgeInsets.all(20),
+            children: [
+              Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                width: 40, height: 4,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: AppColors.steelBlue.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(2)),
+              ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  width: double.infinity,
+                  height: 180,
+                  color: AppColors.orange.withValues(alpha: 0.12),
+                  child: (p['image_url'] != null && (p['image_url'] as String).isNotEmpty)
+                      ? Image.network(p['image_url'], fit: BoxFit.cover,
+                          errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 56))
+                      : const Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 56),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(p['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 19)),
+              if ((p['categories']?['name'] ?? '').toString().isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(p['categories']['name'], style: const TextStyle(color: AppColors.steelBlue, fontSize: 13)),
+              ],
+              const SizedBox(height: 12),
+              Row(children: [
+                Text('PKR ${((p['price'] ?? 0) as num).toStringAsFixed(0)}',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.orange, fontSize: 20)),
+                if ((p['unit'] ?? '').toString().isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  Text('/ ${p['unit']}', style: const TextStyle(color: AppColors.steelBlue, fontSize: 14)),
+                ],
+              ]),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: ((p['stock_quantity'] ?? 0) as num) > 0
+                      ? AppColors.success.withValues(alpha: 0.12)
+                      : AppColors.error.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  ((p['stock_quantity'] ?? 0) as num) > 0
+                      ? 'In Stock — ${p['stock_quantity']} ${p['unit'] ?? ''}'
+                      : 'Out of Stock',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 12,
+                    color: ((p['stock_quantity'] ?? 0) as num) > 0 ? AppColors.success : AppColors.error,
+                  ),
+                ),
+              ),
+              if ((p['description'] ?? '').toString().trim().isNotEmpty) ...[
+                const SizedBox(height: 20),
+                const Text('Description', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 15)),
+                const SizedBox(height: 8),
+                Text(p['description'], style: const TextStyle(color: AppColors.steelBlue, fontSize: 14, height: 1.5)),
+              ],
+              const SizedBox(height: 24),
+              const Text('To order this for a customer, use New Order from the dashboard.',
+                  style: TextStyle(color: AppColors.steelBlue, fontSize: 12, fontStyle: FontStyle.italic)),
+              const SizedBox(height: 10),
+            ],
+          ),
         ),
       ),
     );
-    if (confirmed != true || selectedCustomerId == null) return;
-
-    try {
-      final items = _cart.entries.map((e) => {'product_id': e.key, 'quantity': e.value}).toList();
-      final res = await DioClient.instance.post(ApiEndpoints.orders, data: {
-        'customer_id': selectedCustomerId,
-        'items': items,
-      });
-      if (res.data['success'] == true) {
-        if (mounted) {
-          setState(() => _cart.clear());
-          await showSuccessCheck(context, message: 'Order Placed!');
-          if (mounted) context.go('/salesman-dashboard');
-        }
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(res.data['message'] ?? 'Failed to place order')));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-    }
   }
 
   @override
@@ -208,14 +211,6 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
                 ),
               ),
             ]),
-      floatingActionButton: _cartCount > 0
-          ? FloatingActionButton.extended(
-              backgroundColor: AppColors.orange,
-              onPressed: _checkout,
-              icon: const Icon(Icons.shopping_cart, color: Colors.white),
-              label: Text('$_cartCount item(s) — Checkout', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            )
-          : null,
     );
   }
 
@@ -235,75 +230,41 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
   }
 
   Widget _productRow(Map<String, dynamic> p) {
-    final productId = p['id'] as String;
-    final qty = _cart[productId] ?? 0;
     final imageUrl = p['image_url'] as String?;
     final price = ((p['price'] ?? 0) as num).toDouble();
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: qty > 0 ? Border.all(color: AppColors.orange, width: 1.5) : null,
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6)],
+    return GestureDetector(
+      onTap: () => _openDetail(p),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6)],
+        ),
+        child: Row(children: [
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(color: AppColors.orange.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)),
+            child: (imageUrl != null && imageUrl.isNotEmpty)
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(imageUrl, fit: BoxFit.cover,
+                        errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 24)))
+                : const Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 24),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(p['name'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 13)),
+              Text('PKR ${price.toStringAsFixed(0)}', style: const TextStyle(color: AppColors.orange, fontSize: 12)),
+            ]),
+          ),
+          const Icon(Icons.chevron_right, color: AppColors.steelBlue),
+        ]),
       ),
-      child: Row(children: [
-        Container(
-          width: 50,
-          height: 50,
-          decoration: BoxDecoration(color: AppColors.orange.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)),
-          child: (imageUrl != null && imageUrl.isNotEmpty)
-              ? ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(imageUrl, fit: BoxFit.cover,
-                      errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 24)))
-              : const Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 24),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(p['name'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 13)),
-            Text('PKR ${price.toStringAsFixed(0)}', style: const TextStyle(color: AppColors.orange, fontSize: 12)),
-          ]),
-        ),
-        if (qty == 0)
-          GestureDetector(
-            onTap: () => _addToCart(productId),
-            child: Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(color: AppColors.orange, borderRadius: BorderRadius.circular(8)),
-              child: const Icon(Icons.add, size: 18, color: Colors.white),
-            ),
-          )
-        else
-          Row(children: [
-            GestureDetector(
-              onTap: () => _removeFromCart(productId),
-              child: Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(color: AppColors.warmGrey, borderRadius: BorderRadius.circular(6)),
-                child: const Icon(Icons.remove, size: 16, color: AppColors.navy),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Text('$qty', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 16)),
-            ),
-            GestureDetector(
-              onTap: () => _addToCart(productId),
-              child: Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(color: AppColors.orange, borderRadius: BorderRadius.circular(6)),
-                child: const Icon(Icons.add, size: 16, color: Colors.white),
-              ),
-            ),
-          ]),
-      ]),
     );
   }
 }

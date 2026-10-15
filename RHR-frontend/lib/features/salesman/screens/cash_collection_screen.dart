@@ -27,7 +27,7 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
   num _totalCollected = 0;
   num _totalDeposited = 0;
   List<Map<String, dynamic>> _closingHistory = [];
-  List<Map<String, dynamic>> _customers = [];
+  List<Map<String, dynamic>> _bankTransfers = [];
 
   @override
   void initState() {
@@ -41,7 +41,7 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
       final results = await Future.wait([
         DioClient.instance.get(ApiEndpoints.recoveryMyCashInHand),
         DioClient.instance.get(ApiEndpoints.recoveryCashClosingMe),
-        DioClient.instance.get(ApiEndpoints.customers),
+        DioClient.instance.get(ApiEndpoints.recoveryBankTransfersMe),
       ]);
       if (results[0].data['success'] == true) {
         final d = results[0].data['data'];
@@ -53,7 +53,7 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
         _closingHistory = List<Map<String, dynamic>>.from(results[1].data['data'] ?? []);
       }
       if (results[2].data['success'] == true) {
-        _customers = List<Map<String, dynamic>>.from(results[2].data['data'] ?? []);
+        _bankTransfers = List<Map<String, dynamic>>.from(results[2].data['data'] ?? []);
       }
     } catch (e) {
       debugPrint('Cash collection load error: $e');
@@ -64,64 +64,32 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
 
   num _asNum(dynamic v) => v is num ? v : num.tryParse(v?.toString() ?? '0') ?? 0;
 
-  Future<void> _collectCash() async {
-    String? customerId;
-    final amountController = TextEditingController();
-    final notesController = TextEditingController();
+  num get _totalBankTransferred => _bankTransfers.fold<num>(0, (s, t) => s + _asNum(t['amount']));
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Collect Cash from Customer'),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            DropdownButtonFormField<String>(
-              initialValue: customerId,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Customer', border: OutlineInputBorder()),
-              items: _customers.map((c) => DropdownMenuItem(
-                value: c['id'] as String,
-                child: Text(c['full_name'] ?? '', overflow: TextOverflow.ellipsis),
-              )).toList(),
-              onChanged: (v) => setDialogState(() => customerId = v),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: amountController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Amount (PKR)', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: notesController,
-              decoration: const InputDecoration(labelText: 'Notes (optional)', border: OutlineInputBorder()),
-            ),
-          ]),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            ElevatedButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Submit')),
-          ],
-        ),
-      ),
-    );
-    if (confirmed != true) return;
-    if (customerId == null || amountController.text.trim().isEmpty) return;
-
-    try {
-      final res = await DioClient.instance.post(ApiEndpoints.recoveryTransactionsMe, data: {
-        'customer_id': customerId,
-        'amount': double.tryParse(amountController.text.trim()) ?? 0,
-        if (notesController.text.trim().isNotEmpty) 'notes': notesController.text.trim(),
-      });
-      if (res.data['success'] == true) {
-        if (mounted) await showSuccessCheck(context, message: 'Cash Collected!');
-        _load();
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res.data['message'] ?? 'Failed')));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-    }
+  // Merges actual cash deposits (salesman_cash_closings) with bank
+  // transfers collected straight from a customer (salesman_recoveries,
+  // payment_type 'bank') into one history list, newest first — a bank
+  // transfer never needed a separate deposit step, so it has no row of
+  // its own in salesman_cash_closings, but still belongs in this view.
+  List<Map<String, dynamic>> get _combinedHistory {
+    final combined = [
+      ..._closingHistory.map((c) => {
+            'amount': c['amount'],
+            'date': c['closing_date'],
+            'status': c['status'],
+            'isBank': c['deposit_to'] == 'bank',
+            'label': c['deposit_to'] == 'bank' ? 'Cash Deposit — Bank' : 'Cash Deposit — Petty Cash',
+          }),
+      ..._bankTransfers.map((t) => {
+            'amount': t['amount'],
+            'date': t['recovery_date'],
+            'status': t['status'],
+            'isBank': true,
+            'label': 'Bank Transfer from ${t['users']?['full_name'] ?? 'customer'}',
+          }),
+    ];
+    combined.sort((a, b) => (b['date'] ?? '').toString().compareTo((a['date'] ?? '').toString()));
+    return combined;
   }
 
   Future<void> _depositDialog() async {
@@ -307,7 +275,7 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
                         const Text('Collected', style: TextStyle(color: Colors.white54, fontSize: 11)),
                       ]),
                       Column(children: [
-                        Text('PKR ${_totalDeposited.toStringAsFixed(0)}',
+                        Text('PKR ${(_totalDeposited + _totalBankTransferred).toStringAsFixed(0)}',
                             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                         const Text('Deposited', style: TextStyle(color: Colors.white54, fontSize: 11)),
                       ]),
@@ -315,47 +283,36 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
                   ]),
                 ),
                 const SizedBox(height: 16),
-                Row(children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _collectCash,
-                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.success, foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14)),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Collect Cash'),
-                    ),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _depositDialog,
+                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.orange, foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14)),
+                    icon: const Icon(Icons.upload_outlined),
+                    label: const Text('Deposit'),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _depositDialog,
-                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.orange, foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14)),
-                      icon: const Icon(Icons.upload_outlined),
-                      label: const Text('Deposit'),
-                    ),
-                  ),
-                ]),
+                ),
                 const SizedBox(height: 24),
                 const Text('Deposit History', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 16)),
                 const SizedBox(height: 10),
-                if (_closingHistory.isEmpty)
+                if (_combinedHistory.isEmpty)
                   const Padding(padding: EdgeInsets.all(16),
                       child: Text('No deposits yet.', style: TextStyle(color: AppColors.steelBlue)))
                 else
-                  ..._closingHistory.map((c) => Container(
+                  ..._combinedHistory.map((c) => Container(
                         margin: const EdgeInsets.only(bottom: 10),
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(12)),
                         child: Row(children: [
-                          Icon(c['deposit_to'] == 'bank' ? Icons.account_balance_outlined : Icons.payments_outlined,
+                          Icon(c['isBank'] == true ? Icons.account_balance_outlined : Icons.payments_outlined,
                               color: AppColors.orange),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text('PKR ${_asNum(c['amount']).toStringAsFixed(0)} — ${c['deposit_to']}',
+                              Text('PKR ${_asNum(c['amount']).toStringAsFixed(0)} — ${c['label']}',
                                   style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
-                              Text('${c['closing_date']}', style: const TextStyle(color: AppColors.steelBlue, fontSize: 12)),
+                              Text('${c['date']}', style: const TextStyle(color: AppColors.steelBlue, fontSize: 12)),
                             ]),
                           ),
                           Container(

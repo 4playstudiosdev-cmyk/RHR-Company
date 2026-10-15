@@ -257,7 +257,7 @@ router.get('/pending-approvals', authenticate, isAdmin, async (req, res) => {
 // not something this self-service endpoint hands out approval for.
 router.post('/transactions/me', authenticate, isSalesman, async (req, res) => {
   try {
-    const { customer_id, amount, notes, recovery_date } = req.body;
+    const { customer_id, amount, notes, recovery_date, photo_url } = req.body;
     if (!customer_id || !amount || Number(amount) <= 0)
       return error(res, 'customer_id and a positive amount are required', 400);
 
@@ -269,7 +269,11 @@ router.post('/transactions/me', authenticate, isSalesman, async (req, res) => {
     // reproducing a 23503 FK-violation directly against production
     // when this was first set to req.user.id) — salesman_id already
     // identifies who this belongs to either way.
-    const [recovery] = await pgrestPost('salesman_recoveries', {
+    // photo_url (phase63) — Record Payment's required proof photo, now
+    // routed through this same cash-collection flow instead of the old
+    // admin-review /payments table. Falls back to inserting without it
+    // if that migration hasn't run yet.
+    const recoveryRow = {
       company_id:       req.user.company_id,
       salesman_id:      req.user.id,
       customer_id,
@@ -283,7 +287,13 @@ router.post('/transactions/me', authenticate, isSalesman, async (req, res) => {
       approved_at:      new Date().toISOString(),
       recovery_date:    recovery_date || new Date().toISOString().split('T')[0],
       created_by:       null,
-    });
+    };
+    let recovery;
+    try {
+      [recovery] = await pgrestPost('salesman_recoveries', { ...recoveryRow, photo_url: photo_url || null });
+    } catch (e) {
+      [recovery] = await pgrestPost('salesman_recoveries', recoveryRow);
+    }
 
     // Same FK caveat as above — ledger_entries.created_by also only
     // accepts a `users(id)` row, which a salesman's own id isn't.
@@ -296,6 +306,72 @@ router.post('/transactions/me', authenticate, isSalesman, async (req, res) => {
     });
 
     return success(res, recovery, 'Cash collection recorded', 201);
+  } catch (err) { return error(res, err.message); }
+});
+
+// POST /api/v1/recovery/bank-transfer/me — a customer paying a salesman
+// directly via bank transfer (Record Payment's "Bank Transfer" option).
+// Unlike a cash collection, this money never sits as physical cash the
+// salesman is holding, so it's recorded as already-deposited — credits
+// the customer's ledger immediately like the cash flow above, but
+// deliberately uses payment_type 'bank' (not 'cash'), which
+// my-cash-in-hand's `payment_type: eq.cash` filter already excludes, so
+// it never inflates "cash in hand" or needs a later deposit step. Shows
+// up in Deposit History via GET /bank-transfers/me below instead.
+router.post('/bank-transfer/me', authenticate, isSalesman, async (req, res) => {
+  try {
+    const { customer_id, amount, bank_account_id, bank_account_label, notes, photo_url } = req.body;
+    if (!customer_id || !amount || Number(amount) <= 0)
+      return error(res, 'customer_id and a positive amount are required', 400);
+
+    const recoveryRow = {
+      company_id:       req.user.company_id,
+      salesman_id:      req.user.id,
+      customer_id,
+      amount:           Number(amount),
+      payment_type:     'bank',
+      payment_method:   'bank_transfer',
+      reference_number: bank_account_id || null,
+      notes:            notes || null,
+      status:           'approved',
+      approved_by:      null,
+      approved_at:      new Date().toISOString(),
+      recovery_date:    new Date().toISOString().split('T')[0],
+      created_by:       null,
+    };
+    let recovery;
+    try {
+      [recovery] = await pgrestPost('salesman_recoveries', { ...recoveryRow, photo_url: photo_url || null });
+    } catch (e) {
+      [recovery] = await pgrestPost('salesman_recoveries', recoveryRow);
+    }
+
+    await creditLedger({
+      companyId: req.user.company_id,
+      customerId: customer_id,
+      amount: Number(amount),
+      description: `Bank transfer received by salesman${bank_account_label ? ` — ${bank_account_label}` : ''}`,
+      userId: null,
+    });
+
+    return success(res, recovery, 'Bank transfer recorded', 201);
+  } catch (err) { return error(res, err.message); }
+});
+
+// GET /api/v1/recovery/bank-transfers/me — this salesman's own
+// customer-paid-by-bank-transfer history, for Cash Collection's Deposit
+// History (merged client-side with GET /cash-closing/me's actual cash
+// deposits — these never needed a deposit step, so they don't live in
+// salesman_cash_closings at all).
+router.get('/bank-transfers/me', authenticate, isSalesman, async (req, res) => {
+  try {
+    const data = await pgrestGet('salesman_recoveries', {
+      select: RECOVERY_SELECT,
+      salesman_id: `eq.${req.user.id}`,
+      payment_type: 'eq.bank',
+      order: 'created_at.desc',
+    });
+    return success(res, data);
   } catch (err) { return error(res, err.message); }
 });
 
