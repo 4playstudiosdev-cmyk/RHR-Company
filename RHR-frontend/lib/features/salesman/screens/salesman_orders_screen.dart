@@ -7,18 +7,40 @@ import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/widgets/tap_scale.dart';
 import '../../../shared/router/app_transitions.dart';
 
-/// Every delivered order across this salesman's customers — reachable
-/// from the dashboard's "My Orders" header and the sidebar drawer.
-class SalesmanDeliveredOrdersScreen extends StatefulWidget {
-  const SalesmanDeliveredOrdersScreen({super.key});
+/// Every order across this salesman's customers, optionally narrowed to
+/// a set of statuses — one reusable screen backs "All Orders" (Orders
+/// Today stat), "Delivered Orders", and "Cancelled Orders" rather than
+/// three near-identical ones.
+class SalesmanOrdersScreen extends StatefulWidget {
+  final String title;
+  final Set<String>? statusFilter; // null = every status
+  final IconData emptyIcon;
+  final String emptyText;
+  const SalesmanOrdersScreen({
+    super.key,
+    required this.title,
+    this.statusFilter,
+    this.emptyIcon = Icons.receipt_long_outlined,
+    this.emptyText = 'No orders yet.',
+  });
 
   @override
-  State<SalesmanDeliveredOrdersScreen> createState() => _SalesmanDeliveredOrdersScreenState();
+  State<SalesmanOrdersScreen> createState() => _SalesmanOrdersScreenState();
 }
 
-class _SalesmanDeliveredOrdersScreenState extends State<SalesmanDeliveredOrdersScreen> {
+class _SalesmanOrdersScreenState extends State<SalesmanOrdersScreen> {
   List<Map<String, dynamic>> _orders = [];
   bool _loading = true;
+
+  static const _statusColors = {
+    'pending': AppColors.steelBlue,
+    'confirmed': AppColors.navy,
+    'preparing': AppColors.orange,
+    'dispatched': AppColors.orange,
+    'delivered': AppColors.success,
+    'undelivered': AppColors.error,
+    'cancelled': AppColors.error,
+  };
 
   @override
   void initState() {
@@ -34,10 +56,12 @@ class _SalesmanDeliveredOrdersScreenState extends State<SalesmanDeliveredOrdersS
       final res = await DioClient.instance.get(ApiEndpoints.orders);
       if (res.data['success'] == true) {
         final all = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
-        setState(() => _orders = all.where((o) => (o['status'] ?? '') == 'delivered').toList());
+        setState(() => _orders = widget.statusFilter == null
+            ? all
+            : all.where((o) => widget.statusFilter!.contains((o['status'] ?? '').toString())).toList());
       }
     } catch (e) {
-      debugPrint('Delivered orders load error: $e');
+      debugPrint('Orders load error: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -50,7 +74,7 @@ class _SalesmanDeliveredOrdersScreenState extends State<SalesmanDeliveredOrdersS
       appBar: AppBar(
         backgroundColor: AppColors.navy,
         leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => goBack(context, '/salesman-dashboard')),
-        title: const Text('Delivered Orders', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: Text(widget.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: AppColors.orange))
@@ -60,13 +84,13 @@ class _SalesmanDeliveredOrdersScreenState extends State<SalesmanDeliveredOrdersS
               child: _orders.isEmpty
                   ? ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
-                      children: const [
+                      children: [
                         Padding(
-                          padding: EdgeInsets.only(top: 120),
+                          padding: const EdgeInsets.only(top: 120),
                           child: Column(children: [
-                            Icon(Icons.local_shipping_outlined, size: 56, color: AppColors.steelBlue),
-                            SizedBox(height: 12),
-                            Center(child: Text('No delivered orders yet.', style: TextStyle(color: AppColors.steelBlue))),
+                            Icon(widget.emptyIcon, size: 56, color: AppColors.steelBlue),
+                            const SizedBox(height: 12),
+                            Center(child: Text(widget.emptyText, style: const TextStyle(color: AppColors.steelBlue))),
                           ]),
                         ),
                       ],
@@ -77,6 +101,8 @@ class _SalesmanDeliveredOrdersScreenState extends State<SalesmanDeliveredOrdersS
                       itemCount: _orders.length,
                       itemBuilder: (context, i) {
                         final order = _orders[i];
+                        final status = (order['status'] ?? 'pending').toString();
+                        final color = _statusColors[status] ?? AppColors.steelBlue;
                         final orderNumber = (order['order_number'] ?? order['id'] ?? '').toString();
                         final customerName = order['users']?['full_name'] ?? 'Customer';
                         final amount = _asNum(order['total_amount']);
@@ -86,7 +112,8 @@ class _SalesmanDeliveredOrdersScreenState extends State<SalesmanDeliveredOrdersS
                         return StaggeredFadeIn(
                           index: i,
                           child: TapScale(
-                            onTap: () => context.push('/order-tracking', extra: order['id']?.toString()),
+                            onTap: () => context.push('/order-tracking', extra: order['id']?.toString())
+                                .then((_) => _load()),
                             child: Container(
                               margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
                               padding: const EdgeInsets.all(14),
@@ -99,8 +126,8 @@ class _SalesmanDeliveredOrdersScreenState extends State<SalesmanDeliveredOrdersS
                                 Container(
                                   width: 42,
                                   height: 42,
-                                  decoration: BoxDecoration(color: AppColors.success.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
-                                  child: const Icon(Icons.local_shipping_outlined, color: AppColors.success, size: 20),
+                                  decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
+                                  child: Icon(Icons.receipt_long_outlined, color: color, size: 20),
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
@@ -110,8 +137,15 @@ class _SalesmanDeliveredOrdersScreenState extends State<SalesmanDeliveredOrdersS
                                     Text('$customerName · $shortDate', style: const TextStyle(color: AppColors.steelBlue, fontSize: 11)),
                                   ]),
                                 ),
-                                Text('PKR ${amount.toStringAsFixed(0)}',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 13)),
+                                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                                  Text('PKR ${amount.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 13)),
+                                  const SizedBox(height: 4),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
+                                    child: Text(status.toUpperCase(), style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.bold)),
+                                  ),
+                                ]),
                               ]),
                             ),
                           ),

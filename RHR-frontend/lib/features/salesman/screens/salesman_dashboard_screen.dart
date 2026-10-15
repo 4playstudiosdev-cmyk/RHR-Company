@@ -16,7 +16,7 @@ class SalesmanDashboardScreen extends StatefulWidget {
 
 class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
   int _ordersToday        = 0;
-  final String _paymentsCollected = 'PKR 0';
+  num _paymentsCollected  = 0;
   int _customersVisited   = 0;
   List<Map<String, dynamic>> _myCustomers = [];
   List<Map<String, dynamic>> _myOrders = [];
@@ -114,9 +114,39 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                 created.day   == today.day &&
                 created.month == today.month;
           }).length;
-          _myOrders = orders.take(8).toList();
+          // Home only ever shows orders still actively moving — once an
+          // order is delivered or cancelled it belongs in its own
+          // dedicated panel (Delivered Orders / Cancelled Orders), not
+          // cluttering the "what still needs my attention" list here.
+          _myOrders = orders
+              .where((o) => !{'delivered', 'cancelled', 'undelivered'}.contains((o['status'] ?? '').toString()))
+              .take(8)
+              .toList();
         });
       }
+
+      // "Payments Collected" — what this salesman has actually taken
+      // from customers (cash + bank transfer, both instant-credit via
+      // recovery.routes.js), not what they've since deposited back to
+      // the company (that's a completely separate number, shown in Cash
+      // Collection instead).
+      final recoveryResults = await Future.wait([
+        DioClient.instance.get(ApiEndpoints.recoveryTransactionsMe),
+        DioClient.instance.get(ApiEndpoints.recoveryBankTransfersMe),
+      ]);
+      num collected = 0;
+      for (final res in recoveryResults) {
+        if (res.data['success'] == true) {
+          final rows = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
+          for (final r in rows) {
+            if ((r['status'] ?? '') == 'approved') {
+              final amt = r['amount'];
+              collected += amt is num ? amt : num.tryParse(amt?.toString() ?? '0') ?? 0;
+            }
+          }
+        }
+      }
+      if (mounted) setState(() => _paymentsCollected = collected);
     } catch (e) {
       debugPrint('Dashboard error: $e');
     } finally {
@@ -218,34 +248,17 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 14),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: AppColors.success.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: AppColors.success),
-                              ),
-                              child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                                Icon(Icons.location_on, color: AppColors.success, size: 12),
-                                SizedBox(width: 4),
-                                Text('GPS Active',
-                                    style: TextStyle(
-                                        color: AppColors.success,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold)),
-                              ]),
-                            ),
-                          ),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 16),
                           // Stats Row
                           Row(
                             children: [
-                              Expanded(child: StaggeredFadeIn(index: 0, baseDelay: const Duration(milliseconds: 100), child: _statCard('Orders\nToday',       '$_ordersToday',        Icons.shopping_bag_outlined))),
+                              Expanded(child: StaggeredFadeIn(index: 0, baseDelay: const Duration(milliseconds: 100), child: _statCard(
+                                  'Orders\nToday', '$_ordersToday', Icons.shopping_bag_outlined,
+                                  onTap: () => context.push('/salesman-all-orders')))),
                               const SizedBox(width: 12),
-                              Expanded(child: StaggeredFadeIn(index: 1, baseDelay: const Duration(milliseconds: 100), child: _statCard('Payments\nCollected', _paymentsCollected,     Icons.payments_outlined))),
+                              Expanded(child: StaggeredFadeIn(index: 1, baseDelay: const Duration(milliseconds: 100), child: _statCard(
+                                  'Payments\nCollected', 'PKR ${_paymentsCollected.toStringAsFixed(0)}', Icons.payments_outlined,
+                                  onTap: () => context.push('/salesman-payments-collected')))),
                               const SizedBox(width: 12),
                               Expanded(child: StaggeredFadeIn(index: 2, baseDelay: const Duration(milliseconds: 100), child: _statCard('Customers\nVisited',  '$_customersVisited',   Icons.people_outline))),
                             ],
@@ -445,8 +458,8 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
     );
   }
 
-  Widget _statCard(String label, String value, IconData icon) {
-    return Container(
+  Widget _statCard(String label, String value, IconData icon, {VoidCallback? onTap}) {
+    final card = Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.12),
@@ -468,6 +481,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
         ],
       ),
     );
+    return onTap == null ? card : GestureDetector(onTap: onTap, child: card);
   }
 
   static const _statusColors = {
@@ -632,6 +646,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                   _drawerItem(context, Icons.person_add_alt_outlined, 'Add Customer', '/add-customer'),
                   _drawerItem(context, Icons.people_outline, 'My Customers', '/my-customers'),
                   _drawerItem(context, Icons.local_shipping_outlined, 'Delivered Orders', '/salesman-delivered-orders'),
+                  _drawerItem(context, Icons.cancel_outlined, 'Cancelled Orders', '/salesman-cancelled-orders'),
                   _drawerItem(context, Icons.account_balance_wallet_outlined, 'Outstanding Balances', '/salesman-outstanding'),
                   _drawerItem(context, Icons.camera_alt_outlined, 'Record Payment', '/record-payment'),
                   _drawerItem(context, Icons.event_note_outlined, 'Record Visit', '/record-visit'),
