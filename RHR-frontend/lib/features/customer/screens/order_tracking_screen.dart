@@ -192,7 +192,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                       ),
                       const SizedBox(height: AppSpacing.md),
 
-                      if (_isSalesman && !['delivered', 'cancelled', 'undelivered'].contains(status)) ...[
+                      if (_isSalesman && ['confirmed', 'preparing', 'dispatched'].contains(status)) ...[
                         SizedBox(
                           width: double.infinity,
                           child: OutlinedButton.icon(

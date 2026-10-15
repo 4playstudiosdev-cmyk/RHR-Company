@@ -297,7 +297,10 @@ const setOrderPriority = async (req, res) => {
     if (req.user.role === 'salesman' && order.salesman_id !== req.user.id)
       return error(res, 'Access denied', 403);
 
-    if (['delivered', 'cancelled', 'undelivered'].includes(order.status))
+    // Only meaningful once the order is actually confirmed and moving
+    // through fulfillment — a still-'pending' order hasn't been accepted
+    // yet, and a delivered/cancelled/undelivered one is already done.
+    if (!['confirmed', 'preparing', 'dispatched'].includes(order.status))
       return error(res, `Cannot change priority on a ${order.status} order`, 400);
 
     const updated = await pgrestPatch('orders', { id: `eq.${req.params.id}` }, { priority });
