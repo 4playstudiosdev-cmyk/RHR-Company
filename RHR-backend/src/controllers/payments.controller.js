@@ -37,8 +37,12 @@ const createPayment = async (req, res) => {
     // in directly can skip it.
     if (!isAdminUser && !photo_url)
       return error(res, 'photo_url is required', 400);
-    if (method === 'bank' && !bank_account_id)
-      return error(res, 'bank_account_id is required when method is bank', 400);
+    // payments.method is a Postgres enum — 'cash' | 'bank_transfer' |
+    // 'credit_account' are the only values it actually accepts (confirmed
+    // against the live table; 'bank'/'online' both 400 with "invalid
+    // input value for enum payment_method").
+    if (method === 'bank_transfer' && !bank_account_id)
+      return error(res, 'bank_account_id is required when method is bank_transfer', 400);
 
     const data = await svc.createPayment({
       companyId:      req.user.company_id,
@@ -56,7 +60,7 @@ const createPayment = async (req, res) => {
       // now" — admin review (every salesman payment starts 'pending')
       // is the integrity check either way, so this is allowed alongside
       // the admin-recorded case, not gated to admin-only like cash is.
-      date: (isAdminUser || method === 'bank') ? date : null
+      date: (isAdminUser || method === 'bank_transfer') ? date : null
     });
 
     if (isCustomerUser && effectiveSalesmanId) {

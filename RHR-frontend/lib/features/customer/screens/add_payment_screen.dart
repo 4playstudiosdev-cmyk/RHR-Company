@@ -154,7 +154,9 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
 
       final response = await DioClient.instance.post(ApiEndpoints.payments, data: {
         'amount': amount,
-        'method': _selectedMethod == 'Bank Transfer' ? 'bank' : 'cash',
+        // payments.method is a Postgres enum on the backend — only
+        // 'cash'/'bank_transfer'/'credit_account' are valid values.
+        'method': _selectedMethod == 'Bank Transfer' ? 'bank_transfer' : 'cash',
         'photo_url': _uploadedPhotoUrl,
         if (_selectedMethod == 'Bank Transfer') 'bank_account_id': _selectedBankAccountId,
         if (notes != null) 'notes': notes,
