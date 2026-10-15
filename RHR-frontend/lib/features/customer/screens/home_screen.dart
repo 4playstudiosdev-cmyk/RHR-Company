@@ -142,6 +142,17 @@ class _HomeScreenState extends State<HomeScreen> {
                           const SizedBox(height: AppSpacing.base),
                           SizedBox(
                             width: double.infinity,
+                            child: _StatCard(
+                              label: 'Delivered Orders',
+                              value: 'View all',
+                              color: AppColors.success,
+                              icon: Icons.chevron_right,
+                              onTap: () => context.push('/delivered-orders'),
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.base),
+                          SizedBox(
+                            width: double.infinity,
                             child: ElevatedButton.icon(
                               onPressed: () => context.push('/catalogue'),
                               style: ElevatedButton.styleFrom(
@@ -203,23 +214,31 @@ class _StatCard extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
-  const _StatCard({required this.label, required this.value, required this.color});
+  final VoidCallback? onTap;
+  final IconData? icon;
+  const _StatCard({required this.label, required this.value, required this.color, this.onTap, this.icon});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.sm),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: AppColors.outlineVariant),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6, offset: const Offset(0, 2))],
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(color: AppColors.outlineVariant),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6, offset: const Offset(0, 2))],
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            Expanded(child: Text(label, style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurfaceVariant))),
+            if (icon != null) Icon(icon, size: 16, color: color),
+          ]),
+          const SizedBox(height: 4),
+          Text(value, style: AppTextStyles.headlineSm.copyWith(color: color)),
+        ]),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurfaceVariant)),
-        const SizedBox(height: 4),
-        Text(value, style: AppTextStyles.headlineSm.copyWith(color: color)),
-      ]),
     );
   }
 }

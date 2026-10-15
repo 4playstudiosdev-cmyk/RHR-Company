@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:dio/dio.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
@@ -249,21 +250,46 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           if (mounted) context.go('/salesman-dashboard');
         }
       }
-    } catch (e) {
-      await HiveService.saveOfflineOrder(data);
-      setState(() {
-        _isOnline = false;
-        _pendingSync = HiveService.getOfflineOrderCount();
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('No internet — saved offline'),
-            backgroundColor: AppColors.orange));
-        context.go('/salesman-dashboard');
+    } on DioException catch (e) {
+      // The backend reached us and actively rejected the order (e.g. this
+      // customer already has one in progress, below their credit limit,
+      // insufficient stock...) — a real answer, not a connectivity
+      // problem. Queuing it offline would have silently hidden that
+      // rejection and kept retrying a submission doomed to fail every
+      // time, so this must surface loudly instead.
+      if (e.response != null) {
+        final msg = e.response?.data?['message'] as String? ?? 'Order could not be placed.';
+        if (mounted) _showOrderRejected(msg);
+      } else {
+        await HiveService.saveOfflineOrder(data);
+        setState(() {
+          _isOnline = false;
+          _pendingSync = HiveService.getOfflineOrderCount();
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('No internet — saved offline'),
+              backgroundColor: AppColors.orange));
+          context.go('/salesman-dashboard');
+        }
       }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
+  }
+
+  void _showOrderRejected(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AppColors.error,
+        duration: const Duration(seconds: 5),
+        content: Row(children: [
+          const Icon(Icons.error_outline, color: Colors.white),
+          const SizedBox(width: 10),
+          Expanded(child: Text(message, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600))),
+        ]),
+      ),
+    );
   }
 
   @override

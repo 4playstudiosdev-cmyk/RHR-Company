@@ -8,7 +8,12 @@ import '../../../shared/widgets/rhr_bottom_nav.dart';
 import '../../../shared/widgets/shimmer_box.dart';
 
 class OrdersScreen extends StatefulWidget {
-  const OrdersScreen({super.key});
+  /// When set (e.g. 'delivered'), only orders with this status show —
+  /// used by the "Delivered Orders" shortcut from the home screen and
+  /// profile menu, reusing this same list/card UI instead of a
+  /// duplicate screen.
+  final String? statusFilter;
+  const OrdersScreen({super.key, this.statusFilter});
 
   @override
   State<OrdersScreen> createState() => _OrdersScreenState();
@@ -17,6 +22,10 @@ class OrdersScreen extends StatefulWidget {
 class _OrdersScreenState extends State<OrdersScreen> {
   List<Map<String, dynamic>> _orders = [];
   bool _isLoading = true;
+
+  List<Map<String, dynamic>> get _displayOrders => widget.statusFilter == null
+      ? _orders
+      : _orders.where((o) => (o['status'] ?? '') == widget.statusFilter).toList();
 
   @override
   void initState() { super.initState(); _loadOrders(); }
@@ -52,20 +61,28 @@ class _OrdersScreenState extends State<OrdersScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.surface,
+      appBar: widget.statusFilter != null
+          ? AppBar(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              title: const Text('Delivered Orders'),
+            )
+          : null,
       body: SafeArea(
         bottom: false,
         child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpacing.marginMobile, AppSpacing.base, AppSpacing.marginMobile, AppSpacing.base),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('My Orders', style: AppTextStyles.headlineLgMobile.copyWith(color: AppColors.onSurface)),
-                IconButton(onPressed: _loadOrders, icon: const Icon(Icons.refresh, color: AppColors.primary)),
-              ],
+          if (widget.statusFilter == null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.marginMobile, AppSpacing.base, AppSpacing.marginMobile, AppSpacing.base),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('My Orders', style: AppTextStyles.headlineLgMobile.copyWith(color: AppColors.onSurface)),
+                  IconButton(onPressed: _loadOrders, icon: const Icon(Icons.refresh, color: AppColors.primary)),
+                ],
+              ),
             ),
-          ),
           Expanded(
             child: _isLoading
                 ? ListView.builder(
@@ -73,14 +90,16 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     itemCount: 5,
                     itemBuilder: (_, i) => const ShimmerListRow(),
                   )
-                : _orders.isEmpty
+                : _displayOrders.isEmpty
                     ? Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.receipt_long_outlined, size: 64, color: AppColors.outlineVariant),
+                            Icon(widget.statusFilter == 'delivered' ? Icons.local_shipping_outlined : Icons.receipt_long_outlined,
+                                size: 64, color: AppColors.outlineVariant),
                             const SizedBox(height: AppSpacing.base),
-                            Text('No orders yet', style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant)),
+                            Text(widget.statusFilter == 'delivered' ? 'No delivered orders yet' : 'No orders yet',
+                                style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant)),
                             const SizedBox(height: AppSpacing.xs),
                             TextButton(
                               onPressed: () => context.push('/catalogue'),
@@ -91,9 +110,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
                       )
                     : ListView.builder(
                         padding: const EdgeInsets.fromLTRB(AppSpacing.marginMobile, 0, AppSpacing.marginMobile, AppSpacing.marginMobile),
-                        itemCount: _orders.length,
+                        itemCount: _displayOrders.length,
                         itemBuilder: (_, i) {
-                          final order       = _orders[i];
+                          final order       = _displayOrders[i];
                           final status      = order['status'] ?? 'pending';
                           final statusColor = _statusColor(status);
                           final total       = order['total_amount'] ?? order['total'] ?? 0;
@@ -178,7 +197,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
           ),
         ]),
       ),
-      bottomNavigationBar: const RHRBottomNav(currentIndex: 2),
+      bottomNavigationBar: widget.statusFilter == null ? const RHRBottomNav(currentIndex: 2) : null,
     );
   }
 }

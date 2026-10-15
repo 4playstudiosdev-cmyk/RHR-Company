@@ -367,8 +367,15 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                     // orders, tap-through to full detail.
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: const Text('My Orders',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.navy)),
+                      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        const Text('My Orders',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.navy)),
+                        GestureDetector(
+                          onTap: () => context.push('/salesman-delivered-orders'),
+                          child: const Text('Delivered Orders',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.orange)),
+                        ),
+                      ]),
                     ),
                     const SizedBox(height: 12),
                     if (_myOrders.isEmpty)
@@ -613,6 +620,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                   _drawerItem(context, Icons.add_circle_outline, 'New Order', '/create-order'),
                   _drawerItem(context, Icons.person_add_alt_outlined, 'Add Customer', '/add-customer'),
                   _drawerItem(context, Icons.people_outline, 'My Customers', '/my-customers'),
+                  _drawerItem(context, Icons.local_shipping_outlined, 'Delivered Orders', '/salesman-delivered-orders'),
                   _drawerItem(context, Icons.camera_alt_outlined, 'Record Payment', '/record-payment'),
                   _drawerItem(context, Icons.event_note_outlined, 'Record Visit', '/record-visit'),
                   _drawerItem(context, Icons.account_balance_wallet_outlined, 'Cash Collection', '/cash-collection'),

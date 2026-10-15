@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:dio/dio.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/api_endpoints.dart';
@@ -71,20 +72,29 @@ class _OrderPlacementScreenState extends State<OrderPlacementScreen> {
           }
         }
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(response.data['message'] ?? 'Order failed')));
-        }
+        if (mounted) _showOrderRejected(response.data['message'] ?? 'Order failed');
       }
-    } catch (e) {
+    } on DioException catch (e) {
       debugPrint('Place order error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Order failed: $e')));
-      }
+      final msg = e.response?.data?['message'] as String? ?? 'Order could not be placed — check your connection and try again.';
+      if (mounted) _showOrderRejected(msg);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _showOrderRejected(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AppColors.error,
+        duration: const Duration(seconds: 5),
+        content: Row(children: [
+          const Icon(Icons.error_outline, color: Colors.white),
+          const SizedBox(width: 10),
+          Expanded(child: Text(message, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600))),
+        ]),
+      ),
+    );
   }
 
   @override

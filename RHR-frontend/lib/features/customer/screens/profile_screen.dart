@@ -264,6 +264,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
                         _menuItem(Icons.receipt_long, 'My Orders', () => context.push('/orders')),
                         const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
+                        _menuItem(Icons.local_shipping_outlined, 'Delivered Orders', () => context.push('/delivered-orders')),
+                        const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
                         _menuItem(Icons.account_balance_wallet_outlined, 'Account Ledger', () => context.push('/ledger')),
                         const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
                         _menuItem(Icons.picture_as_pdf, 'Download Statement', () => context.push('/payment-history')),
