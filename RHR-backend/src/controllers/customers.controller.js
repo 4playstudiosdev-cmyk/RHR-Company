@@ -16,7 +16,7 @@ function normalizePhone(phone) {
 // outright if that migration hasn't run (unlike select('*'), which just
 // omits missing columns), so this tries with them first and falls back
 // to the old column list rather than breaking the whole Customers page.
-const CUSTOMER_COLUMNS = 'id, company_id, full_name, phone, email, is_approved, salesman_id, driver_id, shop_name, shop_address, shop_latitude, shop_longitude, rate_tier, credit_limit, city, area, profile_photo_url, created_at';
+const CUSTOMER_COLUMNS = 'id, company_id, full_name, phone, email, whatsapp_phone, is_approved, salesman_id, driver_id, shop_name, shop_address, shop_image_url, shop_latitude, shop_longitude, rate_tier, credit_limit, city, area, nic_number, nic_image_url, nic_back_image_url, profile_photo_url, created_at';
 const CUSTOMER_COLUMNS_FALLBACK = 'id, company_id, full_name, phone, email, is_approved, salesman_id, driver_id, shop_name, shop_address, shop_latitude, shop_longitude, rate_tier, created_at';
 
 const getCustomers = async (req, res) => {
@@ -75,18 +75,23 @@ const getCustomers = async (req, res) => {
 
 const getPendingCustomers = async (req, res) => {
   try {
-    let query = supabaseAdmin
-      .from('users')
-      .select('id, full_name, phone, email, shop_name, created_at')
-      .eq('role', 'customer')
-      .eq('is_approved', false)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false });
+    // Routed through the raw-https bypass (see utils/directQuery.js),
+    // same as every other list endpoint migrated off plain supabase-js
+    // this session. Expanded select — the approval wizard's step 1
+    // needs the full self-registered profile (NIC, shop photo, address,
+    // city/area), not just the summary fields the old approve-button
+    // card used.
+    const params = {
+      select: 'id,company_id,full_name,phone,email,whatsapp_phone,shop_name,shop_address,shop_image_url,city,area,nic_number,nic_image_url,nic_back_image_url,profile_photo_url,shop_latitude,shop_longitude,created_at',
+      role: 'eq.customer',
+      is_approved: 'eq.false',
+      is_active: 'eq.true',
+      order: 'created_at.desc',
+    };
     const companyId = resolveCompanyId(req);
-    if (companyId) query = query.eq('company_id', companyId);
+    if (companyId) params.company_id = `eq.${companyId}`;
 
-    const { data, error: dbError } = await query;
-    if (dbError) throw new Error(dbError.message);
+    const data = await pgrestGet('users', params);
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 };
