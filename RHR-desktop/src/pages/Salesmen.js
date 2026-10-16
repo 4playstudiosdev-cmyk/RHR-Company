@@ -200,9 +200,45 @@ export default function Salesmen({ onViewLedger }) {
   const [assignedCustomers, setAssignedCustomers] = useState([]);
   const [assignedLoading, setAssignedLoading] = useState(false);
   const [reassigningId, setReassigningId] = useState(null);
+  // "Assign more customers" inside the same modal — separate state from
+  // the Add Salesman form's selectedCustomerIds/customerSearch above so
+  // the two pickers never bleed into each other.
+  const [assignMoreSearch, setAssignMoreSearch] = useState('');
+  const [assignMoreIds, setAssignMoreIds] = useState([]);
+  const [assigningMore, setAssigningMore] = useState(false);
+
+  const toggleAssignMore = (customerId) => {
+    setAssignMoreIds((prev) =>
+      prev.includes(customerId) ? prev.filter((id) => id !== customerId) : [...prev, customerId]
+    );
+  };
+
+  const handleAssignMore = async () => {
+    if (assignMoreIds.length === 0) return;
+    setAssigningMore(true);
+    try {
+      await Promise.all(
+        assignMoreIds.map((customerId) =>
+          api.patch(`/customers/${customerId}/assign-salesman`, { salesman_id: assignedSalesman.id })
+        )
+      );
+      toast.success(`${assignMoreIds.length} customer${assignMoreIds.length === 1 ? '' : 's'} assigned.`);
+      setAssignMoreIds([]);
+      setAssignMoreSearch('');
+      const res = await api.get(`/salesmen/${assignedSalesman.id}/customers`);
+      setAssignedCustomers(res.data.data || []);
+      loadAll();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to assign customers.');
+    } finally {
+      setAssigningMore(false);
+    }
+  };
 
   const openAssignedCustomers = async (salesman) => {
     setAssignedSalesman(salesman);
+    setAssignMoreIds([]);
+    setAssignMoreSearch('');
     setAssignedLoading(true);
     try {
       const res = await api.get(`/salesmen/${salesman.id}/customers`);
@@ -504,6 +540,12 @@ export default function Salesmen({ onViewLedger }) {
                               </div>
                             )}
                             <span className="text-xs text-gray-400">Profile Photo</span>
+                            <button
+                              onClick={() => openAssignedCustomers(s)}
+                              className="flex items-center gap-1.5 bg-navy-chip text-navy border-none rounded-lg px-3 py-1.5 text-xs font-semibold hover:bg-navy-chip/70 transition-colors whitespace-nowrap mt-1"
+                            >
+                              <Users size={13} /> Manage Customers
+                            </button>
                           </div>
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 flex-1">
@@ -736,6 +778,60 @@ export default function Salesmen({ onViewLedger }) {
               ))}
             </div>
           )}
+
+          <div className="border-t border-gray-100 mt-5 pt-5">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Assign More Customers</label>
+            <div className="relative mb-2">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={assignMoreSearch}
+                onChange={(e) => setAssignMoreSearch(e.target.value)}
+                placeholder="Search customers to assign..."
+                className="w-full border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
+              />
+            </div>
+            <div className="max-h-[200px] overflow-y-auto border border-gray-200 rounded-lg">
+              {customers
+                .filter((c) => c.company_id === assignedSalesman.company_id)
+                .filter((c) => !assignedCustomers.some((ac) => ac.id === c.id))
+                .filter((c) => c.full_name.toLowerCase().includes(assignMoreSearch.toLowerCase()))
+                .map((c) => (
+                  <label
+                    key={c.id}
+                    className="flex items-center px-3 py-2 cursor-pointer border-b border-gray-50 last:border-0 hover:bg-gray-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={assignMoreIds.includes(c.id)}
+                      onChange={() => toggleAssignMore(c.id)}
+                      className="mr-2.5"
+                    />
+                    <span className="text-sm text-gray-700 truncate">{c.full_name}</span>
+                    <span className="ml-auto text-xs text-gray-400 flex-shrink-0">
+                      {c.salesman_id ? 'Reassign' : 'Unassigned'}
+                    </span>
+                  </label>
+                ))}
+              {customers
+                .filter((c) => c.company_id === assignedSalesman.company_id)
+                .filter((c) => !assignedCustomers.some((ac) => ac.id === c.id)).length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-4">Every customer in this branch is already assigned here.</p>
+              )}
+            </div>
+            <div className="flex items-center justify-between mt-1.5">
+              <p className="text-xs text-gray-400">{assignMoreIds.length} selected</p>
+              <Button
+                type="button"
+                variant="accent"
+                disabled={assignMoreIds.length === 0 || assigningMore}
+                onClick={handleAssignMore}
+              >
+                {assigningMore ? 'Assigning...' : `Assign ${assignMoreIds.length || ''}`.trim()}
+              </Button>
+            </div>
+          </div>
+
           <div className="flex justify-end pt-4">
             <Button type="button" variant="secondary" onClick={() => setAssignedSalesman(null)}>Close</Button>
           </div>
