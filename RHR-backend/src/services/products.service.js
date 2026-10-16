@@ -59,7 +59,35 @@ function sortByMerchandisingOrder(products) {
 // what made product creation and the category dropdown work for Karachi
 // (presumably by chance/timing) and fail for Hyderabad/Sukkur.
 
-async function getProducts({ companyId, categoryId, search, page = 1, limit = 20 }) {
+// Same flat-PKR-10 rate-tier adjustment and per-customer custom-price
+// override orders.service.js's createOrder actually charges — mirrored
+// here so a customer browsing the catalogue sees the exact price they'll
+// be charged, instead of always seeing the plain catalog price and only
+// finding out about their discount/custom rate once an order is placed.
+const RATE_TIER_ADJUSTMENT = { manual: 0, discount: -10, premium: 10 };
+
+async function applyCustomerPricing(products, customerId) {
+  if (!customerId || !products.length) return products;
+  const [customerRows, customPrices] = await Promise.all([
+    pgrestGet('users', { select: 'rate_tier', id: `eq.${customerId}` }),
+    pgrestGet('customer_product_prices', {
+      select: 'product_id,price',
+      customer_id: `eq.${customerId}`,
+      product_id: `in.(${products.map(p => p.id).join(',')})`,
+    }),
+  ]);
+  const tierAdjustment = RATE_TIER_ADJUSTMENT[customerRows?.[0]?.rate_tier] || 0;
+  const customPriceByProduct = Object.fromEntries((customPrices || []).map(c => [c.product_id, Number(c.price)]));
+  return products.map(p => ({
+    ...p,
+    catalog_price: Number(p.price),
+    price: p.id in customPriceByProduct
+      ? customPriceByProduct[p.id]
+      : Math.max(0, Number(p.price) + tierAdjustment),
+  }));
+}
+
+async function getProducts({ companyId, categoryId, search, page = 1, limit = 20, customerId }) {
   const params = {
     select: '*,categories(name)',
     or: '(is_active.eq.true,is_active.is.null)',
@@ -76,10 +104,11 @@ async function getProducts({ companyId, categoryId, search, page = 1, limit = 20
   // sort sees every row before the requested page gets sliced off.
   const all = sortByMerchandisingOrder(await pgrestGet('products', params) || []);
   const start = (page - 1) * limit;
-  return { products: all.slice(start, start + limit), total: all.length, page, limit };
+  const pageOfProducts = await applyCustomerPricing(all.slice(start, start + limit), customerId);
+  return { products: pageOfProducts, total: all.length, page, limit };
 }
 
-async function getProductById(id, companyId) {
+async function getProductById(id, companyId, customerId) {
   const params = {
     select: '*,categories(name)',
     id: `eq.${id}`,
@@ -88,7 +117,8 @@ async function getProductById(id, companyId) {
   if (companyId) params.company_id = `eq.${companyId}`;
   const rows = await pgrestGet('products', params);
   if (!rows?.[0]) throw new Error('Product not found');
-  return rows[0];
+  const [priced] = await applyCustomerPricing([rows[0]], customerId);
+  return priced;
 }
 
 async function createProduct(productData) {

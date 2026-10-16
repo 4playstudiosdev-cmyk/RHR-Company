@@ -16,14 +16,19 @@ function resolveCompanyId(req) {
 const getProducts = async (req, res) => {
   try {
     const { category_id, search, page, limit } = req.query;
-    const data = await svc.getProducts({ companyId: resolveCompanyId(req), categoryId: category_id, search, page, limit });
+    // Only a customer's own browse sees their rate-tier/custom pricing
+    // baked into `price` — admin/salesman views stay on the plain
+    // catalog price, same as the desktop's own Products page.
+    const customerId = req.user.role === 'customer' ? req.user.id : undefined;
+    const data = await svc.getProducts({ companyId: resolveCompanyId(req), categoryId: category_id, search, page, limit, customerId });
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 };
 
 const getProductById = async (req, res) => {
   try {
-    const data = await svc.getProductById(req.params.id, resolveCompanyId(req));
+    const customerId = req.user.role === 'customer' ? req.user.id : undefined;
+    const data = await svc.getProductById(req.params.id, resolveCompanyId(req), customerId);
     return success(res, data);
   } catch (err) { return error(res, err.message, 404); }
 };
