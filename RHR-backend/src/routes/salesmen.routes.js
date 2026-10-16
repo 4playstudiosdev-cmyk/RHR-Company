@@ -102,7 +102,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
   try {
     const companyId = resolveCompanyId(req);
     const params = {
-      select: 'id,company_id,full_name,phone,email,position,is_approved,is_active,created_at',
+      select: 'id,company_id,full_name,phone,email,position,is_approved,is_active,created_at,nic_number,profile_photo_url,nic_image_url,nic_back_image_url',
       is_active: 'eq.true',
       order: 'full_name.asc',
     };

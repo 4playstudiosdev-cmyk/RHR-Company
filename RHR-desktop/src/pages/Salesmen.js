@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Plus, UserCog, UserCheck, Pencil, UserX, UserCheck2,
-  ShoppingCart, Wallet, Footprints, TrendingUp, Download, BarChart3, Users, Search, Banknote
+  ShoppingCart, Wallet, Footprints, TrendingUp, Download, BarChart3, Users, Search, Banknote,
+  ChevronDown, ChevronUp, IdCard, Phone, Mail, Briefcase, Calendar, MapPin
 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
@@ -48,6 +49,7 @@ export default function Salesmen({ onViewLedger }) {
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [approvingId, setApprovingId] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [selectedCustomerIds, setSelectedCustomerIds] = useState([]);
   const [customerSearch, setCustomerSearch] = useState('');
@@ -396,6 +398,7 @@ export default function Salesmen({ onViewLedger }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                  <th className="px-4 py-3 font-semibold text-xs uppercase tracking-wide w-10"></th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Name</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Position</th>
                   <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Phone</th>
@@ -406,17 +409,28 @@ export default function Salesmen({ onViewLedger }) {
                 </tr>
               </thead>
               <tbody>
-                {salesmen.map((s, i) => (
+                {salesmen.map((s, i) => {
+                  const isExpanded = expandedId === s.id;
+                  return (
+                  <React.Fragment key={s.id}>
                   <tr
-                    key={s.id}
                     className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${
                       i % 2 === 1 ? 'bg-gray-50/40' : ''
-                    }`}
+                    } ${isExpanded ? 'bg-navy-chip/30' : ''}`}
                   >
+                    <td className="px-4 py-3.5">
+                      <button
+                        onClick={() => setExpandedId(isExpanded ? null : s.id)}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-navy hover:bg-navy/10 transition-colors"
+                        title={isExpanded ? 'Hide details' : 'View full details'}
+                      >
+                        {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      </button>
+                    </td>
                     <td
                       className="px-6 py-3.5 font-medium text-navy cursor-pointer hover:underline"
-                      onClick={() => openAssignedCustomers(s)}
-                      title="View assigned customers"
+                      onClick={() => setExpandedId(isExpanded ? null : s.id)}
+                      title="View full details"
                     >
                       {s.full_name}
                     </td>
@@ -473,7 +487,101 @@ export default function Salesmen({ onViewLedger }) {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  {isExpanded && (
+                    <tr className="bg-navy-chip/10 border-b border-gray-100">
+                      <td colSpan={8} className="px-8 py-6">
+                        <div className="flex flex-col md:flex-row gap-6">
+                          <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                            {s.profile_photo_url ? (
+                              <img
+                                src={s.profile_photo_url}
+                                alt={s.full_name}
+                                className="w-24 h-24 rounded-2xl object-cover border border-gray-200 shadow-sm"
+                              />
+                            ) : (
+                              <div className="w-24 h-24 rounded-2xl bg-navy-chip text-navy flex items-center justify-center text-2xl font-bold border border-gray-200">
+                                {getInitials(s.full_name)}
+                              </div>
+                            )}
+                            <span className="text-xs text-gray-400">Profile Photo</span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 flex-1">
+                            <div className="flex items-center gap-2 text-sm">
+                              <Phone size={14} className="text-gray-400 flex-shrink-0" />
+                              <span className="text-gray-500">Phone:</span>
+                              <span className="font-medium text-navy">{s.phone || '—'}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <Mail size={14} className="text-gray-400 flex-shrink-0" />
+                              <span className="text-gray-500">Email:</span>
+                              <span className="font-medium text-navy">{s.email || '—'}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <Briefcase size={14} className="text-gray-400 flex-shrink-0" />
+                              <span className="text-gray-500">Position:</span>
+                              <span className="font-medium text-navy">{s.position || '—'}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <MapPin size={14} className="text-gray-400 flex-shrink-0" />
+                              <span className="text-gray-500">Branch:</span>
+                              <span className="font-medium text-navy">{CITY_LABELS[s.company_id] || '—'}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <IdCard size={14} className="text-gray-400 flex-shrink-0" />
+                              <span className="text-gray-500">CNIC Number:</span>
+                              <span className="font-medium text-navy">{s.nic_number || '—'}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <Calendar size={14} className="text-gray-400 flex-shrink-0" />
+                              <span className="text-gray-500">Registered:</span>
+                              <span className="font-medium text-navy">
+                                {s.created_at ? new Date(s.created_at).toLocaleDateString('en-GB') : '—'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex gap-4 flex-shrink-0">
+                            <div className="flex flex-col items-center gap-1.5">
+                              <span className="text-xs text-gray-400">CNIC Front</span>
+                              {s.nic_image_url ? (
+                                <a href={s.nic_image_url} target="_blank" rel="noreferrer">
+                                  <img
+                                    src={s.nic_image_url}
+                                    alt="CNIC Front"
+                                    className="w-28 h-20 rounded-lg object-cover border border-gray-200 hover:opacity-80 transition-opacity"
+                                  />
+                                </a>
+                              ) : (
+                                <div className="w-28 h-20 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-300">
+                                  <IdCard size={20} />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex flex-col items-center gap-1.5">
+                              <span className="text-xs text-gray-400">CNIC Back</span>
+                              {s.nic_back_image_url ? (
+                                <a href={s.nic_back_image_url} target="_blank" rel="noreferrer">
+                                  <img
+                                    src={s.nic_back_image_url}
+                                    alt="CNIC Back"
+                                    className="w-28 h-20 rounded-lg object-cover border border-gray-200 hover:opacity-80 transition-opacity"
+                                  />
+                                </a>
+                              ) : (
+                                <div className="w-28 h-20 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-300">
+                                  <IdCard size={20} />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
             </div>
