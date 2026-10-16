@@ -155,7 +155,10 @@ async function registerCustomer({
       profile_photo_url:  profileUpload.url,
       nic_image_url:      nicFrontUpload.url,
       nic_back_image_url: nicBackUpload.url,
-      is_approved:        false
+      is_approved:        false,
+      // Same explicit is_active fix as registerSalesman/registerDriver —
+      // relying on the column default turned out unreliable.
+      is_active:          true,
     })
     .select()
     .single();
@@ -413,7 +416,13 @@ async function registerSalesman({ phone, fullName, companyId, position }) {
     full_name:   fullName,
     phone:       canonical,
     position:    position || null,
-    is_approved: false
+    is_approved: false,
+    // Explicit rather than relying on the column default — a couple of
+    // self-registered salesmen turned up with is_active already false
+    // despite nothing in this insert setting it, which silently locked
+    // them out of every authenticated call (even once approved) with
+    // "Account is deactivated". Spelling it out here removes any doubt.
+    is_active:   true,
   });
 
   if (!newSalesman) throw new Error('Failed to create salesman account');
@@ -454,7 +463,9 @@ async function registerDriver({ phone, fullName, companyId, carNumber }) {
     full_name:   fullName,
     phone:       canonical,
     car_number:  carNumber || null,
-    is_approved: false
+    is_approved: false,
+    // Same explicit is_active fix as registerSalesman above.
+    is_active:   true,
   });
 
   if (!newDriver) throw new Error('Failed to create driver account');
