@@ -1,6 +1,5 @@
-const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
-const { BUCKET_RULES, LONG_LIVED_SIGN_SECONDS, uploadBase64ToStorage } = require('../utils/storageUpload');
+const { BUCKET_RULES, LONG_LIVED_SIGN_SECONDS, uploadBase64ToStorage, freshStorageClient } = require('../utils/storageUpload');
 const { withRetry } = require('../utils/withRetry');
 
 // ══════════════════════════════════════════════
@@ -56,14 +55,16 @@ const getSignedUrl = async (req, res) => {
     if (!rules)
       return error(res, 'Invalid bucket', 400);
 
+    const storageClient = freshStorageClient();
+
     if (rules.isPublic) {
-      const { data } = supabaseAdmin.storage
+      const { data } = storageClient.storage
         .from(bucket)
         .getPublicUrl(filePath);
       return success(res, { url: data.publicUrl, expiresIn: 'permanent' });
     }
 
-    const { data, error: signError } = await supabaseAdmin.storage
+    const { data, error: signError } = await storageClient.storage
       .from(bucket)
       .createSignedUrl(filePath, LONG_LIVED_SIGN_SECONDS);
 
@@ -97,7 +98,7 @@ const deleteFile = async (req, res) => {
     if (!filePath.startsWith(companyId) && req.user.role !== 'super_admin')
       return error(res, 'Access denied — file belongs to different branch', 403);
 
-    const { error: deleteError } = await supabaseAdmin.storage
+    const { error: deleteError } = await freshStorageClient().storage
       .from(bucket)
       .remove([filePath]);
 
@@ -125,7 +126,7 @@ const listFiles = async (req, res) => {
       ? ''
       : req.user.company_id;
 
-    const { data, error: listError } = await supabaseAdmin.storage
+    const { data, error: listError } = await freshStorageClient().storage
       .from(bucket)
       .list(companyId, {
         limit:  100,

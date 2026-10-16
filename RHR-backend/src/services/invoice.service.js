@@ -1,6 +1,7 @@
 const PDFDocument = require('pdfkit');
 const path        = require('path');
 const { supabaseAdmin } = require('../config/supabase');
+const { freshStorageClient } = require('../utils/storageUpload');
 
 const LOGO_PATH = path.join(__dirname, '../../assets/rhr-logo.jpeg');
 
@@ -36,7 +37,10 @@ async function generateInvoice(orderId) {
 
     const filePath = `${order.company_id}/invoices/${order.order_number}.pdf`;
 
-    const { error: uploadErr } = await supabaseAdmin.storage
+    // Same fresh-client fix as storageUpload.js's uploadBase64ToStorage —
+    // the long-lived supabaseAdmin singleton's storage calls intermittently
+    // fail with a false "row violates row-level security policy".
+    const { error: uploadErr } = await freshStorageClient().storage
       .from('invoices')
       .upload(filePath, pdfBuffer, {
         contentType: 'application/pdf',

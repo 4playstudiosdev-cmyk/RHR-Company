@@ -1,6 +1,7 @@
 const { generateInvoice } = require('../services/invoice.service');
 const { supabaseAdmin }   = require('../config/supabase');
 const { success, error }  = require('../utils/response');
+const { freshStorageClient } = require('../utils/storageUpload');
 
 // POST /api/v1/invoices/generate/:orderId
 // Manually regenerate invoice — admin only
@@ -51,8 +52,10 @@ const downloadInvoiceHandler = async (req, res) => {
     if (!order.invoice_url)
       return error(res, 'Invoice not generated yet for this order', 404);
 
-    // Generate signed URL valid for 1 hour
-    const { data: urlData, error: signErr } = await supabaseAdmin.storage
+    // Generate signed URL valid for 1 hour — same fresh-client fix as
+    // storageUpload.js's uploadBase64ToStorage (the long-lived
+    // supabaseAdmin singleton's storage calls intermittently fail).
+    const { data: urlData, error: signErr } = await freshStorageClient().storage
       .from('invoices')
       .createSignedUrl(order.invoice_url, 3600);
 

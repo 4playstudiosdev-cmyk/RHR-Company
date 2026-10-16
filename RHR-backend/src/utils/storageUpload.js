@@ -1,4 +1,25 @@
-const { supabaseAdmin } = require('../config/supabase');
+const { createClient } = require('@supabase/supabase-js');
+
+// Storage uploads specifically (not the regular Postgres-backed
+// supabaseAdmin reads/writes everywhere else in this codebase) have been
+// observed failing with "new row violates row-level security policy" —
+// even though the exact same service-role key succeeds every time both
+// from a brand-new process and via a raw HTTP call straight to
+// Supabase's Storage API, which rules out the key or an actual RLS
+// policy. The one thing that reliably reproduces it is reusing the
+// long-lived supabaseAdmin singleton after the server's been running a
+// while; a fresh client fixes it every time (confirmed by redeploying
+// restoring it). Likely a stale/reused keep-alive connection through
+// Cloudflare (Supabase sits behind it — see config/supabase.js's own
+// comment on this) getting into a bad state that the Storage API's
+// server-side auth check trips on. Minting one short-lived client just
+// for the upload call sidesteps whatever that connection-level issue is,
+// instead of needing a full server restart to clear it.
+function freshStorageClient() {
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+    global: { headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' } },
+  });
+}
 
 // ── ALLOWED FILE TYPES PER BUCKET ── shared between storage.controller.js
 // (authenticated client uploads) and auth.service.js's registerCustomer
@@ -67,7 +88,9 @@ async function uploadBase64ToStorage({ bucket, fileName, fileBase64, mimeType, c
   const safeName  = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
   const filePath  = `${companyId || 'unassigned'}/${timestamp}_${safeName}`;
 
-  let { error: uploadError } = await supabaseAdmin.storage
+  const storageClient = freshStorageClient();
+
+  let { error: uploadError } = await storageClient.storage
     .from(bucket)
     .upload(filePath, fileBuffer, { contentType: mimeType, upsert: false });
 
@@ -77,8 +100,8 @@ async function uploadBase64ToStorage({ bucket, fileName, fileBase64, mimeType, c
   // once rather than requiring a manual dashboard step before this
   // feature can be used at all.
   if (uploadError && /bucket.*not.*found/i.test(uploadError.message || '')) {
-    await supabaseAdmin.storage.createBucket(bucket, { public: rules.isPublic });
-    ({ error: uploadError } = await supabaseAdmin.storage
+    await storageClient.storage.createBucket(bucket, { public: rules.isPublic });
+    ({ error: uploadError } = await storageClient.storage
       .from(bucket)
       .upload(filePath, fileBuffer, { contentType: mimeType, upsert: false }));
   }
@@ -86,10 +109,10 @@ async function uploadBase64ToStorage({ bucket, fileName, fileBase64, mimeType, c
 
   let fileUrl;
   if (rules.isPublic) {
-    const { data: urlData } = supabaseAdmin.storage.from(bucket).getPublicUrl(filePath);
+    const { data: urlData } = storageClient.storage.from(bucket).getPublicUrl(filePath);
     fileUrl = urlData.publicUrl;
   } else {
-    const { data: urlData, error: signError } = await supabaseAdmin.storage
+    const { data: urlData, error: signError } = await storageClient.storage
       .from(bucket)
       .createSignedUrl(filePath, LONG_LIVED_SIGN_SECONDS);
     if (signError) throw new Error(signError.message);
@@ -99,4 +122,4 @@ async function uploadBase64ToStorage({ bucket, fileName, fileBase64, mimeType, c
   return { url: fileUrl, path: filePath, bucket, sizeMB: fileSizeMB.toFixed(2), isPublic: rules.isPublic };
 }
 
-module.exports = { BUCKET_RULES, LONG_LIVED_SIGN_SECONDS, uploadBase64ToStorage };
+module.exports = { BUCKET_RULES, LONG_LIVED_SIGN_SECONDS, uploadBase64ToStorage, freshStorageClient };
