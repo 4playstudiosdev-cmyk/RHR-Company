@@ -485,20 +485,22 @@ async function approveCustomer(customerId, adminUser, rateTier, creditLimit) {
     update.credit_limit = Number(creditLimit);
   }
 
-  let query = supabaseAdmin
-    .from('users')
-    .update(update)
-    .eq('id', customerId)
-    .eq('role', 'customer');
+  // Routed through the raw-https bypass (see utils/directQuery.js) —
+  // this was still on plain supabase-js's .update().select().single(),
+  // the exact pattern proven elsewhere in this codebase (lookupByPhone's
+  // own comment above, assignSalesman/assignDriver) to intermittently
+  // come back empty on Railway even though the row genuinely exists and
+  // the update succeeds — which is what showed up as a false "Customer
+  // not found or access denied" on a perfectly valid approval.
+  const filter = { id: `eq.${customerId}`, role: 'eq.customer' };
   // super_admin can approve a pending customer in any branch (the
   // Customers page already lists all 3 branches' pending signups for
   // them via CityFilter); branch_admin stays locked to their own.
-  if (adminUser.role !== 'super_admin') query = query.eq('company_id', adminUser.company_id);
+  if (adminUser.role !== 'super_admin') filter.company_id = `eq.${adminUser.company_id}`;
 
-  const { data, error } = await query.select().single();
-
-  if (error) throw new Error('Customer not found or access denied');
-  return data;
+  const rows = await pgrestPatch('users', filter, update);
+  if (!rows?.[0]) throw new Error('Customer not found or access denied');
+  return rows[0];
 }
 
 // These phone lookups sit directly on the OTP login path — a transient
@@ -543,16 +545,20 @@ async function findSalesmanByPhone(phone) {
 }
 
 async function approveSalesman(salesmanId, adminUser) {
-  const { data, error } = await supabaseAdmin
-    .from('salesmen')
-    .update({ is_approved: true })
-    .eq('id', salesmanId)
-    .eq('company_id', adminUser.company_id)
-    .select()
-    .single();
+  // Same raw-https bypass fix as approveCustomer above, and for the
+  // identical reason — plain supabase-js's .update().select().single()
+  // intermittently came back empty on Railway for a salesman that
+  // genuinely exists, surfacing as a false "not found or access denied"
+  // on a perfectly valid Approve click. Also lets super_admin approve a
+  // pending salesman in any branch, same as approveCustomer — their own
+  // company_id is always Karachi's, so the old unconditional filter
+  // silently 404'd on a Hyderabad/Sukkur salesman.
+  const filter = { id: `eq.${salesmanId}` };
+  if (adminUser.role !== 'super_admin') filter.company_id = `eq.${adminUser.company_id}`;
 
-  if (error) throw new Error('Salesman not found or access denied');
-  return data;
+  const rows = await pgrestPatch('salesmen', filter, { is_approved: true });
+  if (!rows?.[0]) throw new Error('Salesman not found or access denied');
+  return rows[0];
 }
 
 async function findDriverByPhone(phone) {
@@ -563,16 +569,13 @@ async function findDriverByPhone(phone) {
 }
 
 async function approveDriver(driverId, adminUser) {
-  const { data, error } = await supabaseAdmin
-    .from('drivers')
-    .update({ is_approved: true })
-    .eq('id', driverId)
-    .eq('company_id', adminUser.company_id)
-    .select()
-    .single();
+  // Same raw-https bypass + super_admin-any-branch fix as approveSalesman above.
+  const filter = { id: `eq.${driverId}` };
+  if (adminUser.role !== 'super_admin') filter.company_id = `eq.${adminUser.company_id}`;
 
-  if (error) throw new Error('Driver not found or access denied');
-  return data;
+  const rows = await pgrestPatch('drivers', filter, { is_approved: true });
+  if (!rows?.[0]) throw new Error('Driver not found or access denied');
+  return rows[0];
 }
 
 // Releases the single-session lock loginWithCredentials sets — called on
