@@ -19,10 +19,11 @@ class OtpScreen extends StatefulWidget {
 }
 
 class _OtpScreenState extends State<OtpScreen> {
+  static const int _otpLength = 4;
   final List<TextEditingController> _controllers =
-      List.generate(6, (_) => TextEditingController());
+      List.generate(_otpLength, (_) => TextEditingController());
   final List<FocusNode> _focusNodes =
-      List.generate(6, (_) => FocusNode());
+      List.generate(_otpLength, (_) => FocusNode());
   bool _isLoading = false;
   bool _isResending = false;
   int _resendSeconds = 45;
@@ -119,9 +120,13 @@ class _OtpScreenState extends State<OtpScreen> {
   String? get _nicFrontMime => _extra<String>('nicFrontMime');
   String? get _nicBackBase64 => _extra<String>('nicBackBase64');
   String? get _nicBackMime => _extra<String>('nicBackMime');
+  String? get _shopImageBase64 => _extra<String>('shopImageBase64');
+  String? get _shopImageMime => _extra<String>('shopImageMime');
+  double? get _shopLatitude => _extra<double>('shopLatitude');
+  double? get _shopLongitude => _extra<double>('shopLongitude');
 
   void _onChanged(String value, int index) {
-    if (value.isNotEmpty && index < 5) _focusNodes[index + 1].requestFocus();
+    if (value.isNotEmpty && index < _otpLength - 1) _focusNodes[index + 1].requestFocus();
     if (value.isEmpty && index > 0) _focusNodes[index - 1].requestFocus();
   }
 
@@ -130,7 +135,11 @@ class _OtpScreenState extends State<OtpScreen> {
     setState(() => _isResending = true);
     try {
       final phone = PhoneNormalizer.normalize(_phone);
-      await DioClient.instance.post(ApiEndpoints.sendOtp, data: {'phone': phone});
+      // forceSend: the phone may still be a brand-new, not-yet-registered
+      // user at this point (signup flow) — without this the backend's
+      // "new user" branch would treat it as just a status check and skip
+      // sending (see auth.controller.js's sendOTPHandler).
+      await DioClient.instance.post(ApiEndpoints.sendOtp, data: {'phone': phone, 'forceSend': true});
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('OTP resent')));
         _startResendTimer();
@@ -146,9 +155,9 @@ class _OtpScreenState extends State<OtpScreen> {
 
   void _verifyOtp() async {
     final otp = _controllers.map((c) => c.text).join();
-    if (otp.length < 6) {
+    if (otp.length < _otpLength) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Enter all 6 digits')));
+          SnackBar(content: Text('Enter all $_otpLength digits')));
       return;
     }
     setState(() => _isLoading = true);
@@ -174,6 +183,10 @@ class _OtpScreenState extends State<OtpScreen> {
     if (_nicFrontMime != null) body['nicFrontMime'] = _nicFrontMime!;
     if (_nicBackBase64 != null) body['nicBackBase64'] = _nicBackBase64!;
     if (_nicBackMime != null) body['nicBackMime'] = _nicBackMime!;
+    if (_shopImageBase64 != null) body['shopImageBase64'] = _shopImageBase64!;
+    if (_shopImageMime != null) body['shopImageMime'] = _shopImageMime!;
+    if (_shopLatitude != null) body['shopLatitude'] = _shopLatitude!;
+    if (_shopLongitude != null) body['shopLongitude'] = _shopLongitude!;
     debugPrint('Verify OTP body: $body');
     try {
       final response = await DioClient.instance.post(
@@ -313,8 +326,8 @@ class _OtpScreenState extends State<OtpScreen> {
                       // OTP boxes
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: List.generate(6, (index) => SizedBox(
-                          width: 48, height: 64,
+                        children: List.generate(_otpLength, (index) => SizedBox(
+                          width: 64, height: 72,
                           child: TextField(
                             controller: _controllers[index],
                             focusNode: _focusNodes[index],

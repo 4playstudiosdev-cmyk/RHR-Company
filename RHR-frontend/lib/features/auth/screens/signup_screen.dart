@@ -9,6 +9,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/utils/phone_normalizer.dart';
 import '../../../shared/widgets/wave_header.dart';
+import '../../../shared/widgets/shop_location_picker_screen.dart';
 import '../../../shared/router/app_transitions.dart';
 
 class SignupScreen extends StatefulWidget {
@@ -36,11 +37,39 @@ class _SignupScreenState extends State<SignupScreen> {
   File? _profileImage;
   File? _nicFrontImage;
   File? _nicBackImage;
+  File? _shopImage;
+  double? _shopLatitude;
+  double? _shopLongitude;
 
   Future<void> _pickImage(String target) async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: SafeArea(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined, color: AppColors.primary),
+              title: const Text('Take Photo'),
+              onTap: () => Navigator.of(sheetContext).pop(ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined, color: AppColors.primary),
+              title: const Text('Choose from Gallery'),
+              onTap: () => Navigator.of(sheetContext).pop(ImageSource.gallery),
+            ),
+          ]),
+        ),
+      ),
+    );
+    if (source == null) return;
     final picker = ImagePicker();
-    final image = await picker.pickImage(
-        source: ImageSource.gallery, imageQuality: 70);
+    final image = await picker.pickImage(source: source, imageQuality: 70);
     if (image == null) return;
     setState(() {
       switch (target) {
@@ -53,8 +82,28 @@ class _SignupScreenState extends State<SignupScreen> {
         case 'nicBack':
           _nicBackImage = File(image.path);
           break;
+        case 'shop':
+          _shopImage = File(image.path);
+          break;
       }
     });
+  }
+
+  Future<void> _pickShopLocation() async {
+    final result = await Navigator.of(context).push<Map<String, double>>(
+      MaterialPageRoute(
+        builder: (_) => ShopLocationPickerScreen(
+          initialLatitude: _shopLatitude,
+          initialLongitude: _shopLongitude,
+        ),
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _shopLatitude = result['latitude'];
+        _shopLongitude = result['longitude'];
+      });
+    }
   }
 
   Future<Map<String, String>> _encodeImage(File file) async {
@@ -131,42 +180,57 @@ class _SignupScreenState extends State<SignupScreen> {
             const SnackBar(content: Text('NIC back image is required.')));
         return;
       }
+      if (_shopImage == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Shop photo is required.')));
+        return;
+      }
+      if (_shopLatitude == null || _shopLongitude == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please set your shop location on the map.')));
+        return;
+      }
     }
 
     final phone = PhoneNormalizer.normalize(_phoneController.text);
 
-    if (widget.phone == null || widget.phone!.isEmpty) {
-      setState(() => _isLoading = true);
-      try {
-        final response = await DioClient.instance.post(
-          ApiEndpoints.sendOtp,
-          data: {'phone': phone},
-        );
-        if (response.data['success'] != true) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                content: Text(response.data['message'] ?? 'Could not send OTP')));
-          }
-          return;
-        }
-      } catch (e) {
+    // Always send the real OTP here, right before the OTP screen — the
+    // earlier /auth/send-otp call from login_screen.dart (if any) was only
+    // a new-vs-existing check and never dispatches anything for a new
+    // number (see auth.controller.js's sendOTPHandler). This is the one
+    // true send, happening only now that every field is filled in.
+    setState(() => _isLoading = true);
+    try {
+      final response = await DioClient.instance.post(
+        ApiEndpoints.sendOtp,
+        data: {'phone': phone, 'forceSend': true},
+      );
+      if (response.data['success'] != true) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Server error. Please try again.')));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(response.data['message'] ?? 'Could not send OTP')));
         }
         return;
-      } finally {
-        if (mounted) setState(() => _isLoading = false);
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Server error. Please try again.')));
+      }
+      return;
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
 
     Map<String, String>? profileEnc;
     Map<String, String>? nicFrontEnc;
     Map<String, String>? nicBackEnc;
+    Map<String, String>? shopEnc;
     if (_selectedRole == 'customer') {
       profileEnc  = await _encodeImage(_profileImage!);
       nicFrontEnc = await _encodeImage(_nicFrontImage!);
       nicBackEnc  = await _encodeImage(_nicBackImage!);
+      shopEnc     = await _encodeImage(_shopImage!);
     }
 
     if (!mounted) return;
@@ -192,11 +256,51 @@ class _SignupScreenState extends State<SignupScreen> {
         'nicFrontMime':       nicFrontEnc['mime']!,
         'nicBackBase64':      nicBackEnc!['base64']!,
         'nicBackMime':        nicBackEnc['mime']!,
+        'shopImageBase64':    shopEnc!['base64']!,
+        'shopImageMime':      shopEnc['mime']!,
+        'shopLatitude':       _shopLatitude!,
+        'shopLongitude':      _shopLongitude!,
       },
     });
   }
 
   static const _fieldBorder = Color(0xFFCED4DA);
+
+  Widget _shopLocationField() {
+    final isSet = _shopLatitude != null && _shopLongitude != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Shop Location', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant)),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: _pickShopLocation,
+          borderRadius: BorderRadius.circular(AppRadius.base),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceContainerLowest,
+              borderRadius: BorderRadius.circular(AppRadius.base),
+              border: Border.all(color: isSet ? AppColors.success : _fieldBorder),
+            ),
+            child: Row(children: [
+              Icon(isSet ? Icons.location_on : Icons.add_location_alt_outlined,
+                  color: isSet ? AppColors.success : AppColors.outline),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  isSet ? 'Location set — tap to change' : 'Tap to set on Google Maps',
+                  style: AppTextStyles.bodyMd.copyWith(
+                      color: isSet ? AppColors.onSurface : AppColors.outline),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ],
+    );
+  }
 
   Widget _nicImagePicker({required String label, required File? file, required VoidCallback onTap}) {
     return Column(
@@ -424,6 +528,14 @@ class _SignupScreenState extends State<SignupScreen> {
                             ),
                           ),
                         ]),
+                        const SizedBox(height: AppSpacing.sm),
+                        _nicImagePicker(
+                          label: 'Shop Photo',
+                          file: _shopImage,
+                          onTap: () => _pickImage('shop'),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        _shopLocationField(),
                       ],
                       const SizedBox(height: AppSpacing.sm),
 
