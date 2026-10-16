@@ -8,7 +8,7 @@ const { sendWhatsAppText } = require('../utils/whatsappBot');
 const sendWhatsAppMessage = sendWhatsAppText;
 
 function generateOTP() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return Math.floor(1000 + Math.random() * 9000).toString();
 }
 
 // Normalize phone to always store without + and with 92 prefix

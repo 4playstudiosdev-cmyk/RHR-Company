@@ -397,10 +397,16 @@ const updateCreditLimit = async (req, res) => {
 async function findScopedCustomer(req) {
   let query = supabaseAdmin
     .from('users')
-    .select('id, full_name, company_id')
+    .select('id, full_name, company_id, salesman_id')
     .eq('id', req.params.id)
     .eq('role', 'customer');
-  if (req.user.role !== 'super_admin') query = query.eq('company_id', req.user.company_id);
+  // A salesman (now allowed on these pricing routes, for setting custom
+  // prices on a customer they're registering via the mobile app's own
+  // 3-step Add Customer wizard) only ever touches customers assigned to
+  // them — same restriction createCustomer already applies when a
+  // salesman is the one calling it.
+  if (req.user.role === 'salesman') query = query.eq('salesman_id', req.user.id);
+  else if (req.user.role !== 'super_admin') query = query.eq('company_id', req.user.company_id);
   const { data, error: dbErr } = await query.single();
   if (dbErr || !data) return null;
   return data;

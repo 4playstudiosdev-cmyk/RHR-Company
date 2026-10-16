@@ -22,9 +22,13 @@ router.patch('/:id/assign-driver',   authenticate, isAdmin, ctrl.assignDriver);
 router.patch('/:id',          authenticate, isAdmin,    ctrl.updateCustomer);
 router.delete('/:id',         authenticate, isAdmin,    ctrl.deleteCustomer);
 router.get('/:id/profile-pdf',       authenticate, isSuperAdmin, ctrl.downloadCustomerProfilePDF);
-router.get('/:id/pricing',           authenticate, isAdmin, ctrl.getCustomerPricing);
-router.put('/:id/pricing/:productId', authenticate, isAdmin, ctrl.setCustomerPricing);
-router.delete('/:id/pricing/:productId', authenticate, isAdmin, ctrl.deleteCustomerPricing);
+// Widened to also let a salesman set/read pricing — needed so the
+// mobile Add Customer wizard's pricing step can apply custom prices
+// to a customer the salesman is registering themselves. findScopedCustomer
+// restricts a salesman caller to customers assigned to them.
+router.get('/:id/pricing',           authenticate, requireRole('super_admin', 'branch_admin', 'salesman'), ctrl.getCustomerPricing);
+router.put('/:id/pricing/:productId', authenticate, requireRole('super_admin', 'branch_admin', 'salesman'), ctrl.setCustomerPricing);
+router.delete('/:id/pricing/:productId', authenticate, requireRole('super_admin', 'branch_admin', 'salesman'), ctrl.deleteCustomerPricing);
 router.get('/:id',           authenticate,             ctrl.getCustomerById);
 
 module.exports = router;

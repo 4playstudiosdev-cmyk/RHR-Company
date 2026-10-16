@@ -10,7 +10,7 @@ const { success, error } = require('../utils/response');
 
 const sendOTPHandler = async (req, res) => {
   try {
-    const { phone } = req.body;
+    const { phone, forceSend } = req.body;
     if (!phone) return error(res, 'Phone number is required', 400);
 
     // Check registration status before sending OTP — could be any role
@@ -19,9 +19,18 @@ const sendOTPHandler = async (req, res) => {
       || (await findDriverByPhone(phone));
 
     if (!existingUser) {
-      // New user — send OTP now so it arrives while they fill the signup form
+      if (!forceSend) {
+        // First call, from the phone-entry screen — new user, just route
+        // to the signup/profile form. Don't send the OTP yet: it used to
+        // go out right here, before the form was even shown, so by the
+        // time it was filled out and submitted the code had been sitting
+        // in their WhatsApp for minutes already.
+        return success(res, { isNewUser: true }, 'Please complete your profile.');
+      }
+      // Second call, with forceSend — the form's own "Next" button, once
+      // every field is filled in. This is the real send.
       const result = await sendOTP(phone);
-      return success(res, { ...result, isNewUser: true }, 'OTP sent. Please create your account.');
+      return success(res, { ...result, isNewUser: true }, 'OTP sent. Please verify your WhatsApp number.');
     }
 
     if (!existingUser.is_approved) {
@@ -46,6 +55,8 @@ const verifyOTPHandler = async (req, res) => {
       profileImageBase64, profileImageMime,
       nicFrontBase64, nicFrontMime,
       nicBackBase64, nicBackMime,
+      shopImageBase64, shopImageMime,
+      shopLatitude, shopLongitude,
     } = req.body;
     if (!phone || !otp || !companyId) {
       return error(res, 'phone, otp, companyId are required', 400);
@@ -113,6 +124,8 @@ const verifyOTPHandler = async (req, res) => {
         profileImageBase64, profileImageMime,
         nicFrontBase64, nicFrontMime,
         nicBackBase64, nicBackMime,
+        shopImageBase64, shopImageMime,
+        shopLatitude, shopLongitude,
       });
     }
 

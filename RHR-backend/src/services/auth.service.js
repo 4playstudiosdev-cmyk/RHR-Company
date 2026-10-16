@@ -101,6 +101,8 @@ async function registerCustomer({
   profileImageBase64, profileImageMime,
   nicFrontBase64, nicFrontMime,
   nicBackBase64, nicBackMime,
+  shopImageBase64, shopImageMime,
+  shopLatitude, shopLongitude,
 }) {
   const canonical = normalizePhone(phone);
   const bare      = canonical.replace('+', '');
@@ -116,14 +118,15 @@ async function registerCustomer({
     throw new Error('Account already exists. Pending admin approval.');
   }
 
-  if (!email || !nicNumber || !whatsappPhone || !profileImageBase64 || !nicFrontBase64 || !nicBackBase64) {
-    throw new Error('email, nicNumber, whatsappPhone, profile picture, and both NIC images are required');
+  if (!email || !nicNumber || !whatsappPhone || !profileImageBase64 || !nicFrontBase64 || !nicBackBase64
+      || !shopImageBase64 || shopLatitude == null || shopLongitude == null) {
+    throw new Error('email, nicNumber, whatsappPhone, profile picture, both NIC images, shop photo, and shop location are required');
   }
 
   // Supabase Auth requires E.164 format (+923001234567)
   const authUserId = await getOrCreateAuthUser({ canonical, bare, fullName, role: 'customer' });
 
-  const [profileUpload, nicFrontUpload, nicBackUpload] = await Promise.all([
+  const [profileUpload, nicFrontUpload, nicBackUpload, shopUpload] = await Promise.all([
     uploadBase64ToStorage({
       bucket: 'profile-photos', fileName: `${authUserId}.jpg`,
       fileBase64: profileImageBase64, mimeType: profileImageMime || 'image/jpeg', companyId,
@@ -135,6 +138,10 @@ async function registerCustomer({
     uploadBase64ToStorage({
       bucket: 'nic-images', fileName: `${authUserId}_back.jpg`,
       fileBase64: nicBackBase64, mimeType: nicBackMime || 'image/jpeg', companyId,
+    }),
+    uploadBase64ToStorage({
+      bucket: 'shop-photos', fileName: `${authUserId}.jpg`,
+      fileBase64: shopImageBase64, mimeType: shopImageMime || 'image/jpeg', companyId,
     }),
   ]);
 
@@ -155,6 +162,9 @@ async function registerCustomer({
       profile_photo_url:  profileUpload.url,
       nic_image_url:      nicFrontUpload.url,
       nic_back_image_url: nicBackUpload.url,
+      shop_image_url:     shopUpload.url,
+      shop_latitude:      Number(shopLatitude),
+      shop_longitude:     Number(shopLongitude),
       is_approved:        false,
       // Same explicit is_active fix as registerSalesman/registerDriver —
       // relying on the column default turned out unreliable.
