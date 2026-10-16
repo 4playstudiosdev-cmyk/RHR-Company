@@ -1238,30 +1238,6 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                 )}
               </div>
 
-              <p className="text-sm font-medium text-navy mb-2">Pricing Tier</p>
-              <div className="space-y-2 mb-4">
-                {RATE_TIERS.map((tier) => (
-                  <button
-                    key={tier.value}
-                    type="button"
-                    onClick={() => setApproveRateTier(tier.value)}
-                    className={`w-full flex items-center justify-between gap-3 text-left border rounded-xl px-4 py-3 transition-colors ${
-                      approveRateTier === tier.value ? 'border-navy bg-navy-chip/30' : 'border-gray-200 hover:border-navy hover:bg-navy-chip/30'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-navy-chip text-navy flex items-center justify-center flex-shrink-0">
-                        <Tag size={14} />
-                      </div>
-                      <div>
-                        <p className="font-semibold text-navy text-sm">{tier.label}</p>
-                        <p className="text-xs text-gray-400">{tier.desc}</p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div>
                   <label className="text-sm font-medium text-navy">Credit Limit (PKR)</label>
@@ -1398,10 +1374,6 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                 </div>
                 <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 grid grid-cols-2 gap-3">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Rate Tier</p>
-                    <p className="text-sm font-medium text-navy">{RATE_TIERS.find((t) => t.value === approveRateTier)?.label}</p>
-                  </div>
-                  <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Salesman</p>
                     <p className="text-sm font-medium text-navy">{salesmenList.find((s) => s.id === approveSalesmanId)?.full_name || '— None —'}</p>
                   </div>
@@ -1417,7 +1389,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                 <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Custom Product Pricing</p>
                   {wizardPricingRows.filter((r) => r.custom_price !== null && r.custom_price !== undefined).length === 0 ? (
-                    <p className="text-xs text-gray-400">No custom prices set — standard {RATE_TIERS.find((t) => t.value === approveRateTier)?.label.toLowerCase()} applies to everything.</p>
+                    <p className="text-xs text-gray-400">No custom prices set — catalog price applies to everything.</p>
                   ) : (
                     <div className="space-y-1.5 max-h-[160px] overflow-y-auto">
                       {wizardPricingRows.filter((r) => r.custom_price !== null && r.custom_price !== undefined).map((r) => (
