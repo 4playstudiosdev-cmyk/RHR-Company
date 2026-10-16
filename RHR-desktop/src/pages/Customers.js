@@ -27,6 +27,25 @@ const RATE_BADGE = {
 const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
 const EMPTY_CUSTOMER_FORM = { full_name: '', phone: '', email: '', shop_name: '', shop_address: '', city: '', area: '', rate_tier: 'manual', salesman_id: '', opening_balance_amount: '', shop_latitude: null, shop_longitude: null };
 
+// customerForm.phone holds ONLY the local 10-digit subscriber number
+// (no country code, no leading 0) — the Phone field shows a fixed "+92"
+// prefix so an admin can't type a number the backend's own normalizer
+// doesn't recognize. This is what let a customer the admin added end up
+// as a second, duplicate account once that same person opened the app
+// and logged in with their real number: the admin-side form took
+// whatever was typed as a flat string (e.g. a copy-pasted "3212211069"
+// with no leading 0), which the old normalizer didn't convert to
+// "+923212211069" — so the self-registration flow's existing-phone
+// lookup never matched it. toApiPhone always sends a properly
+// country-coded number now, no matter what the admin types.
+const localPhoneDigits = (raw) => {
+  let digits = String(raw || '').replace(/\D/g, '');
+  if (digits.startsWith('92')) digits = digits.slice(2);
+  else if (digits.startsWith('0')) digits = digits.slice(1);
+  return digits.slice(0, 10);
+};
+const toApiPhone = (localDigits) => (localDigits ? '92' + localDigits : '');
+
 const PAGE_SIZE = 10;
 
 function getInitials(name) {
@@ -480,6 +499,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
       const { opening_balance_amount, ...customerPayload } = customerForm;
       const res = await api.post('/customers', {
         ...customerPayload,
+        phone: toApiPhone(customerForm.phone),
         salesman_id: customerForm.salesman_id || null,
         company_id: targetCompanyId
       });
@@ -522,7 +542,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
     setEditingCustomer(customer);
     setCustomerForm({
       full_name:    customer.full_name || '',
-      phone:        customer.phone || '',
+      phone:        localPhoneDigits(customer.phone),
       email:        customer.email || '',
       shop_name:    customer.shop_name || '',
       shop_address: customer.shop_address || '',
@@ -547,7 +567,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
     setSavingCustomer(true);
     try {
       const { salesman_id, ...rest } = customerForm;
-      await api.patch(`/customers/${editingCustomer.id}`, rest);
+      await api.patch(`/customers/${editingCustomer.id}`, { ...rest, phone: toApiPhone(customerForm.phone) });
       if (salesman_id !== (editingCustomer.salesman_id || '')) {
         await api.patch(`/customers/${editingCustomer.id}/assign-salesman`, { salesman_id: salesman_id || null });
       }
@@ -1521,14 +1541,17 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Phone *</label>
-              <input
-                type="text"
-                required
-                placeholder="03001234567"
-                value={customerForm.phone}
-                onChange={(e) => setCustomerForm({ ...customerForm, phone: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-              />
+              <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-navy focus-within:border-navy transition-shadow">
+                <span className="px-3 py-2.5 text-sm text-gray-500 bg-gray-50 border-r border-gray-300">+92</span>
+                <input
+                  type="text"
+                  required
+                  placeholder="3001234567"
+                  value={customerForm.phone}
+                  onChange={(e) => setCustomerForm({ ...customerForm, phone: localPhoneDigits(e.target.value) })}
+                  className="flex-1 min-w-0 px-3 py-2.5 text-sm focus:outline-none"
+                />
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Email</label>
@@ -1733,7 +1756,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                 <p className="text-sm text-gray-500">Review everything below before creating the account.</p>
                 <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 space-y-1">
                   <p className="text-sm font-semibold text-navy">{customerForm.full_name}</p>
-                  <p className="text-xs text-gray-500">{customerForm.phone}{customerForm.email ? ` · ${customerForm.email}` : ''}</p>
+                  <p className="text-xs text-gray-500">+92{customerForm.phone}{customerForm.email ? ` · ${customerForm.email}` : ''}</p>
                   {customerForm.shop_name && <p className="text-xs text-gray-500">{customerForm.shop_name}</p>}
                   {customerForm.shop_address && <p className="text-xs text-gray-500">{customerForm.shop_address}</p>}
                   {(customerForm.city || customerForm.area) && <p className="text-xs text-gray-500">{[customerForm.city, customerForm.area].filter(Boolean).join(', ')}</p>}
