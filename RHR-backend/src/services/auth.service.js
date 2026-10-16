@@ -4,6 +4,7 @@ const { supabaseAdmin } = require('../config/supabase');
 const { withRetry } = require('../utils/withRetry');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { uploadBase64ToStorage } = require('../utils/storageUpload');
+const { normalizePhone, phoneLast10 } = require('../utils/phone');
 
 // Matches the frontend's own SESSION_MAX_AGE_MS (App.js) — a session is
 // considered abandoned (not actively locking the account) past this age.
@@ -48,13 +49,6 @@ function generateToken(user) {
   );
 }
 
-function normalizePhone(phone) {
-  // Strip non-digits: 03001234567 → 03001234567, +923001234567 → 923001234567
-  let digits = phone.replace(/\D/g, '');
-  // Pakistani local format starts with 0 → replace with country code 92
-  if (digits.startsWith('0')) digits = '92' + digits.slice(1);
-  return '+' + digits; // → +923001234567
-}
 
 // Supabase Auth users are created before the profile row (users/salesmen).
 // If that profile insert ever fails — bad companyId, a dropped connection,
@@ -106,12 +100,23 @@ async function registerCustomer({
 }) {
   const canonical = normalizePhone(phone);
   const bare      = canonical.replace('+', '');
+  // Last-10-digit match as well as exact — catches an admin-created
+  // customer whose phone was saved in some other shape (see
+  // utils/phone.js) before this self-registration flow would otherwise
+  // treat the same person as brand new and create a duplicate account.
+  const last10    = phoneLast10(phone);
 
-  const { data: existing } = await supabaseAdmin
+  // .limit(1) + manual pick rather than .maybeSingle() — the wider
+  // last10 match means this could hit more than one row while any
+  // pre-existing malformed-phone duplicates haven't been cleaned up yet,
+  // and .maybeSingle() throws (rather than just picking one) when a
+  // query returns more than one row.
+  const { data: existingRows } = await supabaseAdmin
     .from('users')
     .select('id, is_approved')
-    .or(`phone.eq.${canonical},phone.eq.${bare}`)
-    .maybeSingle();
+    .or(`phone.eq.${canonical},phone.eq.${bare},phone.like.*${last10}`)
+    .limit(1);
+  const existing = existingRows?.[0] || null;
 
   if (existing) {
     if (existing.is_approved) throw new Error('Phone number already registered and approved');
@@ -406,10 +411,11 @@ async function loginWithCredentials({ email, password, latitude, longitude, forc
 async function registerSalesman({ phone, fullName, companyId, position }) {
   const canonical = normalizePhone(phone);
   const bare      = canonical.replace('+', '');
+  const last10    = phoneLast10(phone);
 
   const existingRows = await pgrestGet('salesmen', {
     select: 'id,is_approved',
-    or: `(phone.eq.${canonical},phone.eq.${bare})`,
+    or: `(phone.eq.${canonical},phone.eq.${bare},phone.like.*${last10})`,
   });
   const existing = existingRows?.[0];
 
@@ -453,10 +459,11 @@ async function registerSalesman({ phone, fullName, companyId, position }) {
 async function registerDriver({ phone, fullName, companyId, carNumber }) {
   const canonical = normalizePhone(phone);
   const bare      = canonical.replace('+', '');
+  const last10    = phoneLast10(phone);
 
   const existingRows = await pgrestGet('drivers', {
     select: 'id,is_approved',
-    or: `(phone.eq.${canonical},phone.eq.${bare})`,
+    or: `(phone.eq.${canonical},phone.eq.${bare},phone.like.*${last10})`,
   });
   const existing = existingRows?.[0];
 
@@ -539,10 +546,17 @@ async function approveCustomer(customerId, adminUser, rateTier, creditLimit) {
 async function lookupByPhone(table, phone, extraFilters = {}) {
   const canonical = normalizePhone(phone);          // +923001234567
   const bare      = canonical.replace('+', '');    // 923001234567
+  // Also matches on the last 10 digits — this is the exact lookup that
+  // decides "new user" vs "existing user" on every login/signup attempt,
+  // so it's the one that most needs to still find an account saved in
+  // some other phone shape (see utils/phone.js) instead of letting the
+  // self-registration flow create a second, duplicate account for
+  // someone an admin already added by hand.
+  const last10    = phoneLast10(phone);
   try {
     const rows = await pgrestGet(table, {
       select: '*',
-      or: `(phone.eq.${canonical},phone.eq.${bare})`,
+      or: `(phone.eq.${canonical},phone.eq.${bare},phone.like.*${last10})`,
       limit: '1',
       ...extraFilters,
     });

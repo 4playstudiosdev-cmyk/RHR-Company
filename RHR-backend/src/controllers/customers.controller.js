@@ -5,12 +5,7 @@ const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/d
 const { buildCustomerProfilePDF } = require('../services/customerProfilePdf.service');
 const { withRetry } = require('../utils/withRetry');
 const { reverseGeocode } = require('../utils/geocoding');
-
-function normalizePhone(phone) {
-  let digits = phone.replace(/\D/g, '');
-  if (digits.startsWith('0')) digits = '92' + digits.slice(1);
-  return '+' + digits;
-}
+const { normalizePhone, phoneLast10 } = require('../utils/phone');
 
 // city/area are a phase31 addition — the named-column select below 400s
 // outright if that migration hasn't run (unlike select('*'), which just
@@ -169,9 +164,15 @@ const createCustomer = async (req, res) => {
 
     const canonical = normalizePhone(phone);
     const bare = canonical.replace('+', '');
+    // Matches on the last 10 digits (the actual subscriber number) rather
+    // than an exact string — catches a duplicate even if some other
+    // record was stored in a differently-shaped format (e.g. an older
+    // row saved before normalizePhone's bare-local-number fix). See
+    // utils/phone.js for the full story.
+    const last10 = phoneLast10(phone);
     const existingRows = await pgrestGet('users', {
       select: 'id',
-      or: `(phone.eq.${canonical},phone.eq.${bare})`,
+      or: `(phone.eq.${canonical},phone.eq.${bare},phone.like.*${last10})`,
     });
     if (existingRows?.[0]) return error(res, 'A customer with this phone number already exists', 400);
 

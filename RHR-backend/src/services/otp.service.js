@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { sendWhatsAppText } = require('../utils/whatsappBot');
+const { normalizePhoneBare: normalizePhone } = require('../utils/phone');
 
 // OTPs are sent through the standalone RHR-whatsapp-bot service (separate
 // Railway deployment, keeps its own WhatsApp session) instead of a
@@ -9,14 +10,6 @@ const sendWhatsAppMessage = sendWhatsAppText;
 
 function generateOTP() {
   return Math.floor(1000 + Math.random() * 9000).toString();
-}
-
-// Normalize phone to always store without + and with 92 prefix
-function normalizePhone(phone) {
-  let cleaned = phone.replace(/[\s\-]/g, '');
-  if (cleaned.startsWith('+')) cleaned = cleaned.slice(1);
-  if (cleaned.startsWith('0')) cleaned = '92' + cleaned.slice(1);
-  return cleaned;
 }
 
 // Per-IP limiting alone doesn't catch a phone that gets re-requested

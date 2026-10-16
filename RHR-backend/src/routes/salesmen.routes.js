@@ -7,6 +7,7 @@ const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { withRetry } = require('../utils/withRetry');
+const { normalizePhone, phoneLast10 } = require('../utils/phone');
 
 // GET /api/v1/salesmen/directory — a driver needs to see who's who
 // (name + phone) for the salesman attached to a customer they're
@@ -65,9 +66,9 @@ router.patch('/me/profile', authenticate, isSalesman, async (req, res) => {
 
     const update = {};
     if (full_name != null)          update.full_name = full_name;
-    // Stripped of spaces/dashes no matter what the client sends — see the
-    // identical fix in drivers.routes.js for why.
-    if (phone != null)              update.phone = phone.replace(/[\s-]/g, '');
+    // Fully normalized (not just stripped of spaces/dashes) — see
+    // utils/phone.js and the identical fix in drivers.routes.js for why.
+    if (phone != null)              update.phone = normalizePhone(phone);
     if (nic_number != null)         update.nic_number = nic_number;
     if (profile_photo_url != null)  update.profile_photo_url = profile_photo_url;
     if (nic_image_url != null)      update.nic_image_url = nic_image_url;
@@ -170,6 +171,19 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
       ? req.user.company_id
       : (company_id || req.user.company_id);
 
+    // Normalized the same way phone+OTP registration/login stores it
+    // (see utils/phone.js) — an unnormalized phone here used to let the
+    // same person end up with a second, duplicate salesman account the
+    // first time they later logged into the app with phone+OTP.
+    const normalizedPhone = phone ? normalizePhone(phone) : null;
+    if (normalizedPhone) {
+      const existingRows = await pgrestGet('salesmen', {
+        select: 'id',
+        or: `(phone.eq.${normalizedPhone},phone.eq.${normalizedPhone.replace('+', '')},phone.like.*${phoneLast10(phone)})`,
+      });
+      if (existingRows?.[0]) return error(res, 'A salesman with this phone number already exists', 400);
+    }
+
     const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
@@ -182,7 +196,7 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
       id:         authData.user.id,
       company_id: targetCompanyId,
       full_name,
-      phone:      phone || null,
+      phone:      normalizedPhone,
       email,
       position:   position || null,
       is_approved: true,
@@ -239,7 +253,7 @@ router.patch('/:id', authenticate, isAdmin, async (req, res) => {
     const { full_name, phone, position, is_active } = req.body;
     const filter = { id: `eq.${req.params.id}` };
     if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
-    const data = await pgrestPatch('salesmen', filter, { full_name, phone, position, is_active });
+    const data = await pgrestPatch('salesmen', filter, { full_name, phone: phone != null ? normalizePhone(phone) : phone, position, is_active });
     if (!data?.[0]) return error(res, 'Salesman not found', 404);
     return success(res, data[0], 'Salesman updated');
   } catch (err) { return error(res, err.message); }

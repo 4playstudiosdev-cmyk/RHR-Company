@@ -7,6 +7,7 @@ const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { withRetry } = require('../utils/withRetry');
+const { normalizePhone, phoneLast10 } = require('../utils/phone');
 
 // A driver's profile is "complete" once every one of these is filled —
 // mirrors customers.controller.js's isProfileComplete, same required-field
@@ -45,11 +46,12 @@ router.patch('/me/profile', authenticate, isDriver, async (req, res) => {
 
     const update = {};
     if (full_name != null)          update.full_name = full_name;
-    // Stripped of spaces/dashes no matter what the client sends — this is
-    // the exact column OTP login matches on (lookupByPhone in
-    // auth.service.js), so a cosmetically-grouped "+92 321 2211069" saved
-    // here silently locks that driver out of logging back in.
-    if (phone != null)              update.phone = phone.replace(/[\s-]/g, '');
+    // Fully normalized (not just stripped of spaces/dashes) — this is the
+    // exact column OTP login matches on (lookupByPhone in
+    // auth.service.js, now also fuzzy-matched on last-10-digits there,
+    // but no reason to rely on that fallback when this can just save the
+    // right shape to begin with — see utils/phone.js).
+    if (phone != null)              update.phone = normalizePhone(phone);
     if (nic_number != null)         update.nic_number = nic_number;
     if (car_number != null)         update.car_number = car_number;
     if (profile_photo_url != null)  update.profile_photo_url = profile_photo_url;
@@ -162,9 +164,14 @@ router.post('/', authenticate, isAdmin, async (req, res) => {
       ? req.user.company_id
       : (company_id || req.user.company_id);
 
-    let digits = phone.replace(/\D/g, '');
-    if (digits.startsWith('0')) digits = '92' + digits.slice(1);
-    const canonical = '+' + digits;
+    const canonical = normalizePhone(phone);
+    const bare      = canonical.replace('+', '');
+    const last10    = phoneLast10(phone);
+    const existingRows = await pgrestGet('drivers', {
+      select: 'id',
+      or: `(phone.eq.${canonical},phone.eq.${bare},phone.like.*${last10})`,
+    });
+    if (existingRows?.[0]) return error(res, 'A driver with this phone number already exists', 400);
 
     const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({
       phone: canonical,
@@ -240,14 +247,15 @@ router.patch('/:id', authenticate, isAdmin, async (req, res) => {
     const { full_name, phone, car_number, is_active, vehicle_id } = req.body;
     const filter = { id: `eq.${req.params.id}` };
     if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
+    const normalizedPhone = phone != null ? normalizePhone(phone) : phone;
 
     // vehicle_id is a phase32 addition — fall back to patching without it
     // if that migration hasn't run yet.
     let data;
     try {
-      data = await pgrestPatch('drivers', filter, { full_name, phone, car_number, is_active, vehicle_id });
+      data = await pgrestPatch('drivers', filter, { full_name, phone: normalizedPhone, car_number, is_active, vehicle_id });
     } catch (e) {
-      data = await pgrestPatch('drivers', filter, { full_name, phone, car_number, is_active });
+      data = await pgrestPatch('drivers', filter, { full_name, phone: normalizedPhone, car_number, is_active });
     }
     if (!data?.[0]) return error(res, 'Driver not found', 404);
     return success(res, data[0], 'Driver updated');
