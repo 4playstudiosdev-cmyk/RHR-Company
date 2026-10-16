@@ -98,6 +98,16 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
   const [filterArea, setFilterArea] = useState('');
   const [filterSalesman, setFilterSalesman] = useState('');
   const [expandedCustomerId, setExpandedCustomerId] = useState(null);
+  // Add Customer is also a 3-step wizard (Edit stays single-page, as
+  // before) — step 2's custom prices are staged locally only, since the
+  // customer doesn't exist yet to attach customer_product_prices rows
+  // to; they're written right after the customer is actually created in
+  // step 3's final submit.
+  const [addStep, setAddStep] = useState(1);
+  const [addProducts, setAddProducts] = useState([]);
+  const [loadingAddProducts, setLoadingAddProducts] = useState(false);
+  const [addProductSearch, setAddProductSearch] = useState('');
+  const [addCustomPrices, setAddCustomPrices] = useState({});
 
   // "Customer Information" tab — super_admin only, every city. Reuses the
   // same `all` list already loaded for the All Customers tab.
@@ -429,7 +439,77 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
   const openAddCustomerModal = () => {
     setEditingCustomer(null);
     setCustomerForm(EMPTY_CUSTOMER_FORM);
+    setAddStep(1);
+    setAddCustomPrices({});
+    setAddProductSearch('');
     setShowCustomerModal(true);
+  };
+
+  const goToAddPricingStep = async () => {
+    if (!customerForm.full_name || !customerForm.phone) {
+      toast.error('Full name and phone are required.');
+      return;
+    }
+    setAddStep(2);
+    if (addProducts.length > 0) return;
+    setLoadingAddProducts(true);
+    try {
+      const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
+      const res = await api.get('/products', { params: { company_id: targetCompanyId, limit: 500 } });
+      setAddProducts(res.data.data?.products || []);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load products.');
+    } finally {
+      setLoadingAddProducts(false);
+    }
+  };
+
+  const visibleAddProducts = addProductSearch.trim()
+    ? addProducts.filter((p) =>
+        p.name.toLowerCase().includes(addProductSearch.trim().toLowerCase()) ||
+        (p.categories?.name || '').toLowerCase().includes(addProductSearch.trim().toLowerCase())
+      )
+    : addProducts;
+
+  // Runs the normal create-customer flow, then applies whatever custom
+  // prices were staged in step 2 to the brand-new customer id.
+  const handleSaveNewCustomerWithPricing = async () => {
+    setSavingCustomer(true);
+    try {
+      const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
+      const { opening_balance_amount, ...customerPayload } = customerForm;
+      const res = await api.post('/customers', {
+        ...customerPayload,
+        salesman_id: customerForm.salesman_id || null,
+        company_id: targetCompanyId
+      });
+      const newCustomer = res.data?.data;
+      if (newCustomer?.id && opening_balance_amount && Number(opening_balance_amount) > 0) {
+        await api.post('/opening-balances', {
+          entity_type: 'customer',
+          entity_id: newCustomer.id,
+          entity_name: customerForm.full_name,
+          balance_type: 'debit',
+          amount: Number(opening_balance_amount),
+          notes: 'Opening balance at customer creation'
+        });
+      }
+      const pricesToApply = Object.entries(addCustomPrices).filter(([, v]) => v !== '' && v !== null && v !== undefined);
+      if (newCustomer?.id && pricesToApply.length > 0) {
+        await Promise.all(
+          pricesToApply.map(([productId, price]) =>
+            api.put(`/customers/${newCustomer.id}/pricing/${productId}`, { price: Number(price) })
+          )
+        );
+      }
+      toast.success('Customer account created.');
+      setShowCustomerModal(false);
+      loadCustomers();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to save customer.');
+    } finally {
+      setSavingCustomer(false);
+    }
   };
 
   // Header's "+ Quick Action" → "Register Dealer Account".
@@ -455,42 +535,23 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
     setShowCustomerModal(true);
   };
 
+  // Edit stays a single-page save — only Add Customer goes through the
+  // 3-step wizard (see handleSaveNewCustomerWithPricing above).
   const handleSaveCustomer = async (e) => {
     e.preventDefault();
+    if (!editingCustomer) return;
     if (!customerForm.full_name || !customerForm.phone) {
       toast.error('Full name and phone are required.');
       return;
     }
     setSavingCustomer(true);
     try {
-      if (editingCustomer) {
-        const { salesman_id, ...rest } = customerForm;
-        await api.patch(`/customers/${editingCustomer.id}`, rest);
-        if (salesman_id !== (editingCustomer.salesman_id || '')) {
-          await api.patch(`/customers/${editingCustomer.id}/assign-salesman`, { salesman_id: salesman_id || null });
-        }
-        toast.success('Customer updated.');
-      } else {
-        const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
-        const { opening_balance_amount, ...customerPayload } = customerForm;
-        const res = await api.post('/customers', {
-          ...customerPayload,
-          salesman_id: customerForm.salesman_id || null,
-          company_id: targetCompanyId
-        });
-        const newCustomer = res.data?.data;
-        if (newCustomer?.id && opening_balance_amount && Number(opening_balance_amount) > 0) {
-          await api.post('/opening-balances', {
-            entity_type: 'customer',
-            entity_id: newCustomer.id,
-            entity_name: customerForm.full_name,
-            balance_type: 'debit',
-            amount: Number(opening_balance_amount),
-            notes: 'Opening balance at customer creation'
-          });
-        }
-        toast.success('Customer account created.');
+      const { salesman_id, ...rest } = customerForm;
+      await api.patch(`/customers/${editingCustomer.id}`, rest);
+      if (salesman_id !== (editingCustomer.salesman_id || '')) {
+        await api.patch(`/customers/${editingCustomer.id}/assign-salesman`, { salesman_id: salesman_id || null });
       }
+      toast.success('Customer updated.');
       setShowCustomerModal(false);
       loadCustomers();
     } catch (err) {
@@ -1457,6 +1518,25 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
       {showCustomerModal && (
         <Modal title={editingCustomer ? 'Edit Customer' : 'Add Customer'} onClose={() => setShowCustomerModal(false)}>
           <form onSubmit={handleSaveCustomer} className="space-y-4">
+            {!editingCustomer && (
+              <div className="flex items-center gap-2 mb-1">
+                {[1, 2, 3].map((n) => (
+                  <React.Fragment key={n}>
+                    <div className={`flex items-center gap-1.5 text-xs font-semibold ${addStep >= n ? 'text-navy' : 'text-gray-300'}`}>
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                        addStep > n ? 'bg-emerald-500 text-white' : addStep === n ? 'bg-navy text-white' : 'bg-gray-100 text-gray-400'
+                      }`}>
+                        {n}
+                      </span>
+                      {n === 1 ? 'Details' : n === 2 ? 'Pricing' : 'Review'}
+                    </div>
+                    {n < 3 && <div className={`flex-1 h-0.5 ${addStep > n ? 'bg-emerald-500' : 'bg-gray-100'}`} />}
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+            {(editingCustomer || addStep === 1) && (
+            <>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Full Name *</label>
               <input
@@ -1622,17 +1702,128 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                   ))}
               </select>
             </div>
-            {!editingCustomer && (
-              <p className="text-xs text-gray-400">
-                Creates the account directly (auto-approved) — most customers should instead self-register from the mobile app and be approved from the Pending Approval section above.
-              </p>
-            )}
             {editingCustomer && (
               <p className="text-xs text-gray-400">Phone number can't be changed here.</p>
             )}
+            </>
+            )}
+
+            {!editingCustomer && addStep === 2 && (
+              <>
+                <p className="text-sm text-gray-500">
+                  Every product, at its default price — set a custom price for any of them if this customer gets a special rate. Leave blank to keep the default.
+                </p>
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    value={addProductSearch}
+                    onChange={(e) => setAddProductSearch(e.target.value)}
+                    placeholder="Search products or categories..."
+                    className="w-full border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow"
+                  />
+                </div>
+                {loadingAddProducts ? (
+                  <p className="text-sm text-gray-400 py-6 text-center">Loading products…</p>
+                ) : visibleAddProducts.length === 0 ? (
+                  <p className="text-sm text-gray-400 py-6 text-center">No products found.</p>
+                ) : (
+                  <div className="max-h-[360px] overflow-y-auto -mx-1 space-y-2">
+                    {visibleAddProducts.map((p) => (
+                      <div key={p.id} className="flex items-center gap-3 border border-gray-100 rounded-xl px-3.5 py-2.5 mx-1">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-navy truncate">{p.name}</p>
+                            {p.categories?.name && (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-navy-chip text-navy flex-shrink-0">{p.categories.name}</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400">Default: PKR {Number(p.price).toLocaleString()}</p>
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder={String(p.price)}
+                          value={addCustomPrices[p.id] ?? ''}
+                          onChange={(e) => setAddCustomPrices((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                          className="w-24 border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {!editingCustomer && addStep === 3 && (
+              <>
+                <p className="text-sm text-gray-500">Review everything below before creating the account.</p>
+                <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 space-y-1">
+                  <p className="text-sm font-semibold text-navy">{customerForm.full_name}</p>
+                  <p className="text-xs text-gray-500">{customerForm.phone}{customerForm.email ? ` · ${customerForm.email}` : ''}</p>
+                  {customerForm.shop_name && <p className="text-xs text-gray-500">{customerForm.shop_name}</p>}
+                  {customerForm.shop_address && <p className="text-xs text-gray-500">{customerForm.shop_address}</p>}
+                  {(customerForm.city || customerForm.area) && <p className="text-xs text-gray-500">{[customerForm.city, customerForm.area].filter(Boolean).join(', ')}</p>}
+                </div>
+                <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Salesman</p>
+                    <p className="text-sm font-medium text-navy">{salesmenList.find((s) => s.id === customerForm.salesman_id)?.full_name || '— None —'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Opening Balance</p>
+                    <p className="text-sm font-medium text-navy">{customerForm.opening_balance_amount ? `PKR ${Number(customerForm.opening_balance_amount).toLocaleString()}` : 'None'}</p>
+                  </div>
+                </div>
+                <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Custom Product Pricing</p>
+                  {Object.entries(addCustomPrices).filter(([, v]) => v !== '' && v !== null && v !== undefined).length === 0 ? (
+                    <p className="text-xs text-gray-400">No custom prices set — default pricing applies to everything.</p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-[160px] overflow-y-auto">
+                      {Object.entries(addCustomPrices).filter(([, v]) => v !== '' && v !== null && v !== undefined).map(([productId, price]) => {
+                        const product = addProducts.find((p) => p.id === productId);
+                        return (
+                          <div key={productId} className="flex items-center justify-between text-sm">
+                            <span className="text-gray-600 truncate">{product?.name || productId}</span>
+                            <span className="font-medium text-navy flex-shrink-0 ml-2">PKR {Number(price).toLocaleString()}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-gray-400">
+                  Creates the account directly (auto-approved) — most customers should instead self-register from the mobile app and be approved from the Pending Approval section above.
+                </p>
+              </>
+            )}
+
             <div className="flex justify-end gap-3 pt-2">
-              <Button type="button" variant="secondary" onClick={() => setShowCustomerModal(false)}>Cancel</Button>
-              <Button type="submit" variant="accent" disabled={savingCustomer}>{savingCustomer ? 'Saving...' : 'Save'}</Button>
+              {editingCustomer ? (
+                <>
+                  <Button type="button" variant="secondary" onClick={() => setShowCustomerModal(false)}>Cancel</Button>
+                  <Button type="submit" variant="accent" disabled={savingCustomer}>{savingCustomer ? 'Saving...' : 'Save'}</Button>
+                </>
+              ) : addStep === 1 ? (
+                <>
+                  <Button type="button" variant="secondary" onClick={() => setShowCustomerModal(false)}>Cancel</Button>
+                  <Button type="button" variant="accent" onClick={goToAddPricingStep}>Next: Pricing</Button>
+                </>
+              ) : addStep === 2 ? (
+                <>
+                  <Button type="button" variant="secondary" onClick={() => setAddStep(1)}>Back</Button>
+                  <Button type="button" variant="accent" onClick={() => setAddStep(3)}>Next: Review</Button>
+                </>
+              ) : (
+                <>
+                  <Button type="button" variant="secondary" disabled={savingCustomer} onClick={() => setAddStep(2)}>Back</Button>
+                  <Button type="button" variant="accent" disabled={savingCustomer} onClick={handleSaveNewCustomerWithPricing}>
+                    {savingCustomer ? 'Saving...' : 'Add Customer'}
+                  </Button>
+                </>
+              )}
             </div>
           </form>
         </Modal>
