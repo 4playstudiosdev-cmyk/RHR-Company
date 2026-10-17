@@ -28,4 +28,18 @@ const supabaseAdmin = createClient(
   { global: { headers: noCacheHeaders } }
 );
 
-module.exports = { supabase, supabaseAdmin };
+// A throwaway client for verifying a user's password. signInWithPassword
+// stores the signed-in user's session on whichever client it's called on,
+// and every later query on that client then runs as that user (RLS
+// applies) instead of the key it was created with. Calling it on
+// supabaseAdmin silently turned the shared service-role client into an
+// "authenticated" one after the first admin login — "new row violates
+// row-level security policy" on writes to RLS-protected tables like
+// productions. A fresh, non-persisting client per call can't leak that.
+const createAuthClient = () => createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY,
+  { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
+);
+
+module.exports = { supabase, supabaseAdmin, createAuthClient };

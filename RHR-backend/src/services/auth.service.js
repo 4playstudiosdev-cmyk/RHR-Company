@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { supabaseAdmin } = require('../config/supabase');
+const { supabaseAdmin, createAuthClient } = require('../config/supabase');
 const { withRetry } = require('../utils/withRetry');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { uploadBase64ToStorage } = require('../utils/storageUpload');
@@ -219,7 +219,7 @@ async function loginWithCredentials({ email, password, latitude, longitude, forc
   if (!user.is_active) throw new Error('Account has been deactivated');
 
   const signInOk = await withRetry(async () => {
-    const { error: signInError } = await supabaseAdmin.auth.signInWithPassword({ email, password });
+    const { error: signInError } = await createAuthClient().auth.signInWithPassword({ email, password });
     if (signInError) throw new Error(`signIn: ${signInError.status || ''} ${signInError.code || ''} ${signInError.message}`);
     return true;
   }, 20, 700).catch((e) => { console.error('[login] signInWithPassword failed:', e.message); return false; });
