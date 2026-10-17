@@ -319,6 +319,7 @@ function AppShell() {
                 user={user}
                 setPage={setPage}
                 onViewLedger={goToLedger}
+                onQuickAction={triggerQuickAction}
                 initialCustomerId={ledgerCustomerId}
                 onViewOrderNumber={goToOrder}
                 initialOrderNumber={targetOrderNumber}

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   ShoppingCart, Wallet, HourglassIcon, ReceiptText, Bell, CalendarDays,
-  ArrowRight, Inbox
+  ArrowRight, Inbox, FileBarChart2, Factory, Plus
 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import StatCard from '../components/StatCard';
@@ -10,6 +10,9 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonStatCards, SkeletonTable } from '../components/Skeleton';
 import CityFilter from '../components/CityFilter';
 import DateRangeFilter from '../components/DateRangeFilter';
+import {
+  TodayKpis, MostSellingProducts, TopClients, OrdersVsStock, WeekCalendar, Reminders, RecentRecoveries
+} from '../components/dashboard/DashboardWidgets';
 
 const todayISO = () => new Date().toISOString().split('T')[0];
 
@@ -64,12 +67,13 @@ function buildWeekSeries(orders) {
   return days.map((d) => ({ ...d, pct: Math.max((d.total / max) * 100, d.total > 0 ? 6 : 2) }));
 }
 
-export default function Dashboard({ user, setPage }) {
+export default function Dashboard({ user, setPage, onViewLedger, onQuickAction }) {
   // Dashboard predates the CityFilter convention used elsewhere (which
   // defaults super_admin to Karachi) — it always showed every branch
   // combined, so it keeps that as its own default rather than silently
   // shrinking what admins see here on first load.
   const [selectedCity, setSelectedCity] = useState('all');
+  const companyId = selectedCity === 'all' ? null : selectedCity;
   const [dateFrom, setDateFrom] = useState(todayISO());
   const [dateTo, setDateTo] = useState(todayISO());
   const [loading, setLoading] = useState(true);
@@ -77,7 +81,6 @@ export default function Dashboard({ user, setPage }) {
   const [stats, setStats] = useState({ ordersInRange: 0, pendingOrders: 0 });
   const [financials, setFinancials] = useState(null);
   const [recentOrders, setRecentOrders] = useState([]);
-  const [recentPayments, setRecentPayments] = useState([]);
   const [statusCounts, setStatusCounts] = useState({});
   const [weekSeries, setWeekSeries] = useState([]);
   const [pendingCustomers, setPendingCustomers] = useState([]);
@@ -133,12 +136,6 @@ export default function Dashboard({ user, setPage }) {
       setPendingCustomers(pendingCustomersRes.data.data || []);
       const allPayments = paymentsRes.data.data || [];
       setPendingPayments(allPayments.filter((p) => p.status === 'pending'));
-      setRecentPayments(
-        allPayments
-          .filter((p) => p.status === 'approved')
-          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-          .slice(0, 10)
-      );
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load dashboard data.');
     } finally {
@@ -173,7 +170,25 @@ export default function Dashboard({ user, setPage }) {
             {greeting()}{user?.fullName ? `, ${user.fullName.split(' ')[0]}` : ''} 👋
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => (onQuickAction ? onQuickAction('orders', true) : setPage?.('orders'))}
+            className="flex items-center gap-1.5 bg-orange hover:bg-orange/90 text-white text-sm font-semibold px-3.5 py-2 rounded-lg transition-colors shadow-sm"
+          >
+            <Plus size={15} /> New Order
+          </button>
+          <button
+            onClick={() => setPage?.('daily-dashboard')}
+            className="flex items-center gap-1.5 bg-white border border-gray-200 text-navy hover:bg-gray-50 text-sm font-semibold px-3.5 py-2 rounded-lg transition-colors shadow-sm"
+          >
+            <FileBarChart2 size={15} /> Daily Report
+          </button>
+          <button
+            onClick={() => setPage?.('production-daily')}
+            className="flex items-center gap-1.5 bg-white border border-gray-200 text-navy hover:bg-gray-50 text-sm font-semibold px-3.5 py-2 rounded-lg transition-colors shadow-sm"
+          >
+            <Factory size={15} /> Production Batch
+          </button>
           <button
             onClick={() => setPage?.('notifications')}
             title="Notifications"
@@ -206,6 +221,8 @@ export default function Dashboard({ user, setPage }) {
           }}
         />
       </div>
+
+      <TodayKpis companyId={companyId} />
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
@@ -343,53 +360,23 @@ export default function Dashboard({ user, setPage }) {
             </div>
           </div>
 
-          {/* Recent Payments — real approved recoveries, links to Payments */}
-          <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden flex flex-col">
-            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-              <div>
-                <h2 className="font-semibold text-navy">Recent Payments</h2>
-                <p className="text-xs text-gray-400 mt-0.5">Last 10 approved recoveries</p>
-              </div>
-              <button
-                onClick={() => setPage?.('payments')}
-                className="text-navy text-sm font-medium hover:underline flex items-center gap-1"
-              >
-                View All <ArrowRight size={15} />
-              </button>
-            </div>
-
-            {recentPayments.length === 0 ? (
-              <EmptyState icon={Wallet} title="No payments yet" subtitle="Approved recoveries will show up here" />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
-                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
-                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Method</th>
-                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Amount</th>
-                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentPayments.map((p, i) => (
-                      <tr
-                        key={p.id}
-                        className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${
-                          i % 2 === 1 ? 'bg-gray-50/40' : ''
-                        }`}
-                      >
-                        <td className="px-6 py-3.5 font-medium text-navy">{p.customer?.shop_name || p.customer?.full_name || '—'}</td>
-                        <td className="px-6 py-3.5 capitalize text-gray-600">{p.method}</td>
-                        <td className="px-6 py-3.5 font-medium text-emerald-600">+ PKR {Number(p.amount).toLocaleString()}</td>
-                        <td className="px-6 py-3.5 text-gray-500">{new Date(p.created_at).toLocaleDateString('en-GB')}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+          {/* Best sellers + top clients */}
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
+            <div className="xl:col-span-5"><MostSellingProducts companyId={companyId} /></div>
+            <div className="xl:col-span-7"><TopClients companyId={companyId} onViewLedger={onViewLedger} /></div>
           </div>
+
+          {/* Open orders vs stock, calendar, reminders */}
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
+            <div className="xl:col-span-6"><OrdersVsStock companyId={companyId} setPage={setPage} /></div>
+            <div className="xl:col-span-6 flex flex-col gap-5">
+              <WeekCalendar companyId={companyId} />
+              <Reminders companyId={companyId} onViewLedger={onViewLedger} />
+            </div>
+          </div>
+
+          {/* Recent recoveries (replaces the old Recent Payments table — recoveries are recorded in salesman_recoveries, not payments) */}
+          <RecentRecoveries companyId={companyId} setPage={setPage} />
 
           {/* Sales overview — real last-7-days revenue */}
           <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-6 flex flex-col min-h-[300px]">
