@@ -84,12 +84,13 @@ const PAGES = {
   'manufacturing-employees': ManufacturingEmployees
 };
 
-// Dashboard and Admin Roles are the only super_admin-exclusive pages now —
-// branch admins get everything else (their own branch's Products, Raw
+// Admin Roles is the only super_admin-exclusive page now — branch admins
+// get everything else (Dashboard and Daily Dashboard included, each with its
+// own toggle in Admin Roles) (their own branch's Products, Raw
 // Materials, Production, HRM, etc.) per the Karachi/Hyderabad/Sukkur
 // access model.
 const PAGE_ACCESS = {
-  dashboard: { requiredRole: 'super_admin' },
+  dashboard: { requiredPermission: 'dashboard' },
   payments: { requiredPermission: 'can_view_payments' },
   recovery: { requiredPermission: 'can_view_payments' },
   'driver-recovery': { requiredPermission: 'can_view_payments' },
@@ -140,13 +141,14 @@ function AppShell() {
     const stored = localStorage.getItem('rhr_user');
     return stored ? JSON.parse(stored) : null;
   });
-  // Dashboard is super_admin-only now — branch admins land on Products
-  // instead, both on a fresh page load (restored session) and right after
-  // handleLogin below.
+  // Everyone lands on the Dashboard when their account allows it (super_admin
+  // always does); a branch admin with Dashboard switched off in Admin Roles
+  // lands on Products instead — on a fresh page load (restored session) and
+  // right after handleLogin below.
   const [page, setPage] = useState(() => {
     try {
       const stored = JSON.parse(localStorage.getItem('rhr_user') || 'null');
-      return stored && stored.role !== 'super_admin' ? 'products' : 'dashboard';
+      return stored && stored.role !== 'super_admin' && stored.permissions?.dashboard === false ? 'products' : 'dashboard';
     } catch {
       return 'dashboard';
     }
@@ -194,7 +196,7 @@ function AppShell() {
     localStorage.setItem('rhr_login_time', Date.now().toString());
     setToken(newToken);
     setUser(newUser);
-    setPage(newUser.role === 'super_admin' ? 'dashboard' : 'products');
+    setPage(newUser.role !== 'super_admin' && newUser.permissions?.dashboard === false ? 'products' : 'dashboard');
   };
 
   const handleLogout = async () => {

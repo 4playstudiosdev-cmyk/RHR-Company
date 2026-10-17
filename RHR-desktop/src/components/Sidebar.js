@@ -24,7 +24,7 @@ import api, { hasPermission } from '../services/api';
 // block for every branch admin, not a per-admin preference.
 const NAV_ITEMS = [
   { key: 'daily-dashboard', label: 'Daily Dashboard', icon: LayoutPanelTop, requiredPermission: 'daily-dashboard' },
-  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiredRole: 'super_admin' },
+  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiredPermission: 'dashboard' },
   { key: 'products', label: 'Products', icon: Package, requiredPermission: 'products' },
   { key: 'production-materials', label: 'Raw Materials', icon: Boxes, requiredPermission: 'can_manage_production' },
   { key: 'suppliers', label: 'Suppliers', icon: Store, requiredPermission: 'can_manage_production' },
