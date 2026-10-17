@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Menu } from 'lucide-react';
+import { Menu, RefreshCw } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -162,6 +162,17 @@ function AppShell() {
   // useEffect([autoOpenCreate]) fires again even if re-triggered for
   // the same page back-to-back.
   const [quickActionTarget, setQuickActionTarget] = useState(null);
+  // Header refresh button: bumping refreshKey remounts the current page,
+  // so it re-runs its own data loading without a full browser reload
+  // (login, sidebar and the open page all stay put). `refreshing` just
+  // spins the icon for a moment so the click visibly did something.
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = () => {
+    setRefreshKey((k) => k + 1);
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 700);
+  };
   // Desktop-only icon-rail mode — persisted so it survives a refresh.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem('sidebar_collapsed') === 'true'
@@ -279,21 +290,32 @@ function AppShell() {
           >
             <Menu size={24} />
           </button>
-          <h1 className="text-base font-bold tracking-wide">RHR & Company</h1>
+          <h1 className="text-base font-bold tracking-wide flex-1">RHR & Company</h1>
+          <button
+            onClick={handleRefresh}
+            className="p-1 text-white"
+            aria-label="Refresh"
+            title="Refresh"
+          >
+            <RefreshCw size={20} className={refreshing ? 'animate-spin' : ''} />
+          </button>
         </header>
         <Topbar
           onOpenSearch={() => setSearchOpen(true)}
+          onRefresh={handleRefresh}
+          refreshing={refreshing}
           onQuickAction={triggerQuickAction}
           companyLabel={user?.full_name ? `${user.full_name} · ${user.role === 'super_admin' ? 'Head Office' : 'Branch Admin'}` : null}
         />
         <main className="flex-1 overflow-y-auto">
-          <ErrorBoundary resetKey={page}>
+          <ErrorBoundary resetKey={`${page}-${refreshKey}`}>
             <ProtectedRoute
               user={user}
               requiredRole={access?.requiredRole}
               requiredPermission={access?.requiredPermission}
             >
               <PageComponent
+                key={refreshKey}
                 user={user}
                 setPage={setPage}
                 onViewLedger={goToLedger}

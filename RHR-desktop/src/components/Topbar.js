@@ -1,12 +1,12 @@
 import React from 'react';
-import { Search } from 'lucide-react';
+import { Search, RefreshCw } from 'lucide-react';
 import QuickActionMenu from './QuickActionMenu';
 
 // Desktop-only (the mobile header in App.js already carries the
 // hamburger + title bar) — a persistent strip above every page with a
-// Ctrl+K search trigger and the Quick Action shortcuts, both reachable
-// from any tab instead of needing per-page affordances.
-export default function Topbar({ onOpenSearch, onQuickAction, companyLabel }) {
+// Ctrl+K search trigger, a refresh button and the Quick Action shortcuts,
+// all reachable from any tab instead of needing per-page affordances.
+export default function Topbar({ onOpenSearch, onRefresh, refreshing, onQuickAction, companyLabel }) {
   return (
     <header className="hidden md:flex items-center gap-4 px-6 py-3 bg-white border-b border-gray-100 flex-shrink-0">
       <button
@@ -19,6 +19,15 @@ export default function Topbar({ onOpenSearch, onQuickAction, companyLabel }) {
       </button>
 
       <div className="flex-1" />
+
+      <button
+        onClick={onRefresh}
+        className="p-2 rounded-lg text-gray-500 hover:text-navy hover:bg-gray-100 transition-colors"
+        aria-label="Refresh"
+        title="Refresh this page"
+      >
+        <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
+      </button>
 
       <QuickActionMenu onTrigger={onQuickAction} />
 
