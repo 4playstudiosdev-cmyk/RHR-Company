@@ -22,17 +22,17 @@ import { qtyRuleForProduct } from '../utils/orderQtyRules';
 const STATUS_OPTIONS = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered', 'cancelled'];
 const TABS = [...STATUS_OPTIONS, 'all'];
 
-// Forward-only progression, mirrored from orders.service.js's
-// isValidTransition — the Update dropdown only offers stages ahead of
-// where the order already is (plus Cancel), never a passed stage like
-// re-selecting "confirmed" after it's already confirmed. 'delivered',
-// 'undelivered' and 'cancelled' are terminal — nothing to update from there.
-const STATUS_PROGRESSION = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered'];
+// One step at a time, mirrored from orders.service.js's isValidTransition —
+// the Update dropdown only offers the very next stage, plus Cancel while
+// the order hasn't left for delivery:
+//   pending -> confirmed | cancelled        confirmed -> preparing | cancelled
+//   preparing -> dispatched | cancelled     dispatched -> delivered
+// 'delivered', 'undelivered' and 'cancelled' are terminal — nothing to update.
+const NEXT_STATUS = { pending: 'confirmed', confirmed: 'preparing', preparing: 'dispatched', dispatched: 'delivered' };
 function availableNextStatuses(currentStatus) {
-  if (currentStatus === 'delivered' || currentStatus === 'undelivered' || currentStatus === 'cancelled') return [];
-  const idx = STATUS_PROGRESSION.indexOf(currentStatus);
-  if (idx === -1) return [];
-  return [...STATUS_PROGRESSION.slice(idx + 1), 'cancelled'];
+  const next = NEXT_STATUS[currentStatus];
+  if (!next) return [];
+  return currentStatus === 'dispatched' ? [next] : [next, 'cancelled'];
 }
 const PAGE_SIZE = 10;
 const TAX_RATE = 0.18; // 18% sales tax

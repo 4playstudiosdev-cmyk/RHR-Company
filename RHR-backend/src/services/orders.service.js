@@ -317,17 +317,28 @@ async function getOrderById(id, user) {
 // already-passed stage. 'delivered' and 'cancelled' are terminal: once
 // there, no further status changes. Enforced here (not just hidden in
 // the Orders.js dropdown) so a direct API call can't skip it either.
+//
+// One step at a time, no skipping:
+//   pending    -> confirmed  | cancelled
+//   confirmed  -> preparing  | cancelled
+//   preparing  -> dispatched | cancelled
+//   dispatched -> delivered   (can't be cancelled once it's out)
 const STATUS_PROGRESSION = ['pending', 'confirmed', 'preparing', 'dispatched', 'delivered'];
+const NEXT_STATUS = {
+  pending: 'confirmed',
+  confirmed: 'preparing',
+  preparing: 'dispatched',
+  dispatched: 'delivered',
+};
+const CANCELLABLE_FROM = ['pending', 'confirmed', 'preparing'];
 
 function isValidTransition(from, to) {
-  if (to === 'cancelled') return from !== 'delivered' && from !== 'cancelled' && from !== 'undelivered';
+  if (to === 'cancelled') return CANCELLABLE_FROM.includes(from);
   // 'undelivered' is the driver's own "Cancel" action on the delivery
   // run — only meaningful once an order is actually out with them, and
   // terminal like 'delivered'/'cancelled' (no further status changes).
   if (to === 'undelivered') return from === 'dispatched';
-  const fromIdx = STATUS_PROGRESSION.indexOf(from);
-  const toIdx = STATUS_PROGRESSION.indexOf(to);
-  return fromIdx !== -1 && toIdx !== -1 && toIdx > fromIdx;
+  return NEXT_STATUS[from] === to;
 }
 
 // dispatchInfo: { driverId, carNumber, deliveryAddress } — optional,
