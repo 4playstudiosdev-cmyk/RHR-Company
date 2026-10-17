@@ -59,7 +59,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         if (pRes.data['success'] == true) {
           final d = pRes.data['data'];
           _products = (d is List ? d : (d['products'] ?? []))
-              .map<Map<String, dynamic>>((e) => {...Map<String, dynamic>.from(e), 'qty': 0})
+              .map<Map<String, dynamic>>((e) => {...Map<String, dynamic>.from(e), 'qty': 0, 'base_price': e['price']})
               .toList();
         }
         if (cRes.data['success'] == true) {
@@ -73,6 +73,37 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       setState(() => _isOnline = false);
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // Prices shown while placing an order are the chosen customer's own
+  // (their rate tier / custom prices), not the catalog price — the server
+  // already charges the customer's rate in createOrder, so showing catalog
+  // prices here meant the screen disagreed with what was actually billed.
+  // Quantities already picked are kept. Offline (or on any error) the
+  // catalog prices stay and the server still bills the right amount.
+  Future<void> _loadCustomerPrices(String customerId) async {
+    try {
+      final res = await DioClient.instance.get(
+          ApiEndpoints.products, queryParameters: {'limit': 50, 'customer_id': customerId});
+      if (res.data['success'] != true) return;
+      final d = res.data['data'];
+      final list = d is List ? d : (d['products'] ?? []);
+      final priceById = <dynamic, dynamic>{for (final e in list) e['id']: e['price']};
+      if (!mounted || _selectedCustomerId != customerId) return;
+      setState(() {
+        for (final p in _products) {
+          if (priceById.containsKey(p['id'])) p['price'] = priceById[p['id']];
+        }
+      });
+    } catch (e) {
+      debugPrint('Customer prices error: $e');
+    }
+  }
+
+  void _resetToCatalogPrices() {
+    for (final p in _products) {
+      if (p.containsKey('base_price')) p['price'] = p['base_price'];
     }
   }
 
@@ -373,6 +404,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                     onTap: () => setState(() {
                       _selectedCustomerId = null;
                       _customerSearchController.clear();
+                      _resetToCatalogPrices();
                     }),
                     child: const Icon(Icons.close, color: AppColors.steelBlue, size: 18),
                   ),
@@ -417,7 +449,9 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                                 setState(() {
                                   _selectedCustomerId = c['id'] as String;
                                   _customerSearchController.text = customerTitle(c, fallback: '');
+                                  _resetToCatalogPrices();
                                 });
+                                _loadCustomerPrices(c['id'] as String);
                               },
                             );
                           },

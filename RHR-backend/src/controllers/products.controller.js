@@ -1,5 +1,6 @@
 const svc = require('../services/products.service');
 const { success, error } = require('../utils/response');
+const { pgrestGet } = require('../utils/directQuery');
 
 // Each branch (KHI/HYD/SUK) keeps its own product catalog and stock —
 // everyone (customer, salesman, branch_admin) is scoped to their own
@@ -13,13 +14,29 @@ function resolveCompanyId(req) {
   return req.user.company_id;
 }
 
+// Whose rate-tier / custom prices get baked into `price`:
+//  - a customer browsing: always their own;
+//  - a salesman (or admin) placing an order for a customer: that customer,
+//    passed as ?customer_id= — otherwise the order screen showed the plain
+//    catalog price while the server (createOrder) charged the customer's
+//    own rate. The customer must be a real customer in the requester's
+//    branch (super_admin: any branch).
+//  - no customer_id: plain catalog price, as on the desktop Products page.
+async function pricingCustomerId(req) {
+  if (req.user.role === 'customer') return req.user.id;
+  const requested = req.query.customer_id;
+  if (!requested || !['salesman', 'branch_admin', 'super_admin'].includes(req.user.role)) return undefined;
+  const rows = await pgrestGet('users', { select: 'id,company_id', id: `eq.${requested}`, role: 'eq.customer' });
+  const customer = rows?.[0];
+  if (!customer) return undefined;
+  if (req.user.role !== 'super_admin' && customer.company_id !== req.user.company_id) return undefined;
+  return customer.id;
+}
+
 const getProducts = async (req, res) => {
   try {
     const { category_id, search, page, limit } = req.query;
-    // Only a customer's own browse sees their rate-tier/custom pricing
-    // baked into `price` — admin/salesman views stay on the plain
-    // catalog price, same as the desktop's own Products page.
-    const customerId = req.user.role === 'customer' ? req.user.id : undefined;
+    const customerId = await pricingCustomerId(req);
     const data = await svc.getProducts({ companyId: resolveCompanyId(req), categoryId: category_id, search, page, limit, customerId });
     return success(res, data);
   } catch (err) { return error(res, err.message); }
@@ -27,7 +44,7 @@ const getProducts = async (req, res) => {
 
 const getProductById = async (req, res) => {
   try {
-    const customerId = req.user.role === 'customer' ? req.user.id : undefined;
+    const customerId = await pricingCustomerId(req);
     const data = await svc.getProductById(req.params.id, resolveCompanyId(req), customerId);
     return success(res, data);
   } catch (err) { return error(res, err.message, 404); }
