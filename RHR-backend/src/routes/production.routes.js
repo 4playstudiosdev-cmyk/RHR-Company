@@ -8,6 +8,7 @@ const { retryIfEmpty } = require('../utils/withRetry');
 const { getCached, setCached, invalidate } = require('../utils/simpleCache');
 const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
 const { resolveCompanyId } = require('../utils/companyScope');
+const { sortByMerchandisingOrder } = require('../services/products.service');
 
 const CACHE_TTL_MS = 60000;
 
@@ -259,7 +260,7 @@ router.get('/bom-recipes', authenticate, isAdmin, async (req, res) => {
     }
 
     const products = await pgrestGet('products', {
-      select: 'id,name,unit,stock_quantity',
+      select: 'id,name,unit,stock_quantity,categories(name)',
       company_id: `eq.${req.user.company_id}`,
     });
     const productByName = new Map(
@@ -293,7 +294,14 @@ router.get('/bom-recipes', authenticate, isAdmin, async (req, res) => {
       })),
     }));
 
-    return success(res, data);
+    // Tile Bond first, then Grout, then everything else — same order as
+    // the product listings (products.service.js#sortByMerchandisingOrder).
+    // That helper reads name + categories, so sort thin wrappers and map back.
+    const ordered = sortByMerchandisingOrder(
+      data.map((bom) => ({ name: bom.product_name, categories: bom.product?.categories, bom }))
+    ).map((w) => w.bom);
+
+    return success(res, ordered);
   } catch (err) { return error(res, err.message); }
 });
 

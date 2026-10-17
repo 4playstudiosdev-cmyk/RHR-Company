@@ -6,6 +6,7 @@ const { buildCustomerProfilePDF } = require('../services/customerProfilePdf.serv
 const { withRetry } = require('../utils/withRetry');
 const { reverseGeocode } = require('../utils/geocoding');
 const { normalizePhone, phoneLast10 } = require('../utils/phone');
+const { sortByMerchandisingOrder } = require('../services/products.service');
 
 // city/area are a phase31 addition — the named-column select below 400s
 // outright if that migration hasn't run (unlike select('*'), which just
@@ -441,7 +442,9 @@ const getCustomerPricing = async (req, res) => {
     ]);
 
     const overrideByProduct = Object.fromEntries((overrides || []).map((o) => [o.product_id, Number(o.price)]));
-    const data = (products || []).map((p) => ({
+    // Tile Bond first, then Grout, then everything else — same order as
+    // every other product listing (see products.service.js).
+    const data = sortByMerchandisingOrder(products || []).map((p) => ({
       product_id:    p.id,
       name:          p.name,
       unit:          p.unit,

@@ -34,10 +34,16 @@ const PRODUCT_PRIORITY_PREFIXES = [
 // Category comes first: every Tile Bond product, then every Grout
 // product, then everything else — same order as the category tabs. Matched
 // by name fragment, like orderQtyRules.js, so it works per branch.
+// A row with no category (e.g. a recipe whose product isn't in the
+// catalog) falls back to its own name, so it still lands in the right group.
 function categoryRank(product) {
   const c = String(product.categories?.name || '').toLowerCase();
   if (c.includes('tile bond')) return 0;
   if (c.includes('grout')) return 1;
+  if (c) return 2;
+  const n = String(product.name || '').toLowerCase();
+  if (n.includes('bond')) return 0;
+  if (n.includes('grout')) return 1;
   return 2;
 }
 
@@ -245,4 +251,4 @@ async function getStockReport({ companyId, from, to }) {
   }));
 }
 
-module.exports = { getProducts, getProductById, createProduct, updateProduct, updateStock, deleteProduct, getStockReport };
+module.exports = { getProducts, getProductById, createProduct, updateProduct, updateStock, deleteProduct, getStockReport, sortByMerchandisingOrder };
