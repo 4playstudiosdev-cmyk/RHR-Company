@@ -9,6 +9,8 @@ import { useToast } from '../../components/Toast';
 import { exportTableToPDF, exportTableToExcel } from './exportUtils';
 import CityFilter from '../../components/CityFilter';
 import { CITY_IDS, fetchAllCities, groupByName } from '../../utils/multiCityFetch';
+import DateRangeFilter from '../../components/DateRangeFilter';
+import { DayBreakdownTable, useProductionSummary, todayISO, fmtNum, fmtKg, unitBreakdown, rangeLabel, summaryExportRows } from './ProductionSummary';
 
 const TABS = [
   { key: 'daily', label: 'Daily Production Report', icon: BarChart3 },
@@ -35,145 +37,134 @@ function ExportButtons({ onPDF, onExcel }) {
   );
 }
 
-// Pads the real (sparse) series out to a continuous 30-day run — missing
-// days are genuinely zero production, not fabricated numbers.
-function padSeries(series) {
-  const byDate = Object.fromEntries((series || []).map((d) => [d.date, d.qty]));
-  const days = [];
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const iso = d.toISOString().split('T')[0];
-    days.push({
-      date: d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
-      qty: byDate[iso] || 0
-    });
-  }
-  return days;
-}
-
+// Daily production report — everything logged in Daily Production Entry
+// for the chosen date range: totals, a bags-per-day chart, a per-product
+// summary and the day-by-day detail. Same data as the Production Dashboard.
 function DailyProductionReport({ companyFilter }) {
   const toast = useToast();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [series, setSeries] = useState([]);
-  const [records, setRecords] = useState([]);
+  const [range, setRange] = useState({ from: todayISO(), to: todayISO() });
+  const { data, loading, error } = useProductionSummary({ from: range.from, to: range.to, companyFilter });
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError('');
-      try {
-        if (companyFilter) {
-          const res = await api.get('/production/reports/daily', { params: { company_id: companyFilter } });
-          setSeries(padSeries(res.data.data.series));
-          setRecords(res.data.data.records || []);
-        } else {
-          // Combine all 3 branches — sum qty per date across branches
-          // (not a plain concat of raw series entries, which would let a
-          // later branch's per-date qty silently overwrite an earlier
-          // one's instead of adding to it).
-          const results = await Promise.all(
-            CITY_IDS.map((id) => api.get('/production/reports/daily', { params: { company_id: id } }))
-          );
-          const qtyByDate = {};
-          results.forEach((res) => {
-            (res.data.data.series || []).forEach((d) => {
-              qtyByDate[d.date] = (qtyByDate[d.date] || 0) + Number(d.qty);
-            });
-          });
-          const mergedSeries = Object.entries(qtyByDate).map(([date, qty]) => ({ date, qty }));
-          setSeries(padSeries(mergedSeries));
-          setRecords(results.flatMap((res) => res.data.data.records || []));
-        }
-      } catch (err) {
-        setError(err.response?.data?.message || 'Failed to load daily production report.');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [companyFilter]);
-
-  const recent = [...records].reverse().slice(0, 15);
+  const chartData = [...(data?.days || [])].reverse().map((d) => ({
+    date: d.date.slice(5),
+    qty: d.qty,
+    kg: Number(d.kg.toFixed(1)),
+  }));
 
   const handlePDF = () => {
-    if (recent.length === 0) { toast.error('Nothing to export.'); return; }
+    const rows = summaryExportRows(data?.days);
+    if (rows.length === 0) { toast.error('Nothing to export.'); return; }
     exportTableToPDF({
       title: 'Daily Production Report',
-      subtitle: 'Recent production orders',
-      head: ['Date', 'Product', 'Qty Produced', 'Raw Material Used'],
-      rows: recent.map((r) => [r.start_date, r.product_name, `${r.qty} ${r.unit}`, '—']),
+      subtitle: `${rangeLabel(range.from, range.to)} — ${unitBreakdown(data.totals.by_unit)}, ${fmtKg(data.totals.kg)} kg`,
+      head: ['Date', 'Product', 'Qty', 'Unit', 'Weight (kg)', 'Cost (PKR)'],
+      rows,
       filename: 'daily-production-report'
     });
   };
 
   const handleExcel = () => {
-    if (recent.length === 0) { toast.error('Nothing to export.'); return; }
+    const rows = summaryExportRows(data?.days);
+    if (rows.length === 0) { toast.error('Nothing to export.'); return; }
     exportTableToExcel({
       sheetName: 'Daily Production',
-      head: ['Date', 'Product', 'Qty Produced', 'Unit', 'Raw Material Used'],
-      rows: recent.map((r) => [r.start_date, r.product_name, r.qty, r.unit, '—']),
+      head: ['Date', 'Product', 'Qty Produced', 'Unit', 'Weight (kg)', 'Cost (PKR)'],
+      rows,
       filename: 'daily-production-report'
     });
   };
 
-  if (loading) return <SkeletonTable rows={6} cols={4} />;
-  if (error) return <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>;
-
   return (
     <div>
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <h3 className="font-semibold text-navy">Production Volume — Last 30 Days</h3>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Total qty across production orders started per day, all products combined
-            </p>
-          </div>
-          <ExportButtons onPDF={handlePDF} onExcel={handleExcel} />
-        </div>
-        <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={series}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
-            <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9CA3AF' }} interval={3} />
-            <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} />
-            <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-            <Bar dataKey="qty" fill="#E8841A" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <DateRangeFilter
+          from={range.from}
+          to={range.to}
+          defaultPreset="Today"
+          onApply={(from, to) => setRange({ from, to })}
+        />
+        <ExportButtons onPDF={handlePDF} onExcel={handleExcel} />
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h3 className="font-semibold text-navy text-sm">Recent Production Log</h3>
-        </div>
-        {recent.length === 0 ? (
-          <EmptyState icon={BarChart3} title="No production orders yet" />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
-                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
-                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Product</th>
-                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Qty Produced</th>
-                  <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Raw Material Used</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recent.map((r, i) => (
-                  <tr key={i} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                    <td className="px-6 py-3 text-gray-500">{r.start_date}</td>
-                    <td className="px-6 py-3 text-gray-700">{r.product_name}</td>
-                    <td className="px-6 py-3 text-right text-navy font-medium">{r.qty} {r.unit}</td>
-                    <td className="px-6 py-3 text-gray-400">—</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {error && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
+
+      {loading ? (
+        <SkeletonTable rows={6} cols={4} />
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+              <p className="text-xs uppercase tracking-wide text-gray-400 font-semibold">Produced</p>
+              <p className="text-2xl font-bold text-navy mt-1">{unitBreakdown(data?.totals?.by_unit)}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{fmtNum(data?.totals?.runs)} production run{data?.totals?.runs === 1 ? '' : 's'}</p>
+            </div>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+              <p className="text-xs uppercase tracking-wide text-gray-400 font-semibold">Weight Produced</p>
+              <p className="text-2xl font-bold text-navy mt-1">{fmtKg(data?.totals?.kg)} kg</p>
+              <p className="text-xs text-gray-400 mt-0.5">By recipe weight</p>
+            </div>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+              <p className="text-xs uppercase tracking-wide text-gray-400 font-semibold">Production Cost</p>
+              <p className="text-2xl font-bold text-navy mt-1">PKR {fmtNum(data?.totals?.cost)}</p>
+              <p className="text-xs text-gray-400 mt-0.5">Raw materials + overheads</p>
+            </div>
           </div>
-        )}
-      </div>
+
+          {chartData.length > 1 && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
+              <h3 className="font-semibold text-navy mb-4">Production per Day</h3>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9CA3AF' }} />
+                  <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} />
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} formatter={(v, name) => [v, name === 'qty' ? 'Units produced' : 'Weight (kg)']} />
+                  <Bar dataKey="qty" fill="#E8841A" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {(data?.products || []).length > 0 && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-6">
+              <div className="px-6 py-4 border-b border-gray-100">
+                <h3 className="font-semibold text-navy text-sm">By Product — {rangeLabel(range.from, range.to)}</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Product</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Runs</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Produced</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Weight (kg)</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Cost (PKR)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.products.map((p) => (
+                      <tr key={p.product} className="border-b border-gray-50 last:border-0">
+                        <td className="px-6 py-2.5 text-gray-700">{p.product}</td>
+                        <td className="px-6 py-2.5 text-right text-gray-500">{p.runs}</td>
+                        <td className="px-6 py-2.5 text-right text-navy font-medium">{fmtNum(p.qty)} {p.unit}</td>
+                        <td className="px-6 py-2.5 text-right text-gray-600">{p.kg ? fmtKg(p.kg) : '—'}</td>
+                        <td className="px-6 py-2.5 text-right text-gray-600">{fmtNum(p.cost)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100">
+              <h3 className="font-semibold text-navy text-sm">Production — Day by Day</h3>
+            </div>
+            <DayBreakdownTable days={data?.days} />
+          </div>
+        </>
+      )}
     </div>
   );
 }

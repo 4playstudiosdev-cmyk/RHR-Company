@@ -129,6 +129,17 @@ export default function RecipesPage() {
     return Array.from(groups.entries());
   }, [recipes, products]);
 
+  // A recipe is made "per <the product's own unit>" — Aqua Shield per pcs,
+  // a tile bond per bag, grout per pouch — not always "per bag". Recipes
+  // link to a product by name, so the unit is looked up the same way.
+  const productByName = useMemo(
+    () => new Map(products.map((p) => [p.name.trim().toLowerCase(), p])),
+    [products]
+  );
+  const unitForRecipe = (recipe) =>
+    productByName.get(recipe.product_name?.trim().toLowerCase())?.unit || recipe.batch_unit || 'unit';
+  const selectedProductUnit = products.find((p) => p.id === selectedProductId)?.unit || 'unit';
+
   const handleProductSelect = (e) => {
     const productId = e.target.value;
     setSelectedProductId(productId);
@@ -232,7 +243,7 @@ export default function RecipesPage() {
       const payload = {
         product_name: product?.name,
         batch_size:   1,
-        batch_unit:   'bag',
+        batch_unit:   product?.unit || 'bag',
         ingredients: ingredients.map((i) => ({
           raw_material_id: i.raw_material_id,
           qty_required:    Number(i.quantity),
@@ -449,7 +460,7 @@ export default function RecipesPage() {
 
             <div className="bg-navy rounded-lg px-4 py-3 flex items-center justify-between">
               <span className="text-sm font-semibold text-white flex items-center gap-1.5">
-                <Coins size={14} /> Total Cost per Bag
+                <Coins size={14} /> Total Cost per {selectedProductUnit}
               </span>
               <span className="text-lg font-bold text-orange">PKR {formCost.toFixed(2)}</span>
             </div>
@@ -509,7 +520,7 @@ export default function RecipesPage() {
                             <div>
                               <p className="font-semibold text-navy text-sm">{recipe.product_name}</p>
                               <p className="text-gray-400 text-xs mt-0.5">
-                                {recipe.recipe_ingredients?.length || 0} ingredients • PKR {cost.toFixed(2)}/bag
+                                {recipe.recipe_ingredients?.length || 0} ingredients • PKR {cost.toFixed(2)}/{unitForRecipe(recipe)}
                               </p>
                             </div>
                             <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>

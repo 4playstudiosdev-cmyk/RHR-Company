@@ -367,6 +367,92 @@ router.get('/history', authenticate, isAdmin, async (req, res) => {
 });
 
 // ─────────────────────────────────────
+// GET /api/v1/production/summary?from=YYYY-MM-DD&to=YYYY-MM-DD
+// What was actually produced in a date range (Daily Production Entry
+// runs): totals, a per-day breakdown, and a per-product breakdown.
+//   qty  — units made, in each product's own unit (bag / pcs / pouch ...)
+//   kg   — weight of the finished goods, taken from the recipe: the sum of
+//          the recipe's kg/gm material lines per unit (cement, sand,
+//          pigment, chemicals — not overhead or packaging), times qty made
+//   cost — productions.total_cost
+// ─────────────────────────────────────
+router.get('/summary', authenticate, isAdmin, async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const { from, to } = req.query;
+
+    const params = {
+      select: 'id,company_id,recipe_id,date,qty_produced,total_cost,created_at,products!finished_item_id(id,name,unit)',
+      order: 'date.desc,created_at.desc',
+    };
+    if (companyId) params.company_id = `eq.${companyId}`;
+    if (from && to) params.and = `(date.gte.${from},date.lte.${to})`;
+    else if (from) params.date = `gte.${from}`;
+    else if (to) params.date = `lte.${to}`;
+
+    const runs = await pgrestGet('productions', params) || [];
+
+    const recipeIds = [...new Set(runs.map((r) => r.recipe_id).filter(Boolean))];
+    const recipeById = {};
+    if (recipeIds.length) {
+      const boms = await pgrestGet('production_bom', {
+        select: 'id,product_name,batch_unit,production_bom_items(qty_required,unit,raw_materials(category))',
+        id: `in.(${recipeIds.join(',')})`,
+      });
+      // Recipes also carry overhead lines (Labor, Electric, Office Expense,
+      // FBR Tax ...) and packaging (empty bags) as "1 kg" rows — cost
+      // components, not product weight — so only real materials count.
+      const NON_WEIGHT_CATEGORIES = ['other', 'packaging'];
+      (boms || []).forEach((b) => {
+        let kgPerUnit = 0;
+        (b.production_bom_items || []).forEach((i) => {
+          if (NON_WEIGHT_CATEGORIES.includes(String(i.raw_materials?.category || '').toLowerCase())) return;
+          const q = Number(i.qty_required) || 0;
+          const u = String(i.unit || '').toLowerCase();
+          if (u === 'kg') kgPerUnit += q;
+          else if (u === 'gm' || u === 'g') kgPerUnit += q / 1000;
+        });
+        recipeById[b.id] = { name: b.product_name, unit: b.batch_unit, kgPerUnit };
+      });
+    }
+
+    const totals = { runs: 0, qty: 0, kg: 0, cost: 0, by_unit: {} };
+    const dayMap = {};
+    const productMap = {};
+
+    runs.forEach((r) => {
+      const recipe = recipeById[r.recipe_id] || {};
+      const name = r.products?.name || recipe.name || 'Unknown product';
+      const unit = r.products?.unit || recipe.unit || 'unit';
+      const qty = Number(r.qty_produced) || 0;
+      const kg = qty * (recipe.kgPerUnit || 0);
+      const cost = Number(r.total_cost) || 0;
+
+      totals.runs += 1;
+      totals.qty += qty;
+      totals.kg += kg;
+      totals.cost += cost;
+      totals.by_unit[unit] = (totals.by_unit[unit] || 0) + qty;
+
+      const day = (dayMap[r.date] = dayMap[r.date] || { date: r.date, qty: 0, kg: 0, cost: 0, items: {} });
+      day.qty += qty; day.kg += kg; day.cost += cost;
+      const di = (day.items[name] = day.items[name] || { product: name, unit, qty: 0, kg: 0, cost: 0 });
+      di.qty += qty; di.kg += kg; di.cost += cost;
+
+      const p = (productMap[name] = productMap[name] || { product: name, unit, runs: 0, qty: 0, kg: 0, cost: 0 });
+      p.runs += 1; p.qty += qty; p.kg += kg; p.cost += cost;
+    });
+
+    const days = Object.values(dayMap)
+      .map((d) => ({ ...d, items: Object.values(d.items) }))
+      .sort((a, b) => (a.date < b.date ? 1 : -1));
+    const products = Object.values(productMap).sort((a, b) => b.qty - a.qty);
+
+    return success(res, { range: { from: from || null, to: to || null }, totals, days, products });
+  } catch (err) { return error(res, err.message); }
+});
+
+// ─────────────────────────────────────
 // POST /api/v1/production/produce
 // Log new production batch — deducts raw material stock automatically
 // ─────────────────────────────────────

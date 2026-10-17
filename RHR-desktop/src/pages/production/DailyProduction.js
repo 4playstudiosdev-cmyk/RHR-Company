@@ -46,6 +46,11 @@ export default function DailyProduction() {
     }
   };
 
+  // The unit a recipe is counted in is its product's own unit (Aqua Shield
+  // = pcs, tile bond = bag, grout = pouch ...); the recipe's saved
+  // batch_unit is only the fallback for a recipe with no catalog product.
+  const unitOf = (recipe) => recipe.product?.unit || recipe.batch_unit;
+
   const setQty = (recipeId, value) => setQtyByRecipe((prev) => ({ ...prev, [recipeId]: value }));
   const setWastage = (recipeId, field, value) => setWastageByRecipe((prev) => ({
     ...prev,
@@ -169,7 +174,7 @@ export default function DailyProduction() {
                             <span className="block text-xs text-red-500">No matching product in catalog</span>
                           )}
                         </td>
-                        <td className="px-6 py-3.5 text-gray-600">{recipe.batch_unit}</td>
+                        <td className="px-6 py-3.5 text-gray-600">{unitOf(recipe)}</td>
                         <td className="px-6 py-3.5 text-right">
                           <input
                             type="text"
@@ -218,7 +223,7 @@ export default function DailyProduction() {
                   <div key={row.recipe.id} className="bg-navy-chip/30 rounded-lg px-3.5 py-3">
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-sm font-medium text-gray-700">
-                        {row.recipe.product_name} — {row.qty} {row.recipe.batch_unit}
+                        {row.recipe.product_name} — {row.qty} {unitOf(row.recipe)}
                       </p>
                       <span className="text-sm font-semibold text-orange">
                         Cost: PKR {row.cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}

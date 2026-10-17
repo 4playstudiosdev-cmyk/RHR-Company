@@ -156,7 +156,7 @@ const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, r
   }
 
   const matchedProductRows = await pgrestGet('products', {
-    select: 'id',
+    select: 'id,unit',
     company_id: `eq.${companyId}`,
     name: `ilike.${bomRecipe.product_name}`,
   });
@@ -177,7 +177,9 @@ const runProduction = async ({ companyId, userId, recipeId, qtyProduced, date, r
   }));
   const finishedProductId = matchedProduct.id;
   const recipeLabel = bomRecipe.product_name;
-  const batchUnit = bomRecipe.batch_unit;
+  // Counted in the product's own unit (pcs / bag / pouch ...); the recipe's
+  // saved batch_unit is only a fallback.
+  const batchUnit = matchedProduct.unit || bomRecipe.batch_unit;
 
   // A recipe's BOM line can be written in a different unit than the raw
   // material's own stock unit (e.g. recipe calls for 500 gm of a chemical
