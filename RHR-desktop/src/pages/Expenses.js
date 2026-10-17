@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Wallet, Plus, Download, Trash2, Receipt } from 'lucide-react';
+import { Wallet, Plus, Download, Trash2, Receipt, Camera, Image as ImageIcon, X } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
+import Modal from '../components/Modal';
 import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
@@ -50,6 +51,12 @@ export default function Expenses() {
   const [error, setError] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  // Optional photo of the bill: picked here, uploaded when the expense is
+  // saved, and kept on the expense (see receipt_url) for "View Photo".
+  const [receiptFile, setReceiptFile] = useState(null);
+  const [receiptPreview, setReceiptPreview] = useState('');
+  const [viewReceipt, setViewReceipt] = useState(null);
+  const receiptInputRef = useRef(null);
   const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
@@ -154,6 +161,46 @@ export default function Expenses() {
   const splitOnline = Number(form.onlineAmount) || 0;
   const splitTotal = splitCash + splitOnline;
 
+  const pickReceipt = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      toast.error('Please choose a JPG, PNG or WebP photo.');
+      e.target.value = '';
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Photo is too large — max 10 MB.');
+      e.target.value = '';
+      return;
+    }
+    setReceiptFile(file);
+    setReceiptPreview(URL.createObjectURL(file));
+  };
+
+  const clearReceipt = () => {
+    if (receiptPreview) URL.revokeObjectURL(receiptPreview);
+    setReceiptFile(null);
+    setReceiptPreview('');
+    if (receiptInputRef.current) receiptInputRef.current.value = '';
+  };
+
+  const uploadReceipt = async (file) => {
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const res = await api.post('/storage/upload', {
+      bucket: 'expense-receipts',
+      fileName: file.name,
+      fileBase64: base64,
+      mimeType: file.type,
+    });
+    return res.data.data.url;
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
     if (!form.description.trim()) {
@@ -186,11 +233,14 @@ export default function Expenses() {
     setSaving(true);
     try {
       const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
+      // Upload the photo first so the expense is saved with its link.
+      const receipt_url = receiptFile ? await uploadReceipt(receiptFile) : undefined;
       const baseRow = {
         category: form.category,
         expense_date: form.expense_date,
         supplier_id: form.supplier_id || null,
         company_id: targetCompanyId,
+        receipt_url,
       };
       if (isSplit) {
         // One row, method: 'split' — carries both the cash and bank
@@ -208,8 +258,9 @@ export default function Expenses() {
       } else {
         await api.post('/expenses', { ...form, ...baseRow, amount: Number(form.amount) });
       }
-      toast.success('Expense recorded.');
+      toast.success(receipt_url ? 'Expense recorded with photo.' : 'Expense recorded.');
       setForm({ ...EMPTY_FORM, expense_date: form.expense_date });
+      clearReceipt();
       loadExpenses();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to record expense.');
@@ -559,8 +610,39 @@ export default function Expenses() {
                 className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
               />
             </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Bill / Receipt Photo (optional)</label>
+              <input
+                ref={receiptInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={pickReceipt}
+                className="hidden"
+              />
+              {receiptPreview ? (
+                <div className="relative inline-block">
+                  <img src={receiptPreview} alt="Receipt preview" className="h-28 rounded-lg border border-gray-200 object-cover" />
+                  <button
+                    type="button"
+                    onClick={clearReceipt}
+                    title="Remove photo"
+                    className="absolute -top-2 -right-2 bg-white border border-gray-300 rounded-full p-1 text-gray-500 hover:text-red-600 shadow"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => receiptInputRef.current?.click()}
+                  className="w-full flex items-center justify-center gap-2 border border-dashed border-gray-300 rounded-lg py-2.5 text-sm text-gray-500 hover:border-navy hover:text-navy transition-colors"
+                >
+                  <Camera size={15} /> Add Photo
+                </button>
+              )}
+            </div>
             <Button type="submit" variant="accent" disabled={saving} className="w-full flex items-center justify-center gap-2">
-              <Wallet size={15} /> {saving ? 'Saving...' : 'Save Expense'}
+              <Wallet size={15} /> {saving ? (receiptFile ? 'Uploading & saving...' : 'Saving...') : 'Save Expense'}
             </Button>
           </form>
         </div>
@@ -602,7 +684,15 @@ export default function Expenses() {
                         {getPaidFromLabel(e)}
                       </td>
                       <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(e.amount).toLocaleString()}</td>
-                      <td className="px-6 py-3.5">
+                      <td className="px-6 py-3.5 whitespace-nowrap">
+                        {e.receipt_url && (
+                          <button
+                            onClick={() => setViewReceipt(e)}
+                            className="inline-flex items-center gap-1.5 text-xs text-navy hover:underline font-medium mr-3"
+                          >
+                            <ImageIcon size={13} /> View Photo
+                          </button>
+                        )}
                         <button
                           onClick={() => handleDelete(e)}
                           disabled={deletingId === e.id}
@@ -626,6 +716,29 @@ export default function Expenses() {
           )}
         </div>
       </div>
+
+      {viewReceipt && (
+        <Modal
+          title={`${viewReceipt.category} — PKR ${Number(viewReceipt.amount).toLocaleString()}`}
+          onClose={() => setViewReceipt(null)}
+          size="lg"
+        >
+          <p className="text-sm text-gray-600 mb-3">
+            {viewReceipt.description} · {new Date(viewReceipt.expense_date).toLocaleDateString('en-GB')}
+          </p>
+          <img src={viewReceipt.receipt_url} alt="Bill / receipt" className="w-full rounded-xl border border-gray-200" />
+          <div className="flex justify-end pt-4">
+            <a
+              href={viewReceipt.receipt_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm font-medium text-navy hover:underline"
+            >
+              Open in new tab
+            </a>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

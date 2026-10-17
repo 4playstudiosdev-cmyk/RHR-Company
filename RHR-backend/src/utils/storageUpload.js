@@ -60,6 +60,13 @@ const BUCKET_RULES = {
     maxSizeMB: 5,
     isPublic: true
   },
+  // Photo of a bill / receipt attached to an expense. Private — viewed
+  // through the long-lived signed URL stored on the expense row.
+  'expense-receipts': {
+    allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
+    maxSizeMB: 10,
+    isPublic: false
+  },
   'promo-banners': {
     allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'video/mp4'],
     maxSizeMB: 50,

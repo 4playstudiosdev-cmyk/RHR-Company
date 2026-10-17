@@ -1,6 +1,6 @@
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
-const { pgrestGetRaw, pgrestPost, pgrestDelete } = require('../utils/directQuery');
+const { pgrestGetRaw, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
 
 const EXPENSE_CATEGORIES = [
   'Fuel', 'Vehicle Maintenance', 'Office Supplies', 'Utilities', 'Rent',
@@ -29,6 +29,15 @@ const getExpenses = async (req, res) => {
     // fall back a level at a time if any hasn't run yet, same pattern
     // used for the other phase18 bank_account_id columns, so this never
     // breaks mid-migration.
+    // receipt_url (phase67) — photo of the bill. Tried first; if the column
+    // hasn't been added yet this fails and the older lists below take over.
+    try {
+      const data = await pgrestGetRaw(
+        `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),vehicle_id,vehicles(name,plate_number),fuel_price_per_liter,fuel_liters,bags_delivered,salesman_id,salesmen(full_name),manufacturing_worker_id,manufacturing_workers(full_name),supplier_id,suppliers(name),cash_amount,bank_amount,receipt_url,created_at&order=expense_date.desc${filterStr}`
+      );
+      return success(res, data);
+    } catch (eReceipt) { /* receipt_url column not added yet */ }
+
     try {
       const data = await pgrestGetRaw(
         `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),vehicle_id,vehicles(name,plate_number),fuel_price_per_liter,fuel_liters,bags_delivered,salesman_id,salesmen(full_name),manufacturing_worker_id,manufacturing_workers(full_name),supplier_id,suppliers(name),cash_amount,bank_amount,created_at&order=expense_date.desc${filterStr}`
@@ -78,13 +87,29 @@ const getExpenses = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+// Attaches the receipt photo (if one was sent) to the expense that was
+// just created, then answers. It's a separate write — receipt_url is a
+// phase67 column and the insert above has several older fallbacks — so an
+// environment that hasn't added the column yet still records the expense
+// and tells the caller the photo wasn't kept, instead of losing it silently.
+async function respondCreated(res, expense, receiptUrl) {
+  if (!receiptUrl) return success(res, expense, 'Expense recorded', 201);
+  try {
+    const [withReceipt] = await pgrestPatch('expenses', { id: `eq.${expense.id}` }, { receipt_url: receiptUrl });
+    return success(res, withReceipt || { ...expense, receipt_url: receiptUrl }, 'Expense recorded', 201);
+  } catch (e) {
+    return success(res, { ...expense, receipt_saved: false },
+      'Expense recorded, but the photo could not be attached — run sql/phase67_expense_receipt_photo.sql in Supabase first', 201);
+  }
+}
+
 // POST /api/v1/expenses
 const createExpense = async (req, res) => {
   try {
     const {
       category, amount, description, expense_date, company_id, method, bank_account_id, driver_id,
       vehicle_id, fuel_price_per_liter, fuel_liters, bags_delivered,
-      salesman_id, manufacturing_worker_id, supplier_id, cash_amount, bank_amount,
+      salesman_id, manufacturing_worker_id, supplier_id, cash_amount, bank_amount, receipt_url,
     } = req.body;
     if (!category || !amount || Number(amount) <= 0)
       return error(res, 'category and a positive amount are required', 400);
@@ -131,7 +156,7 @@ const createExpense = async (req, res) => {
         cash_amount: resolvedMethod === 'split' ? Number(cash_amount) || 0 : null,
         bank_amount: resolvedMethod === 'split' ? Number(bank_amount) || 0 : null,
       });
-      return success(res, data, 'Expense recorded', 201);
+      return respondCreated(res, data, receipt_url);
     } catch (eSplit) {
     try {
       const [data] = await pgrestPost('expenses', {
@@ -147,7 +172,7 @@ const createExpense = async (req, res) => {
         manufacturing_worker_id: manufacturing_worker_id || null,
         supplier_id: supplier_id || null,
       });
-      return success(res, data, 'Expense recorded', 201);
+      return respondCreated(res, data, receipt_url);
     } catch (eSupplier) {
     try {
       const [data] = await pgrestPost('expenses', {
@@ -162,7 +187,7 @@ const createExpense = async (req, res) => {
         salesman_id: salesman_id || null,
         manufacturing_worker_id: manufacturing_worker_id || null,
       });
-      return success(res, data, 'Expense recorded', 201);
+      return respondCreated(res, data, receipt_url);
     } catch (e0) {
     try {
       const [data] = await pgrestPost('expenses', {
@@ -175,7 +200,7 @@ const createExpense = async (req, res) => {
         fuel_liters: fuel_liters ? Number(fuel_liters) : null,
         bags_delivered: bags_delivered ? Number(bags_delivered) : null,
       });
-      return success(res, data, 'Expense recorded', 201);
+      return respondCreated(res, data, receipt_url);
     } catch (e) {
       try {
         const [data] = await pgrestPost('expenses', {
@@ -184,7 +209,7 @@ const createExpense = async (req, res) => {
           bank_account_id: method === 'bank' ? bank_account_id : null,
           driver_id: driver_id || null,
         });
-        return success(res, data, 'Expense recorded', 201);
+        return respondCreated(res, data, receipt_url);
       } catch (e2) {
         try {
           const [data] = await pgrestPost('expenses', {
@@ -192,10 +217,10 @@ const createExpense = async (req, res) => {
             method: method === 'bank' ? 'bank' : 'cash',
             bank_account_id: method === 'bank' ? bank_account_id : null,
           });
-          return success(res, data, 'Expense recorded', 201);
+          return respondCreated(res, data, receipt_url);
         } catch (e3) {
           const [data] = await pgrestPost('expenses', baseRow);
-          return success(res, data, 'Expense recorded', 201);
+          return respondCreated(res, data, receipt_url);
         }
       }
     }
