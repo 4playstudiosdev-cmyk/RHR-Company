@@ -9,7 +9,7 @@ import { Plus, ShoppingCart, Factory, HandCoins, UserPlus, Receipt } from 'lucid
 // landing there is the whole action.
 const ACTIONS = [
   { key: 'orders', label: 'New Sales Order', icon: ShoppingCart, autoOpen: true },
-  { key: 'production-orders', label: 'Daily Production Batch', icon: Factory, autoOpen: true },
+  { key: 'production-daily', label: 'Daily Production Batch', icon: Factory, autoOpen: false },
   { key: 'recovery', label: 'Record Payment Recovery', icon: HandCoins, autoOpen: false },
   { key: 'customers', label: 'Register Dealer Account', icon: UserPlus, autoOpen: true },
   { key: 'expenses', label: 'Record Expense Voucher', icon: Receipt, autoOpen: false },

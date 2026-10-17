@@ -45,7 +45,6 @@ const NAV_ITEMS = [
   { key: 'promotions', label: 'Home Screen Slider', icon: ImageIcon, requiredPermission: 'promotions' },
   { key: 'whatsapp-broadcast', label: 'WhatsApp Notification', icon: MessageCircle, requiredRole: 'super_admin' },
   { key: 'production-dashboard', label: 'Production Dashboard', icon: Gauge, requiredPermission: 'can_manage_production' },
-  { key: 'production-orders', label: 'Production Orders', icon: ClipboardList, requiredPermission: 'can_manage_production' },
   { key: 'production-log', label: 'Production History', icon: PackageCheck, requiredPermission: 'can_manage_production' },
   { key: 'production-reports', label: 'Production Reports', icon: FileBarChart2, requiredPermission: 'can_manage_production' },
   { key: 'production-recipes', label: 'Recipes', icon: ClipboardList, requiredPermission: 'can_manage_production' },
@@ -110,7 +109,7 @@ const GROUPS = [
   {
     key: 'production', label: 'Production', icon: Factory,
     children: [
-      'production-dashboard', 'production-orders', 'production-log',
+      'production-dashboard', 'production-log',
       'production-reports', 'production-recipes', 'production-daily', 'manufacturing-employees'
     ]
   },

@@ -58,7 +58,7 @@ export default function DailyProduction() {
   const previewRows = useMemo(() => {
     return recipes
       .map((recipe) => {
-        const qty = Number(qtyByRecipe[recipe.id]) || 0;
+        const qty = Math.floor(Number(qtyByRecipe[recipe.id])) || 0;
         if (qty <= 0) return null;
         const lines = (recipe.production_bom_items || []).map((item) => {
           const needed = Number(item.qty_required) * qty;
@@ -172,12 +172,12 @@ export default function DailyProduction() {
                         <td className="px-6 py-3.5 text-gray-600">{recipe.batch_unit}</td>
                         <td className="px-6 py-3.5 text-right">
                           <input
-                            type="number"
-                            min="0"
-                            step="0.01"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
                             placeholder="0"
                             value={qtyByRecipe[recipe.id] || ''}
-                            onChange={(e) => setQty(recipe.id, e.target.value)}
+                            onChange={(e) => setQty(recipe.id, e.target.value.replace(/\D/g, ''))}
                             className="w-28 border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
                           />
                         </td>

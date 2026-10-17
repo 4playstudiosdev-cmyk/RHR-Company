@@ -112,7 +112,7 @@ export default function ProductionDashboard({ setPage }) {
           </button>
           {setPage && (
             <button
-              onClick={() => setPage('production-orders')}
+              onClick={() => setPage('production-daily')}
               className="flex items-center gap-1.5 bg-orange hover:bg-orange/90 text-white text-sm font-medium px-3.5 py-2.5 rounded-lg transition-colors shadow-sm"
             >
               <PlusCircle size={15} /> New Batch
