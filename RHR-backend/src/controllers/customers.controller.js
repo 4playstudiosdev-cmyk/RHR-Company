@@ -7,6 +7,7 @@ const { withRetry } = require('../utils/withRetry');
 const { reverseGeocode } = require('../utils/geocoding');
 const { normalizePhone, phoneLast10 } = require('../utils/phone');
 const { sortByMerchandisingOrder } = require('../services/products.service');
+const { deleteCustomerPermanently } = require('../services/hardDelete.service');
 
 // city/area are a phase31 addition — the named-column select below 400s
 // outright if that migration hasn't run (unlike select('*'), which just
@@ -327,16 +328,19 @@ const assignDriver = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-// DELETE /api/v1/customers/:id — soft delete (is_active: false), same
-// convention as Salesmen/Drivers/Employees. The double-confirmation
-// this backs is entirely a frontend concern (see Customers.js).
+// DELETE /api/v1/customers/:id — permanent delete: the customer, their
+// orders, payments, ledger, custom prices, visits, opening balance and
+// login are all removed from the database (see hardDelete.service.js).
+// It used to only set is_active=false, which left the row and everything
+// attached to it in Supabase. The double-confirmation this backs is
+// entirely a frontend concern (see Customers.js).
 const deleteCustomer = async (req, res) => {
   try {
     const customer = await findScopedCustomer(req);
     if (!customer) return error(res, 'Customer not found or access denied', 404);
 
-    await pgrestPatch('users', { id: `eq.${customer.id}` }, { is_active: false });
-    return success(res, { deleted: true }, 'Customer deleted');
+    const removed = await deleteCustomerPermanently(customer.id);
+    return success(res, { deleted: true, removed }, 'Customer deleted permanently');
   } catch (err) { return error(res, err.message); }
 };
 

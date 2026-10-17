@@ -323,26 +323,26 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
     }
   };
 
-  // Double confirmation — customer delete removes their ledger/order
-  // history from view entirely, so this is deliberately harder to do by
-  // accident than the single-confirm delete used for salesmen/drivers.
+  // Double confirmation — this permanently erases the customer and their
+  // ledger, orders and payments from the database, so it's deliberately
+  // harder to do by accident than a normal action.
   const handleDeleteCustomer = async (customer) => {
     const first = window.confirm(
-      `Delete customer "${customer.full_name}"?\n\n` +
-      `This will remove their account, ledger, and order history from view.`
+      `Delete customer "${customer.full_name}" permanently?\n\n` +
+      `This erases their account, login, ledger, orders, payments and custom prices from the database.`
     );
     if (!first) return;
 
     const second = window.confirm(
       `⚠️ FINAL WARNING\n\n` +
-      `Are you absolutely sure you want to delete "${customer.full_name}"?\n\n` +
-      `This action cannot be undone from this screen.`
+      `"${customer.full_name}" and ALL their records will be deleted for good.\n\n` +
+      `This CANNOT be undone. Delete anyway?`
     );
     if (!second) return;
 
     try {
       await api.delete(`/customers/${customer.id}`);
-      toast.success('Customer deleted.');
+      toast.success('Customer deleted permanently.');
       loadCustomers();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to delete customer.');

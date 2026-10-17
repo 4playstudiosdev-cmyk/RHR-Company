@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Plus, UserCog, UserCheck, Pencil, UserX, UserCheck2,
+  Plus, UserCog, UserCheck, Pencil, UserX, UserCheck2, Trash2,
   ShoppingCart, Wallet, Footprints, TrendingUp, Download, BarChart3, Users, Search, Banknote,
   ChevronDown, ChevronUp, IdCard, Phone, Mail, Briefcase, Calendar, MapPin
 } from 'lucide-react';
@@ -191,6 +191,33 @@ export default function Salesmen({ onViewLedger }) {
       loadAll();
     } catch (err) {
       toast.error(err.response?.data?.message || `Failed to ${action} salesman.`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Real delete (the Deactivate button above only hides them) — erases the
+  // salesman and their own payments/visits/recoveries from the database.
+  // Double-confirmed, same as deleting a customer.
+  const handleDeletePermanently = async (s) => {
+    const first = window.confirm(
+      `Delete salesman "${s.full_name}" permanently?\n\n` +
+      `This erases their account, login, and the payments, visits, recoveries and cash closings recorded under them. ` +
+      `Their customers and orders are kept but unassigned.\n\n` +
+      `To just stop them logging in, use Deactivate instead.`
+    );
+    if (!first) return;
+    const second = window.confirm(
+      `⚠️ FINAL WARNING\n\n"${s.full_name}" and their records will be deleted for good.\n\nThis CANNOT be undone. Delete anyway?`
+    );
+    if (!second) return;
+    setBusyId(s.id);
+    try {
+      await api.delete(`/salesmen/${s.id}/permanent`);
+      toast.success('Salesman deleted permanently.');
+      loadAll();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete salesman.');
     } finally {
       setBusyId(null);
     }
@@ -519,6 +546,14 @@ export default function Salesmen({ onViewLedger }) {
                           title={s.is_active ? 'Deactivate' : 'Reactivate'}
                         >
                           {s.is_active ? <UserX size={15} /> : <UserCheck2 size={15} />}
+                        </button>
+                        <button
+                          onClick={() => handleDeletePermanently(s)}
+                          disabled={busyId === s.id}
+                          className="p-2 rounded-lg text-red-600 hover:bg-red-50 transition-colors"
+                          title="Delete permanently"
+                        >
+                          <Trash2 size={15} />
                         </button>
                       </div>
                     </td>

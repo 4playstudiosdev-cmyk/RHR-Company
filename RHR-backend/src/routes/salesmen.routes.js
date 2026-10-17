@@ -8,6 +8,7 @@ const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { withRetry } = require('../utils/withRetry');
 const { normalizePhone, phoneLast10 } = require('../utils/phone');
+const { deleteSalesmanPermanently } = require('../services/hardDelete.service');
 
 // GET /api/v1/salesmen/directory — a driver needs to see who's who
 // (name + phone) for the salesman attached to a customer they're
@@ -266,6 +267,22 @@ router.delete('/:id', authenticate, isAdmin, async (req, res) => {
     if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
     await pgrestPatch('salesmen', filter, { is_active: false });
     return success(res, { deleted: true }, 'Salesman deactivated');
+  } catch (err) { return error(res, err.message); }
+});
+
+// DELETE /api/v1/salesmen/:id/permanent — really removes the salesman:
+// their row, login, and their own payments/visits/recoveries/cash closings.
+// Customers assigned to them and orders are kept, just unassigned. Separate
+// from the soft DELETE /:id above, which the Deactivate button still uses.
+router.delete('/:id/permanent', authenticate, isAdmin, async (req, res) => {
+  try {
+    const smParams = { select: 'id,full_name', id: `eq.${req.params.id}` };
+    if (req.user.role !== 'super_admin') smParams.company_id = `eq.${req.user.company_id}`;
+    const rows = await pgrestGet('salesmen', smParams);
+    if (!rows?.[0]) return error(res, 'Salesman not found or access denied', 404);
+
+    const removed = await deleteSalesmanPermanently(rows[0].id);
+    return success(res, { deleted: true, removed }, 'Salesman deleted permanently');
   } catch (err) { return error(res, err.message); }
 });
 
