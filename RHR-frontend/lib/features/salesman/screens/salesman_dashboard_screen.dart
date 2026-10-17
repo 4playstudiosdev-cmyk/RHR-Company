@@ -97,9 +97,22 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
       final custRes = await DioClient.instance.get(ApiEndpoints.customers);
       if (custRes.data['success'] == true) {
         setState(() {
-          _myCustomers     = List<Map<String, dynamic>>.from(custRes.data['data'] ?? []);
-          _customersVisited = _myCustomers.length;
+          _myCustomers = List<Map<String, dynamic>>.from(custRes.data['data'] ?? []);
         });
+      }
+
+      // "Customers Visited" = distinct customers the salesman marked a
+      // visit for today (it used to show how many customers they have).
+      try {
+        final now = DateTime.now();
+        final today = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+        final visitsRes = await DioClient.instance.get(ApiEndpoints.visits, queryParameters: {'from': today, 'to': today});
+        if (visitsRes.data['success'] == true) {
+          final visits = List<Map<String, dynamic>>.from(visitsRes.data['data'] ?? []);
+          setState(() => _customersVisited = visits.map((v) => v['customer_id']).toSet().length);
+        }
+      } catch (e) {
+        debugPrint('Visits load error: $e');
       }
 
       // Load orders (backend already scopes this to the salesman's own
@@ -261,7 +274,9 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                                   'Payments\nCollected', 'PKR ${_paymentsCollected.toStringAsFixed(0)}', Icons.payments_outlined,
                                   onTap: () => context.push('/salesman-payments-collected')))),
                               const SizedBox(width: 12),
-                              Expanded(child: StaggeredFadeIn(index: 2, baseDelay: const Duration(milliseconds: 100), child: _statCard('Customers\nVisited',  '$_customersVisited',   Icons.people_outline))),
+                              Expanded(child: StaggeredFadeIn(index: 2, baseDelay: const Duration(milliseconds: 100), child: _statCard(
+                                  'Customers\nVisited', '$_customersVisited', Icons.people_outline,
+                                  onTap: () => context.push('/visit-history')))),
                             ],
                           ),
                         ],
@@ -656,6 +671,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                   _drawerItem(context, Icons.cancel_outlined, 'Cancelled Orders', '/salesman-cancelled-orders'),
                   _drawerItem(context, Icons.account_balance_wallet_outlined, 'Outstanding Balances', '/salesman-outstanding'),
                   _drawerItem(context, Icons.camera_alt_outlined, 'Record Payment', '/record-payment'),
+                  _drawerItem(context, Icons.history, 'Customer Visit History', '/visit-history'),
                   _drawerItem(context, Icons.event_note_outlined, 'Record Visit', '/record-visit'),
                   _drawerItem(context, Icons.account_balance_wallet_outlined, 'Cash Collection', '/cash-collection'),
                   _drawerItem(context, Icons.bar_chart_outlined, 'My Performance', '/performance'),

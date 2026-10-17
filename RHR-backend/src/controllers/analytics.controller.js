@@ -45,7 +45,7 @@ const getSalesmanAnalytics = async (req, res) => {
     // Customer visits this month
     const { data: visits } = await supabaseAdmin
       .from('customer_visits')
-      .select('id, customer_id, notes, visited_at, users!customer_id(full_name)')
+      .select('id, customer_id, notes, visited_at, latitude, longitude, users!customer_id(full_name, shop_name, shop_latitude, shop_longitude)')
       .eq('salesman_id', id)
       .gte('visited_at', start)
       .lte('visited_at', end)

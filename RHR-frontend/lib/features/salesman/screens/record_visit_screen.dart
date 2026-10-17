@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/location/location_service.dart';
+import '../../../shared/customer_display.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/success_check.dart';
-import '../../../shared/widgets/tap_scale.dart';
 import '../../../shared/router/app_transitions.dart';
 
-/// Logs that a salesman visited a customer. Date defaults to today
-/// (editable, can't be in the future), customer is required, and notes
+/// Logs that a salesman visited a customer. Customer is required and notes
 /// are mandatory — a visit can't be marked done without saying what
 /// happened (matches the backend's own validation in visits.routes.js).
+/// The moment "Visit Done" is tapped the phone's location is captured and
+/// sent along, and the server stamps the exact date/time (to the second) —
+/// nothing extra for the salesman to do.
 class RecordVisitScreen extends StatefulWidget {
   const RecordVisitScreen({super.key});
 
@@ -22,7 +26,6 @@ class _RecordVisitScreenState extends State<RecordVisitScreen> {
   List<Map<String, dynamic>> _customers = [];
   bool _loadingCustomers = true;
   String? _selectedCustomerId;
-  DateTime _visitDate = DateTime.now();
   bool _submitting = false;
 
   @override
@@ -42,16 +45,6 @@ class _RecordVisitScreenState extends State<RecordVisitScreen> {
     } finally {
       if (mounted) setState(() => _loadingCustomers = false);
     }
-  }
-
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _visitDate,
-      firstDate: DateTime.now().subtract(const Duration(days: 30)),
-      lastDate: DateTime.now(),
-    );
-    if (picked != null) setState(() => _visitDate = picked);
   }
 
   // "Visit Done" opens a bottom sheet for the mandatory notes before the
@@ -119,15 +112,19 @@ class _RecordVisitScreenState extends State<RecordVisitScreen> {
   Future<void> _submit(String notes) async {
     setState(() => _submitting = true);
     try {
+      // Captured now, at the moment of marking — see LocationService.
+      final pos = await LocationService.getPositionForVisit();
       final res = await DioClient.instance.post(ApiEndpoints.visits, data: {
         'customer_id': _selectedCustomerId,
         'notes': notes,
-        'visited_at': _visitDate.toIso8601String(),
+        if (pos != null) 'latitude': pos.latitude,
+        if (pos != null) 'longitude': pos.longitude,
+        if (pos != null) 'accuracy': pos.accuracy,
       });
       if (res.data['success'] == true) {
         if (mounted) {
           await showSuccessCheck(context, message: 'Visit Logged!');
-          if (mounted) Navigator.of(context).pop();
+          if (mounted) context.pushReplacement('/visit-history');
         }
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -156,21 +153,20 @@ class _RecordVisitScreenState extends State<RecordVisitScreen> {
           decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(14),
               boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)]),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Date', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
+            const Text('Date & time', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
             const SizedBox(height: 10),
-            TapScale(
-              onTap: _pickDate,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                decoration: BoxDecoration(color: AppColors.warmGrey, borderRadius: BorderRadius.circular(10)),
-                child: Row(children: [
-                  const Icon(Icons.calendar_today_outlined, size: 18, color: AppColors.steelBlue),
-                  const SizedBox(width: 10),
-                  Text('${_visitDate.year}-${_visitDate.month.toString().padLeft(2, '0')}-${_visitDate.day.toString().padLeft(2, '0')}',
-                      style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w600)),
-                ]),
-              ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: BoxDecoration(color: AppColors.warmGrey, borderRadius: BorderRadius.circular(10)),
+              child: const Row(children: [
+                Icon(Icons.schedule, size: 18, color: AppColors.steelBlue),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text('Recorded automatically when you tap Visit Done',
+                      style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w600, fontSize: 13)),
+                ),
+              ]),
             ),
             const SizedBox(height: 20),
             const Text('Customer', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
@@ -189,7 +185,7 @@ class _RecordVisitScreenState extends State<RecordVisitScreen> {
                     ),
                     items: _customers.map((c) => DropdownMenuItem(
                       value: c['id'] as String,
-                      child: Text(c['full_name'] ?? '', overflow: TextOverflow.ellipsis),
+                      child: Text(customerTitle(c), overflow: TextOverflow.ellipsis),
                     )).toList(),
                     onChanged: (v) => setState(() => _selectedCustomerId = v),
                   ),

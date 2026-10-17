@@ -16,6 +16,16 @@ import CityFilter from '../components/CityFilter';
 import DateRangeFilter from '../components/DateRangeFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
 
+// Visit time to the second in Pakistan time, and a map link for the spot the
+// salesman marked it from (see Customer Visits page).
+const visitStamp = (iso) =>
+  new Date(iso).toLocaleString('en-GB', {
+    timeZone: 'Asia/Karachi', day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
+  });
+const visitMapLink = (lat, lng) => `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+const hasCoords = (v) => v.latitude != null && v.longitude != null && !(Number(v.latitude) === 0 && Number(v.longitude) === 0);
+
 const EMPTY_FORM = { full_name: '', phone: '', email: '', password: '', position: '' };
 // New salesmen created while "All Cities" is selected land in Karachi —
 // same default the Products/Raw Materials/Customers pages use.
@@ -1102,6 +1112,25 @@ function PerformanceTab({ salesmen, onViewLedger, toast }) {
   const maxCollections = Math.max(...weeklyCollections, 1);
   const avgOrderValue = data && data.totalOrders > 0 ? data.totalSales / data.totalOrders : 0;
 
+  const handleExportVisitLog = () => {
+    const visits = data?.visits || [];
+    if (visits.length === 0) { toast.error('No visits to export.'); return; }
+    const selected = salesmen.find((s) => s.id === userId);
+    exportTableToExcel({
+      sheetName: 'Visit Log',
+      head: ['Date & Time', 'Customer', 'Notes', 'Latitude', 'Longitude', 'Map Link'],
+      rows: visits.map((v) => [
+        visitStamp(v.visited_at),
+        v.users?.shop_name || v.users?.full_name || '',
+        v.notes || '',
+        hasCoords(v) ? Number(v.latitude) : '',
+        hasCoords(v) ? Number(v.longitude) : '',
+        hasCoords(v) ? visitMapLink(v.latitude, v.longitude) : 'No location captured'
+      ]),
+      filename: `${(selected?.full_name || 'salesman').replace(/s+/g, '-')}-visit-log-${dateFrom}-to-${dateTo}`
+    });
+  };
+
   const handleExportVisits = () => {
     if (visitsByCustomer.length === 0) { toast.error('No visits to export.'); return; }
     const selected = salesmen.find((s) => s.id === userId);
@@ -1280,6 +1309,56 @@ function PerformanceTab({ salesmen, onViewLedger, toast }) {
                         </tr>
                       );
                     })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Every individual visit — exact time (to the second) and where it was marked from */}
+          <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden mt-6">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <div>
+                <h3 className="font-semibold text-navy text-sm">Visit Timeline & Locations</h3>
+                <span className="text-xs text-gray-400">Each visit with its exact date, time and location</span>
+              </div>
+              <button
+                onClick={handleExportVisitLog}
+                className="flex items-center gap-1.5 text-navy hover:bg-navy-chip/40 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+              >
+                <Download size={14} /> Export
+              </button>
+            </div>
+            {(data.visits || []).length === 0 ? (
+              <EmptyState icon={Footprints} title="No visits logged this period" />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date & Time</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Notes</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Location</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.visits.map((v, i) => (
+                      <tr key={v.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                        <td className="px-6 py-3 text-gray-700 whitespace-nowrap font-medium">{visitStamp(v.visited_at)}</td>
+                        <td className="px-6 py-3 text-navy font-medium">{v.users?.shop_name || v.users?.full_name || 'Unknown'}</td>
+                        <td className="px-6 py-3 text-gray-500 max-w-[280px] truncate">{v.notes || '—'}</td>
+                        <td className="px-6 py-3 whitespace-nowrap">
+                          {hasCoords(v) ? (
+                            <a href={visitMapLink(v.latitude, v.longitude)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-navy hover:underline">
+                              <MapPin size={13} /> View on map
+                            </a>
+                          ) : (
+                            <span className="text-xs text-gray-400">No location</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

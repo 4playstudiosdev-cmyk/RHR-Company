@@ -5,7 +5,7 @@ import {
   Gauge, Boxes, ClipboardList, FileBarChart2, ChevronDown, ChevronLeft, ChevronRight, X,
   PackageCheck, ArrowLeftRight, PackageSearch, Landmark, Receipt, Store, RotateCcw,
   HandCoins, Car, CalendarCheck, WalletCards, LayoutPanelTop, Trash2, HardHat, Truck,
-  Image as ImageIcon, MessageCircle
+  Image as ImageIcon, MessageCircle, Footprints
 } from 'lucide-react';
 import api, { hasPermission } from '../services/api';
 
@@ -34,6 +34,7 @@ const NAV_ITEMS = [
   { key: 'salesmen', label: 'Salesmen', icon: UserCog, requiredPermission: 'salesmen' },
   { key: 'recovery', label: 'Salesman Recovery', icon: HandCoins, requiredPermission: 'can_view_payments' },
   { key: 'driver-recovery', label: 'Driver Recovery', icon: Truck, requiredPermission: 'can_view_payments' },
+  { key: 'customer-visits', label: 'Customer Visits', icon: Footprints, requiredPermission: 'customer-visits' },
   { key: 'vehicles', label: 'Vehicles', icon: Car, requiredPermission: 'can_view_payments' },
   { key: 'payments', label: 'Payments', icon: Wallet, requiredPermission: 'can_view_payments' },
   { key: 'bank', label: 'Bank', icon: Landmark, requiredPermission: 'can_view_payments' },
@@ -101,7 +102,7 @@ const GROUPS = [
   },
   {
     key: 'sales', label: 'Sales & Recovery', icon: ShoppingCart,
-    children: ['customers', 'orders', 'salesmen', 'recovery', 'driver-recovery']
+    children: ['customers', 'orders', 'salesmen', 'customer-visits', 'recovery', 'driver-recovery']
   },
   {
     key: 'inventory', label: 'Inventory & Procurement', icon: Boxes,

@@ -23,6 +23,39 @@ class LocationService {
     }
   }
 
+  /// Position to stamp on a customer visit, taken at the moment the
+  /// salesman marks it. Tries a fresh high-accuracy fix for up to 12 s,
+  /// then falls back to the phone's last known position (rather than
+  /// losing the location because of a slow GPS lock). Null only if
+  /// permission/services are off or the phone has no position at all.
+  static Future<Position?> getPositionForVisit() async {
+    try {
+      if (!await ensureLocationServiceOn()) return null;
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return null;
+      }
+
+      try {
+        return await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 12),
+          ),
+        );
+      } catch (_) {
+        return await Geolocator.getLastKnownPosition();
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Requests location permission (if needed) and returns the current
   /// device position, or null if permission was denied / location
   /// services are off.

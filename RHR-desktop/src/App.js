@@ -18,6 +18,7 @@ import Products from './pages/Products';
 import Orders from './pages/Orders';
 import Customers from './pages/Customers';
 import Salesmen from './pages/Salesmen';
+import CustomerVisits from './pages/CustomerVisits';
 import SalesmanRecovery from './pages/SalesmanRecovery';
 import DriverRecovery from './pages/DriverRecovery';
 import VehicleManagement from './pages/VehicleManagement';
@@ -56,6 +57,7 @@ const PAGES = {
   salesmen: Salesmen,
   recovery: SalesmanRecovery,
   'driver-recovery': DriverRecovery,
+  'customer-visits': CustomerVisits,
   promotions: Promotions,
   'whatsapp-broadcast': WhatsappBroadcast,
   vehicles: VehicleManagement,
@@ -94,6 +96,7 @@ const PAGE_ACCESS = {
   payments: { requiredPermission: 'can_view_payments' },
   recovery: { requiredPermission: 'can_view_payments' },
   'driver-recovery': { requiredPermission: 'can_view_payments' },
+  'customer-visits': { requiredPermission: 'customer-visits' },
   vehicles: { requiredPermission: 'can_view_payments' },
   bank: { requiredPermission: 'can_view_payments' },
   expenses: { requiredPermission: 'can_view_payments' },
