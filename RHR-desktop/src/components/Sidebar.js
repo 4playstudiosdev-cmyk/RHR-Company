@@ -47,7 +47,7 @@ const NAV_ITEMS = [
   { key: 'production-dashboard', label: 'Production Dashboard', icon: Gauge, requiredPermission: 'can_manage_production' },
   { key: 'production-log', label: 'Production History', icon: PackageCheck, requiredPermission: 'can_manage_production' },
   { key: 'production-reports', label: 'Production Reports', icon: FileBarChart2, requiredPermission: 'can_manage_production' },
-  { key: 'production-recipes', label: 'Recipes', icon: ClipboardList, requiredPermission: 'can_manage_production' },
+  { key: 'production-recipes', label: 'Recipes', icon: ClipboardList, requiredPermission: 'can_manage_recipes' },
   { key: 'production-daily', label: 'Daily Production Entry', icon: CalendarCheck, requiredPermission: 'can_manage_production' },
   { key: 'manufacturing-employees', label: 'Manufacturing Employees', icon: HardHat, requiredPermission: 'can_manage_production' },
   { key: 'stock-transfers', label: 'Stock Transfers', icon: ArrowLeftRight, requiredPermission: 'stock-transfers' },
@@ -68,6 +68,7 @@ const ITEM_BY_KEY = Object.fromEntries(NAV_ITEMS.map((item) => [item.key, item])
 // far better in the toggle list than just the first page's name.
 const SHARED_PERMISSION_LABELS = {
   can_manage_production: 'Production & Materials Access',
+  can_manage_recipes: 'Recipes (view & edit recipes)',
   can_view_payments: 'Payments, Bank, Expenses & Recovery',
   can_export_reports: 'Reports (Sales & Stock)',
   can_manage_customers: 'Customers',

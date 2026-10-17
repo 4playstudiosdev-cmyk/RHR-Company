@@ -109,7 +109,7 @@ const PAGE_ACCESS = {
   'production-orders': { requiredPermission: 'can_manage_production' },
   'production-log': { requiredPermission: 'can_manage_production' },
   'production-reports': { requiredPermission: 'can_manage_production' },
-  'production-recipes': { requiredPermission: 'can_manage_production' },
+  'production-recipes': { requiredPermission: 'can_manage_recipes' },
   'production-daily': { requiredPermission: 'can_manage_production' },
   'manufacturing-employees': { requiredPermission: 'can_manage_production' },
   'opening-balances': { requiredRole: 'super_admin' },

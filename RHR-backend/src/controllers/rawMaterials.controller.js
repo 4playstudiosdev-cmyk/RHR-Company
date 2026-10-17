@@ -98,8 +98,10 @@ const createMaterial = async (req, res) => {
     if (!name || !category || !unit)
       return error(res, 'name, category, unit are required', 400);
 
+    // super_admin adding a material from a branch-scoped screen (e.g. the
+    // Recipes city picker) targets that branch; everyone else: their own.
     const row = {
-      company_id: req.user.company_id,
+      company_id: req.user.role === 'super_admin' && req.body.company_id ? req.body.company_id : req.user.company_id,
       name,
       category,
       unit,

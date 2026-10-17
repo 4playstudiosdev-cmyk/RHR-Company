@@ -43,9 +43,13 @@ router.delete('/materials/:id',    authenticate, isAdmin, materials.deleteMateri
 // ─────────────────────────────────────
 
 // GET /api/v1/production/recipes
+// Recipes are per branch. super_admin picks one with ?company_id=<uuid> or
+// sees every branch (no param); branch_admin is always their own branch.
 router.get('/recipes', authenticate, isAdmin, async (req, res) => {
   try {
-    const cacheKey = `recipes:${req.user.company_id}`;
+    const companyId = resolveCompanyId(req);
+    const companyParam = companyId ? { company_id: `eq.${companyId}` } : {};
+    const cacheKey = `recipes:${companyId || 'all'}`;
     const cached = getCached(cacheKey);
     if (cached) return success(res, cached);
 
@@ -59,14 +63,14 @@ router.get('/recipes', authenticate, isAdmin, async (req, res) => {
     try {
       data = await pgrestGet('production_bom', {
         select: '*,recipe_ingredients:production_bom_items(id,qty_required,unit,raw_materials(id,name,unit,cost_per_unit))',
-        company_id: `eq.${req.user.company_id}`,
+        ...companyParam,
         is_active: 'eq.true',
         order: 'created_at.desc',
       });
     } catch (e) {
       data = await pgrestGet('production_bom', {
         select: '*,recipe_ingredients:production_bom_items(id,qty_required,unit,raw_materials(id,name,unit))',
-        company_id: `eq.${req.user.company_id}`,
+        ...companyParam,
         is_active: 'eq.true',
         order: 'created_at.desc',
       });
@@ -91,8 +95,10 @@ router.post('/recipes', authenticate, isAdmin, async (req, res) => {
     if (ingredients.some(i => !i.raw_material_id || !i.qty_required))
       return error(res, 'Every ingredient needs a raw material and quantity', 400);
 
+    const targetCompanyId = req.user.role === 'super_admin' && req.body.company_id
+      ? req.body.company_id : req.user.company_id;
     const [bom] = await pgrestPost('production_bom', {
-      company_id:   req.user.company_id,
+      company_id:   targetCompanyId,
       product_name: name,
       batch_size:   batch_size || 1,
       batch_unit:   batch_unit || 'bag',
@@ -106,7 +112,8 @@ router.post('/recipes', authenticate, isAdmin, async (req, res) => {
     }));
     await pgrestPost('production_bom_items', rows);
 
-    invalidate(`recipes:${req.user.company_id}`);
+    invalidate(`recipes:${targetCompanyId}`);
+    invalidate('recipes:all');
     return success(res, bom, 'Recipe saved', 201);
   } catch (err) { return error(res, err.message); }
 });
@@ -124,7 +131,7 @@ router.put('/recipes/:id', authenticate, isAdmin, async (req, res) => {
 
     const updatedRows = await pgrestPatch(
       'production_bom',
-      { id: `eq.${req.params.id}`, company_id: `eq.${req.user.company_id}` },
+      { id: `eq.${req.params.id}`, ...(req.user.role === 'super_admin' ? {} : { company_id: `eq.${req.user.company_id}` }) },
       { product_name: name, batch_size: batch_size || 1, batch_unit: batch_unit || 'bag' }
     );
     const updatedBom = updatedRows?.[0];
@@ -148,7 +155,8 @@ router.put('/recipes/:id', authenticate, isAdmin, async (req, res) => {
     }));
     await pgrestPost('production_bom_items', rows);
 
-    invalidate(`recipes:${req.user.company_id}`);
+    invalidate(`recipes:${updatedBom.company_id}`);
+    invalidate('recipes:all');
     return success(res, updatedBom, 'Recipe updated');
   } catch (err) { return error(res, err.message); }
 });
@@ -156,14 +164,16 @@ router.put('/recipes/:id', authenticate, isAdmin, async (req, res) => {
 // DELETE /api/v1/production/recipes/:id
 router.delete('/recipes/:id', authenticate, isAdmin, async (req, res) => {
   try {
-    const { error: dbErr } = await supabaseAdmin
+    let del = supabaseAdmin
       .from('production_bom')
       .update({ is_active: false })
-      .eq('id', req.params.id)
-      .eq('company_id', req.user.company_id);
+      .eq('id', req.params.id);
+    if (req.user.role !== 'super_admin') del = del.eq('company_id', req.user.company_id);
+    const { data: deleted, error: dbErr } = await del.select('company_id');
 
     if (dbErr) throw new Error(dbErr.message);
-    invalidate(`recipes:${req.user.company_id}`);
+    (deleted || []).forEach((r) => invalidate(`recipes:${r.company_id}`));
+    invalidate('recipes:all');
     return success(res, { deleted: true }, 'Recipe deleted');
   } catch (err) { return error(res, err.message); }
 });

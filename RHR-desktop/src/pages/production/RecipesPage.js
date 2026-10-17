@@ -3,6 +3,7 @@ import { Plus, ListPlus, PencilLine, Trash2, Save, X, FlaskConical, ClipboardLis
 import api, { getCurrentUser } from '../../services/api';
 import { convertQuantity } from '../../utils/unitConversion';
 import PageHeader from '../../components/PageHeader';
+import CityFilter from '../../components/CityFilter';
 import Button from '../../components/Button';
 import EmptyState from '../../components/EmptyState';
 import { useToast } from '../../components/Toast';
@@ -21,8 +22,25 @@ const UNITS = [
   'liter', 'ml', 'ton', 'meter', 'box'
 ];
 
+const KARACHI_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
+const CITY_NAMES = {
+  '1e5962c6-33a7-460b-913e-9e08db46973a': 'Karachi',
+  '09a1fda3-7ac0-406a-8f42-75d973dc3b7e': 'Hyderabad',
+  '00f79d89-0d36-4704-8865-fc7bbd662267': 'Sukkur',
+};
+
 export default function RecipesPage() {
   const toast = useToast();
+
+  // Recipes (and the raw materials/products they're built from) are per
+  // branch. super_admin picks the city; everyone else is fixed to theirs.
+  // "All Cities" is a read-only overview — creating/editing needs one city.
+  const currentUser = getCurrentUser();
+  const [selectedCity, setSelectedCity] = useState(
+    currentUser?.role === 'super_admin' ? KARACHI_ID : currentUser?.companyId
+  );
+  const isAllCities = selectedCity === 'all';
+  const companyId = isAllCities ? null : selectedCity;
 
   const [products, setProducts]         = useState([]);
   const [rawMaterials, setRawMaterials] = useState([]);
@@ -36,14 +54,20 @@ export default function RecipesPage() {
   const [expandedRecipeId, setExpandedRecipeId] = useState(null);
 
   useEffect(() => {
+    // Starting over on a different city: a half-built recipe for one
+    // branch must not carry over into another.
+    setSelectedProductId('');
+    setEditingRecipeId(null);
+    setIngredients([EMPTY_ROW()]);
     loadProducts();
     loadRawMaterials();
     loadRecipes();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCity]);
 
   const loadProducts = async () => {
     try {
-      const r = await api.get('/products', { params: { limit: 500 } });
+      const r = await api.get('/products', { params: { limit: 500, ...(companyId ? { company_id: companyId } : {}) } });
       setProducts(r.data.data?.products || []);
     } catch (e) {
       toast.error('Failed to load products.');
@@ -59,8 +83,7 @@ export default function RecipesPage() {
   // would actually be able to use.
   const loadRawMaterials = async () => {
     try {
-      const user = getCurrentUser();
-      const r = await api.get('/production/materials', { params: { company_id: user?.companyId } });
+      const r = await api.get('/production/materials', { params: companyId ? { company_id: companyId } : {} });
       if (r.data.success) setRawMaterials(r.data.data || []);
     } catch (e) {
       toast.error('Failed to load raw materials.');
@@ -70,7 +93,7 @@ export default function RecipesPage() {
   const loadRecipes = async () => {
     try {
       setLoading(true);
-      const r = await api.get('/production/recipes');
+      const r = await api.get('/production/recipes', { params: companyId ? { company_id: companyId } : {} });
       if (r.data.success) setRecipes(r.data.data || []);
     } catch (e) {
       toast.error('Failed to load recipes.');
@@ -196,6 +219,7 @@ export default function RecipesPage() {
     setSavingRow(index);
     try {
       const r = await api.post('/production/materials', {
+        company_id: companyId || undefined,
         name:      ing.material_name.trim(),
         category:  'other',
         unit:      ing.unit.trim(),
@@ -241,6 +265,7 @@ export default function RecipesPage() {
     setSaving(true);
     try {
       const payload = {
+        company_id:   companyId || undefined,
         product_name: product?.name,
         batch_size:   1,
         batch_unit:   product?.unit || 'bag',
@@ -296,12 +321,19 @@ export default function RecipesPage() {
       <PageHeader
         title="Recipe Management"
         subtitle="Create product recipes — define raw materials and quantities per batch"
+        action={<CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />}
       />
+
+      {isAllCities && (
+        <div className="mb-4 bg-navy-chip/40 border border-navy-chip text-navy px-4 py-3 rounded-xl text-sm">
+          Showing recipes from every branch. Pick a city to create or edit a recipe — recipes belong to one branch.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
         {/* ── LEFT — Create/Edit Recipe ── */}
-        <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5">
+        <div className={`bg-white rounded-2xl shadow-card border border-gray-100 p-5 ${isAllCities ? 'opacity-50 pointer-events-none select-none' : ''}`}>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-bold text-navy flex items-center gap-1.5">
               <Plus size={16} /> {editingRecipeId ? 'Edit Recipe' : 'Create New Recipe'}
@@ -518,7 +550,14 @@ export default function RecipesPage() {
                             className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50/60"
                           >
                             <div>
-                              <p className="font-semibold text-navy text-sm">{recipe.product_name}</p>
+                              <p className="font-semibold text-navy text-sm">
+                                {recipe.product_name}
+                                {isAllCities && (
+                                  <span className="ml-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-navy-chip text-navy align-middle">
+                                    {CITY_NAMES[recipe.company_id] || 'Branch'}
+                                  </span>
+                                )}
+                              </p>
                               <p className="text-gray-400 text-xs mt-0.5">
                                 {recipe.recipe_ingredients?.length || 0} ingredients • PKR {cost.toFixed(2)}/{unitForRecipe(recipe)}
                               </p>
