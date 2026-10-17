@@ -64,7 +64,7 @@ async function getPayments(user, companyIdOverride, salesmanIdFilter, customerId
     const { data, error } = await applyFilters(
       supabaseAdmin
         .from('payments')
-        .select('*, customer:users!customer_id(full_name, phone), salesman:salesmen!salesman_id(full_name), bank_accounts(account_name, bank_name)')
+        .select('*, customer:users!customer_id(full_name, shop_name, phone), salesman:salesmen!salesman_id(full_name), bank_accounts(account_name, bank_name)')
         .order('created_at', { ascending: false })
     );
     if (error) throw new Error(error.message);
@@ -73,7 +73,7 @@ async function getPayments(user, companyIdOverride, salesmanIdFilter, customerId
     const { data, error } = await applyFilters(
       supabaseAdmin
         .from('payments')
-        .select('*, customer:users!customer_id(full_name, phone), salesman:salesmen!salesman_id(full_name)')
+        .select('*, customer:users!customer_id(full_name, shop_name, phone), salesman:salesmen!salesman_id(full_name)')
         .order('created_at', { ascending: false })
     );
     if (error) throw new Error(error.message);

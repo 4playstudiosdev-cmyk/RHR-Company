@@ -79,7 +79,7 @@ function buildMoneyReceiptPDF({ receiptNo, payment, customer, salesman, company,
       y += 26;
     };
 
-    row('Received with thanks from', customer?.full_name || '-');
+    row('Received with thanks from', customer?.shop_name || customer?.full_name || '-');
     row('Amount', `PKR ${Number(payment.amount).toLocaleString()}`);
     row('In word', numberToWordsPKR(payment.amount));
 

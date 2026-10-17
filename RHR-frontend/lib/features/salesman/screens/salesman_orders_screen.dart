@@ -6,6 +6,7 @@ import '../../../core/network/dio_client.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/widgets/tap_scale.dart';
 import '../../../shared/router/app_transitions.dart';
+import '../../../shared/customer_display.dart';
 
 /// Every order across this salesman's customers, optionally narrowed to
 /// a set of statuses — one reusable screen backs "All Orders" (Orders
@@ -104,7 +105,7 @@ class _SalesmanOrdersScreenState extends State<SalesmanOrdersScreen> {
                         final status = (order['status'] ?? 'pending').toString();
                         final color = _statusColors[status] ?? AppColors.steelBlue;
                         final orderNumber = (order['order_number'] ?? order['id'] ?? '').toString();
-                        final customerName = order['users']?['full_name'] ?? 'Customer';
+                        final customerName = customerTitle(order['users'] as Map?);
                         final amount = _asNum(order['total_amount']);
                         final date = (order['created_at'] ?? '').toString();
                         final shortDate = date.length >= 10 ? date.substring(0, 10) : date;

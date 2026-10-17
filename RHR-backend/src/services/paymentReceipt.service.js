@@ -17,7 +17,7 @@ const { notifyUser } = require('./notify.service');
 async function sendPaymentReceipt(payment) {
   try {
     const [customerRows, salesmanRows, companyRows] = await Promise.all([
-      pgrestGet('users', { select: 'full_name,phone,whatsapp_phone', id: `eq.${payment.customer_id}` }),
+      pgrestGet('users', { select: 'full_name,shop_name,phone,whatsapp_phone', id: `eq.${payment.customer_id}` }),
       payment.salesman_id
         ? pgrestGet('salesmen', { select: 'full_name', id: `eq.${payment.salesman_id}` })
         : Promise.resolve([]),

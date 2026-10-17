@@ -58,9 +58,11 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final name     = _customer?['full_name'] ?? '—';
+    final personName = (_customer?['full_name'] ?? '—').toString();
     final phone    = _customer?['phone']     ?? '—';
     final shopName = (_customer?['shop_name'] ?? '').toString();
+    // Shop / business name is the headline; the person's name goes under it.
+    final name     = shopName.isNotEmpty ? shopName : personName;
     final addr     = (_customer?['shop_address'] ?? '').toString();
     final city     = (_customer?['city'] ?? '').toString();
     final area     = (_customer?['area'] ?? '').toString();
@@ -130,8 +132,8 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                                           fontWeight: FontWeight.bold,
                                           fontSize: 18)),
                                   if (shopName.isNotEmpty)
-                                    Text(shopName,
-                                        style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                                    Text(personName,
+                                        style: const TextStyle(color: Colors.white70, fontSize: 12)),
                                   Text(phone,
                                       style: const TextStyle(
                                           color: Colors.white60, fontSize: 13)),

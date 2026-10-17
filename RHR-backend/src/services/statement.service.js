@@ -48,10 +48,11 @@ async function buildStatementPDF({ customer, company, entries, fromDate, toDate,
 
     // ── CUSTOMER INFO ──
     let y = 70;
-    doc.fillColor(BLACK).font('Helvetica-Bold').fontSize(12).text(customer?.full_name || 'Customer', M, y);
+    // Shop / business name is the main line, the person's name below it, small.
+    doc.fillColor(BLACK).font('Helvetica-Bold').fontSize(12).text(customer?.shop_name || customer?.full_name || 'Customer', M, y);
     y += 16;
-    if (customer?.shop_name) {
-      doc.fillColor(ORANGE).font('Helvetica-Bold').fontSize(10).text(customer.shop_name, M, y);
+    if (customer?.shop_name && customer?.full_name) {
+      doc.fillColor(GRAY).font('Helvetica').fontSize(8.5).text('Contact: ' + customer.full_name, M, y);
       y += 14;
     }
     if (customer?.shop_address) {

@@ -151,7 +151,7 @@ export default function Payments() {
                           <span className="font-medium text-navy">{payment.salesman?.full_name || '—'}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-3.5 text-gray-600">{payment.customer?.full_name || '—'}</td>
+                      <td className="px-6 py-3.5 text-gray-600">{payment.customer?.shop_name || payment.customer?.full_name || '—'}</td>
                       <td className="px-6 py-3.5 font-semibold text-navy">
                         PKR {Number(payment.amount).toLocaleString()}
                       </td>

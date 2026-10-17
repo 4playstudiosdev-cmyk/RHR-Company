@@ -67,10 +67,15 @@ class _CustomersListScreenState extends State<CustomersListScreen> {
   }
 
   List<Map<String, dynamic>> get _filtered => _customers
-      .where((c) => (c['full_name'] ?? '')
+      .where((c) => '${c['full_name'] ?? ''} ${c['shop_name'] ?? ''}'
           .toLowerCase()
           .contains(_search.toLowerCase()))
       .toList();
+
+  // Shop / business name is the headline, the person's own name sits under it.
+  String _shopOf(Map<String, dynamic> c) => (c['shop_name'] ?? '').toString().trim();
+  String _titleOf(Map<String, dynamic> c) =>
+      _shopOf(c).isNotEmpty ? _shopOf(c) : (c['full_name'] ?? '').toString();
 
   @override
   Widget build(BuildContext context) {
@@ -167,11 +172,16 @@ class _CustomersListScreenState extends State<CustomersListScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(c['full_name'] ?? '',
+                                  Text(_titleOf(c),
                                       style: const TextStyle(
                                           fontWeight: FontWeight.bold,
                                           color: AppColors.navy,
                                           fontSize: 15)),
+                                  if (_shopOf(c).isNotEmpty && (c['full_name'] ?? '').toString().isNotEmpty)
+                                    Text(c['full_name'].toString(),
+                                        style: const TextStyle(
+                                            color: AppColors.steelBlue,
+                                            fontSize: 11)),
                                   Text(c['phone'] ?? '',
                                       style: const TextStyle(
                                           color: AppColors.steelBlue,

@@ -281,7 +281,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
         });
       }
       setPending((prev) => prev.filter((c) => c.id !== customer.id));
-      toast.success(`${customer.full_name} approved.`);
+      toast.success(`${customer.shop_name || customer.full_name} approved.`);
       loadCustomers();
       closeWizard();
     } catch (err) {
@@ -886,9 +886,9 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                                 </div>
                               )}
                               <div className="min-w-0">
-                                <div className="font-semibold text-navy truncate">{customer.full_name}</div>
+                                <div className="font-semibold text-navy truncate">{customer.shop_name || customer.full_name}</div>
                                 <div className="text-xs text-gray-400 truncate">
-                                  {customer.shop_name || customer.email || '—'}
+                                  {customer.shop_name ? customer.full_name : (customer.email || '—')}
                                 </div>
                               </div>
                             </div>
@@ -1183,9 +1183,9 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-navy truncate">{customer.full_name}</div>
+                      <div className="font-semibold text-navy truncate">{customer.shop_name || customer.full_name}</div>
                       <div className="text-xs text-gray-400 truncate">
-                        {customer.phone} · {customer.shop_name || customer.email || '—'}
+                        {customer.phone} · {customer.shop_name ? customer.full_name : (customer.email || '—')}
                       </div>
                     </div>
                     <button
@@ -1204,7 +1204,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
       )}
 
       {approvingCustomer && (
-        <Modal title={`Approve — ${approvingCustomer.full_name}`} onClose={closeWizard}>
+        <Modal title={`Approve — ${approvingCustomer.shop_name || approvingCustomer.full_name}`} onClose={closeWizard}>
           {/* Step indicator */}
           <div className="flex items-center gap-2 mb-5">
             {[1, 2, 3].map((n) => (
@@ -1234,9 +1234,9 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                     </div>
                   )}
                   <div className="min-w-0">
-                    <p className="font-semibold text-navy">{approvingCustomer.full_name}</p>
+                    <p className="font-semibold text-navy">{approvingCustomer.shop_name || approvingCustomer.full_name}</p>
+                    {approvingCustomer.shop_name && <p className="text-xs text-gray-500">{approvingCustomer.full_name}</p>}
                     <p className="text-xs text-gray-500">{approvingCustomer.phone}{approvingCustomer.email ? ` · ${approvingCustomer.email}` : ''}</p>
-                    {approvingCustomer.shop_name && <p className="text-xs text-gray-500">{approvingCustomer.shop_name}</p>}
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-500 pt-2 border-t border-gray-200">
@@ -1386,8 +1386,8 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
               <div className="space-y-3">
                 <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Customer</p>
-                  <p className="text-sm font-semibold text-navy">{approvingCustomer.full_name}</p>
-                  <p className="text-xs text-gray-500">{approvingCustomer.phone}{approvingCustomer.shop_name ? ` · ${approvingCustomer.shop_name}` : ''}</p>
+                  <p className="text-sm font-semibold text-navy">{approvingCustomer.shop_name || approvingCustomer.full_name}</p>
+                  <p className="text-xs text-gray-500">{approvingCustomer.phone}{approvingCustomer.shop_name ? ` · ${approvingCustomer.full_name}` : ''}</p>
                 </div>
                 <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 grid grid-cols-2 gap-3">
                   <div>
@@ -1432,7 +1432,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
       )}
 
       {pricingCustomer && (
-        <Modal title={`Set Custom Pricing — ${pricingCustomer.full_name}`} onClose={() => setPricingCustomer(null)}>
+        <Modal title={`Set Custom Pricing — ${pricingCustomer.shop_name || pricingCustomer.full_name}`} onClose={() => setPricingCustomer(null)}>
           <p className="text-sm text-gray-500 mb-3">
             Set a specific rate for this customer on individual products — overrides their rate tier for that product only.
           </p>
@@ -1745,9 +1745,9 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
               <>
                 <p className="text-sm text-gray-500">Review everything below before creating the account.</p>
                 <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 space-y-1">
-                  <p className="text-sm font-semibold text-navy">{customerForm.full_name}</p>
+                  <p className="text-sm font-semibold text-navy">{customerForm.shop_name || customerForm.full_name}</p>
+                  {customerForm.shop_name && <p className="text-xs text-gray-500">{customerForm.full_name}</p>}
                   <p className="text-xs text-gray-500">+92{customerForm.phone}{customerForm.email ? ` · ${customerForm.email}` : ''}</p>
-                  {customerForm.shop_name && <p className="text-xs text-gray-500">{customerForm.shop_name}</p>}
                   {customerForm.shop_address && <p className="text-xs text-gray-500">{customerForm.shop_address}</p>}
                   {(customerForm.city || customerForm.area) && <p className="text-xs text-gray-500">{[customerForm.city, customerForm.area].filter(Boolean).join(', ')}</p>}
                 </div>

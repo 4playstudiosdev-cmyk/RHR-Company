@@ -54,8 +54,10 @@ export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, 
   doc.text(`Invoice / Order No: ${invoiceNumber || order.order_number}`, colLeftX, leftY);
   leftY += 8;
 
-  leftY = field(colLeftX, leftY, 'Customer Shop:', customer.shop_name);
-  leftY = field(colLeftX, leftY, 'Proprietor:', customer.full_name);
+  // Made out to the shop / business name (the person's name when there
+  // isn't one); the proprietor's own name follows it.
+  leftY = field(colLeftX, leftY, 'Customer:', customer.shop_name || customer.full_name);
+  if (customer.shop_name) leftY = field(colLeftX, leftY, 'Proprietor:', customer.full_name);
   leftY = field(colLeftX, leftY, 'Delivery Addr:', order.delivery_address || customer.shop_address);
   leftY = field(colLeftX, leftY, 'Contact:', customer.phone);
 

@@ -6,6 +6,7 @@ import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/widgets/tap_scale.dart';
+import '../../../shared/customer_display.dart';
 
 class SalesmanDashboardScreen extends StatefulWidget {
   const SalesmanDashboardScreen({super.key});
@@ -504,7 +505,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
     final status = (order['status'] ?? 'pending').toString();
     final color = _statusColors[status] ?? AppColors.steelBlue;
     final orderNumber = (order['order_number'] ?? order['id'] ?? '').toString();
-    final customerName = order['users']?['full_name'] ?? 'Customer';
+    final customerName = customerTitle(order['users'] as Map?);
     final amount = _asNum(order['total_amount']);
     final date = (order['created_at'] ?? '').toString();
     final shortDate = date.length >= 10 ? date.substring(0, 10) : date;

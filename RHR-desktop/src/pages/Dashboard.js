@@ -281,7 +281,7 @@ export default function Dashboard({ user, setPage }) {
                           }`}
                         >
                           <td className="px-6 py-3.5 font-medium text-navy">{order.order_number}</td>
-                          <td className="px-6 py-3.5">{order.users?.full_name || '—'}</td>
+                          <td className="px-6 py-3.5">{order.users?.shop_name || order.users?.full_name || '—'}</td>
                           <td className="px-6 py-3.5 font-medium">PKR {Number(order.total_amount).toLocaleString()}</td>
                           <td className="px-6 py-3.5">
                             <StatusBadge status={order.status} />
@@ -379,7 +379,7 @@ export default function Dashboard({ user, setPage }) {
                           i % 2 === 1 ? 'bg-gray-50/40' : ''
                         }`}
                       >
-                        <td className="px-6 py-3.5 font-medium text-navy">{p.customer?.full_name || '—'}</td>
+                        <td className="px-6 py-3.5 font-medium text-navy">{p.customer?.shop_name || p.customer?.full_name || '—'}</td>
                         <td className="px-6 py-3.5 capitalize text-gray-600">{p.method}</td>
                         <td className="px-6 py-3.5 font-medium text-emerald-600">+ PKR {Number(p.amount).toLocaleString()}</td>
                         <td className="px-6 py-3.5 text-gray-500">{new Date(p.created_at).toLocaleDateString('en-GB')}</td>

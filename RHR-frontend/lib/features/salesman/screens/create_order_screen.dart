@@ -7,6 +7,7 @@ import '../../../core/network/dio_client.dart';
 import '../../../core/storage/hive_service.dart';
 import '../../../core/storage/sync_service.dart';
 import '../../../shared/order_qty_rules.dart';
+import '../../../shared/customer_display.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/router/app_transitions.dart';
@@ -84,7 +85,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     final q = _customerSearchController.text.trim().toLowerCase();
     if (q.isEmpty) return _customers;
     return _customers.where((c) {
-      final name = (c['full_name'] ?? c['name'] ?? '').toString().toLowerCase();
+      final name = customerSearchText(c);
       final phone = (c['phone'] ?? '').toString().toLowerCase();
       return name.contains(q) || phone.contains(q);
     }).toList();
@@ -157,7 +158,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                     child: Row(children: [
                       const Icon(Icons.business, color: AppColors.orange, size: 18),
                       const SizedBox(width: 10),
-                      Expanded(child: Text(_selectedCustomer?['full_name'] ?? _selectedCustomer?['name'] ?? '',
+                      Expanded(child: Text(customerTitle(_selectedCustomer, fallback: ''),
                           style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy))),
                     ]),
                   ),
@@ -365,7 +366,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                   const Icon(Icons.business, color: AppColors.orange, size: 18),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(_selectedCustomer!['full_name'] ?? _selectedCustomer!['name'] ?? '',
+                    child: Text(customerTitle(_selectedCustomer, fallback: ''),
                         style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
                   ),
                   GestureDetector(
@@ -408,14 +409,14 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                             final c = _filteredCustomers[i];
                             return ListTile(
                               dense: true,
-                              title: Text(c['full_name'] ?? c['name'] ?? '',
+                              title: Text(customerTitle(c, fallback: ''),
                                   style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.navy, fontSize: 13)),
                               subtitle: Text(c['phone'] ?? '', style: const TextStyle(fontSize: 11)),
                               onTap: () {
                                 _customerSearchFocus.unfocus();
                                 setState(() {
                                   _selectedCustomerId = c['id'] as String;
-                                  _customerSearchController.text = c['full_name'] ?? c['name'] ?? '';
+                                  _customerSearchController.text = customerTitle(c, fallback: '');
                                 });
                               },
                             );

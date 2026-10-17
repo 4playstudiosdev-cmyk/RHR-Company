@@ -722,7 +722,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(
-        (o) => o.order_number?.toLowerCase().includes(q) || o.users?.full_name?.toLowerCase().includes(q)
+        (o) => o.order_number?.toLowerCase().includes(q) || o.users?.full_name?.toLowerCase().includes(q) || o.users?.shop_name?.toLowerCase().includes(q)
       );
     }
     return list;
@@ -879,7 +879,12 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
                           {order.order_number}
                         </div>
                       </td>
-                      <td className="px-6 py-3.5 text-gray-600 text-[15px]">{order.users?.full_name || '—'}</td>
+                      <td className="px-6 py-3.5 text-[15px]">
+                        <div className="text-gray-700 font-medium">{order.users?.shop_name || order.users?.full_name || '—'}</div>
+                        {order.users?.shop_name && order.users?.full_name && (
+                          <div className="text-xs text-gray-400">{order.users.full_name}</div>
+                        )}
+                      </td>
                       <td className="px-6 py-3.5 text-gray-600 font-medium">
                         PKR {Number(order.total_amount).toLocaleString()}
                       </td>
@@ -1159,7 +1164,10 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
           </div>
 
           <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 mb-5 space-y-1">
-            <p className="text-sm font-semibold text-navy">{selectedOrder.users?.full_name || '—'}</p>
+            <p className="text-sm font-semibold text-navy">{selectedOrder.users?.shop_name || selectedOrder.users?.full_name || '—'}</p>
+            {selectedOrder.users?.shop_name && selectedOrder.users?.full_name && (
+              <p className="text-xs text-gray-500">{selectedOrder.users.full_name}</p>
+            )}
             <p className="text-xs text-gray-500">Phone: {selectedOrder.users?.phone || '—'}</p>
             <p className="text-xs text-gray-500">Address: {selectedOrder.delivery_address || selectedOrder.users?.shop_address || '—'}</p>
           </div>
@@ -1317,7 +1325,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
             <p className="text-sm text-gray-600">Is this order correct before generating the invoice?</p>
 
             <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 space-y-1 text-sm">
-              <p className="text-gray-600">Customer: <span className="font-semibold text-navy">{invoiceOrder.users?.full_name || '—'}</span></p>
+              <p className="text-gray-600">Customer: <span className="font-semibold text-navy">{invoiceOrder.users?.shop_name || invoiceOrder.users?.full_name || '—'}</span></p>
               <p className="text-gray-600">Total: <span className="font-semibold text-navy">PKR {Number(invoiceOrder.total_amount).toLocaleString()}</span></p>
             </div>
 
@@ -1509,7 +1517,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
         <Modal title={`Edit Invoice — ${editInvoiceOrder.order_number}`} onClose={() => setEditInvoiceOrder(null)}>
           <div className="space-y-4">
             <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 space-y-1 text-sm">
-              <p className="text-gray-600">Customer: <span className="font-semibold text-navy">{editInvoiceOrder.users?.full_name || '—'}</span></p>
+              <p className="text-gray-600">Customer: <span className="font-semibold text-navy">{editInvoiceOrder.users?.shop_name || editInvoiceOrder.users?.full_name || '—'}</span></p>
               {editInvoiceOrder.order_items?.length > 1 ? (
                 <div className="flex items-center gap-2">
                   <span className="text-gray-600">Item:</span>

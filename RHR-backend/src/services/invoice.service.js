@@ -138,16 +138,17 @@ async function buildInvoicePDF(order, salesmanName) {
     doc.rect(M, billY, 56, 15).fill(DARK_BLUE);
     doc.fillColor(WHITE).font('Helvetica-Bold').fontSize(8).text('BILL TO:', M + 4, billY + 4);
 
-    // Customer name
+    // The invoice is made out to the shop / business name (falls back to
+    // the person's name when there isn't one); the contact person's own
+    // name sits below it in smaller type.
     doc.fillColor(BLACK).font('Helvetica-Bold').fontSize(12)
-       .text(customer?.full_name || 'Customer', M, billY + 22);
+       .text(customer?.shop_name || customer?.full_name || 'Customer', M, billY + 22);
 
-    // Shop name — shown in orange if available
     let billOffset = 38;
-    if (customer?.shop_name) {
-      doc.fillColor(ORANGE).font('Helvetica-Bold').fontSize(10)
-         .text(customer.shop_name, M, billY + billOffset);
-      billOffset += 15;
+    if (customer?.shop_name && customer?.full_name) {
+      doc.fillColor(GRAY).font('Helvetica').fontSize(8.5)
+         .text('Contact: ' + customer.full_name, M, billY + billOffset);
+      billOffset += 14;
     }
 
     // Shop address

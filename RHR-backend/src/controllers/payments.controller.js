@@ -121,7 +121,7 @@ const getPaymentById = async (req, res) => {
   try {
     const { data, error: dbError } = await supabaseAdmin
       .from('payments')
-      .select('*, users!customer_id(full_name, phone), salesmen!salesman_id(full_name)')
+      .select('*, users!customer_id(full_name, shop_name, phone), salesmen!salesman_id(full_name)')
       .eq('id', req.params.id)
       .single();
     if (dbError) return error(res, 'Payment not found', 404);
