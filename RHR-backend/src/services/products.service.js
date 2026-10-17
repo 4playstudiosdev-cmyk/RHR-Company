@@ -31,9 +31,22 @@ const PRODUCT_PRIORITY_PREFIXES = [
   'plaster of paris',
 ];
 
+// Category comes first: every Tile Bond product, then every Grout
+// product, then everything else — same order as the category tabs. Matched
+// by name fragment, like orderQtyRules.js, so it works per branch.
+function categoryRank(product) {
+  const c = String(product.categories?.name || '').toLowerCase();
+  if (c.includes('tile bond')) return 0;
+  if (c.includes('grout')) return 1;
+  return 2;
+}
+
 function sortByMerchandisingOrder(products) {
   const indexed = products.map((p, i) => ({ p, i }));
   indexed.sort((a, b) => {
+    const catA = categoryRank(a.p);
+    const catB = categoryRank(b.p);
+    if (catA !== catB) return catA - catB;
     const nameA = (a.p.name || '').toLowerCase();
     const nameB = (b.p.name || '').toLowerCase();
     const prioA = PRODUCT_PRIORITY_PREFIXES.findIndex((prefix) => nameA.startsWith(prefix));

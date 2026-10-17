@@ -6,7 +6,9 @@ const { pgrestGet, pgrestPost } = require('../utils/directQuery');
 // for Hyderabad/Sukkur even though their categories exist in the DB.
 
 async function getCategories(companyId) {
-  const params = { select: 'id,name', order: 'name.asc' };
+  // sort_order first so the tabs read All -> Tile Bond -> Grout -> Other
+  // (see sql/phase65_simplify_categories.sql), name only as a tie-breaker.
+  const params = { select: 'id,name', order: 'sort_order.asc,name.asc' };
   if (companyId) params.company_id = `eq.${companyId}`;
   const data = await pgrestGet('categories', params);
   return data || [];
