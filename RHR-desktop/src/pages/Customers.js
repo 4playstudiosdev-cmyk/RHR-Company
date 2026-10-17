@@ -46,6 +46,34 @@ const localPhoneDigits = (raw) => {
 };
 const toApiPhone = (localDigits) => (localDigits ? '92' + localDigits : '');
 
+// Compares the price inputs against the saved custom prices: a non-empty
+// input that differs is an upsert, a cleared input that had a saved price
+// is a delete. `invalid` is true if any edited row holds a bad number.
+function diffCustomPrices(rows, inputs) {
+  const upserts = [];
+  const deletes = [];
+  let invalid = false;
+  for (const row of rows) {
+    const raw = inputs[row.product_id];
+    const saved = row.custom_price !== null && row.custom_price !== undefined ? Number(row.custom_price) : null;
+    if (raw === '' || raw === null || raw === undefined) {
+      if (saved !== null) deletes.push(row.product_id);
+      continue;
+    }
+    const price = Number(raw);
+    if (!Number.isFinite(price) || price < 0) { invalid = true; continue; }
+    if (price !== saved) upserts.push({ productId: row.product_id, price });
+  }
+  return { upserts, deletes, invalid };
+}
+
+async function applyCustomPriceChanges(customerId, { upserts, deletes }) {
+  await Promise.all([
+    ...upserts.map((u) => api.put(`/customers/${customerId}/pricing/${u.productId}`, { price: u.price })),
+    ...deletes.map((productId) => api.delete(`/customers/${customerId}/pricing/${productId}`)),
+  ]);
+}
+
 const PAGE_SIZE = 10;
 
 function getInitials(name) {
@@ -110,7 +138,6 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
   const [wizardPricingLoading, setWizardPricingLoading] = useState(false);
   const [wizardPricingSearch, setWizardPricingSearch] = useState('');
   const [wizardPriceInputs, setWizardPriceInputs] = useState({});
-  const [wizardSavingProductId, setWizardSavingProductId] = useState(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [filterCity, setFilterCity] = useState('');
@@ -206,37 +233,14 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
     setWizardStep(1);
   };
 
-  const handleWizardSaveCustomPrice = async (productId) => {
-    const raw = wizardPriceInputs[productId];
-    if (raw === '' || raw === null || raw === undefined || Number(raw) < 0) {
-      toast.error('Enter a valid price.');
-      return;
-    }
-    setWizardSavingProductId(productId);
-    try {
-      await api.put(`/customers/${approvingCustomer.id}/pricing/${productId}`, { price: Number(raw) });
-      setWizardPricingRows((prev) => prev.map((r) => (r.product_id === productId ? { ...r, custom_price: Number(raw) } : r)));
-      toast.success('Custom price saved.');
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to save price.');
-    } finally {
-      setWizardSavingProductId(null);
-    }
-  };
-
-  const handleWizardResetCustomPrice = async (productId) => {
-    setWizardSavingProductId(productId);
-    try {
-      await api.delete(`/customers/${approvingCustomer.id}/pricing/${productId}`);
-      setWizardPricingRows((prev) => prev.map((r) => (r.product_id === productId ? { ...r, custom_price: null } : r)));
-      setWizardPriceInputs((prev) => ({ ...prev, [productId]: '' }));
-      toast.success('Reverted to default price.');
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to reset price.');
-    } finally {
-      setWizardSavingProductId(null);
-    }
-  };
+  // Prices typed in step 2 that will be written on Approve — what the
+  // Review step lists, so it matches exactly what gets saved.
+  const wizardStagedPrices = wizardPricingRows
+    .filter((r) => {
+      const v = wizardPriceInputs[r.product_id];
+      return v !== '' && v !== null && v !== undefined && Number(v) >= 0;
+    })
+    .map((r) => ({ product_id: r.product_id, name: r.name, price: Number(wizardPriceInputs[r.product_id]) }));
 
   const visibleWizardPricingRows = wizardPricingSearch.trim()
     ? wizardPricingRows.filter((r) =>
@@ -247,12 +251,18 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
 
   // Final step — everything collected across steps 1-2 lands on the
   // server here in one go: approve + rate tier + credit limit, assign
-  // salesman (if picked), log an opening balance (if entered). Product
-  // pricing already saved live in step 2, so it's not repeated here.
+  // salesman (if picked), log an opening balance (if entered), and write
+  // the custom product prices staged in step 2.
   const confirmApprove = async () => {
     const customer = approvingCustomer;
+    const { upserts, deletes, invalid } = diffCustomPrices(wizardPricingRows, wizardPriceInputs);
+    if (invalid) {
+      toast.error('One of the custom prices is invalid — go back to the Pricing step and fix it.');
+      return;
+    }
     setApprovingId(customer.id);
     try {
+      await applyCustomPriceChanges(customer.id, { upserts, deletes });
       await api.patch(`/auth/approve-customer/${customer.id}`, {
         rate_tier: approveRateTier,
         credit_limit: approveCreditLimit === '' ? null : Number(approveCreditLimit),
@@ -273,11 +283,11 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
       setPending((prev) => prev.filter((c) => c.id !== customer.id));
       toast.success(`${customer.full_name} approved.`);
       loadCustomers();
+      closeWizard();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to approve customer.');
     } finally {
       setApprovingId(null);
-      closeWizard();
     }
   };
 
@@ -344,7 +354,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
   const [pricingLoading, setPricingLoading] = useState(false);
   const [pricingSearch, setPricingSearch] = useState('');
   const [priceInputs, setPriceInputs] = useState({});
-  const [savingProductId, setSavingProductId] = useState(null);
+  const [savingPrices, setSavingPrices] = useState(false);
 
   const openPricingModal = async (customer) => {
     setPricingCustomer(customer);
@@ -363,35 +373,32 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
     }
   };
 
-  const handleSaveCustomPrice = async (productId) => {
-    const raw = priceInputs[productId];
-    if (raw === '' || raw === null || raw === undefined || Number(raw) < 0) {
-      toast.error('Enter a valid price.');
+  // One Save for the whole list — writes every price that differs from
+  // what's stored (set/changed -> PUT, cleared -> DELETE).
+  const handleSaveAllPrices = async () => {
+    const { upserts, deletes, invalid } = diffCustomPrices(pricingRows, priceInputs);
+    if (invalid) {
+      toast.error('Enter a valid price (0 or more) in every edited row.');
       return;
     }
-    setSavingProductId(productId);
-    try {
-      await api.put(`/customers/${pricingCustomer.id}/pricing/${productId}`, { price: Number(raw) });
-      setPricingRows((prev) => prev.map((r) => (r.product_id === productId ? { ...r, custom_price: Number(raw) } : r)));
-      toast.success('Custom price saved.');
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to save price.');
-    } finally {
-      setSavingProductId(null);
+    if (upserts.length === 0 && deletes.length === 0) {
+      toast.success('No price changes to save.');
+      return;
     }
-  };
-
-  const handleResetCustomPrice = async (productId) => {
-    setSavingProductId(productId);
+    setSavingPrices(true);
     try {
-      await api.delete(`/customers/${pricingCustomer.id}/pricing/${productId}`);
-      setPricingRows((prev) => prev.map((r) => (r.product_id === productId ? { ...r, custom_price: null } : r)));
-      setPriceInputs((prev) => ({ ...prev, [productId]: '' }));
-      toast.success('Reverted to default price.');
+      await applyCustomPriceChanges(pricingCustomer.id, { upserts, deletes });
+      setPricingRows((prev) => prev.map((r) => {
+        const up = upserts.find((u) => u.productId === r.product_id);
+        if (up) return { ...r, custom_price: up.price };
+        if (deletes.includes(r.product_id)) return { ...r, custom_price: null };
+        return r;
+      }));
+      toast.success('Prices saved.');
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to reset price.');
+      toast.error(err.response?.data?.message || 'Failed to save prices.');
     } finally {
-      setSavingProductId(null);
+      setSavingPrices(false);
     }
   };
 
@@ -1307,7 +1314,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
           {wizardStep === 2 && (
             <>
               <p className="text-sm text-gray-500 mb-3">
-                Set a specific rate for this customer on individual products — overrides their rate tier for that product only. Saves immediately as you go.
+                Set a specific rate for this customer on individual products — overrides their rate tier for that product only. Everything is saved when you approve in the last step.
               </p>
               <div className="relative mb-3">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -1328,7 +1335,6 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                 <div className="max-h-[360px] overflow-y-auto -mx-1 space-y-2">
                   {visibleWizardPricingRows.map((row) => {
                     const hasCustom = row.custom_price !== null && row.custom_price !== undefined;
-                    const isSaving = wizardSavingProductId === row.product_id;
                     return (
                       <div key={row.product_id} className="flex items-center gap-3 border border-gray-100 rounded-xl px-3.5 py-2.5 mx-1">
                         <div className="min-w-0 flex-1">
@@ -1351,21 +1357,12 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                           onChange={(e) => setWizardPriceInputs((prev) => ({ ...prev, [row.product_id]: e.target.value }))}
                           className="w-24 border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
                         />
-                        <button
-                          type="button"
-                          disabled={isSaving}
-                          onClick={() => handleWizardSaveCustomPrice(row.product_id)}
-                          className="text-xs font-semibold text-white bg-navy hover:bg-navy/90 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors"
-                        >
-                          Save
-                        </button>
-                        {hasCustom && (
+                        {(wizardPriceInputs[row.product_id] ?? '') !== '' && (
                           <button
                             type="button"
-                            disabled={isSaving}
-                            onClick={() => handleWizardResetCustomPrice(row.product_id)}
+                            onClick={() => setWizardPriceInputs((prev) => ({ ...prev, [row.product_id]: '' }))}
                             title="Reset to default"
-                            className="text-gray-400 hover:text-red-600 disabled:opacity-50 p-1.5"
+                            className="text-gray-400 hover:text-red-600 p-1.5"
                           >
                             <RotateCcw size={14} />
                           </button>
@@ -1408,14 +1405,14 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                 </div>
                 <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Custom Product Pricing</p>
-                  {wizardPricingRows.filter((r) => r.custom_price !== null && r.custom_price !== undefined).length === 0 ? (
+                  {wizardStagedPrices.length === 0 ? (
                     <p className="text-xs text-gray-400">No custom prices set — catalog price applies to everything.</p>
                   ) : (
                     <div className="space-y-1.5 max-h-[160px] overflow-y-auto">
-                      {wizardPricingRows.filter((r) => r.custom_price !== null && r.custom_price !== undefined).map((r) => (
+                      {wizardStagedPrices.map((r) => (
                         <div key={r.product_id} className="flex items-center justify-between text-sm">
                           <span className="text-gray-600 truncate">{r.name}</span>
-                          <span className="font-medium text-navy flex-shrink-0 ml-2">PKR {Number(r.custom_price).toLocaleString()}</span>
+                          <span className="font-medium text-navy flex-shrink-0 ml-2">PKR {Number(r.price).toLocaleString()}</span>
                         </div>
                       ))}
                     </div>
@@ -1458,7 +1455,6 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
             <div className="max-h-[360px] overflow-y-auto -mx-1 space-y-2">
               {visiblePricingRows.map((row) => {
                 const hasCustom = row.custom_price !== null && row.custom_price !== undefined;
-                const isSaving = savingProductId === row.product_id;
                 return (
                   <div key={row.product_id} className="flex items-center gap-3 border border-gray-100 rounded-xl px-3.5 py-2.5 mx-1">
                     <div className="min-w-0 flex-1">
@@ -1476,21 +1472,12 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                       onChange={(e) => setPriceInputs((prev) => ({ ...prev, [row.product_id]: e.target.value }))}
                       className="w-24 border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
                     />
-                    <button
-                      type="button"
-                      disabled={isSaving}
-                      onClick={() => handleSaveCustomPrice(row.product_id)}
-                      className="text-xs font-semibold text-white bg-navy hover:bg-navy/90 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors"
-                    >
-                      Save
-                    </button>
-                    {hasCustom && (
+                    {(priceInputs[row.product_id] ?? '') !== '' && (
                       <button
                         type="button"
-                        disabled={isSaving}
-                        onClick={() => handleResetCustomPrice(row.product_id)}
+                        onClick={() => setPriceInputs((prev) => ({ ...prev, [row.product_id]: '' }))}
                         title="Reset to default"
-                        className="text-gray-400 hover:text-red-600 disabled:opacity-50 p-1.5"
+                        className="text-gray-400 hover:text-red-600 p-1.5"
                       >
                         <RotateCcw size={14} />
                       </button>
@@ -1501,8 +1488,11 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
             </div>
           )}
 
-          <div className="flex justify-end pt-4">
+          <div className="flex justify-end gap-2 pt-4">
             <Button type="button" variant="secondary" onClick={() => setPricingCustomer(null)}>Close</Button>
+            <Button type="button" disabled={savingPrices || pricingLoading} onClick={handleSaveAllPrices}>
+              {savingPrices ? 'Saving...' : 'Save Prices'}
+            </Button>
           </div>
         </Modal>
       )}
