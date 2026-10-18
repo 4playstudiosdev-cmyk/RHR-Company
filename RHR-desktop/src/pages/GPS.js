@@ -93,7 +93,42 @@ function effectiveStatus(s) {
   return age > OFFLINE_AFTER_MS ? 'offline' : s.location.status;
 }
 
-const todayStr = () => new Date().toISOString().split('T')[0];
+// "Today" in Pakistan (the old UTC date was a day behind from midnight to
+// 5 AM, so the route date picker opened on yesterday).
+const todayStr = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+
+// Times are shown in Pakistan time with seconds, independent of the
+// computer's own timezone setting; the date is added when it isn't today.
+function pktTime(iso, { seconds = true } = {}) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const day = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+  const time = d.toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Karachi', hour: '2-digit', minute: '2-digit', ...(seconds ? { second: '2-digit' } : {}), hour12: true,
+  });
+  if (day === todayStr()) return time;
+  return `${d.toLocaleDateString('en-GB', { timeZone: 'Asia/Karachi', day: '2-digit', month: 'short' })}, ${time}`;
+}
+
+const pktFull = (iso) =>
+  new Date(iso).toLocaleString('en-GB', {
+    timeZone: 'Asia/Karachi', day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
+  });
+
+// Names/notes come from users — escape before putting them in popup HTML.
+const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Numbered orange pin for a customer visit on the route.
+function buildVisitIcon(n) {
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:26px;height:26px;background:#E8841A;color:#fff;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 5px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;"><span style="transform:rotate(45deg);font-size:11px;font-weight:700;">${n}</span></div>`,
+    iconSize: [26, 26],
+    iconAnchor: [4, 26],
+    popupAnchor: [9, -26],
+  });
+}
 
 export default function GPS({ user }) {
   const toast = useToast();
@@ -184,9 +219,7 @@ export default function GPS({ user }) {
       const dimmed = status === 'offline';
       const roleLabel = s.staffType === 'driver' ? `Driver${s.car_number ? ` — ${s.car_number}` : ''}` : s.staffType === 'delivery' ? 'Delivery' : 'Salesman';
       const branchLabel = s.company ? ` · ${s.company.city}` : '';
-      const popupHtml = `<div style="font-size:12px"><strong>${getMarkerLabel(s)} ${s.full_name}</strong><br/>${roleLabel}${branchLabel}<br/>Status: ${STATUS_META[status]?.label || status}<br/>Last seen: ${new Date(
-        s.location.recorded_at
-      ).toLocaleTimeString()}</div>`;
+      const popupHtml = `<div style="font-size:12px"><strong>${getMarkerLabel(s)} ${s.full_name}</strong><br/>${roleLabel}${branchLabel}<br/>Status: ${STATUS_META[status]?.label || status}<br/>Last seen: ${pktTime(s.location.recorded_at)}</div>`;
 
       markersRef.current[s.id] = s.staffType === 'driver'
         ? L.marker(pos, { icon: buildDriverIcon(color, dimmed) }).addTo(mapRef.current).bindPopup(popupHtml)
@@ -264,9 +297,7 @@ export default function GPS({ user }) {
       ];
 
       const branchLabel = a.company ? ` · ${a.company.city}` : '';
-      const popupHtml = `<div style="font-size:12px"><strong>${a.full_name}</strong><br/>${a.phone ? `${a.phone}<br/>` : ''}${a.role === 'super_admin' ? 'Super Admin' : 'Branch Admin'}${branchLabel}<br/>Last seen: ${new Date(
-        a.location.recorded_at
-      ).toLocaleTimeString()}</div>`;
+      const popupHtml = `<div style="font-size:12px"><strong>${a.full_name}</strong><br/>${a.phone ? `${a.phone}<br/>` : ''}${a.role === 'super_admin' ? 'Super Admin' : 'Branch Admin'}${branchLabel}<br/>Last seen: ${pktTime(a.location.recorded_at)}</div>`;
 
       adminMarkersRef.current[a.id] = L.circleMarker(pos, {
         radius: 10,
@@ -313,7 +344,7 @@ export default function GPS({ user }) {
     clearMarkers();
     try {
       const res = await api.get(`/gps/route/${selectedUser}`, { params: { date: routeDate } });
-      const { route, totalPoints, totalKM } = res.data.data;
+      const { route, totalPoints, totalKM, visits = [] } = res.data.data;
       const points = (route || []).map((p) => ({
         lat: Number(p.latitude),
         lng: Number(p.longitude),
@@ -321,9 +352,33 @@ export default function GPS({ user }) {
         recorded_at: p.recorded_at
       }));
 
-      if (points.length === 0) {
-        toast.error('No GPS pings recorded for this salesman on this date.');
+      const located = visits.filter((v) => v.latitude != null && v.longitude != null);
+
+      if (points.length === 0 && located.length === 0) {
+        toast.error('No GPS pings or visits recorded for this person on this date.');
         setRouteStats(null);
+        return;
+      }
+
+      // Visits are drawn even on a day with no GPS pings.
+      const visitMarkers = located.map((v, i) => {
+        const note = (v.notes || '').trim();
+        const html =
+          `<div style="font-size:12px;max-width:240px">` +
+          `<strong>Visit ${i + 1} · ${esc(v.customer_name)}</strong><br/>` +
+          (v.contact_name ? `${esc(v.contact_name)}<br/>` : '') +
+          `${esc(pktFull(v.visited_at))}` +
+          (note ? `<br/><span style="color:#555">${esc(note.length > 140 ? note.slice(0, 140) + '…' : note)}</span>` : '') +
+          `</div>`;
+        return L.marker([Number(v.latitude), Number(v.longitude)], { icon: buildVisitIcon(i + 1), zIndexOffset: 1000 })
+          .addTo(mapRef.current)
+          .bindPopup(html);
+      });
+
+      if (points.length === 0) {
+        routeLayerRef.current = visitMarkers;
+        mapRef.current.fitBounds(L.featureGroup(visitMarkers).getBounds(), { padding: [60, 60], maxZoom: 16 });
+        setRouteStats({ totalPoints: 0, totalKM: '0.00', visits: visits.length, visitsOnMap: located.length, visitList: visits });
         return;
       }
 
@@ -337,7 +392,7 @@ export default function GPS({ user }) {
         weight: 2
       })
         .addTo(mapRef.current)
-        .bindPopup('Start');
+        .bindPopup(`Start · ${pktTime(points[0].recorded_at)}`);
       const endMarker = L.circleMarker(path[path.length - 1], {
         radius: 8,
         fillColor: '#C0392B',
@@ -346,12 +401,12 @@ export default function GPS({ user }) {
         weight: 2
       })
         .addTo(mapRef.current)
-        .bindPopup('End (most recent)');
+        .bindPopup(`End (most recent) · ${pktTime(points[points.length - 1].recorded_at)}`);
 
-      routeLayerRef.current = [polyline, startMarker, endMarker];
-      mapRef.current.fitBounds(polyline.getBounds(), { padding: [40, 40] });
+      routeLayerRef.current = [polyline, startMarker, endMarker, ...visitMarkers];
+      mapRef.current.fitBounds(L.featureGroup([polyline, ...visitMarkers]).getBounds(), { padding: [40, 40] });
 
-      setRouteStats({ totalPoints, totalKM });
+      setRouteStats({ totalPoints, totalKM, visits: visits.length, visitsOnMap: located.length, visitList: visits });
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load route.');
     } finally {
@@ -514,6 +569,23 @@ export default function GPS({ user }) {
                     <span>Distance</span>
                     <span className="font-semibold text-orange">{routeStats.totalKM} KM</span>
                   </div>
+                  <div className="flex justify-between text-gray-600 mt-1">
+                    <span>Customer visits</span>
+                    <span className="font-semibold text-navy">{routeStats.visits}</span>
+                  </div>
+                  {routeStats.visits > routeStats.visitsOnMap && (
+                    <p className="text-[11px] text-gray-400 mt-1">{routeStats.visits - routeStats.visitsOnMap} visit(s) had no location and aren't on the map.</p>
+                  )}
+                  {routeStats.visitList?.length > 0 && (
+                    <ul className="mt-2 pt-2 border-t border-gray-200 space-y-1.5 max-h-48 overflow-y-auto">
+                      {routeStats.visitList.map((v, i) => (
+                        <li key={v.id} className="text-xs">
+                          <span className="font-semibold text-navy">{i + 1}. {v.customer_name}</span>
+                          <span className="block text-gray-400">{pktTime(v.visited_at)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               )}
             </div>

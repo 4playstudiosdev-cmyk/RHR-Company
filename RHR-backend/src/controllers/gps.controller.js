@@ -33,6 +33,37 @@ const pingLocation = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+// ── Time handling ─────────────────────────────────────────────────────
+// Everyone using this system is in Pakistan (UTC+5). The server runs in
+// UTC, so "a day" must be cut at Pakistan midnight, not UTC midnight —
+// otherwise the 00:00–05:00 PKT hours land on the wrong day.
+const PKT_OFFSET = '+05:00';
+const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+const pktToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+function pktDayBounds(dateStr) {
+  const d = dateRe.test(String(dateStr || '')) ? dateStr : pktToday();
+  return {
+    date: d,
+    start: new Date(`${d}T00:00:00${PKT_OFFSET}`).toISOString(),
+    end: new Date(`${d}T23:59:59.999${PKT_OFFSET}`).toISOString(),
+  };
+}
+
+// A queued offline ping carries the phone's own clock. Older app builds sent
+// it as a plain local time with no timezone ("2026-10-17T22:40:33"), which
+// Postgres read as UTC — stamping those pings 5 hours in the future. A
+// timestamp with no zone is Pakistan time; anything still in the future is
+// clamped to now.
+function parsePingTime(ts) {
+  if (!ts) return new Date().toISOString();
+  let str = String(ts).trim();
+  if (!/(Z|[+-]\d{2}:?\d{2})$/i.test(str)) str += PKT_OFFSET;
+  const t = new Date(str);
+  if (Number.isNaN(t.getTime())) return new Date().toISOString();
+  if (t.getTime() > Date.now() + 5 * 60 * 1000) return new Date().toISOString();
+  return t.toISOString();
+}
+
 // POST /api/v1/gps/batch-ping
 // Salesman/driver sends all offline-queued locations at once when
 // internet comes back. Same raw-https bypass as pingLocation above.
@@ -50,7 +81,7 @@ const batchPingLocation = async (req, res) => {
       accuracy:    p.accuracy || null,
       status:      p.status || 'moving',
       is_offline:  true,
-      recorded_at: p.timestamp || new Date().toISOString()
+      recorded_at: parsePingTime(p.timestamp)
     }));
 
     const data = await pgrestPost('gps_locations', records);
@@ -136,13 +167,12 @@ const getLocationHistory = async (req, res) => {
         return error(res, 'Access denied — that staff member is not in your branch', 403);
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const { start } = pktDayBounds();
 
     const data = await pgrestGet('gps_locations', {
       select: 'latitude,longitude,status,recorded_at',
       user_id: `eq.${userId}`,
-      recorded_at: `gte.${today.toISOString()}`,
+      recorded_at: `gte.${start}`,
       order: 'recorded_at.asc',
     });
 
@@ -163,18 +193,37 @@ const getRoute = async (req, res) => {
         return error(res, 'Access denied — that staff member is not in your branch', 403);
     }
 
-    const targetDate = date || new Date().toISOString().split('T')[0];
-    const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    const { date: targetDate, start, end } = pktDayBounds(date);
 
     const data = await pgrestGet('gps_locations', {
       select: 'latitude,longitude,status,is_offline,recorded_at',
       user_id: `eq.${userId}`,
-      and: `(recorded_at.gte.${startOfDay.toISOString()},recorded_at.lte.${endOfDay.toISOString()})`,
+      and: `(recorded_at.gte.${start},recorded_at.lte.${end})`,
       order: 'recorded_at.asc',
     });
+
+    // The customer visits this person marked that day, so the admin can see
+    // them as points on the route (where, when, which customer). Only
+    // salesmen mark visits — for a driver this is simply empty.
+    let visits = [];
+    try {
+      const rows = await pgrestGet('customer_visits', {
+        select: 'id,visited_at,notes,latitude,longitude,customer_id,users!customer_id(full_name,shop_name)',
+        salesman_id: `eq.${userId}`,
+        and: `(visited_at.gte.${start},visited_at.lte.${end})`,
+        order: 'visited_at.asc',
+      });
+      visits = (rows || []).map((v) => ({
+        id: v.id,
+        visited_at: v.visited_at,
+        notes: v.notes,
+        latitude: v.latitude,
+        longitude: v.longitude,
+        customer_id: v.customer_id,
+        customer_name: v.users?.shop_name || v.users?.full_name || 'Customer',
+        contact_name: v.users?.shop_name ? v.users?.full_name || null : null,
+      }));
+    } catch (e) { /* visits are an extra — never block the route itself */ }
 
     // Calculate total distance in KM
     let totalKM = 0;
@@ -190,7 +239,8 @@ const getRoute = async (req, res) => {
       date: targetDate,
       totalPoints: data.length,
       totalKM: totalKM.toFixed(2),
-      route: data
+      route: data,
+      visits
     }, 'Route data');
   } catch (err) { return error(res, err.message); }
 };

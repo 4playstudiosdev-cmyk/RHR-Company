@@ -172,7 +172,7 @@ class GPSService {
       'longitude': data.longitude,
       'accuracy': data.accuracy,
       'status': 'moving',
-      'timestamp': DateTime.now().toIso8601String(),
+      'timestamp': DateTime.now().toUtc().toIso8601String(),
     };
 
     try {
