@@ -5,6 +5,7 @@ const { withRetry } = require('../utils/withRetry');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { uploadBase64ToStorage } = require('../utils/storageUpload');
 const { normalizePhone, phoneLast10 } = require('../utils/phone');
+const { notifyPending, notifyApproved } = require('./accountStatusMessages.service');
 
 // Matches the frontend's own SESSION_MAX_AGE_MS (App.js) — a session is
 // considered abandoned (not actively locking the account) past this age.
@@ -194,6 +195,7 @@ async function registerCustomer({
     });
   } catch (e) { /* non-fatal */ }
 
+  notifyPending('customer', newUser);
   return newUser;
 }
 
@@ -453,6 +455,7 @@ async function registerSalesman({ phone, fullName, companyId, position }) {
     });
   } catch (e) { /* non-fatal */ }
 
+  notifyPending('salesman', newSalesman);
   return newSalesman;
 }
 
@@ -497,6 +500,7 @@ async function registerDriver({ phone, fullName, companyId, carNumber }) {
     });
   } catch (e) { /* non-fatal */ }
 
+  notifyPending('driver', newDriver);
   return newDriver;
 }
 
@@ -526,8 +530,10 @@ async function approveCustomer(customerId, adminUser, rateTier, creditLimit) {
   // them via CityFilter); branch_admin stays locked to their own.
   if (adminUser.role !== 'super_admin') filter.company_id = `eq.${adminUser.company_id}`;
 
+  const before = await pgrestGet('users', { select: 'is_approved', ...filter }).catch(() => []);
   const rows = await pgrestPatch('users', filter, update);
   if (!rows?.[0]) throw new Error('Customer not found or access denied');
+  if (before?.[0]?.is_approved === false) notifyApproved('customer', rows[0]);
   return rows[0];
 }
 
@@ -591,8 +597,10 @@ async function approveSalesman(salesmanId, adminUser) {
   const filter = { id: `eq.${salesmanId}` };
   if (adminUser.role !== 'super_admin') filter.company_id = `eq.${adminUser.company_id}`;
 
+  const before = await pgrestGet('salesmen', { select: 'is_approved', ...filter }).catch(() => []);
   const rows = await pgrestPatch('salesmen', filter, { is_approved: true });
   if (!rows?.[0]) throw new Error('Salesman not found or access denied');
+  if (before?.[0]?.is_approved === false) notifyApproved('salesman', rows[0]);
   return rows[0];
 }
 
@@ -608,8 +616,10 @@ async function approveDriver(driverId, adminUser) {
   const filter = { id: `eq.${driverId}` };
   if (adminUser.role !== 'super_admin') filter.company_id = `eq.${adminUser.company_id}`;
 
+  const before = await pgrestGet('drivers', { select: 'is_approved', ...filter }).catch(() => []);
   const rows = await pgrestPatch('drivers', filter, { is_approved: true });
   if (!rows?.[0]) throw new Error('Driver not found or access denied');
+  if (before?.[0]?.is_approved === false) notifyApproved('driver', rows[0]);
   return rows[0];
 }
 

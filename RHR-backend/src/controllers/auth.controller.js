@@ -7,6 +7,7 @@ const {
   generateToken
 } = require('../services/auth.service');
 const { success, error } = require('../utils/response');
+const { remindPending } = require('../services/accountStatusMessages.service');
 
 const sendOTPHandler = async (req, res) => {
   try {
@@ -34,7 +35,9 @@ const sendOTPHandler = async (req, res) => {
     }
 
     if (!existingUser.is_approved) {
-      // Registered but waiting for admin approval
+      // Registered but waiting for admin approval — no OTP, but let them
+      // know on WhatsApp where things stand (throttled, see the service).
+      remindPending(existingUser.role, existingUser);
       return success(res, { isNewUser: false, isPending: true }, 'Your account is pending admin approval.');
     }
 
