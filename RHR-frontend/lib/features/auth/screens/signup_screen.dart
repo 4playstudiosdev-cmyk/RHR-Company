@@ -212,6 +212,12 @@ class _SignupScreenState extends State<SignupScreen> {
         }
         return;
       }
+      // This number is already registered and still waiting for admin
+      // approval — the server sends no OTP in that case.
+      if (response.data['data']?['isPending'] == true) {
+        if (mounted) context.go('/pending-approval');
+        return;
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

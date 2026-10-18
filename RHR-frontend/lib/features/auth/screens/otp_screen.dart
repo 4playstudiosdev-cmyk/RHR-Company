@@ -139,7 +139,12 @@ class _OtpScreenState extends State<OtpScreen> {
       // user at this point (signup flow) — without this the backend's
       // "new user" branch would treat it as just a status check and skip
       // sending (see auth.controller.js's sendOTPHandler).
-      await DioClient.instance.post(ApiEndpoints.sendOtp, data: {'phone': phone, 'forceSend': true});
+      final res = await DioClient.instance.post(ApiEndpoints.sendOtp, data: {'phone': phone, 'forceSend': true});
+      if (res.data['data']?['isPending'] == true) {
+        // Registered but not approved yet — no OTP is sent for these.
+        if (mounted) context.go('/pending-approval');
+        return;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('OTP resent')));
         _startResendTimer();

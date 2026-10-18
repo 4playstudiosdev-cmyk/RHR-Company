@@ -41,8 +41,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (response.data['success'] == true) {
         final isNewUser = response.data['data']?['isNewUser'] == true;
+        // A registered number whose account an admin hasn't approved yet
+        // gets NO OTP from the server (it only replies "pending") — so
+        // don't open the OTP screen for a code that will never arrive.
+        final isPending = response.data['data']?['isPending'] == true;
         if (mounted) {
-          if (isNewUser) {
+          if (isPending) {
+            context.go('/pending-approval');
+          } else if (isNewUser) {
             context.push('/signup', extra: phone);
           } else {
             context.push('/otp', extra: phone);
