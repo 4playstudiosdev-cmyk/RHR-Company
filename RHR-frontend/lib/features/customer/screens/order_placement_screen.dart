@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/api_endpoints.dart';
@@ -19,8 +20,52 @@ class OrderPlacementScreen extends StatefulWidget {
 
 class _OrderPlacementScreenState extends State<OrderPlacementScreen> {
   bool _isLoading = false;
-  final _addressController = TextEditingController(text: 'Shop 12, Saddar Market, Karachi');
+  // Delivery address starts as the shop address (and GPS pin) the customer
+  // saved in their profile — it used to be a hardcoded Saddar address for
+  // everyone. They can still edit the text for this one order.
+  final _addressController = TextEditingController();
   final _notesController = TextEditingController();
+  bool _loadingProfile = true;
+  double? _shopLat;
+  double? _shopLng;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfileAddress();
+  }
+
+  Future<void> _loadProfileAddress() async {
+    try {
+      final res = await DioClient.instance.get(ApiEndpoints.myProfile);
+      if (res.data['success'] == true) {
+        final d = res.data['data'] as Map<String, dynamic>? ?? {};
+        final address = (d['shop_address'] ?? '').toString().trim();
+        if (!mounted) return;
+        setState(() {
+          if (_addressController.text.trim().isEmpty && address.isNotEmpty) {
+            _addressController.text = address;
+          }
+          final lat = d['shop_latitude'];
+          final lng = d['shop_longitude'];
+          if (lat is num && lng is num) {
+            _shopLat = lat.toDouble();
+            _shopLng = lng.toDouble();
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Profile address load error: $e');
+    } finally {
+      if (mounted) setState(() => _loadingProfile = false);
+    }
+  }
+
+  Future<void> _openShopOnMap() async {
+    if (_shopLat == null || _shopLng == null) return;
+    final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$_shopLat,$_shopLng');
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
 
   List<Map<String, dynamic>> get _displayItems => widget.cartItems ?? [];
 
@@ -170,11 +215,44 @@ class _OrderPlacementScreenState extends State<OrderPlacementScreen> {
               style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurface),
               decoration: InputDecoration(
                 prefixIcon: const Icon(Icons.location_on, color: AppColors.outline),
+                hintText: _loadingProfile ? 'Loading your saved address…' : 'Enter your delivery address',
                 filled: true,
                 fillColor: AppColors.surfaceContainerLowest,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.base), borderSide: BorderSide(color: AppColors.outlineVariant)),
               ),
             ),
+            const SizedBox(height: AppSpacing.xs),
+            // GPS location of the shop, from the profile, under the address.
+            if (_shopLat != null && _shopLng != null)
+              InkWell(
+                onTap: _openShopOnMap,
+                borderRadius: BorderRadius.circular(AppRadius.base),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceContainerLowest,
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                    border: Border.all(color: AppColors.outlineVariant),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.my_location, size: 18, color: AppColors.primary),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Delivery location (from your profile)',
+                            style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant)),
+                        Text('GPS: ${_shopLat!.toStringAsFixed(6)}, ${_shopLng!.toStringAsFixed(6)}',
+                            style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurface)),
+                      ]),
+                    ),
+                    Text('View on map', style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
+                  ]),
+                ),
+              )
+            else if (!_loadingProfile)
+              Text('No shop location saved yet — add it in your profile so deliveries can find you.',
+                  style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurfaceVariant)),
             const SizedBox(height: AppSpacing.sm),
             Text('Order Notes (Optional)', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant)),
             const SizedBox(height: 6),

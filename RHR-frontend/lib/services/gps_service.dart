@@ -1,29 +1,38 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:location/location.dart' as loc;
 import '../core/location/location_service.dart';
 import '../core/network/dio_client.dart';
 import '../core/storage/secure_storage.dart';
 import '../widgets/location_disclosure_dialog.dart';
 
 /// Keeps sending GPS pings for as long as tracking is on — including while
-/// the app is minimized or swiped away from Recents, until something
-/// explicitly calls [stopTracking] (logout, or a session going away). Runs
-/// on a real Android foreground service (the `location` package's
-/// background mode), which is why a permanent notification is required —
-/// Android itself enforces that for any app accessing location in the
-/// background, it can't be hidden. 5s / 1m keeps the admin map (which
-/// polls every 10s — see GPS.js's REFRESH_MS) feeling live without
-/// pinging pointlessly often when the phone hasn't actually moved.
+/// the screen is off, the app is minimized, or another app is in front —
+/// until something explicitly calls [stopTracking] (logout, or a session
+/// going away).
 ///
-/// Note for real-device testing: some OEM Android skins (the exact family
-/// TECNO's HiOS is part of) kill foreground services anyway unless the
-/// user disables battery optimization / enables autostart for this app —
-/// that's an OS-level restriction outside what any app can override from
-/// inside itself.
+/// How it stays alive:
+///  * Location comes from geolocator's position stream running as a real
+///    Android foreground service (permanent notification, required by
+///    Android), holding a CPU wake lock + Wi-Fi lock so the phone doesn't
+///    fall asleep between fixes with the screen off.
+///  * A watchdog notices when the stream has gone quiet (the OS or a
+///    battery manager killed it, or the phone is just standing still),
+///    re-attaches it, and sends a heartbeat ping so the admin map shows the
+///    person is still online at their last position.
+///  * [ensureTracking] is called whenever the app comes back to the
+///    foreground — before, a stream that had died silently was never
+///    revived because "already tracking" short-circuited every restart.
+///  * 5s / 1m keeps the admin map (polls every 10s — see GPS.js's
+///    REFRESH_MS) feeling live without pinging pointlessly when stationary.
+///
+/// Some OEM Android skins (TECNO HiOS, Xiaomi, Oppo...) still kill
+/// foreground services unless the user exempts the app from battery
+/// optimisation / allows auto-start — see BackgroundTrackingHelper, which
+/// walks the user through it.
 class GPSService {
   static final GPSService _instance = GPSService._internal();
   factory GPSService() => _instance;
@@ -33,8 +42,16 @@ class GPSService {
   static const int _intervalMs = 5000;
   static const double _distanceFilterMeters = 1;
 
-  final loc.Location _location = loc.Location();
-  StreamSubscription<loc.LocationData>? _locationSub;
+  // How long without a fix before the stream is considered dead and
+  // re-attached; and how often that's checked.
+  static const Duration _silenceLimit = Duration(seconds: 90);
+  static const Duration _watchdogEvery = Duration(seconds: 30);
+
+  StreamSubscription<Position>? _positionSub;
+  Timer? _watchdog;
+  DateTime? _lastFixAt;
+  DateTime? _lastPingAt;
+  Position? _lastPosition;
   Box? _offlineBox;
   bool _isTracking = false;
 
@@ -113,34 +130,120 @@ class GPSService {
       return false;
     }
 
+    _isTracking = true;
+    _lastFixAt = DateTime.now();
+    await _subscribe();
+    _watchdog?.cancel();
+    _watchdog = Timer.periodic(_watchdogEvery, (_) => unawaited(_checkAlive()));
+    return true;
+  }
+
+  LocationSettings _locationSettings() {
+    if (Platform.isAndroid) {
+      return AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: _distanceFilterMeters.round(),
+        intervalDuration: const Duration(milliseconds: _intervalMs),
+        // The foreground service that keeps this alive with the screen off.
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: 'RHR Company',
+          notificationText: 'Your location is being shared while on duty',
+          notificationChannelName: 'Location Tracking',
+          enableWakeLock: true,
+          enableWifiLock: true,
+          setOngoing: true,
+        ),
+      );
+    }
+    return LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: _distanceFilterMeters.round(),
+    );
+  }
+
+  /// (Re)attaches the position stream. Safe to call any time.
+  Future<void> _subscribe() async {
+    await _positionSub?.cancel();
+    _positionSub = null;
     try {
-      await _location.changeNotificationOptions(
-        channelName: 'Location Tracking',
-        title: 'RHR Company',
-        subtitle: 'Your location is being shared while on duty',
-        onTapBringToFront: true,
+      _positionSub = Geolocator.getPositionStream(locationSettings: _locationSettings()).listen(
+        (pos) {
+          _lastFixAt = DateTime.now();
+          _lastPosition = pos;
+          unawaited(_handleLocation(pos.latitude, pos.longitude, pos.accuracy, 'moving'));
+        },
+        onError: (e) => debugPrint('GPS stream error: $e'), // the watchdog re-attaches it
+        cancelOnError: false,
       );
-      await _location.changeSettings(
-        accuracy: loc.LocationAccuracy.high,
-        interval: _intervalMs,
-        distanceFilter: _distanceFilterMeters,
-      );
-      // Starts the actual Android foreground service — tracking survives
-      // the app being minimized or swiped from Recents from this point on.
-      final backgroundStarted = await _location.enableBackgroundMode(enable: true);
-      if (!backgroundStarted) {
-        debugPrint('GPS background mode could not be enabled — tracking only while app is open');
+    } catch (e) {
+      debugPrint('GPS subscribe failed: $e');
+    }
+  }
+
+  /// Runs every 30 s while tracking: if no fix has arrived for 90 s, the
+  /// stream is re-attached and a heartbeat ping goes out — the last known
+  /// (or a fresh) position marked 'idle' — so a parked or stalled phone
+  /// still shows as online instead of freezing on the map.
+  Future<void> _checkAlive() async {
+    if (!_isTracking) return;
+    if (!await SecureStorage.isLoggedIn()) {
+      await stopTracking(sync: false);
+      return;
+    }
+    final since = DateTime.now().difference(_lastFixAt ?? DateTime.now());
+    if (since < _silenceLimit) return;
+
+    debugPrint('GPS silent for ${since.inSeconds}s — re-attaching stream');
+    _lastFixAt = DateTime.now(); // don't re-attach again for another 90 s
+    await _subscribe();
+
+    final lastPing = _lastPingAt;
+    if (lastPing != null && DateTime.now().difference(lastPing) < const Duration(seconds: 60)) return;
+    try {
+      Position? pos;
+      try {
+        pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 15),
+          ),
+        );
+      } catch (_) {
+        pos = await Geolocator.getLastKnownPosition() ?? _lastPosition;
+      }
+      if (pos != null) {
+        _lastPosition = pos;
+        await _handleLocation(pos.latitude, pos.longitude, pos.accuracy, 'idle');
       }
     } catch (e) {
-      debugPrint('GPS background mode setup failed: $e');
+      debugPrint('GPS heartbeat failed: $e');
     }
+  }
 
-    _isTracking = true;
-    _locationSub = _location.onLocationChanged.listen(
-      (data) => unawaited(_handleLocation(data)),
-      onError: (e) => debugPrint('GPS stream error: $e'),
-    );
-    return true;
+  /// Call when the app returns to the foreground (and at startup): starts
+  /// tracking if it isn't running, and revives a stream that died while
+  /// the app was in the background — which a plain [startTracking] never
+  /// did, because it returns early whenever tracking is "already on".
+  Future<void> ensureTracking() async {
+    try {
+      final token = await SecureStorage.getToken();
+      final role = await SecureStorage.getRole();
+      if (token == null || (role != 'salesman' && role != 'driver' && role != 'delivery')) return;
+
+      if (!_isTracking) {
+        await startTracking();
+        return;
+      }
+      final since = DateTime.now().difference(_lastFixAt ?? DateTime(2000));
+      if (_positionSub == null || since > const Duration(seconds: 60)) {
+        debugPrint('GPS resumed with a quiet stream (${since.inSeconds}s) — re-attaching');
+        _lastFixAt = DateTime.now();
+        await _subscribe();
+      }
+      unawaited(_syncOfflinePoints());
+    } catch (e) {
+      debugPrint('ensureTracking failed: $e'); // never break the app over tracking
+    }
   }
 
   /// [sync] = false skips uploading queued offline points. The 401 handler in
@@ -149,29 +252,28 @@ class GPSService {
   /// an endless request loop that starved the UI and froze the app on its
   /// loading screen whenever a stale (expired) session was saved.
   Future<void> stopTracking({bool sync = true}) async {
-    await _locationSub?.cancel();
-    _locationSub = null;
+    _watchdog?.cancel();
+    _watchdog = null;
+    await _positionSub?.cancel(); // also stops geolocator's foreground service
+    _positionSub = null;
     _isTracking = false;
-    try {
-      await _location.enableBackgroundMode(enable: false);
-    } catch (e) {
-      debugPrint('GPS background mode teardown failed: $e');
-    }
     if (sync) await _syncOfflinePoints();
   }
 
-  Future<void> _handleLocation(loc.LocationData data) async {
+  Future<void> _handleLocation(double? latitude, double? longitude, double? accuracy, String status) async {
     // Stop pinging the moment the session goes away instead of quietly
     // uploading points with a stale/cleared token.
     if (!await SecureStorage.isLoggedIn()) {
       await stopTracking(sync: false); // no session — nothing can upload
       return;
     }
+    if (latitude == null || longitude == null) return;
+    _lastPingAt = DateTime.now();
     final ping = {
-      'latitude': data.latitude,
-      'longitude': data.longitude,
-      'accuracy': data.accuracy,
-      'status': 'moving',
+      'latitude': latitude,
+      'longitude': longitude,
+      'accuracy': accuracy,
+      'status': status,
       'timestamp': DateTime.now().toUtc().toIso8601String(),
     };
 

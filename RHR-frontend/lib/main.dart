@@ -35,8 +35,35 @@ Future<void> _resumeGpsIfFieldStaff() async {
   }
 }
 
-class RHRApp extends StatelessWidget {
+class RHRApp extends StatefulWidget {
   const RHRApp({super.key});
+
+  @override
+  State<RHRApp> createState() => _RHRAppState();
+}
+
+class _RHRAppState extends State<RHRApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Back to the foreground (screen turned on, switched back from another
+  // app): make sure GPS tracking is really running and revive it if the
+  // stream died while the app was in the background.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(GPSService().ensureTracking());
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

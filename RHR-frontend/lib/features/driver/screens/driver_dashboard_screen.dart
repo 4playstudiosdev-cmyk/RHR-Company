@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/location/background_tracking_helper.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
@@ -29,6 +30,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     super.initState();
     _loadProfile();
     _loadOrders();
+    WidgetsBinding.instance.addPostFrameCallback((_) => BackgroundTrackingHelper.promptIfNeeded(context));
   }
 
   Future<void> _loadProfile() async {
