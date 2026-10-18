@@ -1,7 +1,7 @@
 name: rhr_app
 description: "RHR & Company Enterprise App"
 publish_to: 'none'
-version: 1.5.5+34
+version: 1.5.7+36
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -58,6 +58,7 @@ dependencies:
 
   # Video playback for the customer home screen's promo slider
   video_player: ^2.9.2
+  flutter_foreground_task: ^11.0.3
 
 dev_dependencies:
   flutter_test:

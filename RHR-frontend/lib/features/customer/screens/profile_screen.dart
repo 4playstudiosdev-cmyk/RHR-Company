@@ -27,6 +27,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _name  = 'Customer';
   String _phone = '';
   String _business = '';
+  String _photoUrl = '';
   String _city = '';
   String _outstanding = 'PKR 0';
   String _totalOrders = '0';
@@ -65,6 +66,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (!mounted) return;
         setState(() {
           _business = (data['shop_name'] as String?) ?? '';
+          _photoUrl = (data['profile_photo_url'] as String?) ?? '';
           _city     = _cityNames[data['company_id']] ?? '';
           _hasShopLocation = data['shop_latitude'] != null && data['shop_longitude'] != null;
           if (data['shop_latitude'] != null) _shopLat = (data['shop_latitude'] as num).toDouble();
@@ -189,8 +191,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         color: AppColors.primaryFixed,
                         shape: BoxShape.circle,
                         border: Border.all(color: AppColors.surface, width: 4),
+                        image: _photoUrl.isNotEmpty
+                            ? DecorationImage(image: NetworkImage(_photoUrl), fit: BoxFit.cover)
+                            : null,
                       ),
-                      child: Center(child: Text(initial, style: AppTextStyles.headlineXl.copyWith(color: AppColors.onPrimaryFixed, fontSize: 32))),
+                      child: _photoUrl.isNotEmpty
+                          ? null
+                          : Center(child: Text(initial, style: AppTextStyles.headlineXl.copyWith(color: AppColors.onPrimaryFixed, fontSize: 32))),
                     ),
                     const SizedBox(height: AppSpacing.base),
                     Text(_name, style: AppTextStyles.headlineLgMobile.copyWith(color: Colors.white, fontSize: 22)),

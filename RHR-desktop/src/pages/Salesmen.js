@@ -428,6 +428,7 @@ export default function Salesmen({ onViewLedger }) {
                   <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Name</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Phone</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Photo & CNIC</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Registered</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
                   </tr>
@@ -442,6 +443,24 @@ export default function Salesmen({ onViewLedger }) {
                     >
                       <td className="px-6 py-3.5 font-medium text-navy">{s.full_name}</td>
                       <td className="px-6 py-3.5 text-gray-600">{s.phone}</td>
+                      <td className="px-6 py-3.5">
+                        <div className="flex items-center gap-3">
+                          {s.profile_photo_url ? (
+                            <a href={s.profile_photo_url} target="_blank" rel="noreferrer">
+                              <img src={s.profile_photo_url} alt="" className="w-10 h-10 rounded-full object-cover border border-gray-200" />
+                            </a>
+                          ) : (
+                            <span className="w-10 h-10 rounded-full bg-gray-100 text-gray-300 flex items-center justify-center text-[10px]">No photo</span>
+                          )}
+                          <div className="text-xs">
+                            <p className="font-medium text-navy">{s.nic_number || 'No CNIC given'}</p>
+                            <p className="space-x-2">
+                              {s.nic_image_url && <a href={s.nic_image_url} target="_blank" rel="noreferrer" className="text-navy hover:underline">Front</a>}
+                              {s.nic_back_image_url && <a href={s.nic_back_image_url} target="_blank" rel="noreferrer" className="text-navy hover:underline">Back</a>}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
                       <td className="px-6 py-3.5 text-gray-500">
                         {new Date(s.created_at).toLocaleDateString('en-GB')}
                       </td>

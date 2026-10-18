@@ -1015,6 +1015,7 @@ export default function VehicleManagement() {
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Name</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Phone</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Car Number</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Photo & CNIC</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Registered</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
                       </tr>
@@ -1030,6 +1031,24 @@ export default function VehicleManagement() {
                           <td className="px-6 py-3.5 font-medium text-navy">{d.full_name}</td>
                           <td className="px-6 py-3.5 text-gray-600">{d.phone || '—'}</td>
                           <td className="px-6 py-3.5 text-gray-600">{d.car_number || '—'}</td>
+                          <td className="px-6 py-3.5">
+                            <div className="flex items-center gap-3">
+                              {d.profile_photo_url ? (
+                                <a href={d.profile_photo_url} target="_blank" rel="noreferrer">
+                                  <img src={d.profile_photo_url} alt="" className="w-10 h-10 rounded-full object-cover border border-gray-200" />
+                                </a>
+                              ) : (
+                                <span className="w-10 h-10 rounded-full bg-gray-100 text-gray-300 flex items-center justify-center text-[10px]">No photo</span>
+                              )}
+                              <div className="text-xs">
+                                <p className="font-medium text-navy">{d.nic_number || 'No CNIC given'}</p>
+                                <p className="space-x-2">
+                                  {d.nic_image_url && <a href={d.nic_image_url} target="_blank" rel="noreferrer" className="text-navy hover:underline">Front</a>}
+                                  {d.nic_back_image_url && <a href={d.nic_back_image_url} target="_blank" rel="noreferrer" className="text-navy hover:underline">Back</a>}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
                           <td className="px-6 py-3.5 text-gray-500">
                             {new Date(d.created_at).toLocaleDateString('en-GB')}
                           </td>

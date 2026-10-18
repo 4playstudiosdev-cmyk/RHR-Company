@@ -136,7 +136,7 @@ router.get('/pending', authenticate, isAdmin, async (req, res) => {
   try {
     const companyId = resolveCompanyId(req);
     const params = {
-      select: 'id,full_name,phone,created_at',
+      select: 'id,full_name,phone,position,created_at,nic_number,profile_photo_url,nic_image_url,nic_back_image_url',
       is_approved: 'eq.false',
       is_active: 'eq.true',
       order: 'created_at.desc',

@@ -154,6 +154,33 @@ class _SignupScreenState extends State<SignupScreen> {
           const SnackBar(content: Text('Full name is required')));
       return;
     }
+    // A salesman / driver is asked for the same identity documents as a
+    // customer BEFORE they can register, so the admin has them in front of
+    // them when deciding to approve (they used to be collected only after
+    // approval, on a "Complete Your Profile" screen).
+    if (_selectedRole != 'customer') {
+      if (_nicController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('NIC number is required.')));
+        return;
+      }
+      if (_profileImage == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile picture is required.')));
+        return;
+      }
+      if (_nicFrontImage == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('NIC front image is required.')));
+        return;
+      }
+      if (_nicBackImage == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('NIC back image is required.')));
+        return;
+      }
+    }
+
     if (_selectedRole == 'customer') {
       if (_businessController.text.trim().isEmpty ||
           _addressController.text.trim().isEmpty ||
@@ -232,11 +259,11 @@ class _SignupScreenState extends State<SignupScreen> {
     Map<String, String>? nicFrontEnc;
     Map<String, String>? nicBackEnc;
     Map<String, String>? shopEnc;
+    profileEnc  = await _encodeImage(_profileImage!);
+    nicFrontEnc = await _encodeImage(_nicFrontImage!);
+    nicBackEnc  = await _encodeImage(_nicBackImage!);
     if (_selectedRole == 'customer') {
-      profileEnc  = await _encodeImage(_profileImage!);
-      nicFrontEnc = await _encodeImage(_nicFrontImage!);
-      nicBackEnc  = await _encodeImage(_nicBackImage!);
-      shopEnc     = await _encodeImage(_shopImage!);
+      shopEnc   = await _encodeImage(_shopImage!);
     }
 
     if (!mounted) return;
@@ -254,23 +281,50 @@ class _SignupScreenState extends State<SignupScreen> {
         'address':            _addressController.text.trim(),
         'area':               _areaController.text.trim(),
         'email':              _emailController.text.trim(),
-        'nicNumber':          _nicController.text.trim(),
         'whatsappPhone':      _whatsappController.text.trim(),
-        'profileImageBase64': profileEnc!['base64']!,
-        'profileImageMime':   profileEnc['mime']!,
-        'nicFrontBase64':     nicFrontEnc!['base64']!,
-        'nicFrontMime':       nicFrontEnc['mime']!,
-        'nicBackBase64':      nicBackEnc!['base64']!,
-        'nicBackMime':        nicBackEnc['mime']!,
         'shopImageBase64':    shopEnc!['base64']!,
         'shopImageMime':      shopEnc['mime']!,
         'shopLatitude':       _shopLatitude!,
         'shopLongitude':      _shopLongitude!,
       },
+      // identity documents — every role
+      'nicNumber':          _nicController.text.trim(),
+      'profileImageBase64': profileEnc['base64']!,
+      'profileImageMime':   profileEnc['mime']!,
+      'nicFrontBase64':     nicFrontEnc['base64']!,
+      'nicFrontMime':       nicFrontEnc['mime']!,
+      'nicBackBase64':      nicBackEnc['base64']!,
+      'nicBackMime':        nicBackEnc['mime']!,
     });
   }
 
   static const _fieldBorder = Color(0xFFCED4DA);
+
+  // NIC number + front/back pickers, shown for salesman and driver
+  // (a customer's form has its own, in a different order).
+  List<Widget> _staffNicFields() => [
+        const SizedBox(height: AppSpacing.sm),
+        _field(label: 'NIC Number', icon: Icons.badge_outlined, controller: _nicController,
+            hint: '42101-1234567-1'),
+        const SizedBox(height: AppSpacing.sm),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+            child: _nicImagePicker(
+              label: 'NIC Front',
+              file: _nicFrontImage,
+              onTap: () => _pickImage('nicFront'),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: _nicImagePicker(
+              label: 'NIC Back',
+              file: _nicBackImage,
+              onTap: () => _pickImage('nicBack'),
+            ),
+          ),
+        ]),
+      ];
 
   Widget _shopLocationField() {
     final isSet = _shopLatitude != null && _shopLongitude != null;
@@ -492,13 +546,15 @@ class _SignupScreenState extends State<SignupScreen> {
                           hint: '3XX XXXXXXX', keyboardType: TextInputType.phone),
                       const SizedBox(height: AppSpacing.sm),
 
-                      if (_selectedRole == 'salesman')
+                      if (_selectedRole == 'salesman') ...[
                         _field(label: 'Position', icon: Icons.badge_outlined, controller: _positionController,
-                            hint: 'e.g. Sales Executive, Area Manager')
-                      else if (_selectedRole == 'driver')
+                            hint: 'e.g. Sales Executive, Area Manager'),
+                        ..._staffNicFields(),
+                      ] else if (_selectedRole == 'driver') ...[
                         _field(label: 'Car Number', icon: Icons.directions_car_outlined, controller: _carNumberController,
-                            hint: 'e.g. KHI-1234')
-                      else ...[
+                            hint: 'e.g. KHI-1234'),
+                        ..._staffNicFields(),
+                      ] else ...[
                         _field(label: 'Business Name', icon: Icons.store_outlined, controller: _businessController,
                             hint: 'Shop or company name'),
                         const SizedBox(height: AppSpacing.sm),

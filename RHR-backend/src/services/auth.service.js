@@ -410,7 +410,39 @@ async function loginWithCredentials({ email, password, latitude, longitude, forc
 // whatever Railway/supabase-js does under the hood on a flaky request,
 // it can apparently misreport as an RLS violation instead of a plain
 // empty/failed response.
-async function registerSalesman({ phone, fullName, companyId, position }) {
+// A salesman / driver now signs up with their NIC number, NIC front/back and
+// profile photo (like a customer), so the admin has them in front of them
+// when deciding to approve — instead of collecting them only after approval.
+// Optional here so an older app build that doesn't send them can still
+// register; the current app requires them before it lets anyone proceed.
+async function uploadStaffDocs({ authUserId, companyId, nicNumber, profileImageBase64, profileImageMime,
+  nicFrontBase64, nicFrontMime, nicBackBase64, nicBackMime }) {
+  const docs = {};
+  if (nicNumber && String(nicNumber).trim()) docs.nic_number = String(nicNumber).trim();
+  const jobs = [];
+  if (profileImageBase64) {
+    jobs.push(uploadBase64ToStorage({
+      bucket: 'profile-photos', fileName: `${authUserId}.jpg`,
+      fileBase64: profileImageBase64, mimeType: profileImageMime || 'image/jpeg', companyId,
+    }).then((u) => { docs.profile_photo_url = u.url; }));
+  }
+  if (nicFrontBase64) {
+    jobs.push(uploadBase64ToStorage({
+      bucket: 'nic-images', fileName: `${authUserId}_front.jpg`,
+      fileBase64: nicFrontBase64, mimeType: nicFrontMime || 'image/jpeg', companyId,
+    }).then((u) => { docs.nic_image_url = u.url; }));
+  }
+  if (nicBackBase64) {
+    jobs.push(uploadBase64ToStorage({
+      bucket: 'nic-images', fileName: `${authUserId}_back.jpg`,
+      fileBase64: nicBackBase64, mimeType: nicBackMime || 'image/jpeg', companyId,
+    }).then((u) => { docs.nic_back_image_url = u.url; }));
+  }
+  await Promise.all(jobs);
+  return docs;
+}
+
+async function registerSalesman({ phone, fullName, companyId, position, ...docInput }) {
   const canonical = normalizePhone(phone);
   const bare      = canonical.replace('+', '');
   const last10    = phoneLast10(phone);
@@ -427,6 +459,7 @@ async function registerSalesman({ phone, fullName, companyId, position }) {
   }
 
   const authUserId = await getOrCreateAuthUser({ canonical, bare, fullName, role: 'salesman' });
+  const docs = await uploadStaffDocs({ authUserId, companyId, ...docInput });
 
   const [newSalesman] = await pgrestPost('salesmen', {
     id:          authUserId,
@@ -434,6 +467,7 @@ async function registerSalesman({ phone, fullName, companyId, position }) {
     full_name:   fullName,
     phone:       canonical,
     position:    position || null,
+    ...docs,
     is_approved: false,
     // Explicit rather than relying on the column default — a couple of
     // self-registered salesmen turned up with is_active already false
@@ -459,7 +493,7 @@ async function registerSalesman({ phone, fullName, companyId, position }) {
   return newSalesman;
 }
 
-async function registerDriver({ phone, fullName, companyId, carNumber }) {
+async function registerDriver({ phone, fullName, companyId, carNumber, ...docInput }) {
   const canonical = normalizePhone(phone);
   const bare      = canonical.replace('+', '');
   const last10    = phoneLast10(phone);
@@ -476,6 +510,7 @@ async function registerDriver({ phone, fullName, companyId, carNumber }) {
   }
 
   const authUserId = await getOrCreateAuthUser({ canonical, bare, fullName, role: 'driver' });
+  const docs = await uploadStaffDocs({ authUserId, companyId, ...docInput });
 
   const [newDriver] = await pgrestPost('drivers', {
     id:          authUserId,
@@ -483,6 +518,7 @@ async function registerDriver({ phone, fullName, companyId, carNumber }) {
     full_name:   fullName,
     phone:       canonical,
     car_number:  carNumber || null,
+    ...docs,
     is_approved: false,
     // Same explicit is_active fix as registerSalesman above.
     is_active:   true,

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/api_endpoints.dart';
+import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../services/auth_service.dart';
 import '../../../shared/widgets/rhr_button.dart';
@@ -17,6 +19,7 @@ class SalesmanProfileScreen extends StatefulWidget {
 class _SalesmanProfileScreenState extends State<SalesmanProfileScreen> {
   String _name  = 'Salesman';
   String _phone = '';
+  String _photoUrl = '';
 
   @override
   void initState() {
@@ -32,6 +35,15 @@ class _SalesmanProfileScreenState extends State<SalesmanProfileScreen> {
       if (name != null && name.isNotEmpty) _name = name;
       if (phone != null && phone.isNotEmpty) _phone = phone;
     });
+    // The profile photo lives on the server (uploaded at signup / profile setup).
+    try {
+      final res = await DioClient.instance.get(ApiEndpoints.salesmanMyProfile);
+      if (res.data['success'] == true && mounted) {
+        setState(() => _photoUrl = (res.data['data']?['profile_photo_url'] ?? '').toString());
+      }
+    } catch (e) {
+      debugPrint('Profile photo load error: $e');
+    }
   }
 
   @override
@@ -61,10 +73,13 @@ class _SalesmanProfileScreenState extends State<SalesmanProfileScreen> {
               ),
               child: Column(
                 children: [
-                  const CircleAvatar(
+                  CircleAvatar(
                     radius: 44,
                     backgroundColor: AppColors.orange,
-                    child: Icon(Icons.handshake_outlined, size: 44, color: Colors.white),
+                    backgroundImage: _photoUrl.isNotEmpty ? NetworkImage(_photoUrl) : null,
+                    child: _photoUrl.isEmpty
+                        ? const Icon(Icons.handshake_outlined, size: 44, color: Colors.white)
+                        : null,
                   ),
                   const SizedBox(height: 14),
                   Text(_name,

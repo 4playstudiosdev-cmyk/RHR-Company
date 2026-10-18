@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'core/constants/app_colors.dart';
@@ -10,6 +11,8 @@ import 'shared/router/app_router.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Lets the background GPS task and the UI talk to each other.
+  FlutterForegroundTask.initCommunicationPort();
   await HiveService.init();
   await GPSService().initialize();
   runApp(const ProviderScope(child: RHRApp()));

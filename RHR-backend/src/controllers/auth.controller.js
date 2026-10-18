@@ -117,9 +117,17 @@ const verifyOTPHandler = async (req, res) => {
     if (!fullName) return error(res, 'fullName is required for new registration', 400);
 
     if (role === 'salesman') {
-      await registerSalesman({ phone, fullName, companyId, position });
+      await registerSalesman({
+        phone, fullName, companyId, position, nicNumber,
+        profileImageBase64, profileImageMime,
+        nicFrontBase64, nicFrontMime, nicBackBase64, nicBackMime,
+      });
     } else if (role === 'driver') {
-      await registerDriver({ phone, fullName, companyId, carNumber });
+      await registerDriver({
+        phone, fullName, companyId, carNumber, nicNumber,
+        profileImageBase64, profileImageMime,
+        nicFrontBase64, nicFrontMime, nicBackBase64, nicBackMime,
+      });
     } else {
       await registerCustomer({
         phone, fullName, companyId, shopName, shopAddress, area,

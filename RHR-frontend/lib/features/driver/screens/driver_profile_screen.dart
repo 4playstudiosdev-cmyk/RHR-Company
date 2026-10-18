@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/api_endpoints.dart';
+import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../services/auth_service.dart';
 import '../../../shared/widgets/rhr_button.dart';
@@ -19,6 +21,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   String _phone = '';
   String _carNumber = '';
   String _driverId = '';
+  String _photoUrl = '';
 
   @override
   void initState() {
@@ -40,6 +43,15 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
         _driverId = 'DRV-${userId.substring(0, 8).toUpperCase()}';
       }
     });
+    // The profile photo lives on the server (uploaded at signup / profile setup).
+    try {
+      final res = await DioClient.instance.get(ApiEndpoints.driverMyProfile);
+      if (res.data['success'] == true && mounted) {
+        setState(() => _photoUrl = (res.data['data']?['profile_photo_url'] ?? '').toString());
+      }
+    } catch (e) {
+      debugPrint('Profile photo load error: $e');
+    }
   }
 
   @override
@@ -68,10 +80,13 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
               ),
               child: Column(
                 children: [
-                  const CircleAvatar(
+                  CircleAvatar(
                     radius: 44,
                     backgroundColor: AppColors.orange,
-                    child: Icon(Icons.local_shipping_outlined, size: 44, color: Colors.white),
+                    backgroundImage: _photoUrl.isNotEmpty ? NetworkImage(_photoUrl) : null,
+                    child: _photoUrl.isEmpty
+                        ? const Icon(Icons.local_shipping_outlined, size: 44, color: Colors.white)
+                        : null,
                   ),
                   const SizedBox(height: 14),
                   Text(_name,
