@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { Footprints, MapPin, MapPinOff, Users, UserCog, Download, Search, ExternalLink } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import PageHeader from '../components/PageHeader';
@@ -33,6 +35,44 @@ const AT_SHOP_METERS = 200;
 function distanceLabel(m) {
   if (m == null) return null;
   return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
+}
+
+// Small interactive map for the "View Location" popup — the visit's recorded
+// spot (orange pin) and, when the customer has one saved, their shop (🏪).
+// Leaflet + OpenStreetMap tiles, same as the Live GPS page; the old embedded
+// openstreetmap.org page refused to load inside the popup.
+function VisitMap({ lat, lng, shopLat, shopLng }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!ref.current) return undefined;
+    const map = L.map(ref.current).setView([lat, lng], 16);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 19,
+    }).addTo(map);
+
+    const visit = L.circleMarker([lat, lng], { radius: 10, fillColor: '#E8841A', fillOpacity: 1, color: '#fff', weight: 3 })
+      .addTo(map).bindPopup('Visit location');
+    const points = [[lat, lng]];
+
+    if (shopLat != null && shopLng != null) {
+      const icon = L.divIcon({
+        className: '',
+        html: '<div style="width:28px;height:28px;background:#fff;border:2px solid #073c9f;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 5px rgba(0,0,0,.35);">🏪</div>',
+        iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -14],
+      });
+      L.marker([shopLat, shopLng], { icon }).addTo(map).bindPopup("Customer's saved shop location");
+      L.polyline([[lat, lng], [shopLat, shopLng]], { color: '#6b7280', weight: 2, dashArray: '6 6' }).addTo(map);
+      points.push([shopLat, shopLng]);
+    }
+    if (points.length > 1) map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 17 });
+    visit.openPopup();
+
+    // the popup animates open — make Leaflet re-measure once it has settled
+    const t = setTimeout(() => map.invalidateSize(), 250);
+    return () => { clearTimeout(t); map.remove(); };
+  }, [lat, lng, shopLat, shopLng]);
+  return <div ref={ref} className="w-full h-80 rounded-xl border border-gray-200 z-0" />;
 }
 
 export default function CustomerVisits() {
@@ -248,15 +288,11 @@ export default function CustomerVisits() {
           {(() => {
             const lat = Number(mapVisit.latitude);
             const lng = Number(mapVisit.longitude);
-            const d = 0.004;
-            const bbox = `${lng - d},${lat - d},${lng + d},${lat + d}`;
+            const shopLat = mapVisit.users?.shop_latitude != null ? Number(mapVisit.users.shop_latitude) : null;
+            const shopLng = mapVisit.users?.shop_longitude != null ? Number(mapVisit.users.shop_longitude) : null;
             return (
               <>
-                <iframe
-                  title="Visit location"
-                  className="w-full h-80 rounded-xl border border-gray-200"
-                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lng}`}
-                />
+                <VisitMap lat={lat} lng={lng} shopLat={shopLat} shopLng={shopLng} />
                 <div className="flex items-center justify-between pt-3 text-xs text-gray-500">
                   <span>{lat.toFixed(6)}, {lng.toFixed(6)}</span>
                   <a href={mapsLink(lat, lng)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-navy hover:underline">
