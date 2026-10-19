@@ -2,6 +2,7 @@ const svc = require('../services/orders.service');
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { MIN_TOTAL_QTY } = require('../utils/orderQtyRules');
 
 const createOrder = async (req, res) => {
   try {
@@ -33,7 +34,13 @@ const createOrder = async (req, res) => {
       createdById:     user.id
     });
     return success(res, data, 'Order placed successfully', 201);
-  } catch (err) { return error(res, err.message, 400); }
+  } catch (err) {
+    // The apps show a dedicated "already one order in line" popup for this.
+    if (err.code === 'ORDER_IN_LINE') {
+      return res.status(409).json({ success: false, message: err.message, code: 'ORDER_IN_LINE', errors: null });
+    }
+    return error(res, err.message, 400);
+  }
 };
 
 const getOrders = async (req, res) => {
@@ -157,6 +164,16 @@ const customerUpdateOrderItems = async (req, res) => {
     if (!order) return error(res, 'Order not found', 404);
     if (order.customer_id !== req.user.id) return error(res, 'Access denied', 403);
     if (order.status !== 'pending') return error(res, 'This order can no longer be edited', 400);
+
+    // The whole order must still add up to the minimum total quantity after
+    // this edit (see utils/orderQtyRules.js).
+    const current = await pgrestGet('order_items', { select: 'id,quantity', order_id: `eq.${req.params.id}` });
+    const qty = Object.fromEntries((current || []).map((it) => [it.id, Number(it.quantity)]));
+    for (const id of removed_ids || []) delete qty[id];
+    for (const it of items || []) if (it.item_id in qty && it.quantity != null) qty[it.item_id] = Number(it.quantity);
+    const total = Object.values(qty).reduce((a, b) => a + b, 0)
+      + (added_items || []).reduce((a, it) => a + (Number(it.quantity) || 0), 0);
+    if (total < MIN_TOTAL_QTY) return error(res, `Minimum order is ${MIN_TOTAL_QTY} items in total — this order would have ${total}.`, 400);
 
     const data = await svc.updateOrderItems(
       req.params.id,

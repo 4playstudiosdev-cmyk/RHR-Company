@@ -163,7 +163,7 @@ async function buildCustomerProfilePDF(customer, company) {
     doc.fillColor(GRAY).font('Helvetica').fontSize(7.5)
        .text('RHR & Company — Internal Use Only', M, footerY + 6);
     doc.fillColor(GRAY).font('Helvetica').fontSize(7.5)
-       .text('Generated: ' + new Date().toLocaleString('en-GB'), M, footerY + 6, { width: CW, align: 'right' });
+       .text('Generated: ' + new Date().toLocaleString('en-GB', { timeZone: 'Asia/Karachi' }), M, footerY + 6, { width: CW, align: 'right' });
 
     doc.end();
   });

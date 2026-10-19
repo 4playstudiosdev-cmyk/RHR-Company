@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/qty_field.dart';
 import '../../../core/features/app_features.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
@@ -304,7 +305,13 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
                       child: const Icon(Icons.remove, size: 14, color: AppColors.primary),
                     ),
                   ),
-                  SizedBox(width: 30, child: Text('$qty', textAlign: TextAlign.center, style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary, fontSize: 15))),
+                  QtyField(
+                    value: qty,
+                    width: 46,
+                    borderColor: AppColors.primary,
+                    style: AppTextStyles.headlineSm.copyWith(color: AppColors.primary, fontSize: 15),
+                    onChanged: (v) => CartStore.instance.updateQty(pid, v),
+                  ),
                   GestureDetector(
                     onTap: () => CartStore.instance.updateQty(pid, qty + step),
                     child: Container(

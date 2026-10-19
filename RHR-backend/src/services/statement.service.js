@@ -42,7 +42,7 @@ async function buildStatementPDF({ customer, company, entries, fromDate, toDate,
 
     doc.fillColor(BLACK).font('Helvetica-Bold').fontSize(16).text('LEDGER STATEMENT', 370, 12, { width: 185, align: 'right' });
     doc.fillColor(GRAY).font('Helvetica').fontSize(8).text('Print Date: ' + new Date().toLocaleDateString('en-GB'), 370, 32, { width: 185, align: 'right' });
-    doc.text('Print Time: ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }), 370, 43, { width: 185, align: 'right' });
+    doc.text('Print Time: ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Karachi' }), 370, 43, { width: 185, align: 'right' });
 
     doc.moveTo(M, 58).lineTo(W - M, 58).strokeColor(ORANGE).lineWidth(1.5).stroke();
 

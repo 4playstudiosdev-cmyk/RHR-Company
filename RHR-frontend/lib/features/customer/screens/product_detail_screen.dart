@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/qty_field.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
@@ -36,7 +37,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         final product = response.data['data'] as Map<String, dynamic>;
         setState(() {
           _product = product;
-          _quantity = qtyRuleForProduct(product).min;
+          _quantity = qtyRuleForProduct(product).step;
         });
       }
     } catch (e) {
@@ -167,15 +168,14 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                       decoration: BoxDecoration(border: Border.all(color: AppColors.outlineVariant), borderRadius: BorderRadius.circular(AppRadius.base)),
                                       child: Row(children: [
                                         IconButton(
-                                          onPressed: () { if (_quantity > qtyRule.min) setState(() => _quantity -= qtyRule.step); },
+                                          onPressed: () => setState(() => _quantity = (_quantity - qtyRule.step) < 1 ? 1 : _quantity - qtyRule.step),
                                           icon: const Icon(Icons.remove, color: AppColors.primaryContainer),
                                         ),
-                                        Container(
-                                          width: 44,
-                                          alignment: Alignment.center,
-                                          decoration: const BoxDecoration(
-                                              border: Border.symmetric(vertical: BorderSide(color: AppColors.outlineVariant))),
-                                          child: Text('$_quantity', style: AppTextStyles.bodyMd.copyWith(fontWeight: FontWeight.w600, color: AppColors.primaryContainer)),
+                                        QtyField(
+                                          value: _quantity,
+                                          width: 56,
+                                          style: AppTextStyles.bodyMd.copyWith(fontWeight: FontWeight.w600, color: AppColors.primaryContainer),
+                                          onChanged: (v) => setState(() => _quantity = v < 1 ? 1 : v),
                                         ),
                                         IconButton(
                                           onPressed: () => setState(() => _quantity += qtyRule.step),

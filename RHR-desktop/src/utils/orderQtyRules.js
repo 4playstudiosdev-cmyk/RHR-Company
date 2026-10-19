@@ -1,24 +1,9 @@
-// Per-product minimum order quantity + stepper increment, based on how
-// each product line is actually packaged/sold. Mirrors the mobile app's
-// lib/shared/order_qty_rules.dart and the backend's
+// Order quantity rule — the same for every product, customer and role.
+// Mirrors the mobile app's lib/shared/order_qty_rules.dart and the backend's
 // src/utils/orderQtyRules.js — keep all three in sync.
-const RULES = {
-  tileBond: { min: 50, step: 10 },
-  grout: { min: 6, step: 6 },
-  maproCement1kg: { min: 25, step: 25 },
-  maproCement5kg: { min: 5, step: 5 },
-  normal: { min: 1, step: 1 },
-};
-
-export function qtyRuleFor(name = '', category = '') {
-  const n = String(name).toLowerCase();
-  const c = String(category).toLowerCase();
-  if (c.includes('tile bond')) return RULES.tileBond;
-  if (c.includes('grout')) return RULES.grout;
-  if (n.includes('mapro')) return n.includes('5kg') ? RULES.maproCement5kg : RULES.maproCement1kg;
-  return RULES.normal;
-}
-
-export function qtyRuleForProduct(product) {
-  return qtyRuleFor(product?.name, product?.categories?.name);
-}
+//   * no per-product minimum — any quantity of any item;
+//   * the TOTAL quantity of the whole order must be at least MIN_TOTAL_QTY
+//     (49 is rejected, 50 or more is fine);
+//   * the − / + buttons step by QTY_STEP; the quantity can also be typed.
+export const MIN_TOTAL_QTY = 50;
+export const QTY_STEP = 10;

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/order_in_line_dialog.dart';
+import '../../../shared/order_qty_rules.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -85,6 +87,11 @@ class _OrderPlacementScreenState extends State<OrderPlacementScreen> {
         const SnackBar(content: Text('Your cart is empty — add a product first')));
       return;
     }
+    final minHint = minTotalQtyHint(_displayItems.fold<int>(0, (s, i) => s + (i['qty'] as int)));
+    if (minHint != null) {
+      _showOrderRejected(minHint);
+      return;
+    }
     setState(() => _isLoading = true);
     try {
       final items = _displayItems.map((item) => {
@@ -129,6 +136,10 @@ class _OrderPlacementScreenState extends State<OrderPlacementScreen> {
       }
     } on DioException catch (e) {
       debugPrint('Place order error: $e');
+      if (isOrderInLine(e)) {
+        if (mounted) await showOrderInLineDialog(context);
+        return;
+      }
       final msg = e.response?.data?['message'] as String? ?? 'Order could not be placed — check your connection and try again.';
       if (mounted) _showOrderRejected(msg);
     } finally {

@@ -1,7 +1,8 @@
 const { supabaseAdmin }    = require('../config/supabase');
 const { generateInvoice }  = require('./invoice.service');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
-const { qtyRuleFor } = require('../utils/orderQtyRules');
+const { MIN_TOTAL_QTY } = require('../utils/orderQtyRules');
+const orderMessages = require('./orderMessages.service');
 const { notifyUser } = require('./notify.service');
 
 // Flat PKR 10 adjustment set on the customer's rate_tier at approval time
@@ -64,7 +65,9 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
   }
 
   if (activeOrders?.length) {
-    throw new Error('This customer already has an order in progress — place a new one after it is delivered.');
+    const e = new Error('Already one order in line — place a new one after it is delivered.');
+    e.code = 'ORDER_IN_LINE';
+    throw e;
   }
 
   const currentBalance = lastLedgerEntries?.[0]?.running_balance || 0;
@@ -75,15 +78,17 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
 
   // Step 2: Build order items with price snapshot
   let totalAmount = 0;
-  // Per-product minimum order quantity — Tile Bond (50), Grout (6),
-  // Mapro Gray/White Cement (25), everything else normal (1). Mirrors
-  // the frontend's lib/shared/order_qty_rules.dart so a direct API call
-  // can't bypass what the UI itself enforces.
+  // Total quantity across the whole order must be at least MIN_TOTAL_QTY
+  // (see utils/orderQtyRules.js) — enforced here so a direct API call can't
+  // bypass what the apps enforce.
+  const totalQuantity = items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
+  if (!(totalQuantity >= MIN_TOTAL_QTY)) {
+    throw new Error(`Minimum order is ${MIN_TOTAL_QTY} items in total — you have ${totalQuantity}.`);
+  }
   const orderItems = items.map(item => {
     const product = products.find(p => p.id === item.product_id);
-    const rule = qtyRuleFor(product.name, product.categories?.name);
-    if (Number(item.quantity) < rule.min) {
-      throw new Error(`Minimum order quantity for ${product.name} is ${rule.min} — you entered ${item.quantity}`);
+    if (!(Number(item.quantity) > 0)) {
+      throw new Error(`Enter a quantity for ${product.name}`);
     }
     if (product.stock_quantity < item.quantity) {
       throw new Error(`Insufficient stock for ${product.name}`);
@@ -200,6 +205,8 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       referenceId: order.id,
     });
   }
+
+  orderMessages.orderPlaced({ order, customerId, customer, items: orderItems, totalAmount, companyId });
 
   return order;
 }
@@ -562,6 +569,8 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
       }
     }
   }
+
+  orderMessages.statusChanged({ order: updated, status, cancellationReason });
 
   return updated;
 }

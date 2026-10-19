@@ -9,6 +9,13 @@ const { withRetry } = require('../utils/withRetry');
 // ATTENDANCE
 // ═══════════════════════════════════════
 
+// Pakistan (Asia/Karachi) wall-clock helpers — the server's own clock is UTC.
+const pktTime = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Karachi' });
+const pktClock = (d) => {
+  const [hour, minute] = d.toLocaleTimeString('en-GB', { hour12: false, hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Karachi' }).split(':').map(Number);
+  return { hour: hour % 24, minute };
+};
+
 // POST /api/v1/hrm/attendance/checkin — routed through the pgrestGet/
 // pgrestPost/pgrestPatch raw-https bypass (see utils/directQuery.js),
 // not plain supabase-js — this endpoint was 500ing for salesmen on
@@ -32,8 +39,11 @@ const checkIn = async (req, res) => {
       return error(res, 'Already checked in today', 400);
 
     // Check if late (after 9:00 AM)
+    // The server runs on UTC — "9:00 AM" and the time shown to the admin
+    // are both Pakistan time.
     const now    = new Date();
-    const isLate = now.getHours() >= 9 && now.getMinutes() > 0;
+    const pkt    = pktClock(now);
+    const isLate = pkt.hour * 60 + pkt.minute > 9 * 60;
 
     const body = {
       company_id:    req.user.company_id,
@@ -58,7 +68,7 @@ const checkIn = async (req, res) => {
         company_id:     req.user.company_id,
         recipient_role: 'branch_admin',
         title:          isLate ? 'Late Check-In' : 'Check-In',
-        body:           `${req.user.full_name || 'An employee'} checked in${isLate ? ' late' : ''} at ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}.`,
+        body:           `${req.user.full_name || 'An employee'} checked in${isLate ? ' late' : ''} at ${pktTime(now)}.`,
         type:           'attendance',
       });
     } catch (e) { /* non-fatal */ }
@@ -89,7 +99,7 @@ const checkOut = async (req, res) => {
         company_id:     req.user.company_id,
         recipient_role: 'branch_admin',
         title:          'Check-Out',
-        body:           `${req.user.full_name || 'An employee'} checked out at ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}.`,
+        body:           `${req.user.full_name || 'An employee'} checked out at ${pktTime(new Date())}.`,
         type:           'attendance',
       });
     } catch (e) { /* non-fatal */ }

@@ -14,9 +14,8 @@ class CartStore extends ChangeNotifier {
 
   int get itemCount => _items.fold(0, (sum, i) => sum + (i['qty'] as int));
 
-  // Each item's own floor/step (set once, at add time) — a grout pouch
-  // moves in 6s, a Tile Bond bag in 10s starting at 50, a Mapro cement
-  // bag in 25s, everything else one at a time. See order_qty_rules.dart.
+  // Every item moves in steps of 10 and its quantity can be typed; the
+  // order as a whole needs at least 50 items. See order_qty_rules.dart.
   int minQtyFor(String id) {
     final idx = _items.indexWhere((i) => i['id'] == id);
     return idx == -1 ? 1 : (_items[idx]['minQty'] as int? ?? 1);
@@ -36,7 +35,7 @@ class CartStore extends ChangeNotifier {
     int? qty,
   }) {
     final rule = qtyRuleFor(name: name, category: category);
-    final addQty = qty ?? rule.min;
+    final addQty = qty ?? rule.step;
     final idx = _items.indexWhere((i) => i['id'] == id);
     if (idx >= 0) {
       _items[idx]['qty'] = (_items[idx]['qty'] as int) + addQty;
@@ -57,8 +56,7 @@ class CartStore extends ChangeNotifier {
   void updateQty(String id, int qty) {
     final idx = _items.indexWhere((i) => i['id'] == id);
     if (idx == -1) return;
-    final minQty = (_items[idx]['minQty'] as int?) ?? 1;
-    if (qty < minQty) {
+    if (qty < 1) {
       _items.removeAt(idx);
     } else {
       _items[idx]['qty'] = qty;

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../../shared/order_qty_rules.dart';
+import '../../../shared/widgets/qty_field.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
@@ -15,6 +17,8 @@ class CartScreen extends StatelessWidget {
       builder: (context, _) {
         final cartItems = CartStore.instance.items;
         final total = CartStore.instance.total;
+        final totalQty = CartStore.instance.itemCount;
+        final minHint = minTotalQtyHint(totalQty);
         return Scaffold(
           backgroundColor: AppColors.background,
           appBar: AppBar(
@@ -92,7 +96,12 @@ class CartScreen extends StatelessWidget {
                                   icon: const Icon(Icons.remove, size: 16),
                                   visualDensity: VisualDensity.compact,
                                 ),
-                                Text('$qty', style: AppTextStyles.bodySm),
+                                QtyField(
+                                  value: qty,
+                                  width: 46,
+                                  style: AppTextStyles.bodySm.copyWith(fontWeight: FontWeight.w600),
+                                  onChanged: (v) => CartStore.instance.updateQty(pid, v),
+                                ),
                                 IconButton(
                                   onPressed: () => CartStore.instance.updateQty(pid, qty + step),
                                   icon: const Icon(Icons.add, size: 16),
@@ -120,13 +129,34 @@ class CartScreen extends StatelessWidget {
                             Text('PKR ${total.toStringAsFixed(0)}', style: AppTextStyles.headlineMd.copyWith(color: AppColors.primary)),
                           ],
                         ),
+                        const SizedBox(height: AppSpacing.xs),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text('Total quantity: $totalQty',
+                              style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurfaceVariant)),
+                        ),
+                        if (minHint != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Row(children: [
+                              const Icon(Icons.info_outline, size: 16, color: AppColors.error),
+                              const SizedBox(width: 6),
+                              Expanded(child: Text(minHint, style: AppTextStyles.bodySm.copyWith(color: AppColors.error, fontWeight: FontWeight.w600))),
+                            ]),
+                          ),
                         const SizedBox(height: AppSpacing.base),
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
-                            onPressed: () => context.push('/place-order', extra: cartItems),
+                            onPressed: () {
+                              if (minHint != null) {
+                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(minHint)));
+                                return;
+                              }
+                              context.push('/place-order', extra: cartItems);
+                            },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
+                              backgroundColor: minHint != null ? AppColors.outline : AppColors.primary,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 16),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.base)),

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/order_in_line_dialog.dart';
+import '../../../shared/widgets/qty_field.dart';
 import '../../../core/storage/secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
@@ -142,6 +144,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     }
   }
 
+  int get _totalQty => _products.fold(0, (s, p) => s + ((p['qty'] ?? 0) as int));
+
   int get _total => _products.fold(0, (s, p) =>
       s + ((p['price'] ?? 0) as num).toInt() * ((p['qty'] ?? 0) as int));
 
@@ -155,6 +159,11 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     if (sel.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Add at least one product')));
+      return;
+    }
+    final minHint = minTotalQtyHint(_totalQty);
+    if (minHint != null) {
+      _showOrderRejected(minHint);
       return;
     }
 
@@ -296,6 +305,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       // rejection and kept retrying a submission doomed to fail every
       // time, so this must surface loudly instead.
       if (e.response != null) {
+        if (isOrderInLine(e)) {
+          if (mounted) await showOrderInLineDialog(context, forCustomer: false);
+          return;
+        }
         final msg = e.response?.data?['message'] as String? ?? 'Order could not be placed.';
         if (mounted) _showOrderRejected(msg);
       } else {
@@ -529,7 +542,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                         Row(children: [
                           GestureDetector(
                             onTap: () => setState(() {
-                              _products[allIndex]['qty'] = qty <= qtyRule.min ? 0 : qty - qtyRule.step;
+                              _products[allIndex]['qty'] = qty - qtyRule.step < 1 ? 0 : qty - qtyRule.step;
                             }),
                             child: Container(
                               width: 30,
@@ -539,15 +552,16 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                               child: const Icon(Icons.remove, size: 16, color: AppColors.navy),
                             ),
                           ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
-                            child: Text('$qty',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 16)),
+                          QtyField(
+                            value: qty,
+                            width: 50,
+                            borderColor: AppColors.orange,
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 16),
+                            onChanged: (v) => setState(() => _products[allIndex]['qty'] = v < 0 ? 0 : v),
                           ),
                           GestureDetector(
                             onTap: () => setState(() =>
-                                _products[allIndex]['qty'] = qty == 0 ? qtyRule.min : qty + qtyRule.step),
+                                _products[allIndex]['qty'] = qty == 0 ? qtyRule.step : qty + qtyRule.step),
                             child: Container(
                               width: 30,
                               height: 30,
@@ -565,10 +579,22 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             color: AppColors.white,
-            child: RHRButton(
-                text: 'Review & Checkout — PKR $_total',
-                onPressed: _openCheckout,
-                isLoading: _isSubmitting),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  minTotalQtyHint(_totalQty) ?? 'Total quantity: $_totalQty',
+                  style: TextStyle(
+                      color: minTotalQtyHint(_totalQty) != null ? AppColors.error : AppColors.steelBlue,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12.5),
+                ),
+              ),
+              RHRButton(
+                  text: 'Review & Checkout — PKR $_total',
+                  onPressed: _openCheckout,
+                  isLoading: _isSubmitting),
+            ]),
           ),
       ]),
     );

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ShoppingCart, FileDown, Search, Plus, Trash2, Eye, Truck, Printer } from 'lucide-react';
+import { ShoppingCart, FileDown, Search, Plus, Minus, Trash2, Eye, Truck, Printer } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
@@ -10,7 +10,7 @@ import Button from '../components/Button';
 import CityFilter from '../components/CityFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
 import { buildInvoicePdf } from '../utils/invoicePdf';
-import { qtyRuleForProduct } from '../utils/orderQtyRules';
+import { MIN_TOTAL_QTY, QTY_STEP } from '../utils/orderQtyRules';
 
 // Matches the backend's validStatuses in orders.service.js. 'undelivered'
 // is driver-only (set from their own Cancel button on the delivery run,
@@ -36,7 +36,7 @@ function availableNextStatuses(currentStatus) {
 }
 const PAGE_SIZE = 10;
 const TAX_RATE = 0.18; // 18% sales tax
-const EMPTY_ORDER_FORM = { customer_id: '', items: [{ product_id: '', quantity: 1 }], delivery_address: '', notes: '' };
+const EMPTY_ORDER_FORM = { customer_id: '', items: [{ product_id: '', quantity: QTY_STEP }], delivery_address: '', notes: '' };
 
 // created_by_role (phase61) — who actually clicked "create", independent
 // of salesman_id (always the customer's assigned salesman, not
@@ -230,14 +230,6 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
       ...prev,
       items: prev.items.map((it, i) => {
         if (i !== index) return it;
-        // Picking a product snaps quantity to that product's own floor
-        // (Tile Bond 50, Grout 6, Mapro cement 25, everything else 1)
-        // instead of leaving behind a quantity from the previously
-        // selected product that might not even be valid for this one.
-        if (field === 'product_id') {
-          const product = products.find((p) => p.id === value);
-          return { ...it, product_id: value, quantity: qtyRuleForProduct(product).min };
-        }
         return { ...it, [field]: value };
       })
     }));
@@ -249,6 +241,18 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
 
   const removeItemRow = (index) => {
     setOrderForm((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }));
+  };
+
+  const orderFormTotalQty = orderForm.items.reduce(
+    (sum, it) => sum + (it.product_id ? Number(it.quantity || 0) : 0), 0);
+
+  const stepItemQty = (index, delta) => {
+    setOrderForm((prev) => ({
+      ...prev,
+      items: prev.items.map((it, i) => (
+        i === index ? { ...it, quantity: Math.max(1, Number(it.quantity || 0) + delta) } : it
+      )),
+    }));
   };
 
   const orderFormTotal = orderForm.items.reduce((sum, it) => {
@@ -264,13 +268,9 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
       .filter((it) => it.product_id && Number(it.quantity) > 0)
       .map((it) => ({ product_id: it.product_id, quantity: Number(it.quantity) }));
     if (items.length === 0) { toast.error('Add at least one product.'); return; }
-    const belowMin = items.find((it) => {
-      const product = products.find((p) => p.id === it.product_id);
-      return it.quantity < qtyRuleForProduct(product).min;
-    });
-    if (belowMin) {
-      const product = products.find((p) => p.id === belowMin.product_id);
-      toast.error(`Minimum order quantity for ${product?.name || 'this product'} is ${qtyRuleForProduct(product).min}.`);
+    const totalQty = items.reduce((sum, it) => sum + it.quantity, 0);
+    if (totalQty < MIN_TOTAL_QTY) {
+      toast.error(`Minimum order is ${MIN_TOTAL_QTY} items in total — this order has ${totalQty}.`);
       return;
     }
 
@@ -1087,14 +1087,29 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
                         );
                       })}
                     </select>
+                    <button
+                      type="button"
+                      onClick={() => stepItemQty(i, -QTY_STEP)}
+                      className="flex-shrink-0 w-8 h-9 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 flex items-center justify-center"
+                      aria-label={`Minus ${QTY_STEP}`}
+                    >
+                      <Minus size={14} />
+                    </button>
                     <input
                       type="number"
-                      min={qtyRuleForProduct(products.find((p) => p.id === item.product_id)).min}
-                      step={qtyRuleForProduct(products.find((p) => p.id === item.product_id)).step}
+                      min={1}
                       value={item.quantity}
                       onChange={(e) => updateItem(i, 'quantity', e.target.value)}
-                      className="w-20 flex-shrink-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+                      className="w-20 flex-shrink-0 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
                     />
+                    <button
+                      type="button"
+                      onClick={() => stepItemQty(i, QTY_STEP)}
+                      className="flex-shrink-0 w-8 h-9 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 flex items-center justify-center"
+                      aria-label={`Plus ${QTY_STEP}`}
+                    >
+                      <Plus size={14} />
+                    </button>
                     <button
                       type="button"
                       onClick={() => removeItemRow(i)}
@@ -1113,6 +1128,12 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
               >
                 <Plus size={14} /> Add another product
               </button>
+              {orderFormTotalQty > 0 && (
+                <p className={`mt-2 text-xs font-medium ${orderFormTotalQty < MIN_TOTAL_QTY ? 'text-red-600' : 'text-gray-500'}`}>
+                  Total quantity: {orderFormTotalQty}
+                  {orderFormTotalQty < MIN_TOTAL_QTY && ` — minimum order is ${MIN_TOTAL_QTY} items in total (add ${MIN_TOTAL_QTY - orderFormTotalQty} more)`}
+                </p>
+              )}
               {orderFormTotal > 0 && (
                 <div className="mt-3 bg-navy-chip/40 border border-navy-chip rounded-lg px-3.5 py-2.5 flex items-center justify-between">
                   <span className="text-sm font-semibold text-navy">Order Total</span>
