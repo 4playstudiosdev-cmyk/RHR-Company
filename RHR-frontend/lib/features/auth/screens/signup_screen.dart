@@ -186,7 +186,6 @@ class _SignupScreenState extends State<SignupScreen> {
           _addressController.text.trim().isEmpty ||
           _areaController.text.trim().isEmpty ||
           _emailController.text.trim().isEmpty ||
-          _nicController.text.trim().isEmpty ||
           _whatsappController.text.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('All fields are required.')));
@@ -197,16 +196,7 @@ class _SignupScreenState extends State<SignupScreen> {
             const SnackBar(content: Text('Profile picture is required.')));
         return;
       }
-      if (_nicFrontImage == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('NIC front image is required.')));
-        return;
-      }
-      if (_nicBackImage == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('NIC back image is required.')));
-        return;
-      }
+      // NIC number / front / back are optional for a customer.
       if (_shopImage == null) {
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Shop photo is required.')));
@@ -260,8 +250,8 @@ class _SignupScreenState extends State<SignupScreen> {
     Map<String, String>? nicBackEnc;
     Map<String, String>? shopEnc;
     profileEnc  = await _encodeImage(_profileImage!);
-    nicFrontEnc = await _encodeImage(_nicFrontImage!);
-    nicBackEnc  = await _encodeImage(_nicBackImage!);
+    if (_nicFrontImage != null) nicFrontEnc = await _encodeImage(_nicFrontImage!);
+    if (_nicBackImage != null) nicBackEnc = await _encodeImage(_nicBackImage!);
     if (_selectedRole == 'customer') {
       shopEnc   = await _encodeImage(_shopImage!);
     }
@@ -291,10 +281,14 @@ class _SignupScreenState extends State<SignupScreen> {
       'nicNumber':          _nicController.text.trim(),
       'profileImageBase64': profileEnc['base64']!,
       'profileImageMime':   profileEnc['mime']!,
-      'nicFrontBase64':     nicFrontEnc['base64']!,
-      'nicFrontMime':       nicFrontEnc['mime']!,
-      'nicBackBase64':      nicBackEnc['base64']!,
-      'nicBackMime':        nicBackEnc['mime']!,
+      if (nicFrontEnc != null) ...{
+        'nicFrontBase64':   nicFrontEnc['base64']!,
+        'nicFrontMime':     nicFrontEnc['mime']!,
+      },
+      if (nicBackEnc != null) ...{
+        'nicBackBase64':    nicBackEnc['base64']!,
+        'nicBackMime':      nicBackEnc['mime']!,
+      },
     });
   }
 
@@ -570,13 +564,13 @@ class _SignupScreenState extends State<SignupScreen> {
                         _field(label: 'WhatsApp Phone', icon: Icons.chat_outlined, controller: _whatsappController,
                             hint: '03XX XXXXXXX', keyboardType: TextInputType.phone),
                         const SizedBox(height: AppSpacing.sm),
-                        _field(label: 'NIC Number', icon: Icons.badge_outlined, controller: _nicController,
+                        _field(label: 'NIC Number (optional)', icon: Icons.badge_outlined, controller: _nicController,
                             hint: '42101-1234567-1'),
                         const SizedBox(height: AppSpacing.sm),
                         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Expanded(
                             child: _nicImagePicker(
-                              label: 'NIC Front',
+                              label: 'NIC Front (optional)',
                               file: _nicFrontImage,
                               onTap: () => _pickImage('nicFront'),
                             ),
@@ -584,7 +578,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           const SizedBox(width: AppSpacing.sm),
                           Expanded(
                             child: _nicImagePicker(
-                              label: 'NIC Back',
+                              label: 'NIC Back (optional)',
                               file: _nicBackImage,
                               onTap: () => _pickImage('nicBack'),
                             ),

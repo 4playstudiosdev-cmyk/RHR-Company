@@ -217,7 +217,7 @@ const createCustomer = async (req, res) => {
       shop_name:    shop_name || null,
       shop_address: shop_address || null,
       shop_image_url:    shop_image_url || null,
-      nic_number:        nic_number || null,
+      nic_number:        (nic_number && String(nic_number).trim()) || null,
       nic_image_url:     nic_image_url || null,
       nic_back_image_url: nic_back_image_url || null,
       rate_tier:    rate_tier || 'manual',

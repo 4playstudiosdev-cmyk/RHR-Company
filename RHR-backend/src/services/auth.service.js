@@ -124,9 +124,10 @@ async function registerCustomer({
     throw new Error('Account already exists. Pending admin approval.');
   }
 
-  if (!email || !nicNumber || !whatsappPhone || !profileImageBase64 || !nicFrontBase64 || !nicBackBase64
+  // NIC number and NIC front/back images are optional for a customer.
+  if (!email || !whatsappPhone || !profileImageBase64
       || !shopImageBase64 || shopLatitude == null || shopLongitude == null) {
-    throw new Error('email, nicNumber, whatsappPhone, profile picture, both NIC images, shop photo, and shop location are required');
+    throw new Error('email, whatsappPhone, profile picture, shop photo, and shop location are required');
   }
 
   // Supabase Auth requires E.164 format (+923001234567)
@@ -137,14 +138,14 @@ async function registerCustomer({
       bucket: 'profile-photos', fileName: `${authUserId}.jpg`,
       fileBase64: profileImageBase64, mimeType: profileImageMime || 'image/jpeg', companyId,
     }),
-    uploadBase64ToStorage({
+    nicFrontBase64 ? uploadBase64ToStorage({
       bucket: 'nic-images', fileName: `${authUserId}_front.jpg`,
       fileBase64: nicFrontBase64, mimeType: nicFrontMime || 'image/jpeg', companyId,
-    }),
-    uploadBase64ToStorage({
+    }) : null,
+    nicBackBase64 ? uploadBase64ToStorage({
       bucket: 'nic-images', fileName: `${authUserId}_back.jpg`,
       fileBase64: nicBackBase64, mimeType: nicBackMime || 'image/jpeg', companyId,
-    }),
+    }) : null,
     uploadBase64ToStorage({
       bucket: 'shop-photos', fileName: `${authUserId}.jpg`,
       fileBase64: shopImageBase64, mimeType: shopImageMime || 'image/jpeg', companyId,
@@ -160,14 +161,14 @@ async function registerCustomer({
       full_name:          fullName,
       phone:              canonical,   // always store in +92XXXXXXXXXX format
       email,
-      nic_number:         nicNumber,
+      nic_number:         (nicNumber && String(nicNumber).trim()) || null,
       whatsapp_phone:     whatsappPhone,
       shop_name:          shopName    || null,
       shop_address:       shopAddress || null,
       area:               area        || null,
       profile_photo_url:  profileUpload.url,
-      nic_image_url:      nicFrontUpload.url,
-      nic_back_image_url: nicBackUpload.url,
+      nic_image_url:      nicFrontUpload ? nicFrontUpload.url : null,
+      nic_back_image_url: nicBackUpload ? nicBackUpload.url : null,
       shop_image_url:     shopUpload.url,
       shop_latitude:      Number(shopLatitude),
       shop_longitude:     Number(shopLongitude),

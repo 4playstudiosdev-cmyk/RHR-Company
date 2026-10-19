@@ -214,10 +214,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
       'City': _cityController.text.trim().isNotEmpty,
       'Area': _areaController.text.trim().isNotEmpty,
       'Shop Location': _shopLatitude != null && _shopLongitude != null,
-      'NIC Number': _nicNumberController.text.trim().isNotEmpty,
       'Shop Photo': _shopImageFile != null,
-      'NIC Front Image': _nicFrontImageFile != null,
-      'NIC Back Image': _nicBackImageFile != null,
       'Credit Limit': double.tryParse(_creditLimitController.text.trim()) != null,
       'Opening Balance': double.tryParse(_openingBalanceController.text.trim()) != null,
     };
@@ -496,12 +493,12 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         _imagePicker(label: 'Shop Photo *', file: _shopImageFile, onTap: () => _pickImage('shop')),
       ]),
       _sectionCard(title: 'Identification', icon: Icons.badge_outlined, children: [
-        _field('NIC Number', _nicNumberController, required: true, icon: Icons.badge_outlined, hint: '42101-1234567-1',
+        _field('NIC Number (optional)', _nicNumberController, required: false, icon: Icons.badge_outlined, hint: '42101-1234567-1',
             keyboardType: TextInputType.number, inputFormatters: [CnicInputFormatter()]),
         Row(children: [
-          Expanded(child: _imagePicker(label: 'NIC Front *', file: _nicFrontImageFile, onTap: () => _pickImage('nicFront'))),
+          Expanded(child: _imagePicker(label: 'NIC Front (optional)', file: _nicFrontImageFile, onTap: () => _pickImage('nicFront'))),
           const SizedBox(width: 12),
-          Expanded(child: _imagePicker(label: 'NIC Back *', file: _nicBackImageFile, onTap: () => _pickImage('nicBack'))),
+          Expanded(child: _imagePicker(label: 'NIC Back (optional)', file: _nicBackImageFile, onTap: () => _pickImage('nicBack'))),
         ]),
       ]),
       _sectionCard(title: 'Account Setup', icon: Icons.account_balance_wallet_outlined, children: [
