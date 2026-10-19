@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { releaseServerSession } from '../services/api';
 
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000; // keep in sync with App.js
 
@@ -21,6 +22,7 @@ export default function SessionWarning() {
       }
 
       if (remaining <= 0) {
+        releaseServerSession();
         localStorage.removeItem('rhr_token');
         localStorage.removeItem('rhr_user');
         localStorage.removeItem('rhr_login_time');

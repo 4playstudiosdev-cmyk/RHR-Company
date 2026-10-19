@@ -6,7 +6,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import SessionWarning from './components/SessionWarning';
 import LocationGate from './components/LocationGate';
 import AdminLocationService from './services/adminLocationService';
-import api, { hasPermission } from './services/api';
+import api, { hasPermission, releaseServerSession } from './services/api';
 import { ToastProvider } from './components/Toast';
 import NotificationBell from './components/NotificationBell';
 import Topbar from './components/Topbar';
@@ -135,6 +135,7 @@ function isSessionExpired() {
 function AppShell() {
   const [token, setToken] = useState(() => {
     if (isSessionExpired()) {
+      releaseServerSession();
       localStorage.removeItem('rhr_token');
       localStorage.removeItem('rhr_user');
       localStorage.removeItem('rhr_login_time');

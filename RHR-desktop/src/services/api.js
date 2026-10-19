@@ -8,6 +8,25 @@ const api = axios.create({
   timeout: 30000
 });
 
+// Tells the server this browser session is over, so the account's
+// single-session lock is released. Used wherever the app logs itself out
+// (expired token, 8-hour limit) — those paths only cleared the browser's
+// storage before, which left the lock set and made the next login say
+// "already logged in on another device". Fire-and-forget (keepalive lets it
+// finish even through the page reload that follows); plain fetch, not axios,
+// so it can't re-enter the 401 handler below.
+export function releaseServerSession() {
+  const token = localStorage.getItem('rhr_token');
+  if (!token) return;
+  try {
+    fetch(`${DEFAULT_API_URL}/auth/logout`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      keepalive: true,
+    }).catch(() => {});
+  } catch (e) { /* best effort */ }
+}
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('rhr_token');
   if (token) {
@@ -21,6 +40,7 @@ api.interceptors.response.use(
   (response) => response,
   (err) => {
     if (err.response && err.response.status === 401) {
+      releaseServerSession();
       localStorage.removeItem('rhr_token');
       localStorage.removeItem('rhr_user');
       localStorage.removeItem('rhr_login_time');
