@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote } from 'lucide-react';
+import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import PageHeader from '../components/PageHeader';
 import Button from '../components/Button';
@@ -177,6 +177,42 @@ export default function SalesmanRecovery() {
       loadTransactions();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to approve.');
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  // Reject keeps the entry (shown as rejected in History) and tells the
+  // salesman; Delete removes it for good. Both are only for entries that were
+  // never approved — approving is what moves money in the books.
+  const handleReject = async (id, type) => {
+    const reason = window.prompt('Reason for rejecting (optional) — the salesman will see it:', '');
+    if (reason === null) return; // cancelled
+    setApprovingId(id);
+    try {
+      const endpoint = type === 'payment' ? `/recovery/transactions/${id}/reject` : `/recovery/cash-closing/${id}/reject`;
+      await api.patch(endpoint, { reason: reason.trim() });
+      toast.success('Rejected.');
+      loadPending();
+      loadTransactions();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to reject.');
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  const handleDeleteEntry = async (id, type) => {
+    if (!window.confirm('Delete this entry permanently? This cannot be undone.')) return;
+    setApprovingId(id);
+    try {
+      const endpoint = type === 'payment' ? `/recovery/transactions/${id}` : `/recovery/cash-closing/${id}`;
+      await api.delete(endpoint);
+      toast.success('Deleted.');
+      loadPending();
+      loadTransactions();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete.');
     } finally {
       setApprovingId(null);
     }
@@ -504,13 +540,30 @@ export default function SalesmanRecovery() {
                           <td className="px-6 py-3.5 text-gray-400 text-xs">{p.reference_number || '—'}</td>
                           <td className="px-6 py-3.5 text-right font-semibold text-emerald-600">PKR {Number(p.amount).toLocaleString()}</td>
                           <td className="px-6 py-3.5">
-                            <button
-                              onClick={() => handleApprove(p.id, 'payment')}
-                              disabled={approvingId === p.id}
-                              className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
-                            >
-                              {approvingId === p.id ? 'Approving...' : 'Approve'}
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleApprove(p.id, 'payment')}
+                                disabled={approvingId === p.id}
+                                className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                              >
+                                {approvingId === p.id ? 'Working...' : 'Approve'}
+                              </button>
+                              <button
+                                onClick={() => handleReject(p.id, 'payment')}
+                                disabled={approvingId === p.id}
+                                className="bg-white border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-60 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                              >
+                                Reject
+                              </button>
+                              <button
+                                onClick={() => handleDeleteEntry(p.id, 'payment')}
+                                disabled={approvingId === p.id}
+                                title="Delete this entry"
+                                className="text-gray-400 hover:text-red-600 disabled:opacity-60 p-1.5 rounded-lg transition-colors"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -550,13 +603,30 @@ export default function SalesmanRecovery() {
                           <td className="px-6 py-3.5 text-gray-600 capitalize">{c.deposit_to === 'bank' ? 'Bank' : 'Petty Cash'}</td>
                           <td className="px-6 py-3.5 text-gray-400 text-xs">{c.bank_account || '—'}</td>
                           <td className="px-6 py-3.5">
-                            <button
-                              onClick={() => handleApprove(c.id, 'closing')}
-                              disabled={approvingId === c.id}
-                              className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
-                            >
-                              {approvingId === c.id ? 'Approving...' : 'Approve'}
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleApprove(c.id, 'closing')}
+                                disabled={approvingId === c.id}
+                                className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                              >
+                                {approvingId === c.id ? 'Working...' : 'Approve'}
+                              </button>
+                              <button
+                                onClick={() => handleReject(c.id, 'closing')}
+                                disabled={approvingId === c.id}
+                                className="bg-white border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-60 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                              >
+                                Reject
+                              </button>
+                              <button
+                                onClick={() => handleDeleteEntry(c.id, 'closing')}
+                                disabled={approvingId === c.id}
+                                title="Delete this entry"
+                                className="text-gray-400 hover:text-red-600 disabled:opacity-60 p-1.5 rounded-lg transition-colors"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

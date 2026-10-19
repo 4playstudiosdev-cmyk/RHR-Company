@@ -2,7 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin, isSalesman, isDriver } = require('../middleware/role.middleware');
-const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { success, error } = require('../utils/response');
 const { notifyUser } = require('../services/notify.service');
@@ -213,6 +213,61 @@ router.post('/cash-closing', authenticate, isAdmin, async (req, res) => {
     return success(res, data, 'Cash closing submitted — pending admin approval', 201);
   } catch (err) { return error(res, err.message); }
 });
+
+// ── Reject / delete a pending entry (wrong amount, money never came, duplicate...) ──
+// Reject keeps the row (status 'rejected', visible in History) and tells the
+// salesman; delete removes it completely. Neither touches a customer's ledger
+// or a salesman's cash in hand — those only move when an entry is APPROVED
+// (online payments credit the ledger at approval, cash-in-hand counts approved
+// closings only) — so only entries that were never approved can be rejected or
+// deleted. Approved entries stay: removing one would need its ledger/cash
+// effect reversed too.
+const scopeFilter = (req) => {
+  const filter = { id: `eq.${req.params.id}` };
+  if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
+  return filter;
+};
+const rejectionNote = (reason) => (reason ? ` — ${String(reason).slice(0, 200)}` : '');
+
+async function rejectEntry(req, res, table, label) {
+  try {
+    const rows = await pgrestGet(table, { select: 'id,status,company_id,salesman_id,amount', ...scopeFilter(req) });
+    const row = rows?.[0];
+    if (!row) return error(res, `${label} not found or access denied`, 404);
+    if (row.status !== 'pending') return error(res, `Only a pending ${label.toLowerCase()} can be rejected (this one is ${row.status}).`, 400);
+
+    await pgrestPatch(table, { id: `eq.${row.id}` }, {
+      status: 'rejected',
+      approved_by: req.user.id,
+      approved_at: new Date().toISOString(),
+    });
+    await notifyUser({
+      companyId: row.company_id,
+      recipientId: row.salesman_id,
+      title: `${label} Rejected`,
+      body: `Your ${label.toLowerCase()} of PKR ${Number(row.amount).toLocaleString()} was rejected${rejectionNote(req.body?.reason)}`,
+      type: 'payment',
+      referenceId: row.id,
+    });
+    return success(res, { rejected: true }, `${label} rejected`);
+  } catch (err) { return error(res, err.message); }
+}
+
+async function deleteEntry(req, res, table, label) {
+  try {
+    const rows = await pgrestGet(table, { select: 'id,status', ...scopeFilter(req) });
+    const row = rows?.[0];
+    if (!row) return error(res, `${label} not found or access denied`, 404);
+    if (row.status === 'approved') return error(res, `An approved ${label.toLowerCase()} can't be deleted — it has already been counted in the books.`, 400);
+    await pgrestDelete(table, { id: `eq.${row.id}` });
+    return success(res, { deleted: true }, `${label} deleted`);
+  } catch (err) { return error(res, err.message); }
+}
+
+router.patch('/transactions/:id/reject',   authenticate, isAdmin, (req, res) => rejectEntry(req, res, 'salesman_recoveries', 'Payment'));
+router.delete('/transactions/:id',         authenticate, isAdmin, (req, res) => deleteEntry(req, res, 'salesman_recoveries', 'Payment'));
+router.patch('/cash-closing/:id/reject',   authenticate, isAdmin, (req, res) => rejectEntry(req, res, 'salesman_cash_closings', 'Deposit'));
+router.delete('/cash-closing/:id',         authenticate, isAdmin, (req, res) => deleteEntry(req, res, 'salesman_cash_closings', 'Deposit'));
 
 // PATCH /api/v1/recovery/cash-closing/:id/approve
 router.patch('/cash-closing/:id/approve', authenticate, isAdmin, async (req, res) => {
