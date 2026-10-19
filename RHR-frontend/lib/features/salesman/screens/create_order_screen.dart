@@ -296,6 +296,14 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           await showSuccessCheck(context, message: 'Order Placed!');
           if (mounted) context.go(_home);
         }
+      } else if (mounted) {
+        // 4xx answers (already one order in line, credit limit, stock, minimum
+        // quantity...) come back as a normal response, not an exception.
+        if (isOrderInLineData(res.data)) {
+          await showOrderInLineDialog(context, forCustomer: false);
+        } else {
+          _showOrderRejected((res.data is Map ? res.data['message'] : null)?.toString() ?? 'Order could not be placed.');
+        }
       }
     } on DioException catch (e) {
       // The backend reached us and actively rejected the order (e.g. this

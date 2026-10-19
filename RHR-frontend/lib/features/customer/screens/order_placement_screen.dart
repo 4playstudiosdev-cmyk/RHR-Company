@@ -132,7 +132,11 @@ class _OrderPlacementScreenState extends State<OrderPlacementScreen> {
           }
         }
       } else {
-        if (mounted) _showOrderRejected(response.data['message'] ?? 'Order failed');
+        if (isOrderInLineData(response.data)) {
+          if (mounted) await showOrderInLineDialog(context);
+        } else if (mounted) {
+          _showOrderRejected(response.data['message'] ?? 'Order failed');
+        }
       }
     } on DioException catch (e) {
       debugPrint('Place order error: $e');

@@ -4,8 +4,12 @@ import '../../core/constants/app_colors.dart';
 
 /// True when the server refused a new order because this customer already has
 /// one in progress (pending → dispatched). Shown as a popup, not a snackbar.
-bool isOrderInLine(DioException e) {
-  final data = e.response?.data;
+bool isOrderInLine(DioException e) => isOrderInLineData(e.response?.data);
+
+/// Same check on a response body — the app's Dio treats 4xx as a normal
+/// response (validateStatus < 500), so a rejected order arrives here, not as
+/// a DioException.
+bool isOrderInLineData(dynamic data) {
   if (data is! Map) return false;
   if (data['code'] == 'ORDER_IN_LINE') return true;
   return (data['message'] ?? '').toString().toLowerCase().contains('already one order in line');
