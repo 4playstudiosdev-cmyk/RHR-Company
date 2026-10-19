@@ -311,7 +311,55 @@ const getMySalesmanLocation = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+// GET /api/v1/gps/customers
+// Every approved customer that has a saved shop location, with the salesman
+// (and driver) looking after them — drawn as shop icons on the Live GPS map.
+// A branch admin sees their own branch; a super admin sees every branch (the
+// map's city filter narrows it on screen).
+const getCustomerLocations = async (req, res) => {
+  try {
+    const scoped = req.user.role !== 'super_admin';
+    const cf = scoped ? { company_id: `eq.${req.user.company_id}` } : {};
+
+    const [customers, salesmen, drivers, companies] = await Promise.all([
+      pgrestGet('users', {
+        select: 'id,full_name,shop_name,phone,shop_address,city,area,company_id,salesman_id,driver_id,shop_latitude,shop_longitude,shop_image_url',
+        role: 'eq.customer', is_approved: 'eq.true', ...cf,
+      }),
+      pgrestGet('salesmen', { select: 'id,full_name,phone', ...cf }),
+      pgrestGet('drivers', { select: 'id,full_name', ...cf }),
+      companyLookup(),
+    ]);
+    const salesmanById = Object.fromEntries((salesmen || []).map((s) => [s.id, s]));
+    const driverById = Object.fromEntries((drivers || []).map((d) => [d.id, d]));
+
+    const all = customers || [];
+    const located = all
+      .filter((c) => c.shop_latitude != null && c.shop_longitude != null)
+      .map((c) => ({
+        id: c.id,
+        full_name: c.full_name,
+        shop_name: c.shop_name,
+        phone: c.phone,
+        shop_address: c.shop_address,
+        city: c.city,
+        area: c.area,
+        company_id: c.company_id,
+        company: companies[c.company_id] || null,
+        latitude: Number(c.shop_latitude),
+        longitude: Number(c.shop_longitude),
+        shop_image_url: c.shop_image_url || null,
+        salesman: salesmanById[c.salesman_id] ? { id: c.salesman_id, full_name: salesmanById[c.salesman_id].full_name, phone: salesmanById[c.salesman_id].phone } : null,
+        driver: driverById[c.driver_id] ? { id: c.driver_id, full_name: driverById[c.driver_id].full_name } : null,
+      }))
+      .sort((a, b) => String(a.shop_name || a.full_name).localeCompare(String(b.shop_name || b.full_name)));
+
+    return success(res, { customers: located, total: all.length, withoutLocation: all.length - located.length }, 'Customer locations');
+  } catch (err) { return error(res, err.message); }
+};
+
 module.exports = {
+  getCustomerLocations,
   pingLocation, batchPingLocation, getLiveLocations, getLocationHistory, getRoute,
   getMySalesmanLocation
 };

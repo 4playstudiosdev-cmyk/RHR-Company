@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { MapPin, Circle, Route, ShieldCheck, LocateFixed, WifiOff, Store, PauseCircle, Navigation } from 'lucide-react';
+import { MapPin, Circle, Route, ShieldCheck, LocateFixed, WifiOff, Store, PauseCircle, Navigation, Search } from 'lucide-react';
 import api from '../services/api';
 import AdminLocationService from '../services/adminLocationService';
 import PageHeader from '../components/PageHeader';
@@ -130,6 +130,35 @@ function buildVisitIcon(n) {
   });
 }
 
+// A customer's shop — white tile with an orange border and a shop emoji, so
+// it reads as a different kind of pin from the staff markers.
+function buildShopIcon() {
+  return L.divIcon({
+    className: '',
+    html: '<div style="width:28px;height:28px;background:#fff;border:2px solid #E8841A;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 5px rgba(0,0,0,.35);">🏪</div>',
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+    popupAnchor: [0, -14],
+  });
+}
+
+function shopPopupHtml(c) {
+  const where = [c.area, c.city].filter(Boolean).join(', ');
+  const maps = `https://www.google.com/maps/search/?api=1&query=${c.latitude},${c.longitude}`;
+  return (
+    '<div style="font-size:12px;max-width:260px;line-height:1.5">' +
+    `<strong style="font-size:13px">🏪 ${esc(c.shop_name || c.full_name)}</strong><br/>` +
+    `Customer: ${esc(c.full_name)}<br/>` +
+    (c.phone ? `Phone: ${esc(c.phone)}<br/>` : '') +
+    (c.shop_address ? `Address: ${esc(c.shop_address)}<br/>` : '') +
+    (where ? `Area: ${esc(where)}<br/>` : '') +
+    `Salesman: <strong>${c.salesman ? esc(c.salesman.full_name) : 'Not assigned'}</strong><br/>` +
+    (c.driver ? `Driver: ${esc(c.driver.full_name)}<br/>` : '') +
+    `<a href="${maps}" target="_blank" rel="noreferrer" style="color:#073c9f;text-decoration:underline">Open in Google Maps</a>` +
+    '</div>'
+  );
+}
+
 export default function GPS({ user }) {
   const toast = useToast();
   const mapContainerRef = useRef(null);
@@ -137,10 +166,12 @@ export default function GPS({ user }) {
   const markersRef = useRef({});
   const adminMarkersRef = useRef({});
   const routeLayerRef = useRef(null);
+  const shopLayerRef = useRef(null);
+  const shopMarkersRef = useRef({});
 
   const isSuperAdmin = user?.role === 'super_admin';
 
-  const [view, setView] = useState('live'); // 'live' | 'route' | 'admin'
+  const [view, setView] = useState('live'); // 'live' | 'route' | 'admin' | 'customers'
   const [salesmen, setSalesmen] = useState([]);
   const [adminLocations, setAdminLocations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -153,6 +184,23 @@ export default function GPS({ user }) {
   const [routeStats, setRouteStats] = useState(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [pinging, setPinging] = useState(false);
+
+  // Customer shops (saved shop location of every approved customer).
+  const [customers, setCustomers] = useState([]);
+  const [customerStats, setCustomerStats] = useState({ total: 0, withoutLocation: 0 });
+  const [showShops, setShowShops] = useState(true); // shops on the Live / Route Playback maps
+  const [selectedCustomerId, setSelectedCustomerId] = useState(''); // '' = all customers
+  const [customerSearch, setCustomerSearch] = useState('');
+
+  useEffect(() => {
+    api.get('/gps/customers')
+      .then((res) => {
+        const d = res.data.data || {};
+        setCustomers(d.customers || []);
+        setCustomerStats({ total: d.total || 0, withoutLocation: d.withoutLocation || 0 });
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!isSuperAdmin) return;
@@ -168,6 +216,17 @@ export default function GPS({ user }) {
     () => (cityFilter ? adminLocations.filter((a) => a.company?.city === cityFilter) : adminLocations),
     [adminLocations, cityFilter]
   );
+
+  const visibleCustomers = useMemo(
+    () => (cityFilter ? customers.filter((c) => c.company?.city === cityFilter) : customers),
+    [customers, cityFilter]
+  );
+  const listedCustomers = useMemo(() => {
+    const q = customerSearch.trim().toLowerCase();
+    if (!q) return visibleCustomers;
+    return visibleCustomers.filter((c) =>
+      [c.shop_name, c.full_name, c.phone, c.salesman?.full_name, c.area].some((t) => (t || '').toLowerCase().includes(q)));
+  }, [visibleCustomers, customerSearch]);
 
   // ── Init map once ──
   useEffect(() => {
@@ -233,6 +292,38 @@ export default function GPS({ user }) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleSalesmen, view]);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    if (shopLayerRef.current) { shopLayerRef.current.remove(); shopLayerRef.current = null; }
+    shopMarkersRef.current = {};
+    const show = view === 'customers' || (showShops && (view === 'live' || view === 'route'));
+    if (!show) return;
+
+    const list = view === 'customers' && selectedCustomerId
+      ? visibleCustomers.filter((c) => c.id === selectedCustomerId)
+      : visibleCustomers;
+    const group = L.layerGroup();
+    list.forEach((c) => {
+      const m = L.marker([c.latitude, c.longitude], { icon: buildShopIcon(), zIndexOffset: -100 })
+        .bindPopup(shopPopupHtml(c));
+      m.addTo(group);
+      shopMarkersRef.current[c.id] = m;
+    });
+    group.addTo(mapRef.current);
+    shopLayerRef.current = group;
+
+    // On the Customer Locations tab, frame what is being shown.
+    if (view === 'customers' && list.length > 0) {
+      if (list.length === 1) {
+        mapRef.current.setView([list[0].latitude, list[0].longitude], 17, { animate: true });
+        shopMarkersRef.current[list[0].id]?.openPopup();
+      } else {
+        mapRef.current.fitBounds(L.latLngBounds(list.map((c) => [c.latitude, c.longitude])), { padding: [50, 50], maxZoom: 15 });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, showShops, visibleCustomers, selectedCustomerId]);
 
   const loadLive = useCallback(
     async (silent = false) => {
@@ -440,11 +531,23 @@ export default function GPS({ user }) {
     } else if (v === 'route') {
       clearMarkers();
       clearAdminMarkers();
+    } else if (v === 'customers') {
+      clearMarkers();
+      clearAdminMarkers();
+      clearRouteLayer();
+      setRouteStats(null);
     } else {
       clearMarkers();
       clearRouteLayer();
       setRouteStats(null);
     }
+  };
+
+  // Clicking a customer in the Customer Locations list pans to their shop.
+  const focusOnCustomer = (c) => {
+    if (!mapRef.current) return;
+    mapRef.current.setView([c.latitude, c.longitude], 17, { animate: true });
+    shopMarkersRef.current[c.id]?.openPopup();
   };
 
   // Clicking a sidebar card pans the map to that person's marker.
@@ -462,7 +565,7 @@ export default function GPS({ user }) {
 
   return (
     <div className="p-6 flex flex-col h-full">
-      <PageHeader title="Live GPS Tracking" subtitle="Track salesman, driver and admin locations, and replay any day's route" />
+      <PageHeader title="Live GPS Tracking" subtitle="Track salesman, driver and admin locations, customer shops, and replay any day's route" />
 
       <div className="flex justify-between items-center flex-wrap gap-3 mb-4">
         <div className="flex gap-2">
@@ -491,7 +594,22 @@ export default function GPS({ user }) {
           >
             <ShieldCheck size={14} /> Admin
           </button>
+          <button
+            onClick={() => switchView('customers')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+              view === 'customers' ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            <Store size={14} /> Customer Locations
+          </button>
         </div>
+
+        {(view === 'live' || view === 'route') && (
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg px-3 py-2 cursor-pointer select-none">
+            <input type="checkbox" checked={showShops} onChange={(e) => setShowShops(e.target.checked)} className="accent-orange" />
+            🏪 Show customer shops ({visibleCustomers.length})
+          </label>
+        )}
 
         {isSuperAdmin && branches.length > 0 && (
           <select
@@ -533,6 +651,58 @@ export default function GPS({ user }) {
       <div className="flex gap-4 flex-1 min-h-[500px]">
         {/* Sidebar */}
         <div className="w-72 flex-shrink-0 flex flex-col gap-3 overflow-y-auto">
+          {view === 'customers' && (
+            <>
+              <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-4 flex flex-col gap-3">
+                <select
+                  value={selectedCustomerId}
+                  onChange={(e) => setSelectedCustomerId(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                >
+                  <option value="">All customers ({visibleCustomers.length})</option>
+                  {visibleCustomers.map((c) => (
+                    <option key={c.id} value={c.id}>{c.shop_name || c.full_name}{c.shop_name ? ` — ${c.full_name}` : ''}</option>
+                  ))}
+                </select>
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    value={customerSearch}
+                    onChange={(e) => setCustomerSearch(e.target.value)}
+                    placeholder="Search shop, name, salesman..."
+                    className="w-full border border-gray-300 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+                  />
+                </div>
+                {customerStats.withoutLocation > 0 && (
+                  <p className="text-[11px] text-gray-400">{customerStats.withoutLocation} customer(s) have no saved shop location and aren't on the map.</p>
+                )}
+              </div>
+              {listedCustomers.length === 0 ? (
+                <div className="bg-white rounded-2xl shadow-card border border-gray-100">
+                  <EmptyState icon={Store} title="No customers found" subtitle="Customers with a saved shop location appear here" />
+                </div>
+              ) : (
+                listedCustomers.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => focusOnCustomer(c)}
+                    className={`text-left bg-white rounded-2xl shadow-card border p-3.5 flex items-center gap-3 hover:shadow-md transition-shadow ${
+                      selectedCustomerId === c.id ? 'border-orange' : 'border-gray-100'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-orange/10 flex items-center justify-center text-lg flex-shrink-0">🏪</div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-sm text-navy truncate">{c.shop_name || c.full_name}</p>
+                      <p className="text-xs text-gray-500 truncate">{c.full_name}</p>
+                      <p className="text-[11px] text-gray-400 truncate">Salesman: {c.salesman ? c.salesman.full_name : 'Not assigned'}</p>
+                    </div>
+                  </button>
+                ))
+              )}
+            </>
+          )}
+
           {view === 'route' && (
             <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-4 flex flex-col gap-3">
               <select
@@ -601,7 +771,7 @@ export default function GPS({ user }) {
             </button>
           )}
 
-          {view === 'admin' ? (
+          {view === 'customers' ? null : view === 'admin' ? (
             loading ? (
               <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-6 text-sm text-gray-400">
                 Loading...
@@ -711,6 +881,7 @@ export default function GPS({ user }) {
               <div className="flex items-center gap-3 border-t border-gray-100 pt-1.5">
                 <span className="flex items-center gap-1 font-medium">👤 Salesman</span>
                 <span className="flex items-center gap-1 font-medium">🚗 Driver</span>
+                {showShops && <span className="flex items-center gap-1 font-medium">🏪 Customer shop</span>}
               </div>
             </div>
           )}

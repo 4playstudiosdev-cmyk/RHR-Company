@@ -2,7 +2,8 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Briefcase, Clock, DollarSign, CalendarCheck, Download, UserPlus,
   ChevronLeft, ChevronRight, CheckCircle2, XCircle, PlaneTakeoff,
-  Contact, MapPin, Wallet, Palmtree, Stethoscope, Plus, PlayCircle, Users
+  Contact, MapPin, Wallet, Palmtree, Stethoscope, Plus, PlayCircle, Users,
+  History as HistoryIcon, Search
 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
@@ -15,6 +16,7 @@ import { CITY_IDS, fetchAllCities } from '../utils/multiCityFetch';
 
 const TABS = [
   { key: 'attendance', label: 'Attendance', icon: Clock },
+  { key: 'history', label: 'Check-in History', icon: HistoryIcon },
   { key: 'salary', label: 'Salary', icon: DollarSign },
   { key: 'leave', label: 'Leave', icon: CalendarCheck },
   { key: 'employees', label: 'Employees', icon: Contact }
@@ -143,6 +145,7 @@ export default function HRM() {
         </div>
       </div>
 
+      {tab !== 'history' && (
       <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5 mb-6 flex flex-wrap gap-4 items-end">
         <div className="min-w-[220px]">
           <label className="block text-sm font-medium text-gray-700 mb-1.5">Employee</label>
@@ -190,6 +193,7 @@ export default function HRM() {
           />
         </div>
       </div>
+      )}
 
       <div className="flex gap-2 mb-6">
         {TABS.map((t) => {
@@ -208,7 +212,9 @@ export default function HRM() {
         })}
       </div>
 
-      {tab === 'employees' ? (
+      {tab === 'history' ? (
+        <AttendanceHistoryTab companyFilter={companyFilter} toast={toast} />
+      ) : tab === 'employees' ? (
         <EmployeesTab employees={employees} loading={employeesLoading} />
       ) : tab === 'leave' ? (
         <LeaveTab staff={staff} employees={employees} toast={toast} companyFilter={companyFilter} />
@@ -1287,6 +1293,210 @@ function LeaveTab({ staff, employees, toast, companyFilter }) {
           </form>
         </Modal>
       )}
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Check-in history — every salesman and driver, for a day or a date range:
+// when they checked in / out, and who did not check in at all.
+// ───────────────────────────────────────────────────────────────────
+const PKT = 'Asia/Karachi';
+const pktToday = () => new Date().toLocaleDateString('en-CA', { timeZone: PKT });
+const shiftDays = (dateStr, delta) => {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+};
+const fmtTime = (iso) => (iso
+  ? new Date(iso).toLocaleTimeString('en-US', { timeZone: PKT, hour: '2-digit', minute: '2-digit', hour12: true })
+  : '—');
+const fmtDay = (dateStr) => new Date(`${dateStr}T00:00:00Z`)
+  .toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+const hoursWorked = (a, b) => {
+  if (!a || !b) return '—';
+  const mins = Math.max(0, Math.round((new Date(b) - new Date(a)) / 60000));
+  return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`;
+};
+const mapLink = (lat, lng) => (lat != null && lng != null
+  ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}` : null);
+
+const STATE_BADGE = {
+  checked_in:     { label: 'Checked in',      cls: 'bg-emerald-50 text-emerald-700' },
+  marked_present: { label: 'Marked present',  cls: 'bg-blue-50 text-blue-700' },
+  not_checked_in: { label: 'Not checked in',  cls: 'bg-red-50 text-red-600' },
+  absent:         { label: 'Absent',          cls: 'bg-red-50 text-red-600' },
+  leave:          { label: 'On leave',        cls: 'bg-amber-50 text-amber-700' },
+};
+
+function AttendanceHistoryTab({ companyFilter, toast }) {
+  const [from, setFrom] = useState(pktToday());
+  const [to, setTo] = useState(pktToday());
+  const [role, setRole] = useState('all');
+  const [show, setShow] = useState('all'); // all | in | late | out
+  const [search, setSearch] = useState('');
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = { from, to, role };
+      if (companyFilter) params.company_id = companyFilter;
+      const res = await api.get('/hrm/attendance-log', { params });
+      setData(res.data.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load check-in history.');
+    } finally {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to, role, companyFilter]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const setRange = (f, t) => { setFrom(f); setTo(t); };
+  const today = pktToday();
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (data?.rows || []).filter((r) => {
+      if (show === 'in' && r.state !== 'checked_in') return false;
+      if (show === 'late' && !r.is_late) return false;
+      if (show === 'out' && r.state !== 'not_checked_in') return false;
+      if (q && !`${r.name} ${r.phone || ''}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [data, show, search]);
+
+  const quickBtn = (label, f, t) => (
+    <button
+      key={label}
+      onClick={() => setRange(f, t)}
+      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+        from === f && to === t ? 'bg-navy text-white border-navy' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+      }`}
+    >
+      {label}
+    </button>
+  );
+  const monthStart = `${today.slice(0, 8)}01`;
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5 flex flex-wrap gap-4 items-end">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">From</label>
+          <input type="date" value={from} max={today} onChange={(e) => { setFrom(e.target.value); if (e.target.value > to) setTo(e.target.value); }}
+            className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">To</label>
+          <input type="date" value={to} min={from} max={today} onChange={(e) => setTo(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy" />
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {quickBtn('Today', today, today)}
+          {quickBtn('Yesterday', shiftDays(today, -1), shiftDays(today, -1))}
+          {quickBtn('Last 7 days', shiftDays(today, -6), today)}
+          {quickBtn('This month', monthStart, today)}
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Staff</label>
+          <select value={role} onChange={(e) => setRole(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy">
+            <option value="all">Salesmen &amp; Drivers</option>
+            <option value="salesman">Salesmen</option>
+            <option value="driver">Drivers</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Show</label>
+          <select value={show} onChange={(e) => setShow(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy">
+            <option value="all">Everyone</option>
+            <option value="in">Checked in</option>
+            <option value="late">Late</option>
+            <option value="out">Not checked in</option>
+          </select>
+        </div>
+        <div className="relative min-w-[180px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or phone..."
+            className="w-full border border-gray-300 rounded-lg pl-8 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy" />
+        </div>
+      </div>
+
+      {data && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { label: 'Staff', value: data.summary.staff, cls: 'text-navy' },
+            { label: 'Checked in', value: data.summary.checkedIn, cls: 'text-emerald-600' },
+            { label: 'Late (after 9:00 AM)', value: data.summary.late, cls: 'text-amber-600' },
+            { label: 'Not checked in', value: data.summary.notCheckedIn, cls: 'text-red-600' },
+          ].map((c) => (
+            <div key={c.label} className="bg-white rounded-2xl shadow-card border border-gray-100 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">{c.label}</p>
+              <p className={`text-2xl font-bold ${c.cls}`}>{c.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+        {loading ? (
+          <SkeletonTable rows={6} cols={6} />
+        ) : rows.length === 0 ? (
+          <EmptyState icon={Clock} title="No records" subtitle="Nothing matches these filters" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                  <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
+                  <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Name</th>
+                  <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Role</th>
+                  <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Check-in</th>
+                  <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Check-out</th>
+                  <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Hours</th>
+                  <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
+                  <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Location</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => {
+                  const badge = STATE_BADGE[r.state] || STATE_BADGE.not_checked_in;
+                  const inLink = mapLink(r.check_in_lat, r.check_in_lng);
+                  return (
+                    <tr key={`${r.date}-${r.user_id}`} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                      <td className="px-5 py-3 text-gray-600 whitespace-nowrap">{fmtDay(r.date)}</td>
+                      <td className="px-5 py-3">
+                        <p className="font-semibold text-navy">{r.name}</p>
+                        <p className="text-xs text-gray-400">{r.phone}{r.city ? ` · ${r.city}` : ''}</p>
+                      </td>
+                      <td className="px-5 py-3 text-gray-600 capitalize">{r.role}{r.car_number ? ` · ${r.car_number}` : ''}</td>
+                      <td className={`px-5 py-3 font-semibold whitespace-nowrap ${r.check_in ? 'text-navy' : 'text-gray-300'}`}>{fmtTime(r.check_in)}</td>
+                      <td className={`px-5 py-3 whitespace-nowrap ${r.check_out ? 'text-navy font-semibold' : 'text-gray-300'}`}>{fmtTime(r.check_out)}</td>
+                      <td className="px-5 py-3 text-gray-600 whitespace-nowrap">{hoursWorked(r.check_in, r.check_out)}</td>
+                      <td className="px-5 py-3 whitespace-nowrap">
+                        <span className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-full ${badge.cls}`}>{badge.label}</span>
+                        {r.is_late && <span className="ml-1.5 inline-block text-xs font-semibold px-2 py-1 rounded-full bg-amber-50 text-amber-700">Late</span>}
+                      </td>
+                      <td className="px-5 py-3">
+                        {inLink ? (
+                          <a href={inLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-navy underline hover:text-orange text-xs font-medium">
+                            <MapPin size={12} /> Check-in spot
+                          </a>
+                        ) : <span className="text-gray-300">—</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

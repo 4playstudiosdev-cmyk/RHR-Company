@@ -136,6 +136,105 @@ const getAttendance = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+// GET /api/v1/hrm/attendance-log?from=YYYY-MM-DD&to=YYYY-MM-DD&role=all|salesman|driver
+// Check-in history of the field staff who log in to the app (salesmen and
+// drivers): for every day in the range and every approved, active staff
+// member, either the time they checked in / out or "not checked in".
+// Admin only; a branch admin sees their own branch, a super admin the
+// branch picked in the city filter (or all).
+const PKT = 'Asia/Karachi';
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_LOG_DAYS = 93;
+const pktDateStr = (d) => d.toLocaleDateString('en-CA', { timeZone: PKT });
+
+const getAttendanceLog = async (req, res) => {
+  try {
+    const today = pktDateStr(new Date());
+    let from = String(req.query.from || today).slice(0, 10);
+    let to = String(req.query.to || from).slice(0, 10);
+    if (!DATE_RE.test(from) || !DATE_RE.test(to)) return error(res, 'from and to must be dates like 2026-10-19', 400);
+    if (from > to) [from, to] = [to, from];
+    if (to > today) to = today; // nothing to report for days that haven't happened
+    if (from > to) from = to;
+
+    const dayMs = 86400000;
+    const days = Math.round((Date.parse(to) - Date.parse(from)) / dayMs) + 1;
+    if (days > MAX_LOG_DAYS) return error(res, `Pick a range of at most ${MAX_LOG_DAYS} days.`, 400);
+
+    const role = ['salesman', 'driver'].includes(req.query.role) ? req.query.role : 'all';
+    const companyId = resolveCompanyId(req);
+    const cf = companyId ? { company_id: `eq.${companyId}` } : {};
+
+    const [salesmen, drivers, companies] = await Promise.all([
+      role === 'driver' ? [] : pgrestGet('salesmen', { select: 'id,full_name,phone,company_id', is_active: 'eq.true', is_approved: 'eq.true', ...cf }),
+      role === 'salesman' ? [] : pgrestGet('drivers', { select: 'id,full_name,phone,car_number,company_id', is_active: 'eq.true', is_approved: 'eq.true', ...cf }),
+      pgrestGet('companies', { select: 'id,city' }),
+    ]);
+    const cityOf = Object.fromEntries((companies || []).map((c) => [c.id, c.city]));
+    const staff = [
+      ...(salesmen || []).map((s) => ({ ...s, role: 'salesman' })),
+      ...(drivers || []).map((d) => ({ ...d, role: 'driver' })),
+    ].sort((a, b) => String(a.full_name).localeCompare(String(b.full_name)));
+
+    const dates = [];
+    for (let i = 0; i < days; i++) dates.push(new Date(Date.parse(to) - i * dayMs).toISOString().slice(0, 10)); // newest first
+
+    let records = [];
+    if (staff.length) {
+      records = await withRetry(() => pgrestGetRaw(
+        `attendance?select=*&user_id=in.(${staff.map((s) => s.id).join(',')})&date=gte.${from}&date=lte.${to}&limit=10000`
+      )) || [];
+    }
+    const byKey = Object.fromEntries(records.map((r) => [`${r.user_id}|${r.date}`, r]));
+
+    const rows = [];
+    for (const date of dates) {
+      for (const s of staff) {
+        const rec = byKey[`${s.id}|${date}`];
+        let state = 'not_checked_in';
+        if (rec?.check_in) state = 'checked_in';
+        else if (rec) state = rec.status === 'present' ? 'marked_present' : (rec.status || 'not_checked_in');
+
+        // Recomputed from the real check-in time (Pakistan time, after 9:00 AM)
+        // — the flag stored on older rows was worked out in the server's UTC
+        // clock and is unreliable.
+        let isLate = false;
+        if (rec?.check_in) {
+          const c = pktClock(new Date(rec.check_in));
+          isLate = c.hour * 60 + c.minute > 9 * 60;
+        }
+        rows.push({
+          date,
+          user_id: s.id,
+          name: s.full_name,
+          phone: s.phone,
+          role: s.role,
+          car_number: s.car_number || null,
+          city: cityOf[s.company_id] || null,
+          state,
+          check_in: rec?.check_in || null,
+          check_out: rec?.check_out || null,
+          is_late: isLate,
+          check_in_lat: rec?.check_in_lat ?? null,
+          check_in_lng: rec?.check_in_lng ?? null,
+          check_out_lat: rec?.check_out_lat ?? null,
+          check_out_lng: rec?.check_out_lng ?? null,
+          notes: rec?.notes || null,
+        });
+      }
+    }
+
+    const summary = {
+      staff: staff.length,
+      days,
+      checkedIn: rows.filter((r) => r.state === 'checked_in').length,
+      late: rows.filter((r) => r.is_late).length,
+      notCheckedIn: rows.filter((r) => r.state === 'not_checked_in').length,
+    };
+    return success(res, { from, to, summary, rows });
+  } catch (err) { return error(res, err.message); }
+};
+
 // POST /api/v1/hrm/attendance/manual — admin marks attendance
 const manualAttendance = async (req, res) => {
   try {
@@ -573,7 +672,7 @@ const getAllLeaveRequests = async (req, res) => {
 };
 
 module.exports = {
-  checkIn, checkOut, getAttendance, manualAttendance,
+  checkIn, checkOut, getAttendance, getAttendanceLog, manualAttendance,
   setupSalary, getSalary, getPayroll, downloadPayslip,
   applyLeave, manualLeaveRequest, reviewLeave, getLeaveHistory, getAllLeaveRequests
 };

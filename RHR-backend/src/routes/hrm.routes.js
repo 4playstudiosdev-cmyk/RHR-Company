@@ -7,6 +7,7 @@ const { isAdmin }      = require('../middleware/role.middleware');
 // Attendance
 router.post('/attendance/checkin',    authenticate, ctrl.checkIn);
 router.post('/attendance/checkout',   authenticate, ctrl.checkOut);
+router.get('/attendance-log',         authenticate, isAdmin, ctrl.getAttendanceLog);
 router.get('/attendance/:userId',     authenticate, ctrl.getAttendance);
 router.post('/attendance/manual',     authenticate, isAdmin, ctrl.manualAttendance);
 
