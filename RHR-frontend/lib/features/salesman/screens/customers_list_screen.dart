@@ -21,8 +21,13 @@ class _CustomersListScreenState extends State<CustomersListScreen> {
   bool _isLoading = true;
   String _search = '';
 
+  bool _isDriver = false; // a driver with sales access sees every customer of the branch
+
   @override
   void initState() {
+    SecureStorage.getRole().then((r) {
+      if (r == 'driver' && mounted) setState(() => _isDriver = true);
+    });
     super.initState();
     _loadCustomers();
   }
@@ -85,9 +90,9 @@ class _CustomersListScreenState extends State<CustomersListScreen> {
         backgroundColor: AppColors.navy,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => goBack(context, '/salesman-dashboard'),
+          onPressed: () => goBack(context, _isDriver ? '/driver-dashboard' : '/salesman-dashboard'),
         ),
-        title: const Text('My Customers',
+        title: Text(_isDriver ? 'All Customers' : 'My Customers',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(56),

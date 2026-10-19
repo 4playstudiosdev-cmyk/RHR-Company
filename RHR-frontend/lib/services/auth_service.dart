@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../core/storage/secure_storage.dart';
 import 'gps_service.dart';
+import '../core/features/app_features.dart';
 
 /// Single logout path for every screen — stops GPS tracking (harmless
 /// no-op if it was never running, e.g. for a customer), clears secure
@@ -9,6 +10,7 @@ import 'gps_service.dart';
 class AuthService {
   static Future<void> logout(BuildContext context) async {
     await GPSService().stopTracking();
+    await AppFeatures.clear();
     await SecureStorage.clearAll();
     if (context.mounted) {
       GoRouter.of(context).go('/login');

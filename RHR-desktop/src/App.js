@@ -33,6 +33,7 @@ import GPS from './pages/GPS';
 import Notifications from './pages/Notifications';
 import HRM from './pages/HRM';
 import AdminManagement from './pages/AdminManagement';
+import MobileAccess from './pages/MobileAccess';
 import ProductionDashboard from './pages/production/ProductionDashboard';
 import RawMaterials from './pages/production/RawMaterials';
 import ProductionOrders from './pages/production/ProductionOrders';
@@ -81,6 +82,7 @@ const PAGES = {
   'stock-reports': StockReports,
   hrm: HRM,
   admins: AdminManagement,
+  'mobile-access': MobileAccess,
   'opening-balances': OpeningBalances,
   'deleted-items': DeletedItems,
   'manufacturing-employees': ManufacturingEmployees
@@ -104,6 +106,7 @@ const PAGE_ACCESS = {
   'stock-reports': { requiredPermission: 'can_export_reports' },
   gps: { requiredPermission: 'can_view_gps' },
   admins: { requiredRole: 'super_admin' },
+  'mobile-access': { requiredRole: 'super_admin' },
   customers: { requiredPermission: 'can_manage_customers' },
   hrm: { requiredPermission: 'can_manage_hrm' },
   'production-materials': { requiredPermission: 'can_manage_production' },

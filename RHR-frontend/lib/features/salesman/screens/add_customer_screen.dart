@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../../../core/storage/secure_storage.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
@@ -36,6 +37,11 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   final _openingBalanceController = TextEditingController();
   final _nicNumberController = TextEditingController();
   bool _saving = false;
+  // A driver with sales access adds customers too: the customer becomes that
+  // driver's own, and a salesman can optionally be assigned as well.
+  bool _isDriver = false;
+  List<Map<String, dynamic>> _salesmen = [];
+  String? _salesmanId;
   double? _shopLatitude;
   double? _shopLongitude;
   File? _shopImageFile;
@@ -251,6 +257,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         if (_creditLimitController.text.trim().isNotEmpty)
           'credit_limit': double.tryParse(_creditLimitController.text.trim()),
         'nic_number': _nicNumberController.text.trim(),
+        if (_isDriver && _salesmanId != null) 'salesman_id': _salesmanId,
         if (shopImageUrl != null) 'shop_image_url': shopImageUrl,
         if (nicFrontUrl != null) 'nic_image_url': nicFrontUrl,
         if (nicBackUrl != null) 'nic_back_image_url': nicBackUrl,
@@ -388,7 +395,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     if (_step > 1) {
       setState(() => _step--);
     } else {
-      goBack(context, '/salesman-dashboard');
+      goBack(context, _isDriver ? '/driver-dashboard' : '/salesman-dashboard');
     }
   }
 
@@ -507,6 +514,28 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
           style: TextStyle(color: AppColors.steelBlue, fontSize: 11),
         ),
       ]),
+      if (_isDriver)
+        _sectionCard(title: 'Salesman (optional)', icon: Icons.person_outline, children: [
+          DropdownButtonFormField<String?>(
+            initialValue: _salesmanId,
+            isExpanded: true,
+            decoration: InputDecoration(
+              filled: true, fillColor: AppColors.warmGrey,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            ),
+            items: [
+              const DropdownMenuItem<String?>(value: null, child: Text('No salesman — my own customer')),
+              ..._salesmen.map((s) => DropdownMenuItem<String?>(
+                  value: s['id'] as String, child: Text((s['full_name'] ?? '').toString(), overflow: TextOverflow.ellipsis))),
+            ],
+            onChanged: (v) => setState(() => _salesmanId = v),
+          ),
+          const Text(
+            'This customer is added under you. You can also attach a salesman to look after them.',
+            style: TextStyle(color: AppColors.steelBlue, fontSize: 11),
+          ),
+        ]),
     ]);
   }
 
@@ -613,6 +642,8 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
       _sectionCard(title: 'Customer Details', icon: Icons.badge_outlined, children: [
         _reviewRow('Full Name', _nameController.text.trim()),
         _reviewRow('Phone', _phoneController.text.trim()),
+        if (_isDriver)
+          _reviewRow('Salesman', _salesmen.where((s) => s['id'] == _salesmanId).map((s) => (s['full_name'] ?? '').toString()).firstOrNull ?? 'None — my own customer'),
       ]),
       _sectionCard(title: 'Shop Details', icon: Icons.storefront_outlined, children: [
         _reviewRow('Shop Name', _shopNameController.text.trim()),
@@ -649,6 +680,28 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         ]),
       ),
     ]);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDriverExtras();
+  }
+
+  Future<void> _loadDriverExtras() async {
+    if (await SecureStorage.getRole() != 'driver') return;
+    try {
+      final res = await DioClient.instance.get(ApiEndpoints.salesmenDirectory);
+      if (!mounted) return;
+      setState(() {
+        _isDriver = true;
+        if (res.data['success'] == true) {
+          _salesmen = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
+        }
+      });
+    } catch (e) {
+      if (mounted) setState(() => _isDriver = true);
+    }
   }
 
   @override

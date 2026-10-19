@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/features/app_features.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
@@ -27,6 +28,18 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadHomeData();
+    AppFeatures.notifier.addListener(_onFeatures);
+    AppFeatures.load();
+  }
+
+  void _onFeatures() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    AppFeatures.notifier.removeListener(_onFeatures);
+    super.dispose();
   }
 
   Future<void> _loadHomeData() async {
@@ -165,7 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ]),
                           const SizedBox(height: AppSpacing.base),
                           Row(children: [
-                            Expanded(
+                            if (AppFeatures.has('place_order')) Expanded(
                               child: ElevatedButton.icon(
                                 onPressed: () => context.push('/catalogue'),
                                 style: ElevatedButton.styleFrom(
@@ -180,7 +193,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             const SizedBox(width: AppSpacing.base),
-                            Expanded(
+                            if (AppFeatures.has('add_payment')) Expanded(
                               child: ElevatedButton.icon(
                                 onPressed: () => context.push('/add-payment'),
                                 style: ElevatedButton.styleFrom(

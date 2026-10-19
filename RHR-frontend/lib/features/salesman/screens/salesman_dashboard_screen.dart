@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/features/app_features.dart';
 import '../../../core/location/background_tracking_helper.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
@@ -32,7 +33,19 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
     super.initState();
     _loadDashboard();
     _loadName();
+    AppFeatures.notifier.addListener(_onFeatures);
+    AppFeatures.load();
     WidgetsBinding.instance.addPostFrameCallback((_) => BackgroundTrackingHelper.promptIfNeeded(context));
+  }
+
+  void _onFeatures() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    AppFeatures.notifier.removeListener(_onFeatures);
+    super.dispose();
   }
 
   Future<void> _loadName() async {
@@ -291,7 +304,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: Row(
                         children: [
-                          Expanded(
+                          if (AppFeatures.has('new_order')) Expanded(
                             child: TapScale(
                               onTap: () => context.push('/create-order'),
                               child: Container(
@@ -323,7 +336,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                             ),
                           ),
                           const SizedBox(width: 10),
-                          Expanded(
+                          if (AppFeatures.has('record_payment')) Expanded(
                             child: TapScale(
                               onTap: () => context.push('/record-payment'),
                               child: Container(
@@ -355,7 +368,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                             ),
                           ),
                           const SizedBox(width: 10),
-                          Expanded(
+                          if (AppFeatures.has('add_customer')) Expanded(
                             child: TapScale(
                               onTap: () => context.push('/add-customer'),
                               child: Container(
@@ -665,20 +678,20 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 children: [
                   _drawerItem(context, Icons.person_outline, 'My Profile', '/salesman-profile'),
-                  _drawerItem(context, Icons.storefront_outlined, 'Products', '/salesman-products'),
-                  _drawerItem(context, Icons.add_circle_outline, 'New Order', '/create-order'),
-                  _drawerItem(context, Icons.person_add_alt_outlined, 'Add Customer', '/add-customer'),
-                  _drawerItem(context, Icons.people_outline, 'My Customers', '/my-customers'),
-                  _drawerItem(context, Icons.local_shipping_outlined, 'Delivered Orders', '/salesman-delivered-orders'),
-                  _drawerItem(context, Icons.cancel_outlined, 'Cancelled Orders', '/salesman-cancelled-orders'),
-                  _drawerItem(context, Icons.account_balance_wallet_outlined, 'Outstanding Balances', '/salesman-outstanding'),
-                  _drawerItem(context, Icons.camera_alt_outlined, 'Record Payment', '/record-payment'),
-                  _drawerItem(context, Icons.history, 'Customer Visit History', '/visit-history'),
-                  _drawerItem(context, Icons.event_note_outlined, 'Record Visit', '/record-visit'),
-                  _drawerItem(context, Icons.account_balance_wallet_outlined, 'Cash Collection', '/cash-collection'),
-                  _drawerItem(context, Icons.bar_chart_outlined, 'My Performance', '/performance'),
-                  _drawerItem(context, Icons.event_available_outlined, 'Attendance', '/attendance'),
-                  _drawerItem(context, Icons.request_page_outlined, 'My Payslip', '/payslip'),
+                  if (AppFeatures.has('products')) _drawerItem(context, Icons.storefront_outlined, 'Products', '/salesman-products'),
+                  if (AppFeatures.has('new_order')) _drawerItem(context, Icons.add_circle_outline, 'New Order', '/create-order'),
+                  if (AppFeatures.has('add_customer')) _drawerItem(context, Icons.person_add_alt_outlined, 'Add Customer', '/add-customer'),
+                  if (AppFeatures.has('my_customers')) _drawerItem(context, Icons.people_outline, 'My Customers', '/my-customers'),
+                  if (AppFeatures.has('orders_history')) _drawerItem(context, Icons.local_shipping_outlined, 'Delivered Orders', '/salesman-delivered-orders'),
+                  if (AppFeatures.has('orders_history')) _drawerItem(context, Icons.cancel_outlined, 'Cancelled Orders', '/salesman-cancelled-orders'),
+                  if (AppFeatures.has('outstanding')) _drawerItem(context, Icons.account_balance_wallet_outlined, 'Outstanding Balances', '/salesman-outstanding'),
+                  if (AppFeatures.has('record_payment')) _drawerItem(context, Icons.camera_alt_outlined, 'Record Payment', '/record-payment'),
+                  if (AppFeatures.has('visits')) _drawerItem(context, Icons.history, 'Customer Visit History', '/visit-history'),
+                  if (AppFeatures.has('visits')) _drawerItem(context, Icons.event_note_outlined, 'Record Visit', '/record-visit'),
+                  if (AppFeatures.has('cash_collection')) _drawerItem(context, Icons.account_balance_wallet_outlined, 'Cash Collection', '/cash-collection'),
+                  if (AppFeatures.has('performance')) _drawerItem(context, Icons.bar_chart_outlined, 'My Performance', '/performance'),
+                  if (AppFeatures.has('attendance')) _drawerItem(context, Icons.event_available_outlined, 'Attendance', '/attendance'),
+                  if (AppFeatures.has('payslip')) _drawerItem(context, Icons.request_page_outlined, 'My Payslip', '/payslip'),
                   _drawerItem(context, Icons.notifications_outlined, 'Notifications', '/notifications'),
                 ],
               ),

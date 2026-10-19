@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/storage/secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_colors.dart';
@@ -22,10 +23,14 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
   List<Map<String, dynamic>> _ledger  = [];
   num _outstandingBalance = 0;
   bool _isLoading = true;
+  bool _isDriver = false; // a driver with sales access can't record payments from here
 
   @override
   void initState() {
     super.initState();
+    SecureStorage.getRole().then((r) {
+      if (r == 'driver' && mounted) setState(() => _isDriver = true);
+    });
     if (widget.customerId != null) _loadData();
   }
 
@@ -197,8 +202,8 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                               onPressed: () => context.push('/create-order'),
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
+                          if (!_isDriver) const SizedBox(width: 12),
+                          if (!_isDriver) Expanded(
                             child: RHRButton(
                               text: 'Record Payment',
                               onPressed: () => context.push('/record-payment', extra: widget.customerId),

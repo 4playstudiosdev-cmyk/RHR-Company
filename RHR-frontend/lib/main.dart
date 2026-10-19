@@ -7,6 +7,7 @@ import 'core/constants/app_colors.dart';
 import 'core/storage/hive_service.dart';
 import 'core/storage/secure_storage.dart';
 import 'services/gps_service.dart';
+import 'core/features/app_features.dart';
 import 'shared/router/app_router.dart';
 
 void main() async {
@@ -15,6 +16,7 @@ void main() async {
   FlutterForegroundTask.initCommunicationPort();
   await HiveService.init();
   await GPSService().initialize();
+  await AppFeatures.restore();
   runApp(const ProviderScope(child: RHRApp()));
   // Deliberately NOT awaited before runApp: startTracking() can wait on the
   // Android location-permission dialog, which can't appear until the UI
@@ -65,6 +67,7 @@ class _RHRAppState extends State<RHRApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(GPSService().ensureTracking());
+      unawaited(AppFeatures.load());
     }
   }
 

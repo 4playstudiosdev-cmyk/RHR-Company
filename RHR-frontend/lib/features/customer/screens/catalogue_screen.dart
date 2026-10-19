@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/features/app_features.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
@@ -277,7 +278,9 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
             ]),
           ),
           const SizedBox(width: 10),
-          qty == 0
+          if (!AppFeatures.has('place_order'))
+            const SizedBox.shrink()
+          else qty == 0
               ? SizedBox(
                   height: 32,
                   child: OutlinedButton(

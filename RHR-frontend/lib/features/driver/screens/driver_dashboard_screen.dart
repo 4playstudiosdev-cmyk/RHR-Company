@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/features/app_features.dart';
 import '../../../core/location/background_tracking_helper.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
@@ -30,7 +31,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     super.initState();
     _loadProfile();
     _loadOrders();
+    AppFeatures.notifier.addListener(_onFeatures);
+    AppFeatures.load();
     WidgetsBinding.instance.addPostFrameCallback((_) => BackgroundTrackingHelper.promptIfNeeded(context));
+  }
+
+  void _onFeatures() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    AppFeatures.notifier.removeListener(_onFeatures);
+    super.dispose();
   }
 
   Future<void> _loadProfile() async {
@@ -238,9 +251,20 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
             const Divider(height: 1),
             _drawerItem(context, Icons.location_on_outlined, 'GPS Tracking', '/driver-gps-tracking'),
             _drawerItem(context, Icons.person_outline, 'My Profile', '/driver-profile'),
-            _drawerItem(context, Icons.account_balance_wallet_outlined, 'Cash Collection', '/driver-cash-collection'),
-            _drawerItem(context, Icons.groups_outlined, 'All Salesmen', '/driver-salesmen-directory'),
+            if (AppFeatures.has('cash_collection')) _drawerItem(context, Icons.account_balance_wallet_outlined, 'Cash Collection', '/driver-cash-collection'),
+            if (AppFeatures.has('salesmen_directory')) _drawerItem(context, Icons.groups_outlined, 'All Salesmen', '/driver-salesmen-directory'),
             _drawerItem(context, Icons.notifications_outlined, 'Notifications', '/notifications'),
+            // Salesman powers, only for a driver the office switched "Sales access" on for.
+            if (AppFeatures.has('sales_access')) ...[
+              const Divider(height: 24),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 0, 20, 4),
+                child: Text('SALES', style: TextStyle(color: AppColors.steelBlue, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1)),
+              ),
+              _drawerItem(context, Icons.add_circle_outline, 'New Order', '/create-order'),
+              _drawerItem(context, Icons.person_add_alt_outlined, 'Add Customer', '/add-customer'),
+              _drawerItem(context, Icons.people_outline, 'All Customers', '/my-customers'),
+            ],
           ],
         ),
       ),

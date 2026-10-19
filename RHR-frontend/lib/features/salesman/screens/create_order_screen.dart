@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/storage/secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
 import '../../../core/constants/app_colors.dart';
@@ -28,6 +29,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
   final _customerSearchController = TextEditingController();
   final _customerSearchFocus = FocusNode();
   bool _isLoading = true;
+  // A driver with sales access uses this screen too — their home is the driver dashboard.
+  String _home = '/salesman-dashboard';
   bool _isSubmitting = false;
   bool _isOnline = true;
   int _pendingSync = 0;
@@ -35,6 +38,9 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
   @override
   void initState() {
     super.initState();
+    SecureStorage.getRole().then((r) {
+      if (r == 'driver' && mounted) setState(() => _home = '/driver-dashboard');
+    });
     _pendingSync = HiveService.getOfflineOrderCount();
     _loadData();
     _customerSearchFocus.addListener(() => setState(() {}));
@@ -269,7 +275,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('Saved offline — will sync when internet available'),
             backgroundColor: AppColors.orange));
-        context.go('/salesman-dashboard');
+        context.go(_home);
       }
       return;
     }
@@ -279,7 +285,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       if (res.data['success'] == true) {
         if (mounted) {
           await showSuccessCheck(context, message: 'Order Placed!');
-          if (mounted) context.go('/salesman-dashboard');
+          if (mounted) context.go(_home);
         }
       }
     } on DioException catch (e) {
@@ -302,7 +308,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
               content: Text('No internet — saved offline'),
               backgroundColor: AppColors.orange));
-          context.go('/salesman-dashboard');
+          context.go(_home);
         }
       }
     } finally {
@@ -332,7 +338,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         backgroundColor: AppColors.navy,
         leading: IconButton(
             icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => goBack(context, '/salesman-dashboard')),
+            onPressed: () => goBack(context, _home)),
         title: const Text('Create Order',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         actions: [

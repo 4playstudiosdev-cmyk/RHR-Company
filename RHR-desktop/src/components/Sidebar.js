@@ -5,7 +5,7 @@ import {
   Gauge, Boxes, ClipboardList, FileBarChart2, ChevronDown, ChevronLeft, ChevronRight, X,
   PackageCheck, ArrowLeftRight, PackageSearch, Landmark, Receipt, Store, RotateCcw,
   HandCoins, Car, CalendarCheck, WalletCards, LayoutPanelTop, Trash2, HardHat, Truck,
-  Image as ImageIcon, MessageCircle, Footprints
+  Image as ImageIcon, MessageCircle, Footprints, Smartphone
 } from 'lucide-react';
 import api, { hasPermission } from '../services/api';
 
@@ -58,7 +58,8 @@ const NAV_ITEMS = [
   // toggle, a flat role restriction, same as Opening Balances/Admin Roles.
   { key: 'deleted-items', label: 'Deleted Items', icon: Trash2, requiredRole: 'super_admin' },
   { key: 'hrm', label: 'HRM', icon: Briefcase, requiredPermission: 'can_manage_hrm' },
-  { key: 'admins', label: 'Admin Roles', icon: KeyRound, requiredRole: 'super_admin' }
+  { key: 'admins', label: 'Admin Roles', icon: KeyRound, requiredRole: 'super_admin' },
+  { key: 'mobile-access', label: 'Mobile Access', icon: Smartphone, requiredRole: 'super_admin' }
 ];
 
 const ITEM_BY_KEY = Object.fromEntries(NAV_ITEMS.map((item) => [item.key, item]));
@@ -121,7 +122,7 @@ const GROUPS = [
   },
   {
     key: 'hr', label: 'HR & Administration', icon: Briefcase,
-    children: ['hrm', 'vehicles', 'opening-balances', 'admins']
+    children: ['hrm', 'vehicles', 'opening-balances', 'admins', 'mobile-access']
   },
   {
     key: 'reports', label: 'Reports & Audit', icon: FileBarChart2,

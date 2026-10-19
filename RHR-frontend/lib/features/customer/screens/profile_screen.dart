@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/features/app_features.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
@@ -41,6 +42,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     _loadProfile();
+    AppFeatures.notifier.addListener(_onFeatures);
+    AppFeatures.load();
+  }
+
+  void _onFeatures() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    AppFeatures.notifier.removeListener(_onFeatures);
+    super.dispose();
   }
 
   Future<void> _loadProfile() async {
@@ -273,12 +286,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
                         _menuItem(Icons.local_shipping_outlined, 'Delivered Orders', () => context.push('/delivered-orders')),
                         const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
-                        _menuItem(Icons.account_balance_wallet_outlined, 'Account Ledger', () => context.push('/ledger')),
-                        const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
-                        _menuItem(Icons.picture_as_pdf, 'Download Statement', () => context.push('/payment-history')),
-                        const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
-                        _menuItem(Icons.person_pin_circle_outlined, 'My Salesman', () => context.push('/track-salesman')),
-                        const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
+                        if (AppFeatures.has('ledger')) ...[
+                          _menuItem(Icons.account_balance_wallet_outlined, 'Account Ledger', () => context.push('/ledger')),
+                          const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
+                          _menuItem(Icons.picture_as_pdf, 'Download Statement', () => context.push('/payment-history')),
+                          const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
+                        ],
+                        if (AppFeatures.has('my_salesman')) ...[
+                          _menuItem(Icons.person_pin_circle_outlined, 'My Salesman', () => context.push('/track-salesman')),
+                          const Divider(height: 1, indent: 56, color: AppColors.outlineVariant),
+                        ],
                         ListTile(
                           leading: const Icon(Icons.storefront, color: AppColors.primaryContainer),
                           title: Text(
