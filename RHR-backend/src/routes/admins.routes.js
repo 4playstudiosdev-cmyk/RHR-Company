@@ -5,6 +5,64 @@ const { isSuperAdmin } = require('../middleware/role.middleware');
 const { success, error } = require('../utils/response');
 const { pgrestGet, pgrestPatch } = require('../utils/directQuery');
 const { closeOpenSession } = require('../services/auth.service');
+const { FEATURES, resolveFeatures, TABLE_BY_ROLE } = require('../utils/appFeatures');
+
+// ── Mobile Access ────────────────────────────────────────────────────────
+// Per-account on/off switches for the parts of the customer / salesman /
+// driver apps (catalogue in utils/appFeatures.js). Super admin only.
+//
+// GET /api/v1/admins/mobile-access?role=customer|salesman|driver[&company_id=]
+router.get('/mobile-access', authenticate, isSuperAdmin, async (req, res) => {
+  try {
+    const role = String(req.query.role || '');
+    const table = TABLE_BY_ROLE[role];
+    if (!table) return error(res, 'role must be customer, salesman or driver', 400);
+
+    const base = role === 'customer'
+      ? { select: 'id,company_id,full_name,shop_name,phone', role: 'eq.customer', is_active: 'eq.true', order: 'full_name.asc' }
+      : { select: 'id,company_id,full_name,phone', is_active: 'eq.true', order: 'full_name.asc' };
+    if (req.query.company_id && req.query.company_id !== 'all') base.company_id = `eq.${req.query.company_id}`;
+
+    // The permissions column may not exist yet on salesmen/drivers
+    // (sql/phase69) — then every account just shows its defaults.
+    let rows; let columnReady = true;
+    try {
+      rows = await pgrestGet(table, { ...base, select: `${base.select},permissions` });
+    } catch (e) {
+      columnReady = false;
+      rows = await pgrestGet(table, base);
+    }
+
+    const accounts = (rows || []).map((r) => ({
+      id: r.id, company_id: r.company_id, name: r.shop_name || r.full_name, contact: r.shop_name ? r.full_name : null,
+      phone: r.phone, features: resolveFeatures(role, r.permissions),
+    }));
+    return success(res, { role, catalog: FEATURES[role], accounts, needsSql: !columnReady });
+  } catch (err) { return error(res, err.message); }
+});
+
+// PATCH /api/v1/admins/mobile-access  { role, id, feature, value }
+router.patch('/mobile-access', authenticate, isSuperAdmin, async (req, res) => {
+  try {
+    const { role, id, feature, value } = req.body;
+    const table = TABLE_BY_ROLE[role];
+    if (!table || !id) return error(res, 'role and id are required', 400);
+    if (!(FEATURES[role] || []).some((f) => f.key === feature)) return error(res, 'Unknown feature', 400);
+    if (typeof value !== 'boolean') return error(res, 'value must be true or false', 400);
+
+    let current;
+    try {
+      current = await pgrestGet(table, { select: 'id,permissions', id: `eq.${id}` });
+    } catch (e) {
+      return error(res, 'The permissions column is missing — run sql/phase69_mobile_features.sql in Supabase first.', 400);
+    }
+    if (!current?.[0]) return error(res, 'Account not found', 404);
+
+    const permissions = { ...(current[0].permissions || {}), [feature]: value };
+    const rows = await pgrestPatch(table, { id: `eq.${id}` }, { permissions });
+    return success(res, { id, features: resolveFeatures(role, rows?.[0]?.permissions || permissions) }, 'Updated');
+  } catch (err) { return error(res, err.message); }
+});
 
 // GET /api/v1/admins — list super_admin + branch_admin accounts.
 // select('*') deliberately, not a named column list — this must keep

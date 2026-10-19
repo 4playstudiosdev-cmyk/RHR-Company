@@ -1,6 +1,7 @@
 const svc = require('../services/products.service');
 const { success, error } = require('../utils/response');
 const { pgrestGet } = require('../utils/directQuery');
+const { featuresOf } = require('../middleware/feature.middleware');
 
 // Each branch (KHI/HYD/SUK) keeps its own product catalog and stock —
 // everyone (customer, salesman, branch_admin) is scoped to their own
@@ -25,7 +26,9 @@ function resolveCompanyId(req) {
 async function pricingCustomerId(req) {
   if (req.user.role === 'customer') return req.user.id;
   const requested = req.query.customer_id;
-  if (!requested || !['salesman', 'branch_admin', 'super_admin'].includes(req.user.role)) return undefined;
+  if (!requested || !['salesman', 'driver', 'branch_admin', 'super_admin'].includes(req.user.role)) return undefined;
+  // a driver only gets customer pricing with sales access switched on
+  if (req.user.role === 'driver' && !(await featuresOf(req.user))?.sales_access) return undefined;
   const rows = await pgrestGet('users', { select: 'id,company_id', id: `eq.${requested}`, role: 'eq.customer' });
   const customer = rows?.[0];
   if (!customer) return undefined;

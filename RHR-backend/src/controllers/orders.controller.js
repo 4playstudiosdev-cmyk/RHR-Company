@@ -15,6 +15,13 @@ const createOrder = async (req, res) => {
     const customerId = user.role === 'customer' ? user.id : customer_id;
     if (!customerId) return error(res, 'customer_id is required', 400);
 
+    // A salesman or a driver with sales access orders on a customer's
+    // behalf — the customer must be one of their own branch's.
+    if (user.role === 'salesman' || user.role === 'driver') {
+      const rows = await pgrestGet('users', { select: 'id,company_id', id: `eq.${customerId}`, role: 'eq.customer' });
+      if (!rows?.[0] || rows[0].company_id !== user.company_id) return error(res, 'Customer not found', 404);
+    }
+
     const data = await svc.createOrder({
       customerId,
       salesmanId:      user.role === 'salesman' ? user.id : null,

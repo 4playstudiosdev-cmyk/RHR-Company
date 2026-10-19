@@ -45,7 +45,7 @@ const getCustomers = async (req, res) => {
     // extra small batch queries (same small-dataset tradeoff already
     // made for recipe labels/salesman customer_count elsewhere in this
     // codebase) rather than N+1 per-customer calls.
-    if (user.role === 'salesman' && data?.length) {
+    if ((user.role === 'salesman' || user.role === 'driver') && data?.length) {
       const ids = data.map((c) => c.id);
       const idList = ids.join(',');
       try {
@@ -129,14 +129,18 @@ const createCustomer = async (req, res) => {
       return error(res, 'credit_limit must be a non-negative number or null', 400);
 
     const isSalesman = req.user.role === 'salesman';
-    const targetCompanyId = (req.user.role === 'branch_admin' || isSalesman)
+    const isDriver = req.user.role === 'driver';
+    const targetCompanyId = (req.user.role === 'branch_admin' || isSalesman || isDriver)
       ? req.user.company_id
       : (company_id || req.user.company_id);
     if (!targetCompanyId) return error(res, 'company_id is required', 400);
 
     // A salesman registering their own customer always assigns
     // themselves — never another salesman, and never left unassigned.
-    const salesman_id = isSalesman ? req.user.id : req.body.salesman_id;
+    // A driver with sales access: the customer is theirs (driver_id =
+    // themselves, below); assigning a salesman as well is optional and is
+    // checked against the branch like any other salesman_id.
+    const salesman_id = isSalesman ? req.user.id : (req.body.salesman_id || null);
 
     if (rate_tier && !VALID_RATE_TIERS.includes(rate_tier))
       return error(res, `rate_tier must be one of: ${VALID_RATE_TIERS.join(', ')}`, 400);
@@ -146,10 +150,11 @@ const createCustomer = async (req, res) => {
     // the exact pattern that's intermittently returned a spurious empty
     // result on Railway elsewhere in this codebase, which is what made a
     // real salesman in the right branch come back as "not found".
-    if (driver_id) {
+    const effectiveDriverId = isDriver ? req.user.id : driver_id;
+    if (effectiveDriverId) {
       const drivers = await pgrestGet('drivers', {
         select: 'id',
-        id: `eq.${driver_id}`,
+        id: `eq.${effectiveDriverId}`,
         company_id: `eq.${targetCompanyId}`,
       });
       if (!drivers?.[0]) return error(res, 'Driver not found in this branch', 404);
@@ -216,7 +221,7 @@ const createCustomer = async (req, res) => {
       nic_image_url:     nic_image_url || null,
       nic_back_image_url: nic_back_image_url || null,
       rate_tier:    rate_tier || 'manual',
-      driver_id:    driver_id || null,
+      driver_id:    effectiveDriverId || null,
       salesman_id:  salesman_id || null,
       is_approved:  true,
       is_active:    true,
@@ -412,6 +417,7 @@ async function findScopedCustomer(req) {
   // them — same restriction createCustomer already applies when a
   // salesman is the one calling it.
   if (req.user.role === 'salesman') query = query.eq('salesman_id', req.user.id);
+  else if (req.user.role === 'driver') query = query.eq('driver_id', req.user.id).eq('company_id', req.user.company_id);
   else if (req.user.role !== 'super_admin') query = query.eq('company_id', req.user.company_id);
   const { data, error: dbErr } = await query.single();
   if (dbErr || !data) return null;

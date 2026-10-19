@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const { authenticate } = require('../middleware/auth.middleware');
 const { requireRole }  = require('../middleware/role.middleware');
+const { requireFeature } = require('../middleware/feature.middleware');
 const { pgrestGet, pgrestPost } = require('../utils/directQuery');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { success, error } = require('../utils/response');
@@ -33,7 +34,7 @@ function distanceMeters(lat1, lng1, lat2, lng2) {
 //    (the admin panel shows it as "No location").
 //  * notes are mandatory — a visit can't be marked done without saying what
 //    happened (the app enforces this too, the backend doesn't trust it alone).
-router.post('/', authenticate, isFieldOrAdmin, async (req, res) => {
+router.post('/', authenticate, isFieldOrAdmin, requireFeature({ salesman: 'visits' }), async (req, res) => {
   try {
     const { customer_id, notes, follow_up_date, accuracy } = req.body;
     if (!customer_id) return error(res, 'customer_id is required', 400);

@@ -3,8 +3,9 @@ const router  = express.Router();
 const ctrl    = require('../controllers/orders.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin, isDriver, isCustomer, requireRole } = require('../middleware/role.middleware');
+const { requireFeature } = require('../middleware/feature.middleware');
 
-router.post('/',            authenticate,          ctrl.createOrder);
+router.post('/',            authenticate, requireFeature({ customer: 'place_order', salesman: 'new_order', driver: 'sales_access' }), ctrl.createOrder);
 router.get('/',             authenticate,          ctrl.getOrders);
 router.get('/deleted-invoices', authenticate, isAdmin, ctrl.getDeletedInvoices);
 router.get('/:id',          authenticate,          ctrl.getOrderById);
