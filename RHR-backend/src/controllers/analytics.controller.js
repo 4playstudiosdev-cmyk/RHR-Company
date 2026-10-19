@@ -104,7 +104,9 @@ const getDashboardStats = async (req, res) => {
     const companyEq = companyId ? { company_id: `eq.${companyId}` } : {};
 
     const [orders, payments, customers, products] = await Promise.all([
-      pgrestGetRaw(`orders?select=id,total_amount,status&${dateFilter('created_at', companyEq)}`),
+      // Cancelled / undelivered orders are not sales — same rule as the top cards
+      // (routes/dashboard.routes.js NOT_SALES), so both rows of the dashboard agree.
+      pgrestGetRaw(`orders?select=id,total_amount,status&${dateFilter('created_at', { ...companyEq, status: 'not.in.(cancelled,undelivered)' })}`),
       pgrestGetRaw(`payments?select=amount&status=eq.approved&${dateFilter('created_at', companyEq)}`),
       pgrestGetRaw(`users?select=id&role=eq.customer&is_approved=eq.true&${dateFilter('created_at', companyEq)}`),
       pgrestGet('products', { select: 'id', is_active: 'eq.true', ...companyEq }),
