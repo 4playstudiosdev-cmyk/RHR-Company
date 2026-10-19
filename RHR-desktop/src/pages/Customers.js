@@ -1048,6 +1048,22 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                                     <span className="text-gray-500">Shop Address:</span>
                                     <span className="font-medium text-navy">{customer.shop_address || '—'}</span>
                                   </div>
+                                  <div className="flex items-center gap-2 text-sm sm:col-span-2">
+                                    <MapPin size={14} className="text-gray-400 flex-shrink-0" />
+                                    <span className="text-gray-500">Shop Location:</span>
+                                    {customer.shop_latitude != null && customer.shop_longitude != null ? (
+                                      <a
+                                        href={`https://www.google.com/maps/search/?api=1&query=${customer.shop_latitude},${customer.shop_longitude}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="font-medium text-navy underline hover:text-orange"
+                                      >
+                                        Open in Google Maps ({Number(customer.shop_latitude).toFixed(5)}, {Number(customer.shop_longitude).toFixed(5)})
+                                      </a>
+                                    ) : (
+                                      <span className="font-medium text-gray-400">Not captured</span>
+                                    )}
+                                  </div>
                                   <div className="flex items-center gap-2 text-sm">
                                     <Calendar size={14} className="text-gray-400 flex-shrink-0" />
                                     <span className="text-gray-500">Registered:</span>
