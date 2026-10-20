@@ -508,10 +508,10 @@ export default function SalesmanRecovery() {
       {tab === 'pending' && (
         <div className="space-y-8">
           <div>
-            <h3 className="font-semibold text-navy text-sm mb-3">Pending Online Payments ({pendingData.online_payments.length})</h3>
+            <h3 className="font-semibold text-navy text-sm mb-3">Pending Online &amp; Bank Transfer Payments ({pendingData.online_payments.length})</h3>
             {pendingData.online_payments.length === 0 ? (
               <div className="bg-white rounded-2xl shadow-card border border-gray-100">
-                <EmptyState icon={Smartphone} title="No pending online payments" />
+                <EmptyState icon={Smartphone} title="No pending online or bank transfer payments" />
               </div>
             ) : (
               <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
@@ -523,7 +523,7 @@ export default function SalesmanRecovery() {
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Salesman</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Method</th>
-                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Ref #</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Ref # / Note</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Action</th>
                       </tr>
@@ -537,7 +537,7 @@ export default function SalesmanRecovery() {
                           <td className="px-6 py-3.5">
                             <span className="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-navy-chip text-navy capitalize">{p.payment_method}</span>
                           </td>
-                          <td className="px-6 py-3.5 text-gray-400 text-xs">{p.reference_number || '—'}</td>
+                          <td className="px-6 py-3.5 text-gray-400 text-xs">{p.payment_method === 'bank_transfer' ? (p.notes || '—') : (p.reference_number || '—')}</td>
                           <td className="px-6 py-3.5 text-right font-semibold text-emerald-600">PKR {Number(p.amount).toLocaleString()}</td>
                           <td className="px-6 py-3.5">
                             <div className="flex items-center gap-2">

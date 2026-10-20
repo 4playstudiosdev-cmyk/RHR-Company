@@ -6,6 +6,7 @@ const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/d
 const { resolveCompanyId } = require('../utils/companyScope');
 const { success, error } = require('../utils/response');
 const { notifyUser } = require('../services/notify.service');
+const paymentMessages = require('../services/paymentMessages.service');
 
 // Salesman Recovery — cash/online payment collections plus end-of-day
 // cash-in-hand closings. Separate from the existing /payments table:
@@ -108,6 +109,11 @@ router.post('/transactions', authenticate, isAdmin, async (req, res) => {
       });
     }
 
+    // Tell the customer on WhatsApp: cash = received (with their outstanding
+    // balance), online = pending until approved.
+    if (isCash) paymentMessages.paymentReceived({ customerId: customer_id, amount, method: 'cash' });
+    else paymentMessages.paymentPending({ customerId: customer_id, amount });
+
     await notifyUser({
       companyId,
       recipientId: salesman_id,
@@ -145,8 +151,14 @@ router.patch('/transactions/:id/approve', authenticate, isAdmin, async (req, res
       companyId: recovery.company_id,
       customerId: recovery.customer_id,
       amount: Number(recovery.amount),
-      description: `Online payment approved — ${recovery.payment_method}`,
+      description: recovery.payment_method === 'bank_transfer' ? 'Bank transfer approved' : `Online payment approved — ${recovery.payment_method}`,
       userId: req.user.id,
+    });
+
+    paymentMessages.paymentReceived({
+      customerId: recovery.customer_id,
+      amount: recovery.amount,
+      method: recovery.payment_method,
     });
 
     await notifyUser({
@@ -389,19 +401,21 @@ router.post('/transactions/me', authenticate, isSalesman, async (req, res) => {
       userId: null,
     });
 
+    paymentMessages.paymentReceived({ customerId: customer_id, amount, method: 'cash' });
+
     return success(res, recovery, 'Cash collection recorded', 201);
   } catch (err) { return error(res, err.message); }
 });
 
 // POST /api/v1/recovery/bank-transfer/me — a customer paying a salesman
 // directly via bank transfer (Record Payment's "Bank Transfer" option).
-// Unlike a cash collection, this money never sits as physical cash the
-// salesman is holding, so it's recorded as already-deposited — credits
-// the customer's ledger immediately like the cash flow above, but
-// deliberately uses payment_type 'bank' (not 'cash'), which
-// my-cash-in-hand's `payment_type: eq.cash` filter already excludes, so
-// it never inflates "cash in hand" or needs a later deposit step. Shows
-// up in Deposit History via GET /bank-transfers/me below instead.
+// It is NOT auto-approved: it sits as 'pending' in the dashboard's Pending
+// Approvals until an admin checks the transfer and approves it — only then
+// is the customer's ledger credited (see PATCH /transactions/:id/approve).
+// The customer gets a WhatsApp "pending" message now and a "received" one
+// (with their outstanding balance) on approval. It uses payment_type
+// 'bank' (not 'cash'), which my-cash-in-hand's `payment_type: eq.cash`
+// filter already excludes, so it never counts as cash the salesman holds.
 router.post('/bank-transfer/me', authenticate, isSalesman, async (req, res) => {
   try {
     const { customer_id, amount, bank_account_id, bank_account_label, notes, photo_url } = req.body;
@@ -416,10 +430,10 @@ router.post('/bank-transfer/me', authenticate, isSalesman, async (req, res) => {
       payment_type:     'bank',
       payment_method:   'bank_transfer',
       reference_number: bank_account_id || null,
-      notes:            notes || null,
-      status:           'approved',
+      notes:            [notes, bank_account_label ? `Bank: ${bank_account_label}` : null].filter(Boolean).join(' · ') || null,
+      status:           'pending',
       approved_by:      null,
-      approved_at:      new Date().toISOString(),
+      approved_at:      null,
       recovery_date:    new Date().toISOString().split('T')[0],
       created_by:       null,
     };
@@ -430,15 +444,21 @@ router.post('/bank-transfer/me', authenticate, isSalesman, async (req, res) => {
       [recovery] = await pgrestPost('salesman_recoveries', recoveryRow);
     }
 
-    await creditLedger({
-      companyId: req.user.company_id,
-      customerId: customer_id,
-      amount: Number(amount),
-      description: `Bank transfer received by salesman${bank_account_label ? ` — ${bank_account_label}` : ''}`,
-      userId: null,
-    });
+    paymentMessages.paymentPending({ customerId: customer_id, amount });
 
-    return success(res, recovery, 'Bank transfer recorded', 201);
+    // Best-effort heads-up for the admins who approve it.
+    try {
+      await pgrestPost('notifications', {
+        company_id:     req.user.company_id,
+        recipient_role: 'branch_admin',
+        title:          'Bank transfer awaiting approval',
+        body:           `${req.user.full_name || 'A salesman'} recorded a PKR ${Number(amount).toLocaleString()} bank transfer — approve it in Salesman Recovery → Pending Approvals.`,
+        type:           'payment',
+        reference_id:   recovery?.id || null,
+      });
+    } catch (e) { /* non-fatal */ }
+
+    return success(res, recovery, 'Bank transfer submitted — pending admin approval', 201);
   } catch (err) { return error(res, err.message); }
 });
 

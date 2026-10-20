@@ -257,7 +257,9 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
       }
       if (response.data['success'] == true) {
         if (mounted) {
-          await showSuccessCheck(context, message: 'Payment Recorded!');
+          // A bank transfer waits for admin approval before it counts; cash is recorded at once.
+          await showSuccessCheck(context,
+              message: _selectedMethod == 'Bank Transfer' ? 'Submitted — pending approval' : 'Payment Recorded!');
           if (mounted) context.go('/salesman-dashboard');
         }
       } else {
