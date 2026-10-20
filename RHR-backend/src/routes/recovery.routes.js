@@ -500,6 +500,30 @@ router.get('/my-cash-in-hand', authenticate, isSalesman, async (req, res) => {
   } catch (err) { return error(res, err.message); }
 });
 
+// A deposit (to the bank or as petty cash) is always the staff member's WHOLE
+// cash in hand — the app fills the amount in and doesn't let it be edited, and
+// this enforces the same rule for any other client. Cash in hand = approved
+// cash collected minus approved deposits (a pending deposit isn't subtracted
+// until an admin approves it, so a second deposit is refused while one is
+// still waiting — otherwise the same cash could be deposited twice).
+// ownerKey: 'salesman_id' | 'driver_id'.
+async function checkFullDeposit(ownerKey, ownerId, amount) {
+  const [collected, closings] = await Promise.all([
+    pgrestGet('salesman_recoveries', { select: 'amount', [ownerKey]: `eq.${ownerId}`, payment_type: 'eq.cash', status: 'eq.approved' }),
+    pgrestGet('salesman_cash_closings', { select: 'amount,status', [ownerKey]: `eq.${ownerId}`, status: 'in.(approved,pending)' }),
+  ]);
+  const sum = (rows) => (rows || []).reduce((s, r) => s + Number(r.amount), 0);
+  const approvedClosed = sum((closings || []).filter((c) => c.status === 'approved'));
+  const cashInHand = sum(collected) - approvedClosed;
+
+  if ((closings || []).some((c) => c.status === 'pending'))
+    return 'You already have a deposit waiting for admin approval. Wait until it is approved before depositing again.';
+  if (!(cashInHand > 0)) return 'You have no cash in hand to deposit.';
+  if (Math.abs(Number(amount) - cashInHand) > 0.5)
+    return `A deposit must be your full cash in hand: PKR ${Math.round(cashInHand).toLocaleString()}.`;
+  return null;
+}
+
 // POST /api/v1/recovery/cash-closing/me — salesman deposits cash they're
 // holding (to the bank, or hands petty cash to the branch). Pending
 // until an admin approves it, same as the admin-entered version.
@@ -514,6 +538,8 @@ router.post('/cash-closing/me', authenticate, isSalesman, async (req, res) => {
     const method = deposit_to === 'bank' ? 'bank' : 'petty_cash';
     if (method === 'bank' && !slip_image_url)
       return error(res, 'A bank slip photo is required for a bank deposit', 400);
+    const fullDepositError = await checkFullDeposit('salesman_id', req.user.id, amount);
+    if (fullDepositError) return error(res, fullDepositError, 400);
 
     // created_by is a `users(id)` FK (admin table) — same caveat as
     // /transactions/me above; salesman_id already identifies the owner.
@@ -632,6 +658,8 @@ router.post('/driver-cash-closing/me', authenticate, isDriver, async (req, res) 
     const method = deposit_to === 'bank' ? 'bank' : 'petty_cash';
     if (method === 'bank' && !slip_image_url)
       return error(res, 'A bank slip photo is required for a bank deposit', 400);
+    const fullDepositError = await checkFullDeposit('driver_id', req.user.id, amount);
+    if (fullDepositError) return error(res, fullDepositError, 400);
 
     const [data] = await pgrestPost('salesman_cash_closings', {
       company_id:     req.user.company_id,

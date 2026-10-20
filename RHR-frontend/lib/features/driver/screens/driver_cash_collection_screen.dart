@@ -62,7 +62,20 @@ class _DriverCashCollectionScreenState extends State<DriverCashCollectionScreen>
 
   num _asNum(dynamic v) => v is num ? v : num.tryParse(v?.toString() ?? '0') ?? 0;
 
+  // The deposit is always the whole cash in hand (filled in, not editable).
+  String _depositAmountText() =>
+      _cashInHand == _cashInHand.roundToDouble() ? _cashInHand.toStringAsFixed(0) : _cashInHand.toStringAsFixed(2);
+
   Future<void> _depositDialog() async {
+    if (_cashInHand <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You have no cash in hand to deposit.')));
+      return;
+    }
+    if (_closingHistory.any((c) => (c['status'] ?? '') == 'pending')) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('You already have a deposit waiting for admin approval.')));
+      return;
+    }
     final choice = await showModalBottomSheet<String>(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
@@ -91,7 +104,7 @@ class _DriverCashCollectionScreenState extends State<DriverCashCollectionScreen>
   }
 
   Future<void> _submitCashDeposit() async {
-    final amountController = TextEditingController();
+    final amountController = TextEditingController(text: _depositAmountText());
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -99,7 +112,14 @@ class _DriverCashCollectionScreenState extends State<DriverCashCollectionScreen>
         content: TextField(
           controller: amountController,
           keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'Amount (PKR)', border: OutlineInputBorder()),
+          readOnly: true, // always the full cash in hand — can't be changed
+          decoration: InputDecoration(
+            labelText: 'Amount (PKR) — your full cash in hand',
+            border: const OutlineInputBorder(),
+            filled: true,
+            fillColor: Colors.grey.shade200,
+            suffixIcon: const Icon(Icons.lock_outline, size: 18),
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
@@ -126,7 +146,7 @@ class _DriverCashCollectionScreenState extends State<DriverCashCollectionScreen>
   }
 
   Future<void> _submitBankDeposit() async {
-    final amountController = TextEditingController();
+    final amountController = TextEditingController(text: _depositAmountText());
     File? slipFile;
     String? uploadedSlipUrl;
     bool uploading = false;
@@ -184,7 +204,14 @@ class _DriverCashCollectionScreenState extends State<DriverCashCollectionScreen>
             TextField(
               controller: amountController,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Amount (PKR)', border: OutlineInputBorder()),
+              readOnly: true, // always the full cash in hand — can't be changed
+              decoration: InputDecoration(
+                labelText: 'Amount (PKR) — your full cash in hand',
+                border: const OutlineInputBorder(),
+                filled: true,
+                fillColor: Colors.grey.shade200,
+                suffixIcon: const Icon(Icons.lock_outline, size: 18),
+              ),
             ),
             const SizedBox(height: 10),
             OutlinedButton.icon(
