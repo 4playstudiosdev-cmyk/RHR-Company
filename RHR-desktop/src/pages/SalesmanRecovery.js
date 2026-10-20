@@ -4,6 +4,7 @@ import api, { getCurrentUser } from '../services/api';
 import PageHeader from '../components/PageHeader';
 import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
+import Modal from '../components/Modal';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
@@ -25,6 +26,36 @@ const EMPTY_FORM = {
 
 const EMPTY_CLOSING_FORM = { salesman_id: '', amount: '', deposit_to: 'bank', bank_account: '', notes: '' };
 
+// When the payment was recorded, in Pakistan time (the app's own clock isn't used).
+const recordedTime = (iso) => (iso
+  ? new Date(iso).toLocaleTimeString('en-US', { timeZone: 'Asia/Karachi', hour: '2-digit', minute: '2-digit', hour12: true })
+  : '');
+
+// Date, plus the exact time the salesman recorded it.
+function WhenCell({ date, createdAt }) {
+  return (
+    <>
+      <span className="block">{date}</span>
+      {createdAt && <span className="block text-xs text-gray-400">{recordedTime(createdAt)}</span>}
+    </>
+  );
+}
+
+// "View photo" — the proof photo the salesman took in Record Payment.
+function PhotoButton({ url, onOpen }) {
+  if (!url) return <span className="text-gray-300">—</span>;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(url)}
+      className="inline-flex items-center gap-1.5 text-xs font-semibold text-navy hover:underline"
+    >
+      <img src={url} alt="" className="w-8 h-8 rounded object-cover border border-gray-200" />
+      View photo
+    </button>
+  );
+}
+
 export default function SalesmanRecovery() {
   const toast = useToast();
   const user = getCurrentUser();
@@ -44,6 +75,7 @@ export default function SalesmanRecovery() {
   const [closingForm, setClosingForm] = useState(EMPTY_CLOSING_FORM);
   const [savingClosing, setSavingClosing] = useState(false);
   const [approvingId, setApprovingId] = useState(null);
+  const [photoUrl, setPhotoUrl] = useState(null);
 
   useEffect(() => {
     loadSalesmen();
@@ -519,11 +551,12 @@ export default function SalesmanRecovery() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
-                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date &amp; Time</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Salesman</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Method</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Ref # / Note</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Photo</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Action</th>
                       </tr>
@@ -531,13 +564,14 @@ export default function SalesmanRecovery() {
                     <tbody>
                       {pendingData.online_payments.map((p, i) => (
                         <tr key={p.id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                          <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{p.recovery_date}</td>
+                          <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap"><WhenCell date={p.recovery_date} createdAt={p.created_at} /></td>
                           <td className="px-6 py-3.5 font-medium text-navy">{p.salesmen?.full_name || '—'}</td>
                           <td className="px-6 py-3.5 text-gray-600">{p.users?.full_name || '—'}</td>
                           <td className="px-6 py-3.5">
                             <span className="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-navy-chip text-navy capitalize">{p.payment_method}</span>
                           </td>
                           <td className="px-6 py-3.5 text-gray-400 text-xs">{p.payment_method === 'bank_transfer' ? (p.notes || '—') : (p.reference_number || '—')}</td>
+                          <td className="px-6 py-3.5"><PhotoButton url={p.photo_url} onOpen={setPhotoUrl} /></td>
                           <td className="px-6 py-3.5 text-right font-semibold text-emerald-600">PKR {Number(p.amount).toLocaleString()}</td>
                           <td className="px-6 py-3.5">
                             <div className="flex items-center gap-2">
@@ -642,7 +676,7 @@ export default function SalesmanRecovery() {
       {tab === 'history' && (
         <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
           {transactionsLoading ? (
-            <SkeletonTable rows={6} cols={7} />
+            <SkeletonTable rows={6} cols={8} />
           ) : transactions.length === 0 ? (
             <EmptyState icon={ListChecks} title="No transactions yet" />
           ) : (
@@ -650,19 +684,20 @@ export default function SalesmanRecovery() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
-                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date &amp; Time</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Salesman</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Type</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Method</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Photo</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {transactions.map((t, i) => (
                     <tr key={t.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                      <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{t.recovery_date}</td>
+                      <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap"><WhenCell date={t.recovery_date} createdAt={t.created_at} /></td>
                       <td className="px-6 py-3.5 font-medium text-navy">{t.salesmen?.full_name || '—'}</td>
                       <td className="px-6 py-3.5 text-gray-600">{t.users?.full_name || '—'}</td>
                       <td className="px-6 py-3.5">
@@ -674,9 +709,11 @@ export default function SalesmanRecovery() {
                       </td>
                       <td className="px-6 py-3.5 text-gray-500 text-xs capitalize">{t.payment_method}</td>
                       <td className="px-6 py-3.5 text-right font-semibold text-navy">PKR {Number(t.amount).toLocaleString()}</td>
+                      <td className="px-6 py-3.5"><PhotoButton url={t.photo_url} onOpen={setPhotoUrl} /></td>
                       <td className="px-6 py-3.5 text-center">
                         <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${
-                          t.status === 'approved' ? 'bg-emerald-50 text-emerald-700' : 'bg-orange/10 text-orange'
+                          t.status === 'approved' ? 'bg-emerald-50 text-emerald-700'
+                            : t.status === 'rejected' ? 'bg-red-50 text-red-600' : 'bg-orange/10 text-orange'
                         }`}>
                           {t.status}
                         </span>
@@ -688,6 +725,17 @@ export default function SalesmanRecovery() {
             </div>
           )}
         </div>
+      )}
+
+      {photoUrl && (
+        <Modal title="Payment proof photo" onClose={() => setPhotoUrl(null)} size="lg">
+          <img src={photoUrl} alt="Payment proof" className="w-full max-h-[70vh] object-contain rounded-xl border border-gray-200 bg-gray-50" />
+          <div className="pt-3 text-right">
+            <a href={photoUrl} target="_blank" rel="noreferrer" className="text-sm font-semibold text-navy hover:underline">
+              Open full size
+            </a>
+          </div>
+        </Modal>
       )}
     </div>
   );

@@ -47,6 +47,23 @@ async function creditLedger({ companyId, customerId, amount, description, userId
 }
 
 // GET /api/v1/recovery/transactions
+// photo_url (the proof photo Record Payment takes) was added by
+// sql/phase63_recovery_photo_proof.sql. Until that has been run in Supabase the
+// column doesn't exist and selecting it fails, so it's only added when present
+// (checked once, then remembered) — the lists keep working either way.
+let photoColumnKnown = null; // null = not checked yet
+async function hasPhotoColumn() {
+  if (photoColumnKnown !== null) return photoColumnKnown;
+  try {
+    await pgrestGet('salesman_recoveries', { select: 'photo_url', limit: '1' });
+    photoColumnKnown = true;
+  } catch (e) {
+    return false; // don't cache a failure — the SQL may be run any moment
+  }
+  return photoColumnKnown;
+}
+const withPhoto = async (select) => ((await hasPhotoColumn()) ? select.replace('reference_number,', 'reference_number,photo_url,') : select);
+
 const RECOVERY_SELECT = 'id,company_id,salesman_id,customer_id,amount,payment_type,payment_method,reference_number,notes,status,approved_by,approved_at,recovery_date,created_at,salesmen(id,full_name),users!customer_id(id,full_name,phone,shop_name)';
 
 router.get('/transactions', authenticate, isAdmin, async (req, res) => {
@@ -54,7 +71,7 @@ router.get('/transactions', authenticate, isAdmin, async (req, res) => {
     const companyId = resolveCompanyId(req);
     const { salesman_id, status } = req.query;
 
-    const params = { select: RECOVERY_SELECT, order: 'created_at.desc' };
+    const params = { select: await withPhoto(RECOVERY_SELECT), order: 'created_at.desc' };
     if (companyId)   params.company_id  = `eq.${companyId}`;
     if (salesman_id) params.salesman_id = `eq.${salesman_id}`;
     if (status)      params.status      = `eq.${status}`;
@@ -312,7 +329,7 @@ router.get('/pending-approvals', authenticate, isAdmin, async (req, res) => {
   try {
     const companyId = resolveCompanyId(req);
 
-    const paymentParams = { select: RECOVERY_SELECT, status: 'eq.pending', order: 'created_at.desc' };
+    const paymentParams = { select: await withPhoto(RECOVERY_SELECT), status: 'eq.pending', order: 'created_at.desc' };
     const closingParams = {
       select: 'id,company_id,salesman_id,amount,deposit_to,bank_account,notes,status,closing_date,created_at,salesmen(full_name)',
       status: 'eq.pending',
