@@ -1,3 +1,4 @@
+import { PENDING_RING, PENDING_BADGE } from '../utils/pending';
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   Car, BarChart3, Plus, Download, User, Trash2, Route,
@@ -544,9 +545,12 @@ export default function VehicleManagement() {
               onClick={() => setTab(t.key)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 tab === t.key ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-              }`}
+              } ${t.key === 'drivers' && pendingDrivers.length > 0 && tab !== t.key ? PENDING_RING : ''}`}
             >
               <Icon size={15} /> {t.label}
+              {t.key === 'drivers' && pendingDrivers.length > 0 && (
+                <span className={PENDING_BADGE}>{pendingDrivers.length}</span>
+              )}
             </button>
           );
         })}
@@ -981,7 +985,7 @@ export default function VehicleManagement() {
                 onClick={() => setDriverSubTab('pending')}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   driverSubTab === 'pending' ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-                }`}
+                } ${driverSubTab !== 'pending' && pendingDrivers.length > 0 ? `${PENDING_RING} text-orange font-semibold animate-pulse` : ''}`}
               >
                 Pending Approval ({pendingDrivers.length})
               </button>

@@ -1,3 +1,4 @@
+import { PENDING_RING, PENDING_BADGE } from '../utils/pending';
 import React, { useEffect, useState } from 'react';
 import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
@@ -269,12 +270,12 @@ export default function SalesmanRecovery() {
               onClick={() => setTab(t.key)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 tab === t.key ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-              }`}
+              } ${t.key === 'pending' && pendingCount > 0 && tab !== t.key ? PENDING_RING : ''}`}
             >
               <Icon size={15} />
               {t.label}
               {t.key === 'pending' && pendingCount > 0 && (
-                <span className="bg-orange text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{pendingCount}</span>
+                <span className={PENDING_BADGE}>{pendingCount}</span>
               )}
             </button>
           );

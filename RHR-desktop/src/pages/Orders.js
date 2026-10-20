@@ -1,3 +1,4 @@
+import { PENDING_BADGE } from '../utils/pending';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ShoppingCart, FileDown, Search, Plus, Minus, Trash2, Eye, Truck, Printer } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
@@ -776,12 +777,15 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
               key={t}
               onClick={() => { setTab(t); setPage(1); }}
               className={`pb-3 pt-2 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors flex items-center gap-1.5 ${
-                tab === t ? 'text-navy border-navy' : 'text-gray-400 border-transparent hover:text-navy'
+                tab === t
+                  ? 'text-navy border-navy'
+                  : (t === 'pending' && (counts[t] ?? 0) > 0 ? 'text-orange border-orange/50 hover:text-orange' : 'text-gray-400 border-transparent hover:text-navy')
               }`}
             >
               <span className="capitalize">{t}</span>
               <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium ${
-                tab === t ? 'bg-navy-chip text-navy' : 'bg-gray-100 text-gray-500'
+                tab === t ? 'bg-navy-chip text-navy'
+                  : (t === 'pending' && (counts[t] ?? 0) > 0 ? PENDING_BADGE : 'bg-gray-100 text-gray-500')
               }`}>
                 {counts[t] ?? 0}
               </span>
@@ -850,6 +854,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                    <th className="pl-6 pr-2 py-3 font-semibold text-xs uppercase tracking-wide w-10">#</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Order #</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Total</th>
@@ -871,6 +876,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
                           : `border-gray-50 hover:bg-gray-50/80 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`
                       }`}
                     >
+                      <td className="pl-6 pr-2 py-3.5 text-xs font-semibold text-gray-400">{(page - 1) * PAGE_SIZE + i + 1}</td>
                       <td className="px-6 py-3.5 font-medium text-navy">
                         <div className="flex items-center gap-1.5">
                           {order.priority === 'urgent' && (

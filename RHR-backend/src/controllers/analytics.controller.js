@@ -11,8 +11,10 @@ const getSalesmanAnalytics = async (req, res) => {
 
     let start, end, period;
     if (from && to) {
-      start = new Date(`${from}T00:00:00`).toISOString();
-      end = new Date(`${to}T23:59:59.999`).toISOString();
+      // The dates are Pakistan dates — cut the day at Pakistan midnight (the
+      // server itself runs on UTC).
+      start = new Date(`${from}T00:00:00+05:00`).toISOString();
+      end = new Date(`${to}T23:59:59.999+05:00`).toISOString();
       period = `${from} to ${to}`;
     } else {
       const now = new Date();
@@ -58,18 +60,92 @@ const getSalesmanAnalytics = async (req, res) => {
       .eq('salesman_id', id)
       .eq('is_approved', true);
 
-    const totalSales = orders?.reduce((s, o) => s + Number(o.total_amount), 0) || 0;
-    const totalCollected = payments?.reduce((s, p) => s + Number(p.amount), 0) || 0;
+    // ── Detail for the admin's Salesman Performance view ──────────────
+    // Cancelled / undelivered orders are not sales (same rule as the dashboard).
+    const isSale = (o) => !['cancelled', 'undelivered'].includes(o.status);
+    const saleOrders = (orders || []).filter(isSale);
+    const totalSales = saleOrders.reduce((s, o) => s + Number(o.total_amount), 0);
+
+    // What the salesman collected from customers (cash, bank transfer and
+    // online) — salesman_recoveries is where the app records it. The older
+    // `payments` table (customer-submitted) is added on top for completeness.
+    const [recoveries, closings, cashRows, closedRows, customers] = await Promise.all([
+      pgrestGet('salesman_recoveries', {
+        select: 'id,amount,payment_type,payment_method,status,recovery_date,created_at,customer_id,notes,users!customer_id(full_name,shop_name)',
+        salesman_id: `eq.${id}`,
+        and: `(created_at.gte.${start},created_at.lte.${end})`,
+        order: 'created_at.desc',
+      }),
+      pgrestGet('salesman_cash_closings', {
+        select: 'id,amount,deposit_to,bank_account,status,closing_date,created_at',
+        salesman_id: `eq.${id}`,
+        and: `(created_at.gte.${start},created_at.lte.${end})`,
+        order: 'created_at.desc',
+      }),
+      // cash in hand is all-time (not date-ranged): approved cash collected
+      // minus approved deposits — same formula as the salesman's own app
+      pgrestGet('salesman_recoveries', { select: 'amount', salesman_id: `eq.${id}`, payment_type: 'eq.cash', status: 'eq.approved' }),
+      pgrestGet('salesman_cash_closings', { select: 'amount,status', salesman_id: `eq.${id}`, status: 'in.(approved,pending)' }),
+      pgrestGet('users', { select: 'id,full_name,shop_name,phone', salesman_id: `eq.${id}`, role: 'eq.customer', is_approved: 'eq.true', order: 'shop_name.asc' }),
+    ]);
+    const sum = (rows) => (rows || []).reduce((t, r) => t + Number(r.amount), 0);
+    const approvedRec = (recoveries || []).filter((r) => r.status === 'approved');
+    const collectedCash = sum(approvedRec.filter((r) => r.payment_type === 'cash'));
+    const collectedBank = sum(approvedRec.filter((r) => r.payment_type !== 'cash'));
+    const pendingRec = (recoveries || []).filter((r) => r.status === 'pending');
+    const legacyCollected = payments?.reduce((t, p) => t + Number(p.amount), 0) || 0;
+    const totalCollected = collectedCash + collectedBank + legacyCollected;
+
+    const totalCashCollected = sum(cashRows);
+    const totalDeposited = sum((closedRows || []).filter((c) => c.status === 'approved'));
+    const pendingDeposit = sum((closedRows || []).filter((c) => c.status === 'pending'));
+
+    // Customer-wise: this salesman's customers, with orders / sales / what was
+    // collected from each in the period, and what each still owes right now.
+    const balances = await Promise.all((customers || []).map((c) =>
+      pgrestGet('ledger_entries', { select: 'running_balance', customer_id: `eq.${c.id}`, order: 'created_at.desc', limit: '1' })
+        .then((r) => Number(r?.[0]?.running_balance) || 0).catch(() => null)));
+    const customerBreakdown = (customers || []).map((c, i) => {
+      const co = saleOrders.filter((o) => o.customer_id === c.id);
+      const cr = approvedRec.filter((r) => r.customer_id === c.id);
+      return {
+        id: c.id,
+        name: c.shop_name || c.full_name,
+        contact: c.shop_name ? c.full_name : null,
+        phone: c.phone,
+        orders: co.length,
+        sales: co.reduce((t, o) => t + Number(o.total_amount), 0),
+        collected: sum(cr),
+        outstanding: balances[i],
+      };
+    });
 
     return success(res, {
       period,
-      totalOrders:     orders?.length || 0,
+      totalOrders:     saleOrders.length,
+      cancelledOrders: (orders?.length || 0) - saleOrders.length,
+      deliveredOrders: saleOrders.filter((o) => o.status === 'delivered').length,
       totalSales,
       totalCollected,
+      collectedCash,
+      collectedBank,
+      pendingCollected: sum(pendingRec),
+      pendingCount:     pendingRec.length,
+      cashInHand:       totalCashCollected - totalDeposited,
+      totalCashCollected,
+      totalDeposited,
+      pendingDeposit,
       totalVisits:     visits?.length || 0,
       totalCustomers:  totalCustomers || 0,
+      customerBreakdown,
+      recoveries:      recoveries || [],
+      closings:        closings || [],
       orders,
-      payments,
+      // chart input: approved collections in the period
+      payments: [
+        ...approvedRec.map((r) => ({ amount: r.amount, status: r.status, created_at: r.created_at })),
+        ...(payments || []),
+      ],
       visits,
     });
   } catch (err) { return error(res, err.message); }

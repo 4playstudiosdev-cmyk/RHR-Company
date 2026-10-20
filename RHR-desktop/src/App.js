@@ -110,7 +110,7 @@ const PAGE_ACCESS = {
   customers: { requiredPermission: 'can_manage_customers' },
   hrm: { requiredPermission: 'can_manage_hrm' },
   'production-materials': { requiredPermission: 'can_manage_production' },
-  suppliers: { requiredPermission: 'can_manage_production' },
+  suppliers: { requiredPermission: 'suppliers' },
   returns: { requiredPermission: 'can_manage_production' },
   'production-dashboard': { requiredPermission: 'can_manage_production' },
   'production-orders': { requiredPermission: 'can_manage_production' },
@@ -180,7 +180,7 @@ function AppShell() {
   const handleRefresh = () => {
     setRefreshKey((k) => k + 1);
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 700);
+    setTimeout(() => setRefreshing(false), 1000);
   };
   // Desktop-only icon-rail mode — persisted so it survives a refresh.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
@@ -286,6 +286,7 @@ function AppShell() {
         onClose={() => setSidebarOpen(false)}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
+        refreshKey={refreshKey}
       />
       {/* md:pl-10 when collapsed clears the floating toggle arrow, which
           otherwise sits right where a page's title/heading starts once
@@ -340,7 +341,7 @@ function AppShell() {
       </div>
       <SessionWarning />
       <LocationGate user={user} />
-      {hasPermission('notifications', user) && <NotificationBell setPage={setPage} onViewOrderNumber={goToOrder} />}
+      {hasPermission('notifications', user) && <NotificationBell key={refreshKey} setPage={setPage} onViewOrderNumber={goToOrder} />}
       <GlobalSearch
         open={searchOpen}
         onClose={() => setSearchOpen(false)}

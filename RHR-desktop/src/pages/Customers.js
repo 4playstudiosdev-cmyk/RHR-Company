@@ -1,3 +1,4 @@
+import { PENDING_BADGE } from '../utils/pending';
 import React, { useEffect, useState } from 'react';
 import { Users, UserCheck, BookOpen, Search, Phone, Mail, AlertTriangle, User, Tag, DollarSign, RotateCcw, Plus, Pencil, Trash2, MapPin, ChevronDown, ChevronUp, IdCard, Calendar } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
@@ -677,12 +678,14 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
         <button
           onClick={() => setTab('pending')}
           className={`pb-3 text-sm font-semibold transition-colors flex items-center gap-1.5 -mb-px border-b-2 ${
-            tab === 'pending' ? 'text-navy border-navy' : 'text-gray-400 border-transparent hover:text-navy'
+            tab === 'pending'
+              ? 'text-navy border-navy'
+              : (pending.length > 0 ? 'text-orange border-orange/50 hover:text-orange' : 'text-gray-400 border-transparent hover:text-navy')
           }`}
         >
           Pending Approval
           {pending.length > 0 && (
-            <span className="bg-orange text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{pending.length}</span>
+            <span className={PENDING_BADGE}>{pending.length}</span>
           )}
         </button>
         <button
@@ -780,7 +783,10 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
       ) : tab === 'all' ? (
         <section>
           <div className="flex justify-between items-center mb-4 gap-3 flex-wrap">
-            <h3 className="font-semibold text-navy">Active Customer Database</h3>
+            <h3 className="font-semibold text-navy">
+              Active Customer Database{' '}
+              <span className="text-gray-400 font-medium">({filtered.length === all.length ? all.length : `${filtered.length} of ${all.length}`})</span>
+            </h3>
             <div className="relative w-full sm:w-64">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
@@ -838,6 +844,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                 <table className="w-full text-left border-collapse text-sm">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-100 text-gray-500">
+                      <th className="py-3 pl-5 pr-1 font-semibold text-xs uppercase tracking-wide w-10">#</th>
                       <th className="py-3 px-3 font-semibold text-xs uppercase tracking-wide w-8"></th>
                       <th className="py-3 px-6 font-semibold text-xs uppercase tracking-wide">Customer</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Phone</th>
@@ -863,6 +870,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                             i % 2 === 1 ? 'bg-gray-50/40' : ''
                           } ${isExpanded ? 'bg-navy-chip/30' : ''}`}
                         >
+                          <td className="py-3 pl-5 pr-1 text-xs font-semibold text-gray-400">{(page - 1) * PAGE_SIZE + i + 1}</td>
                           <td className="py-3 px-3">
                             <button
                               onClick={() => setExpandedCustomerId(isExpanded ? null : customer.id)}

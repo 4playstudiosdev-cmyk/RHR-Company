@@ -1,3 +1,4 @@
+import { PENDING_RING } from '../utils/pending';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Plus, UserCog, UserCheck, Pencil, UserX, UserCheck2, Trash2,
@@ -400,7 +401,7 @@ export default function Salesmen({ onViewLedger }) {
             onClick={() => setTab(t.key)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               tab === t.key ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-            }`}
+            } ${t.key === 'pending' && t.count > 0 && tab !== t.key ? `${PENDING_RING} text-orange font-semibold animate-pulse` : ''}`}
           >
             {t.label}{t.count !== undefined ? ` (${t.count})` : ''}
           </button>
@@ -1037,6 +1038,56 @@ function StatusBadgeMini({ status }) {
 // Backed by GET /api/v1/analytics/salesman/:id — an endpoint that already
 // existed but wasn't used by any page yet.
 
+// A titled table block for the Performance view. rows are arrays of cells (strings
+// or JSX); an optional foot row gives the totals.
+function PerfTable({ title, subtitle, head, align = [], rows, foot, empty }) {
+  const cls = (i) => (align[i] === 'right' ? 'text-right' : 'text-left');
+  return (
+    <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden mb-6">
+      <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+        <h3 className="font-semibold text-navy text-sm">{title} <span className="text-gray-400 font-medium">({rows.length})</span></h3>
+        {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+      </div>
+      {rows.length === 0 ? (
+        <p className="px-6 py-8 text-sm text-gray-400 text-center">{empty}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-gray-500 bg-gray-50 border-b border-gray-100">
+                {head.map((h, i) => (
+                  <th key={h} className={`px-6 py-3 font-semibold text-xs uppercase tracking-wide ${cls(i)} ${i === 0 ? 'w-10' : ''}`}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((cells, ri) => (
+                <tr key={ri} className={`border-b border-gray-50 last:border-0 ${ri % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                  {cells.map((c, ci) => (
+                    <td key={ci} className={`px-6 py-3 ${cls(ci)} ${ci === 0 ? 'text-xs font-semibold text-gray-400' : 'text-gray-700'}`}>{c}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+            {foot && (
+              <tfoot>
+                <tr className="bg-navy-chip/40 border-t border-gray-100 font-bold text-navy">
+                  {foot.map((c, ci) => <td key={ci} className={`px-6 py-3 ${cls(ci)}`}>{c}</td>)}
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PerfStatus({ status }) {
+  const tone = status === 'approved' ? 'bg-emerald-50 text-emerald-700' : status === 'rejected' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-700';
+  return <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${tone}`}>{status}</span>;
+}
+
 function PerformanceTab({ salesmen, onViewLedger, toast }) {
   const [userId, setUserId] = useState('');
   const [dateFrom, setDateFrom] = useState(() => {
@@ -1217,6 +1268,7 @@ function PerformanceTab({ salesmen, onViewLedger, toast }) {
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Total Orders</p>
                 <p className="text-2xl font-bold text-navy leading-tight">{data.totalOrders}</p>
+                <p className="text-xs text-gray-400">Sales PKR {Number(data.totalSales || 0).toLocaleString()}</p>
               </div>
             </div>
             <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5 flex items-center gap-4">
@@ -1226,6 +1278,7 @@ function PerformanceTab({ salesmen, onViewLedger, toast }) {
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Collections</p>
                 <p className="text-2xl font-bold text-navy leading-tight">PKR {Number(data.totalCollected).toLocaleString()}</p>
+                <p className="text-xs text-gray-400">Cash {Number(data.collectedCash || 0).toLocaleString()} · Bank/online {Number(data.collectedBank || 0).toLocaleString()}</p>
               </div>
             </div>
             <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5 flex items-center gap-4">
@@ -1247,6 +1300,90 @@ function PerformanceTab({ salesmen, onViewLedger, toast }) {
               </div>
             </div>
           </div>
+
+          {/* Second row: the money picture — what is with the salesman right now */}
+          <div className="grid grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
+            {[
+              { label: 'Total Sales', value: `PKR ${Number(data.totalSales || 0).toLocaleString()}`, sub: `${data.totalOrders} order(s) · ${data.deliveredOrders || 0} delivered`, tone: 'text-navy' },
+              { label: 'Cash In Hand', value: `PKR ${Number(data.cashInHand || 0).toLocaleString()}`, sub: `Collected ${Number(data.totalCashCollected || 0).toLocaleString()} − deposited ${Number(data.totalDeposited || 0).toLocaleString()}`, tone: 'text-orange' },
+              { label: 'Pending Approval', value: `PKR ${Number(data.pendingCollected || 0).toLocaleString()}`, sub: `${data.pendingCount || 0} payment(s) waiting`, tone: 'text-amber-600' },
+              { label: 'Deposit Waiting', value: `PKR ${Number(data.pendingDeposit || 0).toLocaleString()}`, sub: 'cash deposit awaiting approval', tone: 'text-amber-600' },
+              { label: 'Customers', value: data.totalCustomers, sub: 'assigned to this salesman', tone: 'text-navy' },
+            ].map((c) => (
+              <div key={c.label} className="bg-white rounded-2xl shadow-card border border-gray-100 px-4 py-3.5">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{c.label}</p>
+                <p className={`text-xl font-bold leading-tight ${c.tone}`}>{c.value}</p>
+                <p className="text-[11px] text-gray-400 mt-0.5">{c.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Customer-wise: orders, sales, collected and what each still owes */}
+          <PerfTable
+            title="Customer-wise Sales & Recovery"
+            subtitle="Each customer of this salesman — orders and sales placed, money collected, and the balance still outstanding"
+            empty="No customers assigned yet"
+            head={['#', 'Customer', 'Orders', 'Sales', 'Collected', 'Outstanding']}
+            align={['', '', 'right', 'right', 'right', 'right']}
+            rows={(data.customerBreakdown || []).map((c, i) => [
+              i + 1,
+              <div key="n"><p className="font-semibold text-navy">{c.name}</p>{c.contact && <p className="text-xs text-gray-400">{c.contact}</p>}</div>,
+              c.orders,
+              `PKR ${Number(c.sales).toLocaleString()}`,
+              <span key="c" className="text-emerald-600 font-semibold">PKR {Number(c.collected).toLocaleString()}</span>,
+              <span key="o" className={c.outstanding > 0 ? 'text-red-600 font-semibold' : 'text-gray-500'}>{c.outstanding == null ? '—' : `PKR ${Number(c.outstanding).toLocaleString()}`}</span>,
+            ])}
+            foot={['', 'Total', (data.customerBreakdown || []).reduce((t, c) => t + c.orders, 0),
+              `PKR ${(data.customerBreakdown || []).reduce((t, c) => t + Number(c.sales), 0).toLocaleString()}`,
+              `PKR ${(data.customerBreakdown || []).reduce((t, c) => t + Number(c.collected), 0).toLocaleString()}`,
+              `PKR ${(data.customerBreakdown || []).reduce((t, c) => t + (Number(c.outstanding) || 0), 0).toLocaleString()}`]}
+          />
+
+          <PerfTable
+            title="Orders in this period"
+            subtitle="Orders from this salesman's customers"
+            empty="No orders in this period"
+            head={['#', 'Date & Time', 'Customer', 'Status', 'Amount']}
+            align={['', '', '', '', 'right']}
+            rows={(data.orders || []).map((o, i) => [
+              i + 1,
+              visitStamp(o.created_at),
+              o.users?.full_name || '—',
+              <span key="s" className="capitalize">{o.status}</span>,
+              `PKR ${Number(o.total_amount).toLocaleString()}`,
+            ])}
+          />
+
+          <PerfTable
+            title="Payments collected in this period"
+            subtitle="Every payment the salesman recorded — cash, bank transfer and online — and its approval status"
+            empty="No payments recorded in this period"
+            head={['#', 'Date & Time', 'Customer', 'Method', 'Amount', 'Status']}
+            align={['', '', '', '', 'right', '']}
+            rows={(data.recoveries || []).map((r, i) => [
+              i + 1,
+              visitStamp(r.created_at),
+              r.users?.shop_name || r.users?.full_name || '—',
+              <span key="m" className="capitalize">{r.payment_type === 'cash' ? 'Cash' : String(r.payment_method || 'online').replace('_', ' ')}</span>,
+              `PKR ${Number(r.amount).toLocaleString()}`,
+              <PerfStatus key="st" status={r.status} />,
+            ])}
+          />
+
+          <PerfTable
+            title="Cash deposits in this period"
+            subtitle="Cash the salesman handed over (to the bank or as petty cash)"
+            empty="No deposits in this period"
+            head={['#', 'Date & Time', 'Deposit to', 'Amount', 'Status']}
+            align={['', '', '', 'right', '']}
+            rows={(data.closings || []).map((c, i) => [
+              i + 1,
+              visitStamp(c.created_at),
+              c.deposit_to === 'bank' ? `Bank${c.bank_account ? ` — ${c.bank_account}` : ''}` : 'Petty cash',
+              `PKR ${Number(c.amount).toLocaleString()}`,
+              <PerfStatus key="st" status={c.status} />,
+            ])}
+          />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
             <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5">

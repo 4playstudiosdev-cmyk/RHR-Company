@@ -8,6 +8,7 @@ import {
   Image as ImageIcon, MessageCircle, Footprints, Smartphone
 } from 'lucide-react';
 import api, { hasPermission } from '../services/api';
+import { PENDING_RING, PENDING_BADGE } from '../utils/pending';
 
 // requiredRole/requiredPermission here must match PAGE_ACCESS in App.js —
 // that's what actually enforces access if someone bypasses the sidebar
@@ -27,7 +28,9 @@ const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiredPermission: 'dashboard' },
   { key: 'products', label: 'Products', icon: Package, requiredPermission: 'products' },
   { key: 'production-materials', label: 'Raw Materials', icon: Boxes, requiredPermission: 'can_manage_production' },
-  { key: 'suppliers', label: 'Suppliers', icon: Store, requiredPermission: 'can_manage_production' },
+  // Its own permission (on unless switched off) — every branch has its own suppliers,
+  // so branch admins need it even without the wider Production access.
+  { key: 'suppliers', label: 'Suppliers', icon: Store, requiredPermission: 'suppliers' },
   { key: 'returns', label: 'Returns', icon: RotateCcw, requiredPermission: 'can_manage_production' },
   { key: 'orders', label: 'Orders', icon: ShoppingCart, requiredPermission: 'orders' },
   { key: 'customers', label: 'Customers', icon: Users, requiredPermission: 'can_manage_customers' },
@@ -153,7 +156,7 @@ function groupForPage(page) {
   return GROUPS.find((g) => g.children.includes(page));
 }
 
-export default function Sidebar({ page, setPage, user, onLogout, open, onClose, collapsed, onToggleCollapse }) {
+export default function Sidebar({ page, setPage, user, onLogout, open, onClose, collapsed, onToggleCollapse, refreshKey }) {
   // Multiple groups can be open at once — matches the original single
   // "Production" accordion's behavior, just generalized to all 7.
   const [openGroups, setOpenGroups] = useState(() => {
@@ -162,6 +165,23 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
   });
   const [pendingTransfers, setPendingTransfers] = useState(0);
   const [loginAlerts, setLoginAlerts] = useState(0);
+  // { [page key]: how many items are waiting on an admin } — see GET /pending-counts.
+  const [pendingCounts, setPendingCounts] = useState({});
+
+  // Refreshes on login, every 20s, whenever the admin moves to another panel
+  // (so a count drops as soon as they've dealt with something) and when the
+  // header refresh button is pressed.
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.get('/pending-counts')
+      .then((r) => { if (alive && r.data.success) setPendingCounts(r.data.data || {}); })
+      .catch(() => {});
+    load();
+    const interval = setInterval(load, 20000);
+    return () => { alive = false; clearInterval(interval); };
+  }, [page, refreshKey]);
+
+  const countFor = (key) => (key === 'stock-transfers' ? pendingTransfers : (pendingCounts[key] || 0));
 
   const toggleGroup = (key) => {
     setOpenGroups((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
@@ -180,7 +200,7 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
     api.get('/transfers/pending')
       .then((r) => { if (r.data.success) setPendingTransfers((r.data.data || []).length); })
       .catch(() => {});
-  }, []);
+  }, [page, refreshKey]);
 
   // Alerts super_admin to branch_admin (HYD/SUK) logins — a red badge on
   // the Notifications nav item, same as the pending-transfers badge above.
@@ -212,6 +232,7 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
   const renderChildButton = (item, groupKey) => {
     const Icon = item.icon;
     const active = page === item.key;
+    const waiting = countFor(item.key);
 
     return (
       <button
@@ -221,13 +242,13 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
           active
             ? 'bg-navy-container text-white shadow-sm'
             : 'text-blue-200/70 hover:bg-white/10 hover:text-white'
-        }`}
+        } ${waiting > 0 && !active ? PENDING_RING + ' text-white bg-orange/10' : ''}`}
       >
         <Icon size={15} strokeWidth={2} />
         <span className="flex-1 text-left">{item.label}</span>
-        {item.key === 'stock-transfers' && pendingTransfers > 0 && (
-          <span className="text-[11px] font-bold bg-orange text-white px-1.5 py-0.5 rounded-full">
-            {pendingTransfers}
+        {waiting > 0 && (
+          <span className={PENDING_BADGE.replace('text-[10px]', 'text-[11px]')}>
+            {waiting}
           </span>
         )}
         {item.key === 'notifications' && loginAlerts > 0 && (
@@ -311,6 +332,9 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
                 const GroupIcon = group.icon;
                 const isOpen = openGroups.includes(group.key);
                 const groupHasActive = visibleChildren.some((item) => item.key === page);
+                // everything waiting inside this group (a page listed twice counts once)
+                const groupWaiting = [...new Set(visibleChildren.map((item) => item.key))]
+                  .reduce((sum, k) => sum + countFor(k), 0);
 
                 return (
                   <div key={group.key}>
@@ -320,10 +344,13 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
                         groupHasActive
                           ? 'bg-white/10 text-white'
                           : 'text-blue-200/80 hover:bg-white/10 hover:text-white'
-                      }`}
+                      } ${groupWaiting > 0 && !groupHasActive ? PENDING_RING : ''}`}
                     >
                       <GroupIcon size={18} strokeWidth={2} />
                       <span className="flex-1 text-left">{group.label}</span>
+                      {groupWaiting > 0 && (
+                        <span className={PENDING_BADGE.replace('text-[10px]', 'text-[11px]')}>{groupWaiting}</span>
+                      )}
                       <ChevronDown
                         size={15}
                         className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}

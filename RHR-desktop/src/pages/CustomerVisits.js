@@ -94,9 +94,14 @@ export default function CustomerVisits() {
 
   useEffect(() => {
     setSalesmanId('');
-    api.get('/salesmen', { params: companyId ? { company_id: companyId } : {} })
+    const params = companyId ? { company_id: companyId } : {};
+    // Primary list, with the lighter "directory" list as a fallback — the dropdown
+    // must never come up empty.
+    api.get('/salesmen', { params })
       .then((res) => setSalesmen(res.data.data || []))
-      .catch(() => setSalesmen([]));
+      .catch(() => api.get('/salesmen/directory', { params })
+        .then((res) => setSalesmen(res.data.data || []))
+        .catch(() => setSalesmen([])));
   }, [companyId]);
 
   useEffect(() => {
@@ -114,6 +119,14 @@ export default function CustomerVisits() {
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
   }, [companyId, salesmanId, range.from, range.to]);
+
+  // Every salesman: the salesmen list, plus anyone who appears on a visit in
+  // the current results (so nobody with a visit is ever missing from the picker).
+  const salesmanOptions = useMemo(() => {
+    const byId = new Map(salesmen.map((s) => [s.id, s.full_name]));
+    visits.forEach((v) => { if (v.salesman_id && !byId.has(v.salesman_id)) byId.set(v.salesman_id, v.salesmen?.full_name || 'Salesman'); });
+    return [...byId.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  }, [salesmen, visits]);
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -171,8 +184,8 @@ export default function CustomerVisits() {
           onChange={(e) => setSalesmanId(e.target.value)}
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy"
         >
-          <option value="">All salesmen</option>
-          {salesmen.map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+          <option value="">All salesmen ({salesmanOptions.length})</option>
+          {salesmanOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -213,7 +226,7 @@ export default function CustomerVisits() {
 
       <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
         {loading ? (
-          <SkeletonTable rows={6} cols={6} />
+          <SkeletonTable rows={6} cols={7} />
         ) : shown.length === 0 ? (
           <EmptyState icon={Footprints} title="No visits in this period" subtitle="Visits show up here the moment a salesman marks one in the app" />
         ) : (
@@ -221,6 +234,7 @@ export default function CustomerVisits() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                  <th className="pl-5 pr-2 py-3 font-semibold text-xs uppercase tracking-wide w-10">#</th>
                   <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Date & Time</th>
                   <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Salesman</th>
                   <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
@@ -231,6 +245,7 @@ export default function CustomerVisits() {
               <tbody>
                 {shown.map((v, i) => (
                   <tr key={v.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                    <td className="pl-5 pr-2 py-3 text-xs font-semibold text-gray-400">{i + 1}</td>
                     <td className="px-5 py-3 text-gray-700 whitespace-nowrap font-medium">{stamp(v.visited_at)}</td>
                     <td className="px-5 py-3 text-gray-700">{v.salesmen?.full_name || '—'}</td>
                     <td className="px-5 py-3">

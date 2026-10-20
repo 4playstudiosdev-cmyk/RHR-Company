@@ -1,3 +1,4 @@
+import { PENDING_RING, PENDING_BADGE } from '../utils/pending';
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Briefcase, Clock, DollarSign, CalendarCheck, Download, UserPlus,
@@ -50,6 +51,10 @@ export default function HRM() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
   const [tab, setTab] = useState('attendance');
+  const [pendingLeave, setPendingLeave] = useState(0);
+  useEffect(() => {
+    api.get('/pending-counts').then((r) => setPendingLeave(r.data?.data?.hrm || 0)).catch(() => {});
+  }, [selectedCity]);
 
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [employeeForm, setEmployeeForm] = useState(EMPTY_EMPLOYEE_FORM);
@@ -204,9 +209,12 @@ export default function HRM() {
               onClick={() => setTab(t.key)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 tab === t.key ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-              }`}
+              } ${t.key === 'leave' && pendingLeave > 0 && tab !== t.key ? PENDING_RING : ''}`}
             >
               <Icon size={15} /> {t.label}
+              {t.key === 'leave' && pendingLeave > 0 && (
+                <span className={PENDING_BADGE}>{pendingLeave}</span>
+              )}
             </button>
           );
         })}
