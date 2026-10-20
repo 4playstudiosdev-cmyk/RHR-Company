@@ -67,6 +67,7 @@ export default function SalesmanRecovery() {
   const [salesmenList, setSalesmenList] = useState([]);
   const [customersList, setCustomersList] = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [historySalesman, setHistorySalesman] = useState(''); // '' = every salesman
   const [transactionsLoading, setTransactionsLoading] = useState(true);
   const [pendingData, setPendingData] = useState({ online_payments: [], cash_closings: [] });
   const [cashInHand, setCashInHand] = useState({});
@@ -252,6 +253,24 @@ export default function SalesmanRecovery() {
   };
 
   const pendingCount = pendingData.online_payments.length + pendingData.cash_closings.length;
+
+  // History for everyone, or for one salesman. The picker lists every salesman
+  // — the salesmen list plus anyone who appears in the history itself.
+  const historySalesmen = (() => {
+    const byId = new Map((salesmenList || []).map((x) => [x.id, x.full_name]));
+    transactions.forEach((t) => { if (t.salesman_id && !byId.has(t.salesman_id)) byId.set(t.salesman_id, t.salesmen?.full_name || 'Salesman'); });
+    return [...byId.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  })();
+  const visibleTransactions = historySalesman ? transactions.filter((t) => t.salesman_id === historySalesman) : transactions;
+  const historySum = (rows) => rows.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+  const historyApproved = visibleTransactions.filter((t) => t.status === 'approved');
+  const historyStats = {
+    count: visibleTransactions.length,
+    total: historySum(historyApproved),
+    cash: historySum(historyApproved.filter((t) => t.payment_type === 'cash')),
+    online: historySum(historyApproved.filter((t) => t.payment_type !== 'cash')),
+    pending: historySum(visibleTransactions.filter((t) => t.status === 'pending')),
+  };
 
   return (
     <div className="p-6">
@@ -675,10 +694,27 @@ export default function SalesmanRecovery() {
       )}
 
       {tab === 'history' && (
+        <>
+        <div className="flex items-center gap-3 flex-wrap mb-4">
+          <select
+            value={historySalesman}
+            onChange={(e) => setHistorySalesman(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy"
+          >
+            <option value="">All salesmen ({historySalesmen.length})</option>
+            {historySalesmen.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+          </select>
+          <div className="flex gap-2 flex-wrap text-xs font-semibold">
+            <span className="px-3 py-1.5 rounded-full bg-navy-chip text-navy">{historyStats.count} entries</span>
+            <span className="px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700">Collected PKR {historyStats.total.toLocaleString()}</span>
+            <span className="px-3 py-1.5 rounded-full bg-gray-100 text-gray-600">Cash {historyStats.cash.toLocaleString()} · Bank/online {historyStats.online.toLocaleString()}</span>
+            {historyStats.pending > 0 && <span className="px-3 py-1.5 rounded-full bg-orange/10 text-orange">Pending PKR {historyStats.pending.toLocaleString()}</span>}
+          </div>
+        </div>
         <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
           {transactionsLoading ? (
             <SkeletonTable rows={6} cols={8} />
-          ) : transactions.length === 0 ? (
+          ) : visibleTransactions.length === 0 ? (
             <EmptyState icon={ListChecks} title="No transactions yet" />
           ) : (
             <div className="overflow-x-auto">
@@ -696,7 +732,7 @@ export default function SalesmanRecovery() {
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map((t, i) => (
+                  {visibleTransactions.map((t, i) => (
                     <tr key={t.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                       <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap"><WhenCell date={t.recovery_date} createdAt={t.created_at} /></td>
                       <td className="px-6 py-3.5 font-medium text-navy">{t.salesmen?.full_name || '—'}</td>
@@ -726,6 +762,7 @@ export default function SalesmanRecovery() {
             </div>
           )}
         </div>
+        </>
       )}
 
       {photoUrl && (
