@@ -9,3 +9,4 @@ session_data/
 assets/firebase-service-account.json
 dist/
 build/*firebase-adminsdk*.json
+assets/firebase-service-account.*
