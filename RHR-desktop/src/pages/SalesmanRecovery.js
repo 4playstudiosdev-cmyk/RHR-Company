@@ -1,4 +1,5 @@
 import { PENDING_RING, PENDING_BADGE } from '../utils/pending';
+import DateRangeFilter from '../components/DateRangeFilter';
 import React, { useEffect, useState } from 'react';
 import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
@@ -57,17 +58,21 @@ function PhotoButton({ url, onOpen }) {
   );
 }
 
-export default function SalesmanRecovery() {
+export default function SalesmanRecovery({ initialTab, initialTabToken }) {
   const toast = useToast();
   const user = getCurrentUser();
   const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId;
   const [selectedCity, setSelectedCity] = useState(defaultCity);
-  const [tab, setTab] = useState('add');
+  const [tab, setTab] = useState(initialTab || 'add');
+  // opened from a notification: jump to the tab it is about
+  useEffect(() => { if (initialTab) setTab(initialTab); }, [initialTab, initialTabToken]);
 
   const [salesmenList, setSalesmenList] = useState([]);
   const [customersList, setCustomersList] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [historySalesman, setHistorySalesman] = useState(''); // '' = every salesman
+  const todayStr = new Date().toISOString().split('T')[0];
+  const [historyRange, setHistoryRange] = useState({ from: todayStr, to: todayStr });
   const [transactionsLoading, setTransactionsLoading] = useState(true);
   const [pendingData, setPendingData] = useState({ online_payments: [], cash_closings: [] });
   const [cashInHand, setCashInHand] = useState({});
@@ -261,7 +266,8 @@ export default function SalesmanRecovery() {
     transactions.forEach((t) => { if (t.salesman_id && !byId.has(t.salesman_id)) byId.set(t.salesman_id, t.salesmen?.full_name || 'Salesman'); });
     return [...byId.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => String(a.name).localeCompare(String(b.name)));
   })();
-  const visibleTransactions = historySalesman ? transactions.filter((t) => t.salesman_id === historySalesman) : transactions;
+  const inHistoryRange = (t) => (!historyRange.from || String(t.recovery_date) >= historyRange.from) && (!historyRange.to || String(t.recovery_date) <= historyRange.to);
+  const visibleTransactions = transactions.filter((t) => (!historySalesman || t.salesman_id === historySalesman) && inHistoryRange(t));
   const historySum = (rows) => rows.reduce((sum, t) => sum + Number(t.amount || 0), 0);
   const historyApproved = visibleTransactions.filter((t) => t.status === 'approved');
   const historyStats = {
@@ -696,6 +702,12 @@ export default function SalesmanRecovery() {
       {tab === 'history' && (
         <>
         <div className="flex items-center gap-3 flex-wrap mb-4">
+          <DateRangeFilter
+            from={historyRange.from}
+            to={historyRange.to}
+            defaultPreset="Today"
+            onApply={(from, to) => setHistoryRange({ from, to })}
+          />
           <select
             value={historySalesman}
             onChange={(e) => setHistorySalesman(e.target.value)}

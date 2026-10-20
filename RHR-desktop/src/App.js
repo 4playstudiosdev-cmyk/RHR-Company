@@ -165,6 +165,13 @@ function AppShell() {
   // Lets Ledger.js's clickable order-number links jump straight to that
   // order's detail view on the Orders page.
   const [targetOrderNumber, setTargetOrderNumber] = useState(null);
+  // Opens a page on a specific tab (e.g. a notification -> Salesman Recovery > Pending Approvals).
+  const [targetTab, setTargetTab] = useState(null); // { page, tab, token }
+  const goToTab = (pageKey, tab) => {
+    setTargetTab(tab ? { page: pageKey, tab, token: Date.now() } : null);
+    setPage(pageKey);
+    setSidebarOpen(false);
+  };
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   // { page, token } — token changes on every trigger so a page's
@@ -333,6 +340,9 @@ function AppShell() {
                 initialCustomerId={ledgerCustomerId}
                 onViewOrderNumber={goToOrder}
                 initialOrderNumber={targetOrderNumber}
+                initialTab={targetTab?.page === page ? targetTab.tab : null}
+                initialTabToken={targetTab?.page === page ? targetTab.token : null}
+                onNavigate={goToTab}
                 autoOpenCreate={quickActionTarget?.page === page ? quickActionTarget.token : null}
               />
             </ProtectedRoute>
@@ -341,7 +351,7 @@ function AppShell() {
       </div>
       <SessionWarning />
       <LocationGate user={user} />
-      {hasPermission('notifications', user) && <NotificationBell key={refreshKey} setPage={setPage} onViewOrderNumber={goToOrder} />}
+      {hasPermission('notifications', user) && <NotificationBell key={refreshKey} setPage={setPage} onViewOrderNumber={goToOrder} onNavigate={goToTab} />}
       <GlobalSearch
         open={searchOpen}
         onClose={() => setSearchOpen(false)}

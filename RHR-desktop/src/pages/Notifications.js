@@ -1,3 +1,4 @@
+import { routeForNotification, isRoutable } from '../utils/notificationRoute';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Bell, Send, History, Search, Users2, Radio, Package, MapPin } from 'lucide-react';
 import api from '../services/api';
@@ -31,10 +32,10 @@ const PAGE_SIZE = 8;
 // order_number — see Orders.js); 'payment' just opens the Payments page,
 // since there's no per-row payment detail view to land on precisely.
 function isClickable(n) {
-  return (n.type === 'order' || n.type === 'order_urgent') ? !!n.reference_id : n.type === 'payment';
+  return isRoutable(n);
 }
 
-export default function Notifications({ setPage, onViewOrderNumber }) {
+export default function Notifications({ setPage, onViewOrderNumber, onNavigate }) {
   const toast = useToast();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -129,11 +130,10 @@ export default function Notifications({ setPage, onViewOrderNumber }) {
 
   const handleRowClick = (n) => {
     if (!isClickable(n)) return;
-    if (n.type === 'order' || n.type === 'order_urgent') {
-      onViewOrderNumber?.(n.reference_id);
-    } else if (n.type === 'payment') {
-      setPage?.('payments');
-    }
+    const route = routeForNotification(n);
+    if (route.order) onViewOrderNumber?.(route.order);
+    else if (onNavigate) onNavigate(route.page, route.tab);
+    else setPage?.(route.page);
   };
 
   return (

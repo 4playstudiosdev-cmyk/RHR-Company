@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Bell, BellRing, X, LogIn, Megaphone, ShoppingCart, Wallet, UserPlus } from 'lucide-react';
 import api from '../services/api';
+import { routeForNotification } from '../utils/notificationRoute';
 
 const TYPE_ICON = {
   admin_login: LogIn,
@@ -28,7 +29,7 @@ function getTimeAgo(dateStr) {
 // update + the real mark-read call), same as opening the Notifications
 // page already did — the whole point of a bell preview is to let the
 // admin dismiss it at a glance without a second trip to that page.
-export default function NotificationBell({ setPage, onViewOrderNumber }) {
+export default function NotificationBell({ setPage, onViewOrderNumber, onNavigate }) {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const containerRef = useRef(null);
@@ -70,13 +71,10 @@ export default function NotificationBell({ setPage, onViewOrderNumber }) {
   // Notifications list.
   const handleNotificationClick = (n) => {
     setOpen(false);
-    if ((n.type === 'order' || n.type === 'order_urgent') && n.reference_id) {
-      onViewOrderNumber?.(n.reference_id);
-    } else if (n.type === 'payment') {
-      setPage('payments');
-    } else {
-      setPage('notifications');
-    }
+    const route = routeForNotification(n);
+    if (route.order) onViewOrderNumber?.(route.order);
+    else if (onNavigate) onNavigate(route.page, route.tab);
+    else setPage(route.page);
   };
 
   const handleToggle = () => {
