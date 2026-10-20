@@ -154,24 +154,23 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
         });
       }
 
-      // "Payments Collected" — what this salesman has actually taken
-      // from customers (cash + bank transfer, both instant-credit via
-      // recovery.routes.js), not what they've since deposited back to
-      // the company (that's a completely separate number, shown in Cash
-      // Collection instead).
-      final recoveryResults = await Future.wait([
-        DioClient.instance.get(ApiEndpoints.recoveryTransactionsMe),
-        DioClient.instance.get(ApiEndpoints.recoveryBankTransfersMe),
-      ]);
+      // "Payments Collected" — what this salesman has actually taken from
+      // customers TODAY (cash + bank transfer + approved online payments),
+      // not what they've since deposited back to the company (that's a
+      // separate number, shown in Cash Collection instead).
+      // /recovery/transactions/me already returns every type of collection,
+      // bank transfers included — the old code also added the separate
+      // bank-transfers list, so every bank transfer was counted twice (and
+      // it summed every day since the start, not just today).
+      final res = await DioClient.instance.get(ApiEndpoints.recoveryTransactionsMe);
+      final today = DateTime.now().toUtc().add(const Duration(hours: 5)).toIso8601String().substring(0, 10); // Pakistan date
       num collected = 0;
-      for (final res in recoveryResults) {
-        if (res.data['success'] == true) {
-          final rows = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
-          for (final r in rows) {
-            if ((r['status'] ?? '') == 'approved') {
-              final amt = r['amount'];
-              collected += amt is num ? amt : num.tryParse(amt?.toString() ?? '0') ?? 0;
-            }
+      if (res.data['success'] == true) {
+        final rows = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
+        for (final r in rows) {
+          if ((r['status'] ?? '') == 'approved' && (r['recovery_date'] ?? '').toString() == today) {
+            final amt = r['amount'];
+            collected += amt is num ? amt : num.tryParse(amt?.toString() ?? '0') ?? 0;
           }
         }
       }

@@ -34,23 +34,22 @@ class _SalesmanPaymentsCollectedScreenState extends State<SalesmanPaymentsCollec
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
+      // transactions/me already includes bank transfers — also adding the
+      // bank-transfers list listed (and totalled) every one of them twice.
       final results = await Future.wait([
         DioClient.instance.get(ApiEndpoints.recoveryTransactionsMe),
-        DioClient.instance.get(ApiEndpoints.recoveryBankTransfersMe),
         DioClient.instance.get(ApiEndpoints.customers),
       ]);
       final entries = <Map<String, dynamic>>[];
-      for (final res in [results[0], results[1]]) {
-        if (res.data['success'] == true) {
-          entries.addAll(List<Map<String, dynamic>>.from(res.data['data'] ?? [])
-              .where((e) => (e['status'] ?? '') == 'approved'));
-        }
+      if (results[0].data['success'] == true) {
+        entries.addAll(List<Map<String, dynamic>>.from(results[0].data['data'] ?? [])
+            .where((e) => (e['status'] ?? '') == 'approved'));
       }
       entries.sort((a, b) => (b['created_at'] ?? '').toString().compareTo((a['created_at'] ?? '').toString()));
 
       final outstanding = <String, num>{};
-      if (results[2].data['success'] == true) {
-        for (final c in List<Map<String, dynamic>>.from(results[2].data['data'] ?? [])) {
+      if (results[1].data['success'] == true) {
+        for (final c in List<Map<String, dynamic>>.from(results[1].data['data'] ?? [])) {
           outstanding[c['id'] as String] = _asNum(c['outstanding_balance']);
         }
       }
