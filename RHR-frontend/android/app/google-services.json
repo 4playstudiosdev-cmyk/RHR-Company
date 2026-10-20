@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "755021211818",
+    "project_id": "rhr-company",
+    "storage_bucket": "rhr-company.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:755021211818:android:586de354d78b28545448d3",
+        "android_client_info": {
+          "package_name": "com.rhrcompany.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAkdQC7UD62A3GAhNWQjSl_92G23XMhyNk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

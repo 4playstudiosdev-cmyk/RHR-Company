@@ -8,4 +8,4 @@ session_data/
 .wwebjs_auth/
 assets/firebase-service-account.json
 dist/
-build/
+build/*firebase-adminsdk*.json

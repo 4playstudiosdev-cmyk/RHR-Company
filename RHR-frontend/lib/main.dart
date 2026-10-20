@@ -7,6 +7,8 @@ import 'core/constants/app_colors.dart';
 import 'core/storage/hive_service.dart';
 import 'core/storage/secure_storage.dart';
 import 'services/gps_service.dart';
+import 'services/push_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'core/features/app_features.dart';
 import 'shared/router/app_router.dart';
 
@@ -17,7 +19,11 @@ void main() async {
   await HiveService.init();
   await GPSService().initialize();
   await AppFeatures.restore();
+  // Push notifications (Firebase). Never blocks or breaks startup if Firebase is unavailable.
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  await PushService.init();
   runApp(const ProviderScope(child: RHRApp()));
+  unawaited(PushService.registerToken());
   // Deliberately NOT awaited before runApp: startTracking() can wait on the
   // Android location-permission dialog, which can't appear until the UI
   // exists. Awaiting it here left the phone stuck on the loading screen
@@ -68,6 +74,7 @@ class _RHRAppState extends State<RHRApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       unawaited(GPSService().ensureTracking());
       unawaited(AppFeatures.load());
+      unawaited(PushService.registerToken());
     }
   }
 

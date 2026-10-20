@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { supabaseAdmin } = require('../config/supabase');
+const { pushToAccount } = require('./push.service');
 
 const SERVICE_ACCOUNT_PATH = path.join(__dirname, '../../assets/firebase-service-account.json');
 let messagingClient = null;
@@ -43,20 +44,12 @@ async function notifyUser({ companyId, recipientId, title, body, type, reference
       reference_id: referenceId || null,
     });
 
-    const { data: user } = await supabaseAdmin
-      .from('users')
-      .select('fcm_token')
-      .eq('id', recipientId)
-      .not('fcm_token', 'is', null)
-      .maybeSingle();
-
-    const token = user?.fcm_token;
-    if (!token) return;
-
-    const messaging = getMessagingClient();
-    if (!messaging) return;
-
-    await messaging.send({ token, notification: { title, body }, data: { type: type || 'payment' } });
+    // Phone push (customer, salesman or driver — whichever table the account is in).
+    // Carries the type and reference id so tapping it opens the right screen.
+    await pushToAccount(recipientId, {
+      title, body,
+      data: { type: type || 'payment', reference_id: referenceId || '' },
+    });
   } catch (err) {
     console.error('[notifyUser] failed:', err.message);
   }

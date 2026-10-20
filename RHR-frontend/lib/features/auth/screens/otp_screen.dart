@@ -8,6 +8,7 @@ import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../core/utils/phone_normalizer.dart';
 import '../../../services/gps_service.dart';
+import '../../../services/push_service.dart';
 import '../../../shared/router/app_transitions.dart';
 
 class OtpScreen extends StatefulWidget {
@@ -209,6 +210,8 @@ class _OtpScreenState extends State<OtpScreen> {
           // ignore: avoid_print
           print('USER ROLE: $role');
           await SecureStorage.savePhone(phone);
+          // tell the server where to push this account's notifications
+          unawaited(PushService.registerToken());
           final loggedInPosition = data['user']?['position'] as String?;
           if (loggedInPosition != null && loggedInPosition.isNotEmpty) {
             await SecureStorage.savePosition(loggedInPosition);

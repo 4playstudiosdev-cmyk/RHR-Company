@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
+const { sendToTokens } = require('../services/push.service');
 
 const SERVICE_ACCOUNT_PATH = path.join(__dirname, '../../assets/firebase-service-account.json');
 let messagingClient = null;
@@ -82,14 +83,16 @@ const sendNotification = async (req, res) => {
       tokens = [...(u || []), ...(s || [])].map(row => row.fcm_token).filter(Boolean);
     }
 
-    const messaging = tokens.length > 0 ? getMessagingClient() : null;
-    if (messaging) {
-      await messaging.sendEachForMulticast({
-        tokens,
-        notification: { title, body },
-        data: { type: type || 'broadcast' }
-      });
+    // drivers carry tokens too (phase11) — include them for "everyone" / "drivers"
+    if (!recipient_id && (!recipient_role || recipient_role === 'driver')) {
+      const { data: d } = await supabaseAdmin.from('drivers').select('fcm_token').eq('company_id', req.user.company_id).not('fcm_token', 'is', null);
+      tokens = [...tokens, ...(d || []).map(row => row.fcm_token).filter(Boolean)];
+    } else if (recipient_id) {
+      const { data: d } = await supabaseAdmin.from('drivers').select('fcm_token').eq('id', recipient_id).not('fcm_token', 'is', null);
+      tokens = [...tokens, ...(d || []).map(row => row.fcm_token).filter(Boolean)];
     }
+    tokens = [...new Set(tokens)];
+    await sendToTokens(tokens, { title, body, data: { type: type || 'broadcast' } }).catch((e) => console.error('[push] broadcast failed:', e.message));
 
     return success(res, { sent_to: tokens.length }, `Notification sent to ${tokens.length} devices`);
   } catch (err) { return error(res, err.message); }
