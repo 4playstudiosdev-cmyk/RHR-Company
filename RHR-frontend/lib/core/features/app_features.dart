@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../network/dio_client.dart';
+import '../storage/secure_storage.dart';
 
 /// Which parts of the app this customer / salesman / driver may use, as set by
 /// the super admin (desktop → Mobile Access). Loaded from the server when a
@@ -43,6 +44,11 @@ class AppFeatures {
   /// the cached ones if the request fails (offline, session expired...).
   static Future<void> load() async {
     try {
+      // Never ask while logged out (login / OTP screens): the server answers 401,
+      // and the app's 401 handler treats that as an expired session and throws
+      // the user back to the login screen — which is what kicked people off the
+      // OTP screen the moment the app came back to the foreground.
+      if (!await SecureStorage.isLoggedIn()) return;
       final res = await DioClient.instance.get('/api/v1/auth/my-features');
       if (res.data['success'] != true) return;
       final features = res.data['data']?['features'];
