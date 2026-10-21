@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -14,6 +15,15 @@ import 'shared/router/app_router.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Edge-to-edge on every Android version (Android 15+ forces it): the app draws
+  // behind the status / navigation bars and the screens keep their content clear
+  // of them through Scaffold / SafeArea. Same look everywhere, no surprise on 15.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarContrastEnforced: false,
+  ));
   // Lets the background GPS task and the UI talk to each other.
   FlutterForegroundTask.initCommunicationPort();
   await HiveService.init();
