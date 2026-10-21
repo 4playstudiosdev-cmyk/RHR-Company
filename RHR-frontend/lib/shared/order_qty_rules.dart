@@ -5,9 +5,9 @@
 ///
 ///  * No per-product / per-category minimum — any quantity of any item.
 ///  * The TOTAL quantity of the whole order (all items together) must be at
-///    least [kMinTotalQty]: 49 is rejected, 50 or more is fine.
+///    least [kMinTotalQty] (1): there is no real minimum, one bag is a valid order.
 ///  * The − / + buttons step by [kQtyStep]; the quantity can also be typed.
-const int kMinTotalQty = 50;
+const int kMinTotalQty = 1; // no minimum — even a single bag is a valid order
 const int kQtyStep = 10;
 
 class OrderQtyRule {
@@ -27,4 +27,4 @@ OrderQtyRule qtyRuleForProduct(Map<String, dynamic> product) => _rule;
 /// "Add N more to place this order" text, or null when the total is enough.
 String? minTotalQtyHint(int totalQty) => totalQty >= kMinTotalQty
     ? null
-    : 'Minimum order is $kMinTotalQty items in total — add ${kMinTotalQty - totalQty} more.';
+    : 'Add at least one item.';

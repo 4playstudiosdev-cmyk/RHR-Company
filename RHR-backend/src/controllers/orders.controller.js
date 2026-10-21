@@ -173,7 +173,7 @@ const customerUpdateOrderItems = async (req, res) => {
     for (const it of items || []) if (it.item_id in qty && it.quantity != null) qty[it.item_id] = Number(it.quantity);
     const total = Object.values(qty).reduce((a, b) => a + b, 0)
       + (added_items || []).reduce((a, it) => a + (Number(it.quantity) || 0), 0);
-    if (total < MIN_TOTAL_QTY) return error(res, `Minimum order is ${MIN_TOTAL_QTY} items in total — this order would have ${total}.`, 400);
+    if (total < MIN_TOTAL_QTY) return error(res, `An order must keep at least one item.`, 400);
 
     const data = await svc.updateOrderItems(
       req.params.id,

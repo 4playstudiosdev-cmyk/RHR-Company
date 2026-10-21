@@ -299,7 +299,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
     if (items.length === 0) { toast.error('Add at least one product.'); return; }
     const totalQty = items.reduce((sum, it) => sum + it.quantity, 0);
     if (totalQty < MIN_TOTAL_QTY) {
-      toast.error(`Minimum order is ${MIN_TOTAL_QTY} items in total — this order has ${totalQty}.`);
+      toast.error(`Add at least one item to the order.`);
       return;
     }
 
@@ -1186,7 +1186,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
               {orderFormTotalQty > 0 && (
                 <p className={`mt-2 text-xs font-medium ${orderFormTotalQty < MIN_TOTAL_QTY ? 'text-red-600' : 'text-gray-500'}`}>
                   Total quantity: {orderFormTotalQty}
-                  {orderFormTotalQty < MIN_TOTAL_QTY && ` — minimum order is ${MIN_TOTAL_QTY} items in total (add ${MIN_TOTAL_QTY - orderFormTotalQty} more)`}
+                  {orderFormTotalQty < MIN_TOTAL_QTY && ``}
                 </p>
               )}
               {orderFormTotal > 0 && (

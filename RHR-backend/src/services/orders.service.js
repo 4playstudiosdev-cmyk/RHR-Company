@@ -85,7 +85,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
   // bypass what the apps enforce.
   const totalQuantity = items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
   if (!(totalQuantity >= MIN_TOTAL_QTY)) {
-    throw new Error(`Minimum order is ${MIN_TOTAL_QTY} items in total — you have ${totalQuantity}.`);
+    throw new Error(`Add at least one item to the order.`);
   }
   // Stock is checked against the product's TOTAL across its colour lines.
   const qtyByProduct = {};
