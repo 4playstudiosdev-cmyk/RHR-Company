@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/grout_color_sheet.dart';
+import '../../../shared/grout_colors.dart';
 import '../../../shared/widgets/order_in_line_dialog.dart';
 import '../../../shared/widgets/qty_field.dart';
 import '../../../core/storage/secure_storage.dart';
@@ -146,6 +148,41 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
   int get _totalQty => _products.fold(0, (s, p) => s + ((p['qty'] ?? 0) as int));
 
+  // Grout: {colour: packets}. Kept on the product row; 'qty' is always the sum.
+  Map<String, int> _colorsOf(Map<String, dynamic> p) =>
+      Map<String, int>.from((p['colors'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt())) ?? {});
+
+  Future<void> _pickColours(Map<String, dynamic> p) async {
+    final price = ((p['price'] ?? 0) as num);
+    final picked = await showGroutColorSheet(
+      context,
+      productName: (p['name'] ?? 'Grout').toString(),
+      price: price,
+      unitNote: (p['unit'] ?? '').toString().isEmpty ? null : p['unit'].toString(),
+      initial: _colorsOf(p),
+      confirmLabel: 'Done',
+    );
+    if (picked == null) return;
+    setState(() {
+      p['colors'] = picked;
+      p['qty'] = picked.values.fold(0, (s, v) => s + v);
+    });
+  }
+
+  /// The order lines to send: a Grout becomes one line per colour.
+  List<Map<String, dynamic>> _orderLines(List<Map<String, dynamic>> selected) {
+    final lines = <Map<String, dynamic>>[];
+    for (final p in selected) {
+      final colors = _colorsOf(p);
+      if (isGroutProduct(p) && colors.isNotEmpty) {
+        colors.forEach((c, q) => lines.add({'product_id': p['id'], 'quantity': q, 'color': c}));
+      } else {
+        lines.add({'product_id': p['id'], 'quantity': p['qty']});
+      }
+    }
+    return lines;
+  }
+
   int get _total => _products.fold(0, (s, p) =>
       s + ((p['price'] ?? 0) as num).toInt() * ((p['qty'] ?? 0) as int));
 
@@ -164,6 +201,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     final minHint = minTotalQtyHint(_totalQty);
     if (minHint != null) {
       _showOrderRejected(minHint);
+      return;
+    }
+    if (sel.any((p) => isGroutProduct(p) && _colorsOf(p).isEmpty)) {
+      _showOrderRejected('Grout ke liye rang chunein.');
       return;
     }
 
@@ -209,22 +250,30 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                     ]),
                   ),
                   const SizedBox(height: 12),
-                  ...sel.map((p) => Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(10)),
-                        child: Row(children: [
-                          Expanded(
-                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text(p['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.navy, fontSize: 13)),
-                              Text('${p['qty']} × PKR ${((p['price'] ?? 0) as num).toStringAsFixed(0)}',
-                                  style: const TextStyle(color: AppColors.steelBlue, fontSize: 12)),
-                            ]),
-                          ),
-                          Text('PKR ${(((p['price'] ?? 0) as num) * (p['qty'] as int)).toStringAsFixed(0)}',
-                              style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 13)),
-                        ]),
-                      )),
+                  ...sel.expand((p) {
+                    final colors = isGroutProduct(p) ? _colorsOf(p) : <String, int>{};
+                    final rows = colors.isEmpty ? {'': p['qty'] as int} : colors;
+                    return rows.entries.map((e) => Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(10)),
+                          child: Row(children: [
+                            if (e.key.isNotEmpty) ...[
+                              Container(width: 22, height: 22, decoration: BoxDecoration(color: groutColorFor(e.key), shape: BoxShape.circle, border: Border.all(color: Colors.black26))),
+                              const SizedBox(width: 10),
+                            ],
+                            Expanded(
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text('${p['name'] ?? ''}${e.key.isNotEmpty ? ' — ${e.key}' : ''}', style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.navy, fontSize: 13)),
+                                Text('${e.value} × PKR ${((p['price'] ?? 0) as num).toStringAsFixed(0)}',
+                                    style: const TextStyle(color: AppColors.steelBlue, fontSize: 12)),
+                              ]),
+                            ),
+                            Text('PKR ${(((p['price'] ?? 0) as num) * e.value).toStringAsFixed(0)}',
+                                style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 13)),
+                          ]),
+                        ));
+                  }),
                   const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.all(14),
@@ -269,7 +318,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
     final data = {
       'customer_id': _selectedCustomerId,
-      'items': sel.map((p) => {'product_id': p['id'], 'quantity': p['qty']}).toList(),
+      'items': _orderLines(sel),
       'notes': 'Salesman order',
       'delivery_address': 'Karachi',
     };
@@ -547,6 +596,18 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                                 style: const TextStyle(color: AppColors.orange, fontSize: 12)),
                           ]),
                         ),
+                        if (isGroutProduct(p))
+                          OutlinedButton.icon(
+                            onPressed: () => _pickColours(_products[allIndex]),
+                            icon: const Icon(Icons.palette_outlined, size: 16),
+                            label: Text(qty == 0 ? 'Colours' : '$qty pkt · ${_colorsOf(_products[allIndex]).length}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.orange,
+                              side: const BorderSide(color: AppColors.orange),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            ),
+                          )
+                        else
                         Row(children: [
                           GestureDetector(
                             onTap: () => setState(() {

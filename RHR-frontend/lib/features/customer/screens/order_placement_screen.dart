@@ -97,6 +97,7 @@ class _OrderPlacementScreenState extends State<OrderPlacementScreen> {
       final items = _displayItems.map((item) => {
         'product_id': item['id'],
         'quantity':   item['qty'],
+        if (item['color'] != null) 'color': item['color'],
       }).toList();
 
       final response = await DioClient.instance.post(
@@ -210,7 +211,7 @@ class _OrderPlacementScreenState extends State<OrderPlacementScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(item['name'] ?? '', style: AppTextStyles.bodyMd.copyWith(fontWeight: FontWeight.w600, color: AppColors.onSurface)),
+                          Text('${item['name'] ?? ''}${item['color'] != null ? ' — ${item['color']}' : ''}', style: AppTextStyles.bodyMd.copyWith(fontWeight: FontWeight.w600, color: AppColors.onSurface)),
                           Text('x${item['qty']}', style: AppTextStyles.bodySm.copyWith(color: AppColors.outline)),
                         ],
                       ),

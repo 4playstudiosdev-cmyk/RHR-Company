@@ -3,6 +3,7 @@ const { generateInvoice }  = require('./invoice.service');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { MIN_TOTAL_QTY } = require('../utils/orderQtyRules');
 const orderMessages = require('./orderMessages.service');
+const { NAME_SEPARATOR, canonicalColor, isGroutCategory } = require('../utils/groutColors');
 const { notifyUser } = require('./notify.service');
 
 // Flat PKR 10 adjustment set on the customer's rate_tier at approval time
@@ -21,7 +22,8 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
   // result here silently fell through to the rate-tier price instead of
   // the customer's actual custom price, which is what looked like "custom
   // pricing isn't working" even though it had been saved correctly.
-  const productIds = items.map(i => i.product_id);
+  // A Grout can appear on several lines (one per colour), so products are looked up once each.
+  const productIds = [...new Set(items.map(i => i.product_id))];
   const [products, customerRows, customPrices, activeOrders, lastLedgerEntries] = await Promise.all([
     pgrestGet('products', {
       select: 'id,name,price,stock_quantity,categories(name)',
@@ -60,7 +62,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
   ]);
   const customer = customerRows?.[0];
 
-  if (!products || products.length !== items.length) {
+  if (!products || products.length !== productIds.length) {
     throw new Error('One or more products not found');
   }
 
@@ -85,13 +87,29 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
   if (!(totalQuantity >= MIN_TOTAL_QTY)) {
     throw new Error(`Minimum order is ${MIN_TOTAL_QTY} items in total — you have ${totalQuantity}.`);
   }
+  // Stock is checked against the product's TOTAL across its colour lines.
+  const qtyByProduct = {};
+  items.forEach((i) => { qtyByProduct[i.product_id] = (qtyByProduct[i.product_id] || 0) + (Number(i.quantity) || 0); });
+  const seenLine = new Set();
   const orderItems = items.map(item => {
     const product = products.find(p => p.id === item.product_id);
     if (!(Number(item.quantity) > 0)) {
       throw new Error(`Enter a quantity for ${product.name}`);
     }
-    if (product.stock_quantity < item.quantity) {
+    if (product.stock_quantity < qtyByProduct[item.product_id]) {
       throw new Error(`Insufficient stock for ${product.name}`);
+    }
+    // Grout colour: one of the 24 colours, one line per colour. A colourless Grout line is
+    // still accepted (older app versions), it just carries no colour.
+    let lineName = product.name;
+    if (item.color != null && String(item.color).trim() !== '') {
+      const color = canonicalColor(item.color);
+      if (!color) throw new Error(`"${item.color}" is not a Grout colour`);
+      if (!isGroutCategory(product.categories?.name)) throw new Error(`${product.name} has no colours`);
+      const key = `${item.product_id}|${color}`;
+      if (seenLine.has(key)) throw new Error(`${product.name} — ${color} is listed twice`);
+      seenLine.add(key);
+      lineName = `${product.name}${NAME_SEPARATOR}${color}`;
     }
     const hasCustomPrice = item.product_id in customPriceByProduct;
     const unitPrice = hasCustomPrice
@@ -101,7 +119,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
     totalAmount += subtotal;
     return {
       product_id:   item.product_id,
-      product_name: product.name,
+      product_name: lineName,
       unit_price:   unitPrice,
       quantity:     item.quantity,
       subtotal
@@ -207,6 +225,20 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
   }
 
   orderMessages.orderPlaced({ order, customerId, customer, items: orderItems, totalAmount, companyId });
+
+  // The salesman (or driver with sales access) who placed the order gets a confirmation of
+  // exactly what was ordered and for whom — in the app and as a phone push.
+  if (createdById && (createdByRole === 'salesman' || createdByRole === 'driver')) {
+    const totalQty = orderItems.reduce((sum, it) => sum + Number(it.quantity), 0);
+    await notifyUser({
+      companyId,
+      recipientId: createdById,
+      title: 'Order placed',
+      body: `You placed order ${orderNumber} for ${customer?.full_name || 'your customer'} — ${totalQty} items, PKR ${totalAmount.toLocaleString()}`,
+      type: 'order',
+      referenceId: order.id,
+    });
+  }
 
   return order;
 }

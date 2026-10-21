@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/grout_colors.dart';
 import '../../../shared/order_qty_rules.dart';
 import '../../../shared/widgets/qty_field.dart';
 import 'package:go_router/go_router.dart';
@@ -57,6 +58,7 @@ class CartScreen extends StatelessWidget {
                         final qty   = p['qty'] as int;
                         final price = (p['price'] ?? 0).toDouble();
                         final step  = (p['qtyStep'] as int?) ?? 1;
+                        final color = p['color'] as String?;
                         return Container(
                           margin: const EdgeInsets.only(bottom: AppSpacing.base),
                           padding: const EdgeInsets.all(AppSpacing.sm),
@@ -79,6 +81,15 @@ class CartScreen extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(p['name'] ?? '', style: AppTextStyles.bodyMd.copyWith(fontWeight: FontWeight.w600, color: AppColors.onSurface)),
+                                  if (color != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Row(children: [
+                                        Container(width: 14, height: 14, decoration: BoxDecoration(color: groutColorFor(color), shape: BoxShape.circle, border: Border.all(color: Colors.black26))),
+                                        const SizedBox(width: 6),
+                                        Text(color, style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurfaceVariant)),
+                                      ]),
+                                    ),
                                   const SizedBox(height: 2),
                                   Text('PKR ${price.toStringAsFixed(0)}', style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
                                 ],
@@ -92,7 +103,7 @@ class CartScreen extends StatelessWidget {
                                   border: Border.all(color: AppColors.outlineVariant.withValues(alpha: 0.5))),
                               child: Row(children: [
                                 IconButton(
-                                  onPressed: () => CartStore.instance.updateQty(pid, qty - step),
+                                  onPressed: () => CartStore.instance.updateQty(pid, qty - step, color: color),
                                   icon: const Icon(Icons.remove, size: 16),
                                   visualDensity: VisualDensity.compact,
                                 ),
@@ -100,10 +111,10 @@ class CartScreen extends StatelessWidget {
                                   value: qty,
                                   width: 46,
                                   style: AppTextStyles.bodySm.copyWith(fontWeight: FontWeight.w600),
-                                  onChanged: (v) => CartStore.instance.updateQty(pid, v),
+                                  onChanged: (v) => CartStore.instance.updateQty(pid, v, color: color),
                                 ),
                                 IconButton(
-                                  onPressed: () => CartStore.instance.updateQty(pid, qty + step),
+                                  onPressed: () => CartStore.instance.updateQty(pid, qty + step, color: color),
                                   icon: const Icon(Icons.add, size: 16),
                                   visualDensity: VisualDensity.compact,
                                 ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/grout_color_sheet.dart';
 import '../../../shared/widgets/qty_field.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
@@ -47,6 +48,22 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     }
   }
 
+  /// Grout: pick colours (24 swatches, sets of 6) instead of one plain quantity.
+  /// Returns true if colours were chosen and put in the cart.
+  Future<bool> _pickGroutColours(String name, num price, String unit) async {
+    final id = widget.productId ?? '';
+    final picked = await showGroutColorSheet(
+      context,
+      productName: name,
+      price: price,
+      unitNote: unit.isEmpty ? null : unit,
+      initial: CartStore.instance.colorsFor(id),
+    );
+    if (picked == null || picked.isEmpty) return false;
+    CartStore.instance.setColors(id: id, name: name, price: price, unit: unit, colors: picked);
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
     final name       = _product?['name']           ?? 'Product';
@@ -59,6 +76,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     final inStock    = stock > 0;
     final totalPrice = price * _quantity;
     final qtyRule    = qtyRuleFor(name: name, category: category);
+    final isGrout    = category.toLowerCase().contains('grout');
 
     return Scaffold(
       backgroundColor: AppColors.surfaceContainerLowest,
@@ -159,8 +177,12 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                 const SizedBox(height: AppSpacing.md),
                                 const Divider(color: AppColors.outlineVariant),
                                 const SizedBox(height: AppSpacing.base),
+                                if (isGrout)
+                                  Text('Rang chunein — har rang 6 packet ke set mein', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant))
+                                else
                                 Text('Quantity', style: AppTextStyles.labelMd.copyWith(color: AppColors.onSurfaceVariant)),
                                 const SizedBox(height: AppSpacing.base),
+                                if (!isGrout)
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
@@ -218,7 +240,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                             Row(children: [
                               Expanded(
                                 child: OutlinedButton.icon(
-                                  onPressed: () {
+                                  onPressed: () async {
+                                    if (isGrout) {
+                                      if (await _pickGroutColours(name, price, unit) && context.mounted) context.push('/cart');
+                                      return;
+                                    }
                                     CartStore.instance.add(id: widget.productId ?? '', name: name, price: price, unit: unit, category: category, qty: _quantity);
                                     context.push('/cart');
                                   },
@@ -235,7 +261,13 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                               const SizedBox(width: AppSpacing.base),
                               Expanded(
                                 child: ElevatedButton(
-                                  onPressed: () {
+                                  onPressed: () async {
+                                    if (isGrout) {
+                                      if (await _pickGroutColours(name, price, unit) && context.mounted) {
+                                        context.push('/place-order', extra: CartStore.instance.items);
+                                      }
+                                      return;
+                                    }
                                     CartStore.instance.add(id: widget.productId ?? '', name: name, price: price, unit: unit, category: category, qty: _quantity);
                                     context.push('/place-order', extra: CartStore.instance.items);
                                   },

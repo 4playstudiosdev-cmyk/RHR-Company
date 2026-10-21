@@ -12,6 +12,8 @@ import CityFilter from '../components/CityFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
 import { buildInvoicePdf } from '../utils/invoicePdf';
 import { MIN_TOTAL_QTY, QTY_STEP } from '../utils/orderQtyRules';
+import GroutColorPicker from '../components/GroutColorPicker';
+import { isGroutProduct, groutHex, splitLineName } from '../utils/groutColors';
 
 // Matches the backend's validStatuses in orders.service.js. 'undelivered'
 // is driver-only (set from their own Cancel button on the delivery run,
@@ -93,6 +95,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
   const [orderForm, setOrderForm] = useState(EMPTY_ORDER_FORM);
+  const [colourRow, setColourRow] = useState(null); // index of the order row whose Grout colours are being picked
   const [creating, setCreating] = useState(false);
   // product_id -> custom price, for whichever customer is selected in the
   // Create Order form — see loadCustomerPricing below.
@@ -231,9 +234,21 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
       ...prev,
       items: prev.items.map((it, i) => {
         if (i !== index) return it;
+        // a different product starts fresh (its colours belong to the old one)
+        if (field === 'product_id') return { ...it, product_id: value, colors: undefined, quantity: QTY_STEP };
         return { ...it, [field]: value };
       })
     }));
+  };
+
+  // Grout: colours picked -> the row's quantity is the sum of its colours.
+  const applyColours = (index, colors) => {
+    const total = Object.values(colors).reduce((a, b) => a + b, 0);
+    setOrderForm((prev) => ({
+      ...prev,
+      items: prev.items.map((it, i) => (i === index ? { ...it, colors, quantity: total } : it)),
+    }));
+    setColourRow(null);
   };
 
   const addItemRow = () => {
@@ -262,12 +277,25 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
     return sum + getEffectivePrice(product) * Number(it.quantity || 0);
   }, 0);
 
+  const pickerProduct = colourRow != null ? products.find((pr) => pr.id === orderForm.items[colourRow]?.product_id) : null;
+
   const handleCreateOrder = async (e) => {
     e.preventDefault();
     if (!orderForm.customer_id) { toast.error('Select a customer.'); return; }
+    const groutWithoutColour = orderForm.items.find((it) => {
+      const prod = products.find((pr) => pr.id === it.product_id);
+      return prod && isGroutProduct(prod) && !(it.colors && Object.keys(it.colors).length);
+    });
+    if (groutWithoutColour) { toast.error('Grout ke liye rang chunein.'); return; }
     const items = orderForm.items
       .filter((it) => it.product_id && Number(it.quantity) > 0)
-      .map((it) => ({ product_id: it.product_id, quantity: Number(it.quantity) }));
+      .flatMap((it) => {
+        const prod = products.find((pr) => pr.id === it.product_id);
+        if (prod && isGroutProduct(prod) && it.colors) {
+          return Object.entries(it.colors).map(([color, q]) => ({ product_id: it.product_id, quantity: Number(q), color }));
+        }
+        return [{ product_id: it.product_id, quantity: Number(it.quantity) }];
+      });
     if (items.length === 0) { toast.error('Add at least one product.'); return; }
     const totalQty = items.reduce((sum, it) => sum + it.quantity, 0);
     if (totalQty < MIN_TOTAL_QTY) {
@@ -1093,6 +1121,26 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
                         );
                       })}
                     </select>
+                    {(() => {
+                      const prod = products.find((pr) => pr.id === item.product_id);
+                      if (!(prod && isGroutProduct(prod))) return null;
+                      const n = Object.keys(item.colors || {}).length;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setColourRow(i)}
+                          className="flex-shrink-0 px-3 h-9 rounded-lg border border-teal-500 text-teal-700 text-sm font-semibold hover:bg-teal-50 flex items-center gap-2"
+                        >
+                          <span className="flex -space-x-1">
+                            {Object.keys(item.colors || {}).slice(0, 4).map((c) => (
+                              <span key={c} className="w-3.5 h-3.5 rounded-full border border-white ring-1 ring-gray-300" style={{ backgroundColor: groutHex(c) }} />
+                            ))}
+                          </span>
+                          {n === 0 ? 'Choose colours' : `${item.quantity} pkt · ${n} colour${n > 1 ? 's' : ''}`}
+                        </button>
+                      );
+                    })()}
+                    {!(products.find((pr) => pr.id === item.product_id) && isGroutProduct(products.find((pr) => pr.id === item.product_id))) && (<>
                     <button
                       type="button"
                       onClick={() => stepItemQty(i, -QTY_STEP)}
@@ -1116,6 +1164,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
                     >
                       <Plus size={14} />
                     </button>
+                    </>)}
                     <button
                       type="button"
                       onClick={() => removeItemRow(i)}
@@ -1174,6 +1223,16 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
             </div>
           </form>
         </Modal>
+      )}
+
+      {showCreateOrder && colourRow != null && pickerProduct && (
+        <GroutColorPicker
+          productName={pickerProduct.name}
+          price={getEffectivePrice(pickerProduct)}
+          initial={orderForm.items[colourRow]?.colors || {}}
+          onConfirm={(colors) => applyColours(colourRow, colors)}
+          onClose={() => setColourRow(null)}
+        />
       )}
 
       {selectedOrder && (
@@ -1242,7 +1301,17 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
               <tbody>
                 {(selectedOrder.order_items || []).map((item, i) => (
                   <tr key={item.id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                    <td className="px-4 py-2.5 font-medium text-navy">{item.product_name}</td>
+                    <td className="px-4 py-2.5 font-medium text-navy">
+                      {(() => {
+                        const { base, color } = splitLineName(item.product_name);
+                        return color ? (
+                          <span className="flex items-center gap-2">
+                            <span className="w-4 h-4 rounded-full border border-gray-300 flex-shrink-0" style={{ backgroundColor: groutHex(color) }} />
+                            <span>{base} <span className="text-gray-500 font-normal">— {color}</span></span>
+                          </span>
+                        ) : item.product_name;
+                      })()}
+                    </td>
                     <td className="px-4 py-2.5 text-gray-600">{item.quantity} {item.products?.unit || ''}</td>
                     <td className="px-4 py-2.5 text-gray-600">PKR {Number(item.unit_price).toLocaleString()}</td>
                     <td className="px-4 py-2.5 font-semibold text-navy">PKR {Number(item.subtotal).toLocaleString()}</td>

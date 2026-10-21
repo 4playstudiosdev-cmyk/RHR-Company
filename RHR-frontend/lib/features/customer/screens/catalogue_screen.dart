@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/grout_color_sheet.dart';
+import '../../../shared/grout_colors.dart';
 import '../../../shared/widgets/qty_field.dart';
 import '../../../core/features/app_features.dart';
 import 'package:go_router/go_router.dart';
@@ -236,7 +238,8 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
 
   Widget _productRow(Map<String, dynamic> p) {
     final pid = p['id'] ?? '';
-    final qty = _qtyFor(pid);
+    final isGrout = isGroutProduct(p);
+    final qty = isGrout ? CartStore.instance.qtyForProduct(pid) : _qtyFor(pid);
     final price = ((p['price'] ?? 0) as num).toDouble();
     final unit = (p['unit'] ?? '') as String;
     final category = (p['categories'] is Map ? p['categories']['name'] : '') ?? '';
@@ -281,6 +284,33 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
           const SizedBox(width: 10),
           if (!AppFeatures.has('place_order'))
             const SizedBox.shrink()
+          else if (isGrout)
+            SizedBox(
+              height: 32,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  final picked = await showGroutColorSheet(
+                    context,
+                    productName: (p['name'] ?? 'Grout').toString(),
+                    price: price,
+                    unitNote: unit.isEmpty ? null : unit,
+                    initial: CartStore.instance.colorsFor(pid),
+                  );
+                  if (picked != null) {
+                    CartStore.instance.setColors(
+                        id: pid, name: (p['name'] ?? 'Grout').toString(), price: price, unit: unit, colors: picked);
+                  }
+                },
+                icon: const Icon(Icons.palette_outlined, size: 14),
+                label: Text(qty == 0 ? 'Colours' : '$qty pkt', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.primary),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                ),
+              ),
+            )
           else qty == 0
               ? SizedBox(
                   height: 32,
