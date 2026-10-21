@@ -204,7 +204,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       company_id:     companyId,
       recipient_role: 'branch_admin',
       title:          'New Order',
-      body:           `${customer?.full_name || 'A customer'} placed order ${orderNumber} — PKR ${totalAmount.toLocaleString()}`,
+      body:           `${customer?.full_name || 'A customer'} placed order ${order.order_number || orderNumber} — PKR ${totalAmount.toLocaleString()}`,
       type:           'order',
       reference_id:   order.id,
     });
@@ -218,7 +218,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       companyId,
       recipientId: effectiveSalesmanId,
       title: 'New Order',
-      body: `${customer?.full_name || 'Your customer'} placed order ${orderNumber} — PKR ${totalAmount.toLocaleString()}`,
+      body: `${customer?.full_name || 'Your customer'} placed order ${order.order_number || orderNumber} — PKR ${totalAmount.toLocaleString()}`,
       type: 'order',
       referenceId: order.id,
     });
@@ -234,7 +234,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       companyId,
       recipientId: createdById,
       title: 'Order placed',
-      body: `You placed order ${orderNumber} for ${customer?.full_name || 'your customer'} — ${totalQty} items, PKR ${totalAmount.toLocaleString()}`,
+      body: `You placed order ${order.order_number || orderNumber} for ${customer?.full_name || 'your customer'} — ${totalQty} items, PKR ${totalAmount.toLocaleString()}`,
       type: 'order',
       referenceId: order.id,
     });
