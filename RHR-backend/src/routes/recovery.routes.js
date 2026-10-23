@@ -524,7 +524,10 @@ router.get('/cheques', authenticate, isAdmin, async (req, res) => {
 // PATCH /api/v1/recovery/cheques/:id/clear { destination: 'bank' | 'cash', bank_account_id }
 router.patch('/cheques/:id/clear', authenticate, isAdmin, async (req, res) => {
   try {
-    const { destination, bank_account_id } = req.body || {};
+    // destination: 'bank' + bank_account_id, or 'cash' (= the branch's 'Cash in Hand' account, whose
+    // bank_name is 'Cash' in the Bank panel — picking that account counts as cash too)
+    const { destination } = req.body || {};
+    let bank_account_id = req.body?.bank_account_id || null;
     if (!['bank', 'cash'].includes(destination)) return error(res, 'Choose where the money was deposited: a bank account or Cash', 400);
     if (destination === 'bank' && !bank_account_id) return error(res, 'Select the bank account the cheque was deposited into', 400);
 
@@ -534,18 +537,24 @@ router.patch('/cheques/:id/clear', authenticate, isAdmin, async (req, res) => {
     if (cheque.cheque_status !== 'pending') return error(res, `This cheque is already ${cheque.cheque_status}.`, 400);
 
     let bankLabel = 'Cash';
-    if (destination === 'bank') {
+    let clearedTo = destination;
+    if (destination === 'cash' && !bank_account_id) {
+      const cashAcc = await pgrestGet('bank_accounts', { select: 'id', company_id: `eq.${cheque.company_id}`, bank_name: 'ilike.cash', is_active: 'eq.true', limit: '1' }).catch(() => []);
+      bank_account_id = cashAcc?.[0]?.id || null; // no cash-book account set up: still recorded as cash
+    }
+    if (bank_account_id) {
       const banks = await pgrestGet('bank_accounts', { select: 'id,account_name,bank_name,company_id', id: `eq.${bank_account_id}` });
       const b = banks?.[0];
       if (!b || b.company_id !== cheque.company_id) return error(res, 'Bank account not found for this branch', 400);
-      bankLabel = `${b.bank_name} — ${b.account_name}`;
+      if (String(b.bank_name).trim().toLowerCase() === 'cash') { clearedTo = 'cash'; bankLabel = 'Cash'; }
+      else { clearedTo = 'bank'; bankLabel = String(b.bank_name) === String(b.account_name) ? b.bank_name : `${b.bank_name} — ${b.account_name}`; }
     }
 
     // only one request can flip pending → cleared (a double click must not credit twice)
     const updated = await pgrestPatch('salesman_recoveries', { id: `eq.${cheque.id}`, cheque_status: 'eq.pending' }, {
       status: 'approved', approved_by: req.user.id, approved_at: new Date().toISOString(),
       cheque_status: 'cleared', cleared_at: new Date().toISOString(),
-      cleared_to: destination, cleared_bank_account_id: destination === 'bank' ? bank_account_id : null,
+      cleared_to: clearedTo, cleared_bank_account_id: bank_account_id,
     });
     if (!updated?.[0]) return error(res, 'This cheque was just updated by someone else — refresh the list.', 409);
 
