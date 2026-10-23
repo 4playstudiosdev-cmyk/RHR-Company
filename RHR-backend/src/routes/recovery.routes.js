@@ -550,6 +550,7 @@ router.patch('/cheques/:id/clear', authenticate, isAdmin, async (req, res) => {
       else { clearedTo = 'bank'; bankLabel = String(b.bank_name) === String(b.account_name) ? b.bank_name : `${b.bank_name} — ${b.account_name}`; }
     }
 
+    const alreadyCredited = cheque.status === 'approved';
     // only one request can flip pending → cleared (a double click must not credit twice)
     const updated = await pgrestPatch('salesman_recoveries', { id: `eq.${cheque.id}`, cheque_status: 'eq.pending' }, {
       status: 'approved', approved_by: req.user.id, approved_at: new Date().toISOString(),
@@ -558,19 +559,24 @@ router.patch('/cheques/:id/clear', authenticate, isAdmin, async (req, res) => {
     });
     if (!updated?.[0]) return error(res, 'This cheque was just updated by someone else — refresh the list.', 409);
 
-    await creditLedger({
-      companyId: cheque.company_id, customerId: cheque.customer_id, amount: Number(cheque.amount),
-      description: `Cheque #${cheque.cheque_number} (${cheque.cheque_bank}) cleared — deposited to ${bankLabel}`,
-      userId: req.user.id,
-    });
-    paymentMessages.paymentReceived({ customerId: cheque.customer_id, amount: cheque.amount, method: 'cheque' });
+    // A cheque moved over from the old Payments page was already credited to the customer when
+    // it was received (status 'approved' while still pending at the bank) — clearing it then only
+    // records where it was deposited; crediting again would count it twice.
+    if (!alreadyCredited) {
+      await creditLedger({
+        companyId: cheque.company_id, customerId: cheque.customer_id, amount: Number(cheque.amount),
+        description: `Cheque #${cheque.cheque_number} (${cheque.cheque_bank}) cleared — deposited to ${bankLabel}`,
+        userId: req.user.id,
+      });
+      paymentMessages.paymentReceived({ customerId: cheque.customer_id, amount: cheque.amount, method: 'cheque' });
+    }
     await notifyUser({
       companyId: cheque.company_id, recipientId: cheque.salesman_id,
       title: 'Cheque cleared',
       body: `Your PKR ${Number(cheque.amount).toLocaleString()} cheque (#${cheque.cheque_number}) has cleared and was deposited to ${bankLabel}.`,
       type: 'payment', referenceId: cheque.id,
     });
-    return success(res, { cleared: true, deposited_to: bankLabel }, `Cheque cleared — ${bankLabel}; customer balance updated`);
+    return success(res, { cleared: true, deposited_to: bankLabel }, alreadyCredited ? `Cheque cleared — ${bankLabel} (customer was already credited when it was received)` : `Cheque cleared — ${bankLabel}; customer balance updated`);
   } catch (err) { return error(res, err.message); }
 });
 
