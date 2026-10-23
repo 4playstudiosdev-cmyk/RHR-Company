@@ -32,6 +32,7 @@ const getSalesmanAnalytics = async (req, res) => {
       .from('orders')
       .select('id, total_amount, status, created_at, customer_id, users!customer_id(full_name)')
       .eq('salesman_id', id)
+      .is('invoice_deleted_at', null)
       .gte('created_at', start)
       .lte('created_at', end);
 

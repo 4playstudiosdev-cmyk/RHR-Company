@@ -128,9 +128,9 @@ router.get('/summary', authenticate, isAdmin, async (req, res) => {
     const lastMonth = periodRange('last_month', today);
 
     const [todayOrders, thisMonthOrders, lastMonthOrders, outstandingMap, receiptsToday, allReceipts] = await Promise.all([
-      pgrestGet('orders', { select: 'id,total_amount', status: NOT_SALES, ...between('created_at', today, today), ...cf }),
-      pgrestGet('orders', { select: 'id,total_amount', status: NOT_SALES, ...between('created_at', monthStart, today), ...cf }),
-      pgrestGet('orders', { select: 'id,total_amount', status: NOT_SALES, ...between('created_at', lastMonth.from, lastMonth.to), ...cf }),
+      pgrestGet('orders', { select: 'id,total_amount', status: NOT_SALES, invoice_deleted_at: 'is.null', ...between('created_at', today, today), ...cf }),
+      pgrestGet('orders', { select: 'id,total_amount', status: NOT_SALES, invoice_deleted_at: 'is.null', ...between('created_at', monthStart, today), ...cf }),
+      pgrestGet('orders', { select: 'id,total_amount', status: NOT_SALES, invoice_deleted_at: 'is.null', ...between('created_at', lastMonth.from, lastMonth.to), ...cf }),
       outstandingByCustomer(cf),
       approvedReceipts(cf, today, today),
       approvedReceipts(cf, '2000-01-01', today),
@@ -140,7 +140,7 @@ router.get('/summary', authenticate, isAdmin, async (req, res) => {
       pgrestGet('salesman_cash_closings', { select: 'amount', status: 'eq.approved', ...cf }),
       pgrestGet('expenses', { select: 'amount', expense_date: `eq.${today}`, ...cf }),
       pgrestGet('users', { select: 'id', role: 'eq.customer', ...between('created_at', monthStart, today), ...cf }),
-      pgrestGet('orders', { select: 'id', status: 'in.(pending,confirmed)', ...cf }),
+      pgrestGet('orders', { select: 'id', status: 'in.(pending,confirmed)', invoice_deleted_at: 'is.null', ...cf }),
       pgrestGet('products', { select: 'id,stock_quantity', is_active: 'eq.true', ...cf }),
       pgrestGet('raw_materials', { select: 'stock,min_level', ...cf }),
     ]);
@@ -189,7 +189,7 @@ router.get('/top-products', authenticate, isAdmin, async (req, res) => {
     const [orders, products] = await Promise.all([
       fetchAll('orders', {
         select: 'id,order_items(product_id,product_name,quantity,subtotal)',
-        status: NOT_SALES, ...between('created_at', from, to), ...cf,
+        status: NOT_SALES, invoice_deleted_at: 'is.null', ...between('created_at', from, to), ...cf,
       }),
       pgrestGet('products', { select: 'id,name,image_url,unit', ...cf }),
     ]);
@@ -227,7 +227,7 @@ router.get('/top-clients', authenticate, isAdmin, async (req, res) => {
     const sort = ['sales', 'recovery', 'outstanding'].includes(req.query.sort) ? req.query.sort : 'sales';
 
     const [orders, receipts, outstandingMap, customers] = await Promise.all([
-      fetchAll('orders', { select: 'customer_id,total_amount', status: NOT_SALES, ...between('created_at', from, to), ...cf }),
+      fetchAll('orders', { select: 'customer_id,total_amount', status: NOT_SALES, invoice_deleted_at: 'is.null', ...between('created_at', from, to), ...cf }),
       approvedReceipts(cf, from, to),
       outstandingByCustomer(cf),
       pgrestGet('users', { select: 'id,full_name,shop_name,city,area', role: 'eq.customer', is_active: 'eq.true', ...cf }),
@@ -261,7 +261,7 @@ router.get('/orders-vs-stock', authenticate, isAdmin, async (req, res) => {
     const cf = companyFilter(req);
     const [orders, products] = await Promise.all([
       fetchAll('orders', {
-        select: 'id,order_items(product_name,quantity)', status: 'in.(pending,confirmed,preparing)', ...cf,
+        select: 'id,order_items(product_name,quantity)', status: 'in.(pending,confirmed,preparing)', invoice_deleted_at: 'is.null', ...cf,
       }),
       pgrestGet('products', { select: 'id,name,image_url,unit,stock_quantity', is_active: 'eq.true', ...cf }),
     ]);
@@ -320,7 +320,7 @@ router.get('/calendar', authenticate, isAdmin, async (req, res) => {
     const [delivered, receipts] = await Promise.all([
       pgrestGet('orders', {
         select: 'id,order_number,total_amount,updated_at,users!customer_id(full_name,shop_name)',
-        status: 'eq.delivered', ...between('updated_at', from, to), order: 'updated_at.desc', ...cf,
+        status: 'eq.delivered', invoice_deleted_at: 'is.null', ...between('updated_at', from, to), order: 'updated_at.desc', ...cf,
       }),
       approvedReceipts(cf, from, to),
     ]);

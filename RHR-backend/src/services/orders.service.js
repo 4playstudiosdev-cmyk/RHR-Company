@@ -50,6 +50,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       select: 'id,status',
       customer_id: `eq.${customerId}`,
       status: 'in.(pending,confirmed,preparing,dispatched)',
+      invoice_deleted_at: 'is.null',
     }),
     // Credit limit check — current outstanding balance is the most
     // recent ledger_entries running_balance (debit-positive).
@@ -248,6 +249,9 @@ async function getOrders(user, companyIdOverride) {
     .from('orders')
     .select('*, order_items(id, product_id, product_name, quantity, unit_price, subtotal, products(image_url)), users!customer_id(full_name, shop_name, phone, salesman_id, profile_photo_url), drivers(full_name, car_number, phone)')
     .order('created_at', { ascending: false });
+
+  // A deleted order disappears from the customer's, salesman's and driver's apps.
+  if (['customer', 'salesman', 'driver'].includes(user.role)) query = query.is('invoice_deleted_at', null);
 
   if (user.role === 'customer') {
     query = query.eq('customer_id', user.id);

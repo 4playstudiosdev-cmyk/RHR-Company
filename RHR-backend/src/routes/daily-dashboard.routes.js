@@ -36,6 +36,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
     ] = await Promise.all([
       pgrestGet('orders', {
         select: 'id,total_amount,status,salesman_id,created_at',
+        invoice_deleted_at: 'is.null',
         ...companyFilter,
         created_at: `gte.${from}T00:00:00`,
       }).then((rows) => (rows || []).filter((o) => o.created_at <= `${to}T23:59:59`)),

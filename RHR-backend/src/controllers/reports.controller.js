@@ -49,6 +49,7 @@ const exportReport = async (req, res) => {
       let salesQuery = supabaseAdmin
         .from('orders')
         .select('order_number, status, total_amount, created_at, users!customer_id(full_name, phone)')
+        .is('invoice_deleted_at', null)
         .order('created_at', { ascending: false });
       if (companyId) salesQuery = salesQuery.eq('company_id', companyId);
       const { data: orders } = await salesQuery;

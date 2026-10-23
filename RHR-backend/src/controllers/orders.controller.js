@@ -3,6 +3,8 @@ const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { MIN_TOTAL_QTY } = require('../utils/orderQtyRules');
+const { reverseOrderDebit } = require('../services/orderLedger.service');
+const { notifyUser } = require('../services/notify.service');
 
 const createOrder = async (req, res) => {
   try {
@@ -268,6 +270,26 @@ const deleteInvoice = async (req, res) => {
           invoice_generated_at: null,
         });
       }
+    }
+
+    // A deleted order is no longer owed: reverse its debit in the customer's ledger (a credit
+    // entry, so the history stays visible) and tell the customer's salesman. Skipped
+    // automatically when the order was never debited (still pending) or was already cancelled.
+    try {
+      const reason = String(req.body?.reason || '').trim().slice(0, 200);
+      const reversed = await reverseOrderDebit(order, { reason, adminName: req.user.full_name, userId: req.user.id });
+      if (reversed > 0 && order.salesman_id) {
+        const who = order.users?.shop_name || order.users?.full_name || 'your customer';
+        notifyUser({
+          companyId: order.company_id,
+          recipientId: order.salesman_id,
+          title: 'Order deleted',
+          body: `Order ${order.order_number} for ${who} (PKR ${reversed.toLocaleString('en-US')}) was deleted by the office${reason ? `. Reason: ${reason}` : ''}. It no longer counts in the balance or your sales.`,
+          type: 'order',
+        });
+      }
+    } catch (e) {
+      console.error(`Ledger reversal for deleted order ${order.id} failed:`, e.message);
     }
 
     const hadInvoice = !!(order.invoice_generated_at || order.invoice_url);
