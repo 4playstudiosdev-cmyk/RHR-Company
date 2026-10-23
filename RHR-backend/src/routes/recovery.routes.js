@@ -312,6 +312,11 @@ async function debitLedger({ companyId, customerId, amount, description, userId 
 
 async function deleteEntry(req, res, table, label) {
   try {
+    // Removing a payment / deposit always needs a written reason (kept in the ledger and
+    // shown to the salesman), so nothing disappears without an explanation.
+    const reason = String(req.body?.reason || req.query?.reason || '').trim().slice(0, 200);
+    if (reason.length < 3) return error(res, 'A reason is required to delete this (at least 3 characters).', 400);
+    const adminName = req.user.full_name || 'admin';
     const isPayment = table === 'salesman_recoveries';
     const rows = await pgrestGet(table, {
       select: isPayment ? 'id,status,company_id,salesman_id,customer_id,amount,payment_type,payment_method,recovery_date,users!customer_id(full_name,shop_name)' : 'id,status',
@@ -329,7 +334,7 @@ async function deleteEntry(req, res, table, label) {
           companyId: row.company_id,
           customerId: row.customer_id,
           amount: row.amount,
-          description: `Payment of PKR ${Number(row.amount).toLocaleString('en-US')} removed by admin (entered by mistake) — balance restored`,
+          description: `Payment of PKR ${Number(row.amount).toLocaleString('en-US')} removed by ${adminName} — reason: ${reason} — balance restored`,
           userId: req.user.id,
         });
       }
@@ -339,7 +344,7 @@ async function deleteEntry(req, res, table, label) {
           companyId: row.company_id,
           recipientId: row.salesman_id,
           title: 'Payment removed',
-          body: `Your PKR ${Number(row.amount).toLocaleString('en-US')} payment from ${who} was removed by the office.`,
+          body: `Your PKR ${Number(row.amount).toLocaleString('en-US')} payment from ${who} was removed by the office. Reason: ${reason}`,
           type: 'payment',
         });
       }

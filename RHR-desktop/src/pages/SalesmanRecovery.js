@@ -242,12 +242,24 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
     }
   };
 
+  // Deleting always needs a written reason: the box keeps coming back until one is typed
+  // (Cancel stops the delete). Returns the reason, or null if cancelled.
+  const askDeleteReason = (intro) => {
+    for (;;) {
+      const r = window.prompt(intro + '\n\nWajah likhein (zaroori) — jaise "payment dobara enter ho gayi":', '');
+      if (r === null) return null;
+      if (r.trim().length >= 3) return r.trim();
+      window.alert('Wajah likhna zaroori hai (kam az kam 3 akshar).');
+    }
+  };
+
   const handleDeleteEntry = async (id, type) => {
-    if (!window.confirm('Delete this entry permanently? This cannot be undone.')) return;
+    const reason = askDeleteReason('Delete this entry permanently? This cannot be undone.');
+    if (!reason) return;
     setApprovingId(id);
     try {
       const endpoint = type === 'payment' ? `/recovery/transactions/${id}` : `/recovery/cash-closing/${id}`;
-      await api.delete(endpoint);
+      await api.delete(endpoint, { data: { reason } });
       toast.success('Deleted.');
       loadPending();
       loadTransactions();
@@ -266,10 +278,11 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
     const msg = t.status === 'approved'
       ? 'Delete this PKR ' + Number(t.amount).toLocaleString() + ' payment from ' + who + '?\n\nIt was already counted: the amount is added back to what ' + who + ' owes (a reversing entry appears in their ledger) and is taken off the salesman\'s collections / cash in hand. Use this for a payment recorded twice by mistake. This cannot be undone.'
       : 'Delete this ' + t.status + ' entry permanently? This cannot be undone.';
-    if (!window.confirm(msg)) return;
+    const reason = askDeleteReason(msg);
+    if (!reason) return;
     setApprovingId(t.id);
     try {
-      await api.delete('/recovery/transactions/' + t.id);
+      await api.delete('/recovery/transactions/' + t.id, { data: { reason } });
       toast.success(t.status === 'approved' ? 'Payment deleted and the customer balance restored.' : 'Deleted.');
       loadTransactions();
       loadPending();
