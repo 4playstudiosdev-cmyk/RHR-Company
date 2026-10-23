@@ -48,6 +48,7 @@ class ApiEndpoints {
   static const String recoveryMyCashInHand   = '/api/v1/recovery/my-cash-in-hand';
   static const String recoveryCashClosingMe  = '/api/v1/recovery/cash-closing/me';
   static const String recoveryBankTransferMe  = '/api/v1/recovery/bank-transfer/me';
+  static const String recoveryChequeMe        = '/api/v1/recovery/cheque/me';
   static const String recoveryBankTransfersMe = '/api/v1/recovery/bank-transfers/me';
 
   // CASH COLLECTION (driver recovery self-service)

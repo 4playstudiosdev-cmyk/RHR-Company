@@ -30,7 +30,14 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
   bool    _isLoading        = false;
   String? _uploadedPhotoUrl;
 
-  final List<String> _methods = ['Cash', 'Bank Transfer', 'Credit Account'];
+  // Cash is recorded at once; Bank Transfer waits for admin approval; a Cheque waits until the
+  // bank clears it. All three land in Salesman Recovery (never the old Payments page).
+  final List<String> _methods = ['Cash', 'Bank Transfer', 'Cheque'];
+
+  // Cheque details — all four (amount is the field above) are required.
+  final _chequeBankController   = TextEditingController();
+  final _chequeNumberController = TextEditingController();
+  DateTime? _chequeDate;
 
   // Bank Transfer specifics — backend only special-cases method=='bank'
   // (bank_account_id required), so the label above is display-only.
@@ -111,8 +118,21 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
     if (picked != null) setState(() => _transferDate = picked);
   }
 
+  Future<void> _pickChequeDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _chequeDate ?? now,
+      firstDate: now.subtract(const Duration(days: 365)),
+      lastDate: now.add(const Duration(days: 365)),
+    );
+    if (picked != null) setState(() => _chequeDate = picked);
+  }
+
   @override
   void dispose() {
+    _chequeBankController.dispose();
+    _chequeNumberController.dispose();
     _amountController.dispose();
     _notesController.dispose();
     _customerSearchController.dispose();
@@ -213,6 +233,14 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           const SnackBar(content: Text('Please select which bank account it went to.')));
       return;
     }
+    if (_selectedMethod == 'Cheque' &&
+        (_chequeBankController.text.trim().isEmpty ||
+         _chequeNumberController.text.trim().isEmpty ||
+         _chequeDate == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Enter the cheque\'s bank name, cheque number and cheque date.')));
+      return;
+    }
     setState(() => _isLoading = true);
     try {
       final amount = double.parse(_amountController.text);
@@ -244,22 +272,24 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           if (notes != null) 'notes': notes,
         });
       } else {
-        response = await DioClient.instance.post(
-          ApiEndpoints.payments,
-          data: {
-            'customer_id': _selectedCustomerId,
-            'amount': amount,
-            'method': _selectedMethod.toLowerCase().replaceAll(' ', '_'),
-            'photo_url': _uploadedPhotoUrl,
-            if (notes != null) 'notes': notes,
-          },
-        );
+        final d = _chequeDate!;
+        response = await DioClient.instance.post(ApiEndpoints.recoveryChequeMe, data: {
+          'customer_id': _selectedCustomerId,
+          'amount': amount,
+          'cheque_bank': _chequeBankController.text.trim(),
+          'cheque_number': _chequeNumberController.text.trim(),
+          'cheque_date': '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}',
+          'photo_url': _uploadedPhotoUrl,
+          if (notes != null) 'notes': notes,
+        });
       }
       if (response.data['success'] == true) {
         if (mounted) {
-          // A bank transfer waits for admin approval before it counts; cash is recorded at once.
+          // A bank transfer waits for admin approval and a cheque for the bank to clear it; cash is recorded at once.
           await showSuccessCheck(context,
-              message: _selectedMethod == 'Bank Transfer' ? 'Submitted — pending approval' : 'Payment Recorded!');
+              message: _selectedMethod == 'Bank Transfer'
+                  ? 'Submitted — pending approval'
+                  : _selectedMethod == 'Cheque' ? 'Cheque saved — pending until it clears' : 'Payment Recorded!');
           if (mounted) context.go('/salesman-dashboard');
         }
       } else {
@@ -496,6 +526,40 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                         ]),
                       ),
                     ),
+                  ],
+
+                  if (_selectedMethod == 'Cheque') ...[
+                    const SizedBox(height: 20),
+                    RHRInputField(label: 'Bank Name', controller: _chequeBankController),
+                    const SizedBox(height: 14),
+                    RHRInputField(label: 'Cheque Number', controller: _chequeNumberController),
+                    const SizedBox(height: 14),
+                    const Text('Cheque Date',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
+                    const SizedBox(height: 10),
+                    TapScale(
+                      onTap: _pickChequeDate,
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        decoration: BoxDecoration(color: AppColors.warmGrey, borderRadius: BorderRadius.circular(10)),
+                        child: Row(children: [
+                          const Icon(Icons.calendar_today_outlined, size: 18, color: AppColors.steelBlue),
+                          const SizedBox(width: 10),
+                          Text(
+                            _chequeDate == null
+                                ? 'Select the date written on the cheque'
+                                : '${_chequeDate!.year}-${_chequeDate!.month.toString().padLeft(2, '0')}-${_chequeDate!.day.toString().padLeft(2, '0')}',
+                            style: TextStyle(
+                                color: _chequeDate == null ? AppColors.steelBlue : AppColors.navy,
+                                fontWeight: FontWeight.w600),
+                          ),
+                        ]),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('The cheque stays pending until the bank clears it — the customer\'s balance reduces only then.',
+                        style: TextStyle(color: AppColors.steelBlue, fontSize: 12)),
                   ],
 
                   const SizedBox(height: 24),

@@ -31,7 +31,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       count('orders',   { status: 'eq.pending', invoice_deleted_at: 'is.null' }),
       // salesmen's AND drivers' pending online payments / deposits are all approved
       // from Salesman Recovery → Pending Approvals, so they're one count
-      count('salesman_recoveries',    { status: 'eq.pending' }),
+      count('salesman_recoveries',    { status: 'eq.pending', payment_type: 'neq.cheque' }),
       count('salesman_cash_closings', { status: 'eq.pending' }),
       count('payments', { status: 'eq.pending' }),
       count('leave_requests', { status: 'eq.pending' }),

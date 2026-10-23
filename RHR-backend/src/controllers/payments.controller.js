@@ -37,6 +37,12 @@ const createPayment = async (req, res) => {
     // in directly can skip it.
     if (!isAdminUser && !photo_url)
       return error(res, 'photo_url is required', 400);
+    // A salesman's collections (cash, bank transfer, cheque) all belong in Salesman Recovery
+    // (Record Payment sends them to /recovery/*). The old "Credit Account" route into this
+    // Payments table is closed for salesmen — an outdated app version just gets told to update.
+    if (req.user.role === 'salesman')
+      return error(res, 'Please update the RHR app — payments are now recorded as Cash, Bank Transfer or Cheque.', 400);
+
     // payments.method is a Postgres enum — 'cash' | 'bank_transfer' |
     // 'credit_account' are the only values it actually accepts (confirmed
     // against the live table; 'bank'/'online' both 400 with "invalid

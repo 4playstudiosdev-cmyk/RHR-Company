@@ -62,7 +62,25 @@ async function hasPhotoColumn() {
   }
   return photoColumnKnown;
 }
-const withPhoto = async (select) => ((await hasPhotoColumn()) ? select.replace('reference_number,', 'reference_number,photo_url,') : select);
+// cheque_* columns (phase72) — same "only when present" treatment as photo_url.
+const CHEQUE_COLUMNS = 'cheque_number,cheque_bank,cheque_date,cheque_status,cleared_at,cleared_to,return_reason,cleared_bank:bank_accounts!cleared_bank_account_id(account_name,bank_name)';
+let chequeColumnsKnown = null;
+async function hasChequeColumns() {
+  if (chequeColumnsKnown !== null) return chequeColumnsKnown;
+  try {
+    await pgrestGet('salesman_recoveries', { select: 'cheque_status', limit: '1' });
+    chequeColumnsKnown = true;
+  } catch (e) {
+    return false;
+  }
+  return chequeColumnsKnown;
+}
+const withPhoto = async (select) => {
+  let out = select;
+  if (await hasPhotoColumn()) out = out.replace('reference_number,', 'reference_number,photo_url,');
+  if (await hasChequeColumns()) out = out.replace('reference_number,', `reference_number,${CHEQUE_COLUMNS},`);
+  return out;
+};
 
 const RECOVERY_SELECT = 'id,company_id,salesman_id,customer_id,amount,payment_type,payment_method,reference_number,notes,status,approved_by,approved_at,recovery_date,created_at,salesmen(id,full_name),users!customer_id(id,full_name,phone,shop_name)';
 
@@ -94,8 +112,18 @@ router.post('/transactions', authenticate, isAdmin, async (req, res) => {
 
     if (!salesman_id || !customer_id || !amount || !payment_type)
       return error(res, 'salesman_id, customer_id, amount, payment_type are required', 400);
-    if (!['cash', 'online'].includes(payment_type))
-      return error(res, 'payment_type must be cash or online', 400);
+    if (!['cash', 'online', 'cheque'].includes(payment_type))
+      return error(res, 'payment_type must be cash, online or cheque', 400);
+
+    if (payment_type === 'cheque') {
+      const recovery = await createChequeRecovery({
+        companyId: req.user.company_id, salesmanId: salesman_id, customerId: customer_id, amount,
+        chequeBank: req.body.cheque_bank, chequeNumber: req.body.cheque_number, chequeDate: req.body.cheque_date,
+        notes, photoUrl: req.body.photo_url, createdBy: req.user.id, recoveryDate: recovery_date,
+        notifyAdminsFrom: null,
+      });
+      return success(res, recovery, 'Cheque recorded — pending until it clears', 201);
+    }
 
     const isCash = payment_type === 'cash';
     const companyId = req.user.company_id;
@@ -143,7 +171,7 @@ router.post('/transactions', authenticate, isAdmin, async (req, res) => {
     return success(res, recovery,
       isCash ? 'Cash payment recorded & auto-approved' : 'Online payment recorded — pending approval',
       201);
-  } catch (err) { return error(res, err.message); }
+  } catch (err) { return error(res, err.message, err.status || 500); }
 });
 
 // PATCH /api/v1/recovery/transactions/:id/approve — admin approves an
@@ -157,6 +185,7 @@ router.patch('/transactions/:id/approve', authenticate, isAdmin, async (req, res
     const recovery = rows?.[0];
     if (!recovery) return error(res, 'Transaction not found or access denied', 404);
     if (recovery.status === 'approved') return error(res, 'Already approved', 400);
+    if (recovery.payment_type === 'cheque') return error(res, 'A cheque is not approved — mark it Cleared (and choose where the money went) from the Cheques tab.', 400);
 
     await pgrestPatch('salesman_recoveries', { id: `eq.${req.params.id}` }, {
       status: 'approved',
@@ -392,7 +421,8 @@ router.get('/pending-approvals', authenticate, isAdmin, async (req, res) => {
   try {
     const companyId = resolveCompanyId(req);
 
-    const paymentParams = { select: await withPhoto(RECOVERY_SELECT), status: 'eq.pending', order: 'created_at.desc' };
+    // a cheque stays pending until the bank clears it (days/weeks) — it lives in the Cheques tab, not here
+    const paymentParams = { select: await withPhoto(RECOVERY_SELECT), status: 'eq.pending', payment_type: 'neq.cheque', order: 'created_at.desc' };
     const closingParams = {
       select: 'id,company_id,salesman_id,amount,deposit_to,bank_account,notes,status,closing_date,created_at,salesmen(full_name)',
       status: 'eq.pending',
@@ -413,6 +443,150 @@ router.get('/pending-approvals', authenticate, isAdmin, async (req, res) => {
       cash_closings:   cashClosings || [],
       total_pending:   (onlinePayments?.length || 0) + (cashClosings?.length || 0),
     });
+  } catch (err) { return error(res, err.message); }
+});
+
+// ── Cheques ──
+// A cheque is recorded with its details (bank, number, date) and stays PENDING. Nothing is
+// credited to the customer yet. When the bank clears it an admin marks it Cleared and says
+// where the money landed (one of the bank accounts, or Cash) — that is when the customer's
+// ledger is credited. A cheque that bounces is marked Returned.
+async function createChequeRecovery({ companyId, salesmanId, customerId, amount, chequeBank, chequeNumber, chequeDate, notes, photoUrl, createdBy, recoveryDate, notifyAdminsFrom }) {
+  const bank = String(chequeBank || '').trim().slice(0, 100);
+  const number = String(chequeNumber || '').trim().slice(0, 50);
+  const date = String(chequeDate || '').trim();
+  if (!customerId || !salesmanId) throw Object.assign(new Error('customer and salesman are required'), { status: 400 });
+  if (!(Number(amount) > 0)) throw Object.assign(new Error('Cheque amount is required'), { status: 400 });
+  if (!bank) throw Object.assign(new Error('Bank name is required'), { status: 400 });
+  if (!number) throw Object.assign(new Error('Cheque number is required'), { status: 400 });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw Object.assign(new Error('Cheque date is required'), { status: 400 });
+
+  const row = {
+    company_id: companyId, salesman_id: salesmanId, customer_id: customerId,
+    amount: Number(amount),
+    payment_type: 'cheque', payment_method: 'cheque',
+    reference_number: number,
+    notes: notes || null,
+    status: 'pending', approved_by: null, approved_at: null,
+    recovery_date: recoveryDate || new Date().toISOString().split('T')[0],
+    created_by: createdBy || null,
+    cheque_number: number, cheque_bank: bank, cheque_date: date, cheque_status: 'pending',
+  };
+  let recovery;
+  try {
+    [recovery] = await pgrestPost('salesman_recoveries', { ...row, photo_url: photoUrl || null });
+  } catch (e) {
+    try {
+      [recovery] = await pgrestPost('salesman_recoveries', row);
+    } catch (e2) {
+      throw Object.assign(new Error('Could not save the cheque — run sql/phase72_cheque_payments.sql in Supabase first. (' + e2.message + ')'), { status: 400 });
+    }
+  }
+
+  paymentMessages.paymentPending({ customerId, amount });
+
+  try {
+    const custRows = await pgrestGet('users', { select: 'full_name,shop_name', id: `eq.${customerId}` }).catch(() => []);
+    const custName = custRows?.[0]?.shop_name || custRows?.[0]?.full_name || '';
+    await pgrestPost('notifications', {
+      company_id: companyId, recipient_role: 'branch_admin',
+      title: 'Cheque received',
+      body: `${notifyAdminsFrom || 'A salesman'} recorded a PKR ${Number(amount).toLocaleString()} cheque (${bank} #${number}, dated ${date})${custName ? ` from ${custName}` : ''} — mark it Cleared in Salesman Recovery → Cheques once the bank passes it.`,
+      type: 'payment', reference_id: recovery?.id || null,
+    });
+  } catch (e) { /* non-fatal */ }
+  return recovery;
+}
+
+const chequeErr = (res, e) => error(res, e.message, e.status || 500);
+
+// GET /api/v1/recovery/cheques?status=pending|cleared|returned&salesman_id=
+router.get('/cheques', authenticate, isAdmin, async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const { status, salesman_id } = req.query;
+    const params = {
+      select: (await withPhoto(RECOVERY_SELECT)),
+      payment_type: 'eq.cheque',
+      order: 'cheque_date.asc,created_at.desc',
+    };
+    if (companyId) params.company_id = `eq.${companyId}`;
+    if (salesman_id) params.salesman_id = `eq.${salesman_id}`;
+    if (['pending', 'cleared', 'returned'].includes(status)) params.cheque_status = `eq.${status}`;
+    try {
+      return success(res, await pgrestGet('salesman_recoveries', params));
+    } catch (e) {
+      return success(res, []); // phase72 not run yet — no cheques can exist
+    }
+  } catch (err) { return error(res, err.message); }
+});
+
+// PATCH /api/v1/recovery/cheques/:id/clear { destination: 'bank' | 'cash', bank_account_id }
+router.patch('/cheques/:id/clear', authenticate, isAdmin, async (req, res) => {
+  try {
+    const { destination, bank_account_id } = req.body || {};
+    if (!['bank', 'cash'].includes(destination)) return error(res, 'Choose where the money was deposited: a bank account or Cash', 400);
+    if (destination === 'bank' && !bank_account_id) return error(res, 'Select the bank account the cheque was deposited into', 400);
+
+    const rows = await pgrestGet('salesman_recoveries', { select: '*', payment_type: 'eq.cheque', ...scopeFilter(req) });
+    const cheque = rows?.[0];
+    if (!cheque) return error(res, 'Cheque not found or access denied', 404);
+    if (cheque.cheque_status !== 'pending') return error(res, `This cheque is already ${cheque.cheque_status}.`, 400);
+
+    let bankLabel = 'Cash';
+    if (destination === 'bank') {
+      const banks = await pgrestGet('bank_accounts', { select: 'id,account_name,bank_name,company_id', id: `eq.${bank_account_id}` });
+      const b = banks?.[0];
+      if (!b || b.company_id !== cheque.company_id) return error(res, 'Bank account not found for this branch', 400);
+      bankLabel = `${b.bank_name} — ${b.account_name}`;
+    }
+
+    // only one request can flip pending → cleared (a double click must not credit twice)
+    const updated = await pgrestPatch('salesman_recoveries', { id: `eq.${cheque.id}`, cheque_status: 'eq.pending' }, {
+      status: 'approved', approved_by: req.user.id, approved_at: new Date().toISOString(),
+      cheque_status: 'cleared', cleared_at: new Date().toISOString(),
+      cleared_to: destination, cleared_bank_account_id: destination === 'bank' ? bank_account_id : null,
+    });
+    if (!updated?.[0]) return error(res, 'This cheque was just updated by someone else — refresh the list.', 409);
+
+    await creditLedger({
+      companyId: cheque.company_id, customerId: cheque.customer_id, amount: Number(cheque.amount),
+      description: `Cheque #${cheque.cheque_number} (${cheque.cheque_bank}) cleared — deposited to ${bankLabel}`,
+      userId: req.user.id,
+    });
+    paymentMessages.paymentReceived({ customerId: cheque.customer_id, amount: cheque.amount, method: 'cheque' });
+    await notifyUser({
+      companyId: cheque.company_id, recipientId: cheque.salesman_id,
+      title: 'Cheque cleared',
+      body: `Your PKR ${Number(cheque.amount).toLocaleString()} cheque (#${cheque.cheque_number}) has cleared and was deposited to ${bankLabel}.`,
+      type: 'payment', referenceId: cheque.id,
+    });
+    return success(res, { cleared: true, deposited_to: bankLabel }, `Cheque cleared — ${bankLabel}; customer balance updated`);
+  } catch (err) { return error(res, err.message); }
+});
+
+// PATCH /api/v1/recovery/cheques/:id/return { reason? } — the cheque bounced / was not passed
+router.patch('/cheques/:id/return', authenticate, isAdmin, async (req, res) => {
+  try {
+    const rows = await pgrestGet('salesman_recoveries', { select: '*', payment_type: 'eq.cheque', ...scopeFilter(req) });
+    const cheque = rows?.[0];
+    if (!cheque) return error(res, 'Cheque not found or access denied', 404);
+    if (cheque.cheque_status !== 'pending') return error(res, `This cheque is already ${cheque.cheque_status}.`, 400);
+    const reason = String(req.body?.reason || '').trim().slice(0, 200);
+
+    const updated = await pgrestPatch('salesman_recoveries', { id: `eq.${cheque.id}`, cheque_status: 'eq.pending' }, {
+      status: 'rejected', approved_by: req.user.id, approved_at: new Date().toISOString(),
+      cheque_status: 'returned', returned_at: new Date().toISOString(), return_reason: reason || null,
+    });
+    if (!updated?.[0]) return error(res, 'This cheque was just updated by someone else — refresh the list.', 409);
+
+    await notifyUser({
+      companyId: cheque.company_id, recipientId: cheque.salesman_id,
+      title: 'Cheque returned',
+      body: `The PKR ${Number(cheque.amount).toLocaleString()} cheque (#${cheque.cheque_number}, ${cheque.cheque_bank}) was returned by the bank${reason ? `. ${reason}` : ''}. The customer's balance was not reduced.`,
+      type: 'payment', referenceId: cheque.id,
+    });
+    return success(res, { returned: true }, 'Cheque marked as returned');
   } catch (err) { return error(res, err.message); }
 });
 
@@ -485,6 +659,20 @@ router.post('/transactions/me', authenticate, isSalesman, async (req, res) => {
 
     return success(res, recovery, 'Cash collection recorded', 201);
   } catch (err) { return error(res, err.message); }
+});
+
+// POST /api/v1/recovery/cheque/me — a customer paid the salesman by cheque (Record Payment's
+// "Cheque" option). Pending until the bank clears it — see createChequeRecovery above.
+router.post('/cheque/me', authenticate, isSalesman, async (req, res) => {
+  try {
+    const { customer_id, amount, cheque_bank, cheque_number, cheque_date, notes, photo_url } = req.body;
+    const recovery = await createChequeRecovery({
+      companyId: req.user.company_id, salesmanId: req.user.id, customerId: customer_id, amount,
+      chequeBank: cheque_bank, chequeNumber: cheque_number, chequeDate: cheque_date,
+      notes, photoUrl: photo_url, createdBy: null, notifyAdminsFrom: req.user.full_name,
+    });
+    return success(res, recovery, 'Cheque recorded — pending until it clears', 201);
+  } catch (err) { return chequeErr(res, err); }
 });
 
 // POST /api/v1/recovery/bank-transfer/me — a customer paying a salesman

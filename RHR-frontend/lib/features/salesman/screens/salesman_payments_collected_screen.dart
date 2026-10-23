@@ -111,6 +111,7 @@ class _SalesmanPaymentsCollectedScreenState extends State<SalesmanPaymentsCollec
                       final customerId = e['customer_id'] as String?;
                       final amount = _asNum(e['amount']);
                       final isBank = (e['payment_type'] ?? '') == 'bank';
+                      final isCheque = (e['payment_type'] ?? '') == 'cheque';
                       final date = (e['recovery_date'] ?? '').toString();
                       final remaining = customerId != null ? _outstandingByCustomer[customerId] : null;
 
@@ -139,7 +140,7 @@ class _SalesmanPaymentsCollectedScreenState extends State<SalesmanPaymentsCollec
                               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                 Text(customerTitle(customer),
                                     style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 14)),
-                                Text('$date · ${isBank ? 'Bank Transfer' : 'Cash'}',
+                                Text('$date · ${isBank ? 'Bank Transfer' : isCheque ? 'Cheque' : 'Cash'}',
                                     style: const TextStyle(color: AppColors.steelBlue, fontSize: 11)),
                                 if (remaining != null)
                                   Text('Remaining balance: PKR ${remaining.toStringAsFixed(0)}',

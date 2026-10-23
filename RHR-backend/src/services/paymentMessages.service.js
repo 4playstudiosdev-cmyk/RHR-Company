@@ -18,7 +18,7 @@ const { notifyUser } = require('./notify.service');
 
 const SEND_TIMEOUT_MS = 20000;
 const money = (n) => `PKR ${Math.round(Number(n) || 0).toLocaleString('en-US')}`;
-const METHOD_LABEL = { cash: 'cash', bank_transfer: 'bank transfer', bank: 'bank transfer' };
+const METHOD_LABEL = { cash: 'cash', bank_transfer: 'bank transfer', bank: 'bank transfer', cheque: 'cheque' };
 
 async function loadCustomer(customerId) {
   const rows = await pgrestGet('users', { select: 'id,full_name,phone,whatsapp_phone', id: `eq.${customerId}` });

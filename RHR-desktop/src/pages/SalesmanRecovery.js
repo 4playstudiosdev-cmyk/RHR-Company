@@ -2,7 +2,7 @@ import { PENDING_RING, PENDING_BADGE } from '../utils/pending';
 import { customerLabel } from '../utils/customerLabel';
 import DateRangeFilter from '../components/DateRangeFilter';
 import React, { useEffect, useState } from 'react';
-import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2 } from 'lucide-react';
+import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2, FileText } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import PageHeader from '../components/PageHeader';
 import Button from '../components/Button';
@@ -17,6 +17,7 @@ const TABS = [
   { key: 'add', label: 'Add Recovery', icon: Plus },
   { key: 'closing', label: 'Cash Closing', icon: Wallet },
   { key: 'pending', label: 'Pending Approvals', icon: Clock3 },
+  { key: 'cheques', label: 'Cheques', icon: FileText },
   { key: 'history', label: 'History', icon: ListChecks },
 ];
 
@@ -24,6 +25,7 @@ const EMPTY_FORM = {
   salesman_id: '', customer_id: '', amount: '',
   payment_type: 'cash', payment_method: 'cash',
   reference_number: '', notes: '',
+  cheque_bank: '', cheque_number: '', cheque_date: '',
   recovery_date: new Date().toISOString().split('T')[0],
 };
 
@@ -85,11 +87,21 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
   const [approvingId, setApprovingId] = useState(null);
   const [photoUrl, setPhotoUrl] = useState(null);
 
+  // Cheques: wait as "pending" until the bank clears them; clearing asks where the money went.
+  const [cheques, setCheques] = useState([]);
+  const [chequeFilter, setChequeFilter] = useState('pending');
+  const [banksList, setBanksList] = useState([]);
+  const [clearTarget, setClearTarget] = useState(null);   // the cheque being cleared
+  const [clearDest, setClearDest] = useState('');          // 'cash' | a bank account id
+  const [chequeBusy, setChequeBusy] = useState(false);
+
   useEffect(() => {
     loadSalesmen();
     loadCustomers();
     loadTransactions();
     loadPending();
+    loadCheques();
+    loadBanks();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
 
@@ -131,6 +143,61 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
     }
   };
 
+  const loadCheques = async () => {
+    try {
+      const data = companyFilter
+        ? (await api.get('/recovery/cheques', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/recovery/cheques');
+      setCheques(data);
+    } catch (err) {
+      setCheques([]);
+    }
+  };
+
+  const loadBanks = async () => {
+    try {
+      const data = companyFilter
+        ? (await api.get('/bank/accounts', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/bank/accounts');
+      setBanksList(data);
+    } catch (err) {
+      setBanksList([]);
+    }
+  };
+
+  const handleClearCheque = async () => {
+    if (!clearDest) { toast.error('Select where the cheque amount was deposited.'); return; }
+    setChequeBusy(true);
+    try {
+      const res = await api.patch(`/recovery/cheques/${clearTarget.id}/clear`, clearDest === 'cash'
+        ? { destination: 'cash' }
+        : { destination: 'bank', bank_account_id: clearDest });
+      toast.success(res.data.message || 'Cheque cleared.');
+      setClearTarget(null);
+      setClearDest('');
+      loadCheques(); loadTransactions();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to clear the cheque.');
+    } finally {
+      setChequeBusy(false);
+    }
+  };
+
+  const handleReturnCheque = async (c) => {
+    const reason = window.prompt(`Mark cheque #${c.cheque_number} (PKR ${Number(c.amount).toLocaleString()}) as RETURNED?\n\nOptional reason (e.g. insufficient funds):`, '');
+    if (reason === null) return;
+    setChequeBusy(true);
+    try {
+      await api.patch(`/recovery/cheques/${c.id}/return`, { reason: reason.trim() });
+      toast.success('Cheque marked as returned.');
+      loadCheques(); loadTransactions();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to mark the cheque as returned.');
+    } finally {
+      setChequeBusy(false);
+    }
+  };
+
   const loadPending = async () => {
     try {
       if (companyFilter) {
@@ -166,14 +233,21 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
       toast.error('Salesman, customer and a valid amount are required.');
       return;
     }
+    if (form.payment_type === 'cheque' && (!form.cheque_bank.trim() || !form.cheque_number.trim() || !form.cheque_date)) {
+      toast.error('Cheque needs the bank name, cheque number and cheque date.');
+      return;
+    }
     setSaving(true);
     try {
       await api.post('/recovery/transactions', { ...form, amount: Number(form.amount) });
       toast.success(
         form.payment_type === 'cash'
           ? 'Cash payment recorded — auto-approved.'
-          : 'Online payment recorded — pending approval.'
+          : form.payment_type === 'cheque'
+            ? 'Cheque recorded — pending until it clears (see the Cheques tab).'
+            : 'Online payment recorded — pending approval.'
       );
+      if (form.payment_type === 'cheque') loadCheques();
       setForm({ ...EMPTY_FORM, salesman_id: form.salesman_id });
       loadCashInHand(form.salesman_id);
       loadTransactions();
@@ -350,10 +424,11 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
 
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1.5">Payment Type *</label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 {[
                   { v: 'cash', label: 'Cash', desc: 'Auto-approved', icon: Banknote },
                   { v: 'online', label: 'Online', desc: 'Needs approval', icon: Smartphone },
+                  { v: 'cheque', label: 'Cheque', desc: 'Pending till cleared', icon: FileText },
                 ].map((pt) => {
                   const Icon = pt.icon;
                   const active = form.payment_type === pt.v;
@@ -361,7 +436,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
                     <button
                       type="button"
                       key={pt.v}
-                      onClick={() => setForm({ ...form, payment_type: pt.v, payment_method: pt.v === 'cash' ? 'cash' : 'easypaisa' })}
+                      onClick={() => setForm({ ...form, payment_type: pt.v, payment_method: pt.v === 'cash' ? 'cash' : pt.v === 'cheque' ? 'cheque' : 'easypaisa' })}
                       className={`flex flex-col items-center gap-1 rounded-xl border-2 px-4 py-3 text-center transition-colors ${
                         active ? 'border-navy bg-navy-chip/30' : 'border-gray-200 hover:border-navy/40'
                       }`}
@@ -402,6 +477,39 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
               </>
             )}
 
+            {form.payment_type === 'cheque' && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-gray-50 border border-gray-200 rounded-xl p-3.5">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Bank Name *</label>
+                  <input
+                    type="text"
+                    value={form.cheque_bank}
+                    onChange={(e) => setForm({ ...form, cheque_bank: e.target.value })}
+                    placeholder="e.g. HBL"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Cheque Number *</label>
+                  <input
+                    type="text"
+                    value={form.cheque_number}
+                    onChange={(e) => setForm({ ...form, cheque_number: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Cheque Date *</label>
+                  <input
+                    type="date"
+                    value={form.cheque_date}
+                    onChange={(e) => setForm({ ...form, cheque_date: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+                  />
+                </div>
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1.5">Salesman *</label>
               <select
@@ -439,7 +547,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1.5">Amount (PKR) *</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1.5">{form.payment_type === 'cheque' ? 'Cheque Amount (PKR) *' : 'Amount (PKR) *'}</label>
                 <input
                   type="number"
                   min="1"
@@ -472,7 +580,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
             </div>
 
             <Button type="submit" variant="accent" disabled={saving} className="w-full">
-              {saving ? 'Saving...' : form.payment_type === 'cash' ? 'Record Cash Payment' : 'Submit Online Payment'}
+              {saving ? 'Saving...' : form.payment_type === 'cash' ? 'Record Cash Payment' : form.payment_type === 'cheque' ? 'Record Cheque' : 'Submit Online Payment'}
             </Button>
           </form>
 
@@ -482,6 +590,15 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
               <p className="text-sm text-emerald-900/80">
                 Customer hands cash directly to the salesman. The entry is approved immediately and the
                 customer's balance updates right away. The cash adds to that salesman's Cash-in-Hand.
+              </p>
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+              <h4 className="font-semibold text-amber-800 text-sm mb-1.5">Cheque</h4>
+              <p className="text-sm text-amber-900/80">
+                The cheque is saved with its bank, number and date and stays <b>Pending</b> in the Cheques tab.
+                When the bank passes it, mark it <b>Cleared</b> and choose where the money was deposited
+                (a bank account or Cash) — only then does the customer's balance go down. If it bounces,
+                mark it <b>Returned</b>.
               </p>
             </div>
             <div className="bg-navy-chip/40 border border-navy-chip rounded-2xl p-5">
@@ -735,6 +852,138 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
         </div>
       )}
 
+      {tab === 'cheques' && (() => {
+        const counts = { pending: 0, cleared: 0, returned: 0 };
+        cheques.forEach((c) => { if (counts[c.cheque_status] !== undefined) counts[c.cheque_status] += 1; });
+        const shown = cheques.filter((c) => chequeFilter === 'all' || c.cheque_status === chequeFilter);
+        const pendingTotal = cheques.filter((c) => c.cheque_status === 'pending').reduce((n, c) => n + Number(c.amount), 0);
+        const today = new Date().toISOString().split('T')[0];
+        const STATUS_STYLE = { pending: 'bg-amber-50 text-amber-700', cleared: 'bg-emerald-50 text-emerald-700', returned: 'bg-red-50 text-red-600' };
+        return (
+          <div>
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              {[['pending', 'Pending'], ['cleared', 'Cleared'], ['returned', 'Returned'], ['all', 'All']].map(([k, label]) => (
+                <button
+                  key={k}
+                  onClick={() => setChequeFilter(k)}
+                  className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors ${chequeFilter === k ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+                >
+                  {label}{k !== 'all' ? ` (${counts[k]})` : ` (${cheques.length})`}
+                </button>
+              ))}
+              <span className="ml-auto text-sm text-gray-500">Pending cheques total: <b className="text-amber-700">PKR {pendingTotal.toLocaleString()}</b></span>
+            </div>
+            <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+              {shown.length === 0 ? (
+                <EmptyState icon={FileText} title="No cheques here" subtitle="Cheques recorded by salesmen or from Add Recovery show up in this list" />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                        <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Cheque Date</th>
+                        <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
+                        <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Salesman</th>
+                        <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Bank / Cheque #</th>
+                        <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
+                        <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Photo</th>
+                        <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
+                        <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {shown.map((c) => (
+                        <tr key={c.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/70">
+                          <td className="px-5 py-3.5 whitespace-nowrap">
+                            <span className="block text-gray-700 font-medium">{c.cheque_date ? new Date(c.cheque_date + 'T00:00:00').toLocaleDateString('en-GB') : '—'}</span>
+                            {c.cheque_status === 'pending' && c.cheque_date && c.cheque_date <= today && (
+                              <span className="block text-[11px] font-semibold text-emerald-600">Due — can be deposited</span>
+                            )}
+                            <span className="block text-[11px] text-gray-400">received {c.recovery_date}</span>
+                          </td>
+                          <td className="px-5 py-3.5 text-gray-700">{customerLabel(c.users) || '—'}</td>
+                          <td className="px-5 py-3.5 font-medium text-navy">{c.salesmen?.full_name || '—'}</td>
+                          <td className="px-5 py-3.5 text-gray-600">
+                            {c.cheque_bank || '—'}
+                            <span className="block text-xs text-gray-400">#{c.cheque_number || '—'}</span>
+                          </td>
+                          <td className="px-5 py-3.5 text-right font-semibold text-navy">PKR {Number(c.amount).toLocaleString()}</td>
+                          <td className="px-5 py-3.5"><PhotoButton url={c.photo_url} onOpen={setPhotoUrl} /></td>
+                          <td className="px-5 py-3.5">
+                            <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${STATUS_STYLE[c.cheque_status] || 'bg-gray-100 text-gray-500'}`}>{c.cheque_status}</span>
+                            {c.cheque_status === 'cleared' && (
+                              <span className="block text-[11px] text-gray-500 mt-1">
+                                → {c.cleared_to === 'cash' ? 'Cash' : (c.cleared_bank ? `${c.cleared_bank.bank_name} — ${c.cleared_bank.account_name}` : 'Bank')}
+                                {c.cleared_at && <span className="block text-gray-400">{new Date(c.cleared_at).toLocaleDateString('en-GB')}</span>}
+                              </span>
+                            )}
+                            {c.cheque_status === 'returned' && c.return_reason && (
+                              <span className="block text-[11px] text-red-500 mt-1">{c.return_reason}</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3.5 whitespace-nowrap">
+                            {c.cheque_status === 'pending' ? (
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => { setClearTarget(c); setClearDest(''); }}
+                                  disabled={chequeBusy}
+                                  className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50"
+                                >
+                                  Mark Cleared
+                                </button>
+                                <button
+                                  onClick={() => handleReturnCheque(c)}
+                                  disabled={chequeBusy}
+                                  className="px-3 py-1.5 rounded-lg border border-red-300 text-red-600 text-xs font-semibold hover:bg-red-50 disabled:opacity-50"
+                                >
+                                  Return
+                                </button>
+                              </div>
+                            ) : <span className="text-gray-300">—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {clearTarget && (
+        <Modal title="Cheque cleared — where was it deposited?" onClose={() => setClearTarget(null)}>
+          <div className="space-y-4">
+            <div className="bg-gray-50 rounded-xl p-3.5 text-sm text-gray-700">
+              <b className="text-navy">PKR {Number(clearTarget.amount).toLocaleString()}</b> — {clearTarget.cheque_bank} #{clearTarget.cheque_number}
+              <span className="block text-xs text-gray-500 mt-0.5">from {customerLabel(clearTarget.users)} · salesman {clearTarget.salesmen?.full_name}</span>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1.5">Deposited into *</label>
+              <select
+                value={clearDest}
+                onChange={(e) => setClearDest(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+              >
+                <option value="">— Select —</option>
+                <option value="cash">Cash</option>
+                {banksList.map((b) => (
+                  <option key={b.id} value={b.id}>{b.bank_name} — {b.account_name}</option>
+                ))}
+              </select>
+            </div>
+            <p className="text-xs text-gray-500">
+              Marking it cleared adds the amount to the chosen bank / cash and reduces the customer's outstanding balance by the same amount. This cannot be undone from here.
+            </p>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="secondary" onClick={() => setClearTarget(null)}>Cancel</Button>
+              <Button variant="accent" onClick={handleClearCheque} disabled={chequeBusy}>{chequeBusy ? 'Saving...' : 'Mark Cleared'}</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {tab === 'history' && (
         <>
         <div className="flex items-center gap-3 flex-wrap mb-4">
@@ -788,9 +1037,9 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
                       <td className="px-6 py-3.5 text-gray-600">{t.users?.full_name || '—'}</td>
                       <td className="px-6 py-3.5">
                         <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                          t.payment_type === 'cash' ? 'bg-emerald-50 text-emerald-700' : 'bg-navy-chip text-navy'
+                          t.payment_type === 'cash' ? 'bg-emerald-50 text-emerald-700' : t.payment_type === 'cheque' ? 'bg-amber-50 text-amber-700' : 'bg-navy-chip text-navy'
                         }`}>
-                          {t.payment_type === 'cash' ? 'Cash' : 'Online'}
+                          {t.payment_type === 'cash' ? 'Cash' : t.payment_type === 'cheque' ? 'Cheque' : 'Online'}
                         </span>
                       </td>
                       <td className="px-6 py-3.5 text-gray-500 text-xs capitalize">{t.payment_method}</td>

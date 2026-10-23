@@ -89,14 +89,21 @@ const displayName = (u) => u?.shop_name || u?.full_name || 'Customer';
 // Approved money received from customers in a date range, from both
 // recovery sources (salesman recoveries and direct payments).
 async function approvedReceipts(cf, from, to) {
+  const recoveryParams = {
+    status: 'eq.approved',
+    and: `(recovery_date.gte.${from},recovery_date.lte.${to})`,
+    order: 'recovery_date.desc,created_at.desc',
+    ...cf,
+  };
   const [recoveries, payments] = await Promise.all([
+    // cleared_to (phase72): a cheque deposited as Cash counts as cash, one deposited to a bank as bank
     pgrestGet('salesman_recoveries', {
+      select: 'id,customer_id,amount,payment_type,cleared_to,recovery_date,created_at,users!customer_id(full_name,shop_name)',
+      ...recoveryParams,
+    }).catch(() => pgrestGet('salesman_recoveries', {
       select: 'id,customer_id,amount,payment_type,recovery_date,created_at,users!customer_id(full_name,shop_name)',
-      status: 'eq.approved',
-      and: `(recovery_date.gte.${from},recovery_date.lte.${to})`,
-      order: 'recovery_date.desc,created_at.desc',
-      ...cf,
-    }),
+      ...recoveryParams,
+    })),
     pgrestGet('payments', {
       select: 'id,customer_id,amount,method,created_at,users!customer_id(full_name,shop_name)',
       status: 'eq.approved',
@@ -108,7 +115,7 @@ async function approvedReceipts(cf, from, to) {
   return [
     ...(recoveries || []).map((r) => ({
       id: `rec-${r.id}`, customer_id: r.customer_id, name: displayName(r.users),
-      amount: Number(r.amount) || 0, method: r.payment_type || 'cash',
+      amount: Number(r.amount) || 0, method: r.payment_type === 'cheque' && r.cleared_to === 'cash' ? 'cash' : (r.payment_type || 'cash'),
       date: r.recovery_date, at: r.created_at,
     })),
     ...(payments || []).map((p) => ({
