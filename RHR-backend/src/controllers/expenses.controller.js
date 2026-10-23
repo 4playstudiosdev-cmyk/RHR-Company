@@ -1,6 +1,6 @@
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
-const { pgrestGetRaw, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
+const { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
 
 const EXPENSE_CATEGORIES = [
   'Fuel', 'Vehicle Maintenance', 'Office Supplies', 'Utilities', 'Rent',
@@ -31,6 +31,14 @@ const getExpenses = async (req, res) => {
     // breaks mid-migration.
     // receipt_url (phase67) — photo of the bill. Tried first; if the column
     // hasn't been added yet this fails and the older lists below take over.
+    // expense_account_id (phase71) — the person/shop the expense was for. Tried first.
+    try {
+      const data = await pgrestGetRaw(
+        `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),vehicle_id,vehicles(name,plate_number),fuel_price_per_liter,fuel_liters,bags_delivered,salesman_id,salesmen(full_name),manufacturing_worker_id,manufacturing_workers(full_name),supplier_id,suppliers(name),cash_amount,bank_amount,receipt_url,expense_account_id,expense_accounts(name),created_at&order=expense_date.desc${filterStr}`
+      );
+      return success(res, data);
+    } catch (eAccount) { /* expense_accounts / expense_account_id not added yet */ }
+
     try {
       const data = await pgrestGetRaw(
         `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),vehicle_id,vehicles(name,plate_number),fuel_price_per_liter,fuel_liters,bags_delivered,salesman_id,salesmen(full_name),manufacturing_worker_id,manufacturing_workers(full_name),supplier_id,suppliers(name),cash_amount,bank_amount,receipt_url,created_at&order=expense_date.desc${filterStr}`
@@ -110,6 +118,7 @@ const createExpense = async (req, res) => {
       category, amount, description, expense_date, company_id, method, bank_account_id, driver_id,
       vehicle_id, fuel_price_per_liter, fuel_liters, bags_delivered,
       salesman_id, manufacturing_worker_id, supplier_id, cash_amount, bank_amount, receipt_url,
+      expense_account_id,
     } = req.body;
     if (!category || !amount || Number(amount) <= 0)
       return error(res, 'category and a positive amount are required', 400);
@@ -134,6 +143,26 @@ const createExpense = async (req, res) => {
     };
 
     const resolvedMethod = method === 'split' ? 'split' : method === 'bank' ? 'bank' : 'cash';
+
+    if (expense_account_id) {
+      try {
+        const [data] = await pgrestPost('expenses', {
+          ...baseRow,
+          method: resolvedMethod,
+          bank_account_id: resolvedMethod !== 'cash' ? bank_account_id : null,
+          driver_id: driver_id || null,
+          salesman_id: salesman_id || null,
+          manufacturing_worker_id: manufacturing_worker_id || null,
+          supplier_id: supplier_id || null,
+          expense_account_id,
+          cash_amount: resolvedMethod === 'split' ? Number(cash_amount) || 0 : null,
+          bank_amount: resolvedMethod === 'split' ? Number(bank_amount) || 0 : null,
+        });
+        return respondCreated(res, data, receipt_url);
+      } catch (e) {
+        return error(res, 'Could not save this expense for the account — run sql/phase71_expense_accounts.sql in Supabase first. (' + e.message + ')', 400);
+      }
+    }
 
     // cash_amount/bank_amount (phase46), supplier_id (phase45),
     // salesman_id/manufacturing_worker_id (phase44), method/bank_account_id
@@ -242,4 +271,51 @@ const deleteExpense = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getExpenses, createExpense, deleteExpense, EXPENSE_CATEGORIES };
+// ── Expense accounts (phase71): the people / shops expenses are recorded against ──
+// GET /api/v1/expenses/accounts?company_id= — active accounts of the branch (empty list if
+// phase71 hasn't been run yet, so the picker still works for drivers and salesmen).
+const getAccounts = async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const params = { select: 'id,company_id,name', is_active: 'eq.true', order: 'name.asc' };
+    if (companyId) params.company_id = `eq.${companyId}`;
+    const data = await pgrestGet('expense_accounts', params).catch(() => []);
+    return success(res, data || []);
+  } catch (err) { return error(res, err.message); }
+};
+
+// POST /api/v1/expenses/accounts { name, company_id? }
+const createAccount = async (req, res) => {
+  try {
+    const name = String(req.body?.name || '').trim().slice(0, 200);
+    if (name.length < 2) return error(res, 'Account name is required', 400);
+    const companyId = req.user.role === 'branch_admin'
+      ? req.user.company_id
+      : (req.body?.company_id || req.user.company_id);
+    try {
+      const [row] = await pgrestPost('expense_accounts', { company_id: companyId, name });
+      return success(res, row, 'Account added', 201);
+    } catch (e) {
+      // already there (maybe switched off earlier) -> bring it back / return it
+      const existing = await pgrestGet('expense_accounts', { select: 'id,company_id,name,is_active', company_id: `eq.${companyId}`, name: `eq.${name}` }).catch(() => []);
+      if (existing?.[0]) {
+        if (!existing[0].is_active) await pgrestPatch('expense_accounts', { id: `eq.${existing[0].id}` }, { is_active: true });
+        return success(res, { ...existing[0], is_active: true }, 'Account already exists');
+      }
+      return error(res, 'Could not add the account — run sql/phase71_expense_accounts.sql in Supabase first. (' + e.message + ')', 400);
+    }
+  } catch (err) { return error(res, err.message); }
+};
+
+// DELETE /api/v1/expenses/accounts/:id — switched off, not erased, so old expenses keep their name.
+const deleteAccount = async (req, res) => {
+  try {
+    const filter = { id: `eq.${req.params.id}` };
+    if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
+    const rows = await pgrestPatch('expense_accounts', filter, { is_active: false });
+    if (!rows?.[0]) return error(res, 'Account not found or access denied', 404);
+    return success(res, { deleted: true }, 'Account removed');
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { getExpenses, createExpense, deleteExpense, getAccounts, createAccount, deleteAccount, EXPENSE_CATEGORIES };

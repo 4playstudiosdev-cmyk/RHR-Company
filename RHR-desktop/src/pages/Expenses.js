@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Wallet, Plus, Download, Trash2, Receipt, Camera, Image as ImageIcon, X } from 'lucide-react';
+import { Wallet, Plus, Download, Trash2, Receipt, Camera, Image as ImageIcon, X, Users, List, UserPlus } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
@@ -18,9 +18,19 @@ const EXPENSE_CATEGORIES = [
   'Salaries', 'Transport', 'Raw Material Purchase', 'Equipment', 'Other'
 ];
 
-// These categories are per-vehicle costs — the Add Expense form shows a
-// Vehicle picker (driver + car number) only when one of these is chosen.
-const VEHICLE_CATEGORIES = ['Fuel', 'Vehicle Maintenance'];
+// Every expense can be tied to a person: a driver, a salesman, or one of the company's
+// "expense accounts" (a shop, a mechanic, "Home expense" …). The Add Expense form has one
+// Person / Account picker holding all three groups; its value is "<kind>:<id>".
+const personKey = (kind, id) => (id ? `${kind}:${id}` : '');
+// The person an already-saved expense belongs to, as { key, name, group } (or null).
+const personOf = (e) => {
+  if (e.drivers) return { key: personKey('driver', e.driver_id), name: e.drivers.full_name, group: 'Driver' };
+  if (e.salesmen) return { key: personKey('salesman', e.salesman_id), name: e.salesmen.full_name, group: 'Salesman' };
+  if (e.expense_accounts) return { key: personKey('account', e.expense_account_id), name: e.expense_accounts.name, group: 'Account' };
+  if (e.manufacturing_workers) return { key: personKey('worker', e.manufacturing_worker_id), name: e.manufacturing_workers.full_name, group: 'Worker' };
+  return null;
+};
+const monthLabel = (ym) => new Date(`${ym}-01T00:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 
 const todayISO = () => new Date().toISOString().split('T')[0];
 // Defaults to the current calendar month (same range the old month-only
@@ -30,7 +40,7 @@ const todayISO = () => new Date().toISOString().split('T')[0];
 const monthStartISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; };
 const EMPTY_FORM = {
   category: EXPENSE_CATEGORIES[0], amount: '', description: '', expense_date: todayISO(),
-  method: 'cash', bank_account_id: '', driver_id: '', salesman_id: '', manufacturing_worker_id: '',
+  method: 'cash', bank_account_id: '', person: '',
   supplier_id: '', splitPayment: false, cashAmount: '', onlineAmount: '',
 };
 
@@ -47,6 +57,9 @@ export default function Expenses() {
   const [salesmenList, setSalesmenList] = useState([]);
   const [workersList, setWorkersList] = useState([]);
   const [suppliersList, setSuppliersList] = useState([]);
+  const [accountsList, setAccountsList] = useState([]);
+  const [tab, setTab] = useState('all');           // 'all' | 'person'
+  const [personFilter, setPersonFilter] = useState('');   // person key shown in "By Person"
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
@@ -139,6 +152,35 @@ export default function Expenses() {
     loadSuppliers();
   }, [selectedCity]);
 
+  const loadAccounts = async () => {
+    try {
+      const companyFilter = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
+      setAccountsList((await api.get('/expenses/accounts', { params: { company_id: companyFilter } })).data.data || []);
+    } catch (err) {
+      setAccountsList([]);
+    }
+  };
+  useEffect(() => {
+    loadAccounts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCity]);
+
+  const handleAddAccount = async () => {
+    const name = window.prompt('New expense account name (a shop, mechanic, person …):', '');
+    if (!name || !name.trim()) return;
+    try {
+      const res = await api.post('/expenses/accounts', {
+        name: name.trim(),
+        company_id: selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity,
+      });
+      await loadAccounts();
+      if (res.data.data?.id) setForm((f) => ({ ...f, person: personKey('account', res.data.data.id) }));
+      toast.success(res.data.message || 'Account added.');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to add the account.');
+    }
+  };
+
   const loadExpenses = async () => {
     setLoading(true);
     setError('');
@@ -201,6 +243,17 @@ export default function Expenses() {
     return res.data.data.url;
   };
 
+  // "<kind>:<id>" -> the matching column of the expense row
+  const personFields = (value) => {
+    const [kind, id] = (value || '').split(':');
+    return {
+      driver_id: kind === 'driver' ? id : null,
+      salesman_id: kind === 'salesman' ? id : null,
+      expense_account_id: kind === 'account' ? id : null,
+      manufacturing_worker_id: kind === 'worker' ? id : null,
+    };
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
     if (!form.description.trim()) {
@@ -226,10 +279,6 @@ export default function Expenses() {
         return;
       }
     }
-    if (VEHICLE_CATEGORIES.includes(form.category) && !form.driver_id) {
-      toast.error('Select which vehicle this expense was for.');
-      return;
-    }
     setSaving(true);
     try {
       const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
@@ -241,6 +290,7 @@ export default function Expenses() {
         supplier_id: form.supplier_id || null,
         company_id: targetCompanyId,
         receipt_url,
+        ...personFields(form.person),
       };
       if (isSplit) {
         // One row, method: 'split' — carries both the cash and bank
@@ -292,9 +342,43 @@ export default function Expenses() {
   const getEmployeeLabel = (e) => {
     if (e.drivers) return `${e.drivers.full_name}${e.drivers.car_number ? ` — ${e.drivers.car_number}` : ''}`;
     if (e.salesmen) return e.salesmen.full_name;
+    if (e.expense_accounts) return e.expense_accounts.name;
     if (e.manufacturing_workers) return e.manufacturing_workers.full_name;
     return '—';
   };
+
+  // ── By Person: totals per person over the chosen dates, and the picked person's
+  // month-by-month totals + running ledger ──
+  const personTotals = (() => {
+    const map = new Map();
+    expenses.forEach((e) => {
+      const who = personOf(e);
+      if (!who) return;
+      const row = map.get(who.key) || { ...who, total: 0, count: 0 };
+      row.total += Number(e.amount);
+      row.count += 1;
+      map.set(who.key, row);
+    });
+    return [...map.values()].sort((a, b) => b.total - a.total);
+  })();
+  const unassignedTotal = expenses.filter((e) => !personOf(e)).reduce((n, e) => n + Number(e.amount), 0);
+  const selectedPerson = personTotals.find((p) => p.key === personFilter) || null;
+  // oldest first so the running total reads like a ledger
+  const personEntries = selectedPerson
+    ? expenses.filter((e) => personOf(e)?.key === personFilter)
+        .sort((a, b) => String(a.expense_date).localeCompare(String(b.expense_date)) || String(a.created_at).localeCompare(String(b.created_at)))
+    : [];
+  const personMonths = (() => {
+    const map = new Map();
+    personEntries.forEach((e) => {
+      const ym = String(e.expense_date).slice(0, 7);
+      const row = map.get(ym) || { ym, total: 0, count: 0 };
+      row.total += Number(e.amount);
+      row.count += 1;
+      map.set(ym, row);
+    });
+    return [...map.values()].sort((a, b) => b.ym.localeCompare(a.ym));
+  })();
 
   const getPaidFromLabel = (e) => {
     if (e.method === 'split') {
@@ -344,7 +428,7 @@ export default function Expenses() {
 
     autoTable(doc, {
       startY: 56,
-      head: [['Date', 'Category', 'Description', 'Vehicle', 'Paid From', 'Amount']],
+      head: [['Date', 'Category', 'Description', 'Person', 'Paid From', 'Amount']],
       body: rows,
       margin: { left: M, right: M },
       headStyles: { fillColor: [27, 39, 58], textColor: 255, fontStyle: 'bold', fontSize: 10 },
@@ -394,10 +478,163 @@ export default function Expenses() {
         <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
       )}
 
+      <div className="flex gap-2 mb-5">
+        {[['all', 'All Expenses', List], ['person', 'By Person', Users]].map(([id, label, Icon]) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${tab === id ? 'bg-navy text-white' : 'bg-white text-gray-500 border border-gray-200 hover:text-navy'}`}
+          >
+            <Icon size={15} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'person' && (
+        <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5 mb-5">
+          <div className="flex items-end justify-between flex-wrap gap-3 mb-4">
+            <div>
+              <h3 className="font-semibold text-navy text-sm">Who the money went to — {dateFrom && dateTo ? `${dateFrom} to ${dateTo}` : 'all time'}</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Pick a person to see their expenses month by month and as a ledger. Use “All Time” in the date filter above for their full history.</p>
+            </div>
+            <select
+              value={personFilter}
+              onChange={(e) => setPersonFilter(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white min-w-[220px]"
+            >
+              <option value="">— Select a person —</option>
+              {['Driver', 'Salesman', 'Account', 'Worker'].map((g) => {
+                const list = personTotals.filter((p) => p.group === g);
+                return list.length ? (
+                  <optgroup key={g} label={g === 'Account' ? 'Expense Accounts' : g === 'Worker' ? 'Manufacturing Workers' : g + 's'}>
+                    {list.map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}
+                  </optgroup>
+                ) : null;
+              })}
+            </select>
+          </div>
+
+          {personTotals.length === 0 ? (
+            <p className="text-sm text-gray-400 py-6 text-center">No person-wise expenses in this period yet. Choose a Person / Account when adding an expense.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+              {personTotals.map((p) => (
+                <button
+                  key={p.key}
+                  onClick={() => setPersonFilter(p.key)}
+                  className={`text-left rounded-xl border px-4 py-3 transition-colors ${personFilter === p.key ? 'border-navy bg-navy-chip' : 'border-gray-200 hover:border-navy/40 bg-white'}`}
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{p.group}</p>
+                  <p className="font-semibold text-navy text-sm truncate">{p.name}</p>
+                  <p className="text-red-600 font-bold mt-1">PKR {p.total.toLocaleString()}</p>
+                  <p className="text-[11px] text-gray-400">{p.count} {p.count === 1 ? 'entry' : 'entries'}</p>
+                </button>
+              ))}
+            </div>
+          )}
+          {unassignedTotal > 0 && (
+            <p className="text-xs text-gray-400 mt-3">General expenses (no person chosen): PKR {unassignedTotal.toLocaleString()}</p>
+          )}
+
+          {selectedPerson && (
+            <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-5">
+              <div className="lg:col-span-4">
+                <div className="bg-navy rounded-xl px-5 py-4 mb-4">
+                  <p className="text-blue-200/70 text-xs font-semibold uppercase tracking-wide">{selectedPerson.name}</p>
+                  <p className="text-white text-2xl font-bold mt-1">PKR {selectedPerson.total.toLocaleString()}</p>
+                  <p className="text-blue-200/70 text-xs mt-1">{selectedPerson.count} {selectedPerson.count === 1 ? 'entry' : 'entries'} in this period</p>
+                </div>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Month by month</h4>
+                <table className="w-full text-sm">
+                  <tbody>
+                    {personMonths.map((m) => (
+                      <tr key={m.ym} className="border-b border-gray-100">
+                        <td className="py-2 text-gray-700">{monthLabel(m.ym)}<span className="block text-[11px] text-gray-400">{m.count} {m.count === 1 ? 'entry' : 'entries'}</span></td>
+                        <td className="py-2 text-right font-semibold text-red-600">PKR {m.total.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="lg:col-span-8 overflow-x-auto">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Ledger</h4>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                      <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Date</th>
+                      <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Category</th>
+                      <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Description</th>
+                      <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Paid From</th>
+                      <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
+                      <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide text-right">Running Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      let run = 0;
+                      return personEntries.map((e) => {
+                        run += Number(e.amount);
+                        return (
+                          <tr key={e.id} className="border-b border-gray-50">
+                            <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{new Date(e.expense_date).toLocaleDateString('en-GB')}</td>
+                            <td className="px-4 py-2.5"><span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-navy-chip text-navy">{e.category}</span></td>
+                            <td className="px-4 py-2.5 text-gray-700">{e.description}</td>
+                            <td className="px-4 py-2.5 text-gray-600 text-xs">{getPaidFromLabel(e)}</td>
+                            <td className="px-4 py-2.5 text-right font-semibold text-red-600">PKR {Number(e.amount).toLocaleString()}</td>
+                            <td className="px-4 py-2.5 text-right text-gray-700">PKR {run.toLocaleString()}</td>
+                          </tr>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'all' && (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <div className="lg:col-span-4 bg-white rounded-2xl shadow-card border border-gray-100 p-5 h-fit lg:sticky lg:top-5 self-start">
           <h3 className="font-semibold text-navy text-sm mb-4 flex items-center gap-2"><Plus size={15} /> Add Expense</h3>
           <form onSubmit={handleSave} className="space-y-3">
+            <div>
+              <label className="flex items-center justify-between text-xs font-medium text-gray-700 mb-1">
+                <span>Person / Account</span>
+                <button type="button" onClick={handleAddAccount} className="inline-flex items-center gap-1 text-[11px] font-semibold text-navy hover:underline">
+                  <UserPlus size={12} /> New account
+                </button>
+              </label>
+              <select
+                value={form.person}
+                onChange={(e) => setForm({ ...form, person: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+              >
+                <option value="">— General / not person-specific —</option>
+                {driversList.length > 0 && (
+                  <optgroup label="Drivers">
+                    {driversList.map((d) => <option key={d.id} value={personKey('driver', d.id)}>{d.full_name}{d.car_number ? ` — ${d.car_number}` : ''}</option>)}
+                  </optgroup>
+                )}
+                {salesmenList.length > 0 && (
+                  <optgroup label="Salesmen">
+                    {salesmenList.map((s) => <option key={s.id} value={personKey('salesman', s.id)}>{s.full_name}</option>)}
+                  </optgroup>
+                )}
+                <optgroup label="Expense Accounts">
+                  {accountsList.map((a) => <option key={a.id} value={personKey('account', a.id)}>{a.name}</option>)}
+                </optgroup>
+                {form.category === 'Salaries' && workersList.length > 0 && (
+                  <optgroup label="Manufacturing Workers">
+                    {workersList.map((w) => <option key={w.id} value={personKey('worker', w.id)}>{w.full_name}</option>)}
+                  </optgroup>
+                )}
+              </select>
+              {accountsList.length === 0 && (
+                <p className="text-xs text-gray-400 mt-1">No expense accounts yet — add one with “New account”.</p>
+              )}
+            </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
               <select
@@ -405,9 +642,7 @@ export default function Expenses() {
                 onChange={(e) => setForm({
                   ...form,
                   category: e.target.value,
-                  driver_id: VEHICLE_CATEGORIES.includes(e.target.value) ? form.driver_id : '',
-                  salesman_id: '',
-                  manufacturing_worker_id: '',
+                  person: e.target.value === 'Salaries' || !form.person.startsWith('worker:') ? form.person : '',
                   supplier_id: '',
                   splitPayment: false,
                   cashAmount: '',
@@ -420,64 +655,6 @@ export default function Expenses() {
                 {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
-            {VEHICLE_CATEGORIES.includes(form.category) && (
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Vehicle *</label>
-                <select
-                  value={form.driver_id}
-                  onChange={(e) => setForm({ ...form, driver_id: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-                >
-                  <option value="">— Select —</option>
-                  {driversList.map((d) => (
-                    <option key={d.id} value={d.id}>{d.full_name}{d.car_number ? ` — ${d.car_number}` : ''}</option>
-                  ))}
-                </select>
-                {driversList.length === 0 && (
-                  <p className="text-xs text-gray-400 mt-1">No drivers in this branch yet.</p>
-                )}
-              </div>
-            )}
-            {form.category === 'Salaries' && (
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Employee (optional)</label>
-                <select
-                  value={
-                    form.driver_id ? `driver:${form.driver_id}`
-                    : form.salesman_id ? `salesman:${form.salesman_id}`
-                    : form.manufacturing_worker_id ? `worker:${form.manufacturing_worker_id}`
-                    : ''
-                  }
-                  onChange={(e) => {
-                    const [type, id] = e.target.value.split(':');
-                    setForm({
-                      ...form,
-                      driver_id: type === 'driver' ? id : '',
-                      salesman_id: type === 'salesman' ? id : '',
-                      manufacturing_worker_id: type === 'worker' ? id : '',
-                    });
-                  }}
-                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-                >
-                  <option value="">— General / not person-specific —</option>
-                  {driversList.length > 0 && (
-                    <optgroup label="Drivers">
-                      {driversList.map((d) => <option key={d.id} value={`driver:${d.id}`}>{d.full_name}</option>)}
-                    </optgroup>
-                  )}
-                  {salesmenList.length > 0 && (
-                    <optgroup label="Salesmen">
-                      {salesmenList.map((s) => <option key={s.id} value={`salesman:${s.id}`}>{s.full_name}</option>)}
-                    </optgroup>
-                  )}
-                  {workersList.length > 0 && (
-                    <optgroup label="Manufacturing Workers">
-                      {workersList.map((w) => <option key={w.id} value={`worker:${w.id}`}>{w.full_name}</option>)}
-                    </optgroup>
-                  )}
-                </select>
-              </div>
-            )}
             {form.category === 'Raw Material Purchase' && (
               <>
                 <div>
@@ -660,7 +837,7 @@ export default function Expenses() {
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Description</th>
-                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Employee</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Person</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Paid From</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
@@ -716,6 +893,7 @@ export default function Expenses() {
           )}
         </div>
       </div>
+      )}
 
       {viewReceipt && (
         <Modal
