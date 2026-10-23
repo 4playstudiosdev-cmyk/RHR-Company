@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { customerLabel } from '../utils/customerLabel';
 import { BookOpen, Plus, FileText, FileSpreadsheet, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
@@ -322,7 +323,7 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
             <option value="">— Select a customer —</option>
             {customers.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.full_name} ({c.phone})
+                {customerLabel(c)} ({c.phone})
               </option>
             ))}
           </select>

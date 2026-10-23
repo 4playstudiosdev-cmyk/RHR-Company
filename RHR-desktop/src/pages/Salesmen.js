@@ -1,4 +1,5 @@
 import { PENDING_RING } from '../utils/pending';
+import { customerLabel } from '../utils/customerLabel';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Plus, UserCog, UserCheck, Pencil, UserX, UserCheck2, Trash2,
@@ -920,7 +921,7 @@ export default function Salesmen({ onViewLedger }) {
                     >
                       <option value="">— Select —</option>
                       {recoveryCustomers.map((c) => (
-                        <option key={c.id} value={c.id}>{c.full_name}</option>
+                        <option key={c.id} value={c.id}>{customerLabel(c)}</option>
                       ))}
                     </select>
                   </div>

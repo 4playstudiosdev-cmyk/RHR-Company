@@ -1,4 +1,5 @@
 import { routeForNotification, isRoutable } from '../utils/notificationRoute';
+import { customerLabel } from '../utils/customerLabel';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Bell, Send, History, Search, Users2, Radio, Package, MapPin } from 'lucide-react';
 import api from '../services/api';
@@ -75,7 +76,7 @@ export default function Notifications({ setPage, onViewOrderNumber, onNavigate }
       ]);
       const customerList = (customersRes.data.data || []).map((c) => ({
         id: c.id,
-        label: `${c.full_name} (Customer)`
+        label: `${customerLabel(c)} (Customer)`
       }));
       const staffList = (staffRes.data.data || []).map((s) => ({
         id: s.id,

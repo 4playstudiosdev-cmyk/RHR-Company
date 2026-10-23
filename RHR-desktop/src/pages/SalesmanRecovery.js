@@ -1,4 +1,5 @@
 import { PENDING_RING, PENDING_BADGE } from '../utils/pending';
+import { customerLabel } from '../utils/customerLabel';
 import DateRangeFilter from '../components/DateRangeFilter';
 import React, { useEffect, useState } from 'react';
 import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2 } from 'lucide-react';
@@ -396,7 +397,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
               >
                 <option value="">— Select Customer —</option>
                 {customersList.map((c) => (
-                  <option key={c.id} value={c.id}>{c.full_name}{c.shop_name ? ` — ${c.shop_name}` : ''}</option>
+                  <option key={c.id} value={c.id}>{customerLabel(c)}</option>
                 ))}
               </select>
             </div>

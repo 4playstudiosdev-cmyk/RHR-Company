@@ -1,4 +1,5 @@
 import { PENDING_BADGE } from '../utils/pending';
+import { customerLabel } from '../utils/customerLabel';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ShoppingCart, FileDown, Search, Plus, Minus, Trash2, Eye, Truck, Printer } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
@@ -1096,7 +1097,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
               >
                 <option value="">Select customer...</option>
                 {customers.map((c) => (
-                  <option key={c.id} value={c.id}>{c.full_name}{c.shop_name ? ` — ${c.shop_name}` : ''}</option>
+                  <option key={c.id} value={c.id}>{customerLabel(c)}</option>
                 ))}
               </select>
             </div>
