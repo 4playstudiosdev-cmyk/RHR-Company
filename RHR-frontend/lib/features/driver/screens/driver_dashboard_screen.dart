@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/customer_display.dart';
 import '../../../core/features/app_features.dart';
 import '../../../core/location/background_tracking_helper.dart';
 import 'package:go_router/go_router.dart';
@@ -352,7 +353,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   Text(o['order_number'] ?? '—',
                       style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 15)),
                   const SizedBox(height: 2),
-                  Text(customer['full_name'] ?? 'Customer',
+                  Text(customerTitle(customer),
                       style: const TextStyle(color: AppColors.steelBlue, fontSize: 13)),
                   Text('${items.length} item(s) — PKR ${_asNum(o['total_amount']).toStringAsFixed(0)}',
                       style: const TextStyle(color: AppColors.steelBlue, fontSize: 12)),

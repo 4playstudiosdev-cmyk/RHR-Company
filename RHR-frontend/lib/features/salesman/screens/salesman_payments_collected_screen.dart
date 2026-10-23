@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/customer_display.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
@@ -136,7 +137,7 @@ class _SalesmanPaymentsCollectedScreenState extends State<SalesmanPaymentsCollec
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Text(customer?['full_name'] ?? 'Customer',
+                                Text(customerTitle(customer),
                                     style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 14)),
                                 Text('$date · ${isBank ? 'Bank Transfer' : 'Cash'}',
                                     style: const TextStyle(color: AppColors.steelBlue, fontSize: 11)),

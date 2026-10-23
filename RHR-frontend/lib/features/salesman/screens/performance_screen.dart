@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/customer_display.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../shared/router/app_transitions.dart';
@@ -262,7 +263,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> with SingleTicker
   List<MapEntry<String, double>> _customerBreakdown(List<Map<String, dynamic>> orders) {
     final totals = <String, double>{};
     for (final o in orders) {
-      final name = (o['users']?['full_name'] as String?) ?? 'Unknown';
+      final name = customerTitle(o['users'] as Map?, fallback: 'Unknown');
       totals[name] = (totals[name] ?? 0) + (o['total_amount'] as num? ?? 0).toDouble();
     }
     final entries = totals.entries.toList()..sort((a, b) => b.value.compareTo(a.value));

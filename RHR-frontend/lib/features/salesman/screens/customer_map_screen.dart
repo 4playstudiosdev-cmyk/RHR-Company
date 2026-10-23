@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/customer_display.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -61,7 +62,7 @@ class _CustomerMapScreenState extends State<CustomerMapScreen> {
             const SizedBox(width: 12),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(c['full_name'] ?? 'Customer',
+                Text(customerTitle(c),
                     style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 16)),
                 Text(c['phone'] ?? '', style: const TextStyle(color: AppColors.steelBlue, fontSize: 13)),
               ]),

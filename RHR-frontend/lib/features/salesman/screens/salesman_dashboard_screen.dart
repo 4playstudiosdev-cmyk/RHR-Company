@@ -473,7 +473,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                     else
                       ..._myCustomers.take(3).toList().asMap().entries.map((entry) => _customerCard(
                             context,
-                            entry.value['full_name'] ?? 'Customer',
+                            customerTitle(entry.value),
                             entry.value['phone'] ?? '',
                             _asNum(entry.value['outstanding_balance']),
                             entry.key,

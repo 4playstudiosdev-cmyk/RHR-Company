@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/customer_display.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
@@ -105,13 +106,13 @@ class _SalesmanOutstandingScreenState extends State<SalesmanOutstandingScreen> {
                             child: Row(children: [
                               CircleAvatar(
                                 backgroundColor: AppColors.navy,
-                                child: Text((c['full_name'] ?? '?').toString().isNotEmpty ? c['full_name'][0].toUpperCase() : '?',
+                                child: Text(customerTitle(c, fallback: '?').isNotEmpty ? customerTitle(c, fallback: '?')[0].toUpperCase() : '?',
                                     style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  Text(c['full_name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 14)),
+                                  Text(customerTitle(c, fallback: ''), style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 14)),
                                   Text(c['phone'] ?? '', style: const TextStyle(color: AppColors.steelBlue, fontSize: 11)),
                                 ]),
                               ),

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../../../shared/customer_display.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
@@ -85,7 +86,7 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
             'date': t['recovery_date'],
             'status': t['status'],
             'isBank': true,
-            'label': 'Bank Transfer from ${t['users']?['full_name'] ?? 'customer'}',
+            'label': 'Bank Transfer from ${customerTitle(t['users'] as Map?, fallback: 'customer')}',
           }),
     ];
     combined.sort((a, b) => (b['date'] ?? '').toString().compareTo((a['date'] ?? '').toString()));
