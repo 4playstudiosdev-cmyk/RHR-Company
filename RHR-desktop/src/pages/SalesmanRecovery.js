@@ -744,7 +744,12 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
                         <tr key={p.id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                           <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap"><WhenCell date={p.recovery_date} createdAt={p.created_at} /></td>
                           <td className="px-6 py-3.5 font-medium text-navy">{p.salesmen?.full_name || '—'}</td>
-                          <td className="px-6 py-3.5 text-gray-600">{p.users?.full_name || '—'}</td>
+                          <td className="px-6 py-3.5 text-gray-600">
+                        {(p.users || {}).shop_name || (p.users || {}).full_name || '—'}
+                        {(p.users || {}).shop_name && (p.users || {}).full_name && (p.users || {}).shop_name.trim().toLowerCase() !== (p.users || {}).full_name.trim().toLowerCase() && (
+                          <span className="block text-[11px] text-gray-400">{(p.users || {}).full_name}</span>
+                        )}
+                      </td>
                           <td className="px-6 py-3.5">
                             <span className="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-navy-chip text-navy capitalize">{p.payment_method}</span>
                           </td>
@@ -1034,7 +1039,12 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
                     <tr key={t.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                       <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap"><WhenCell date={t.recovery_date} createdAt={t.created_at} /></td>
                       <td className="px-6 py-3.5 font-medium text-navy">{t.salesmen?.full_name || '—'}</td>
-                      <td className="px-6 py-3.5 text-gray-600">{t.users?.full_name || '—'}</td>
+                      <td className="px-6 py-3.5 text-gray-600">
+                        {(t.users || {}).shop_name || (t.users || {}).full_name || '—'}
+                        {(t.users || {}).shop_name && (t.users || {}).full_name && (t.users || {}).shop_name.trim().toLowerCase() !== (t.users || {}).full_name.trim().toLowerCase() && (
+                          <span className="block text-[11px] text-gray-400">{(t.users || {}).full_name}</span>
+                        )}
+                      </td>
                       <td className="px-6 py-3.5">
                         <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-bold ${
                           t.payment_type === 'cash' ? 'bg-emerald-50 text-emerald-700' : t.payment_type === 'cheque' ? 'bg-amber-50 text-amber-700' : 'bg-navy-chip text-navy'
