@@ -10,18 +10,6 @@ import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
 
-const RATE_TIERS = [
-  { value: 'manual', label: 'Standard Rate', desc: 'Original price' },
-  { value: 'discount', label: 'Discount Rate', desc: 'Price − PKR 10' },
-  { value: 'premium', label: 'Premium Rate', desc: 'Price + PKR 10' }
-];
-
-const RATE_BADGE = {
-  manual:   { label: 'Standard', classes: 'bg-navy-chip text-navy' },
-  discount: { label: 'Discount', classes: 'bg-emerald-50 text-emerald-700' },
-  premium:  { label: 'Premium',  classes: 'bg-orange/10 text-orange' }
-};
-
 // New customers created while "All Cities" is selected land in Karachi —
 // same default the Products/Raw Materials pages use, since there's no
 // single real branch a "combined view" create action could target.
@@ -114,7 +102,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
   const user = getCurrentUser();
   const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId; // KHI default
   const [selectedCity, setSelectedCity] = useState(defaultCity);
-  const [tab, setTab] = useState('pending');
+  const [tab, setTab] = useState('all');
   const [pending, setPending] = useState([]);
   const [all, setAll] = useState([]);
   const [ordersByCustomer, setOrdersByCustomer] = useState({});
@@ -320,17 +308,6 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update balance.');
       return false;
-    }
-  };
-
-  const handleChangeRateTier = async (customer, rateTier) => {
-    if (rateTier === (customer.rate_tier || 'manual')) return;
-    try {
-      await api.patch(`/customers/${customer.id}/rate-tier`, { rate_tier: rateTier });
-      setAll((prev) => prev.map((c) => (c.id === customer.id ? { ...c, rate_tier: rateTier } : c)));
-      toast.success(`${customer.full_name}'s rate tier updated.`);
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to update rate tier.');
     }
   };
 
@@ -869,7 +846,6 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                       <th className="py-3 px-3 font-semibold text-xs uppercase tracking-wide w-8"></th>
                       <th className="py-3 px-6 font-semibold text-xs uppercase tracking-wide">Customer</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Phone</th>
-                      <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Rate</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Salesman</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">City</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Area</th>
@@ -923,26 +899,6 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                             </div>
                           </td>
                           <td className="py-3 px-4 text-gray-600">{customer.phone}</td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-bold whitespace-nowrap ${
-                                  (RATE_BADGE[customer.rate_tier] || RATE_BADGE.manual).classes
-                                }`}
-                              >
-                                {(RATE_BADGE[customer.rate_tier] || RATE_BADGE.manual).label}
-                              </span>
-                              <select
-                                value={customer.rate_tier || 'manual'}
-                                onChange={(e) => handleChangeRateTier(customer, e.target.value)}
-                                className="border border-gray-200 rounded-md px-1.5 py-0.5 text-[11px] text-gray-500 focus:outline-none focus:ring-1 focus:ring-navy-chip focus:border-navy bg-white cursor-pointer"
-                              >
-                                {RATE_TIERS.map((t) => (
-                                  <option key={t.value} value={t.value}>{t.label.replace(' Rate', '')}</option>
-                                ))}
-                              </select>
-                            </div>
-                          </td>
                           <td className="py-3 px-4 text-gray-600 text-[13px]">
                             {salesmenList.find((s) => s.id === customer.salesman_id)?.full_name || (
                               <span className="text-gray-300">— None —</span>
@@ -1050,7 +1006,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                         </tr>
                         {isExpanded && (
                           <tr className="bg-navy-chip/10 border-b border-gray-100">
-                            <td colSpan={12} className="px-8 py-6">
+                            <td colSpan={11} className="px-8 py-6">
                               <div className="flex flex-col md:flex-row gap-6">
                                 <div className="flex flex-col items-center gap-2 flex-shrink-0">
                                   {customer.profile_photo_url ? (
