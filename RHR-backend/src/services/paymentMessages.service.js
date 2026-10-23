@@ -1,5 +1,6 @@
 const { sendWhatsAppText } = require('../utils/whatsappBot');
 const { pgrestGet } = require('../utils/directQuery');
+const { notifyUser } = require('./notify.service');
 
 // WhatsApp messages to a CUSTOMER about a payment taken from them:
 //   * received — cash recorded by a salesman, or a bank transfer / online
@@ -97,4 +98,77 @@ function paymentPending({ customerId, amount }) {
   });
 }
 
-module.exports = { paymentReceived, paymentPending };
+// A super admin set this customer's outstanding balance to a new figure (see
+// PATCH /ledger/:customerId/balance). Tells the customer AND their salesman — in the
+// app (notification + phone push) and on WhatsApp — so nobody is surprised by the
+// new number. Fire-and-forget like the rest of this file.
+function balanceChanged({ customer, previous, current }) {
+  return (async () => {
+    try {
+      const name = customer.shop_name || customer.full_name || 'Customer';
+      const now = balanceLines(current);
+      const was = money(previous);
+      const is = money(Math.abs(current)) + (current < 0 ? ' (advance / credit)' : '');
+
+      // ── customer ──
+      const toCustomer = customer.whatsapp_phone || customer.phone;
+      if (toCustomer) {
+        const text = [
+          '*RHR & Company*',
+          '',
+          greeting(customer),
+          'Your account balance has been updated by our office ✏️',
+          'Previous: ' + was,
+          'Now: *' + is + '*',
+          now.en,
+          '',
+          'Aap ke account ka balance office ne update kiya hai. Pehle ' + was + ' tha, ab ' + is + ' hai.',
+        ].join('\n');
+        Promise.race([
+          sendWhatsAppText(toCustomer, text),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('WhatsApp send timed out')), SEND_TIMEOUT_MS)),
+        ]).catch((e) => console.error('[balance-msg] WhatsApp to customer failed:', e.message));
+      }
+      await notifyUser({
+        companyId: customer.company_id,
+        recipientId: customer.id,
+        title: 'Account balance updated',
+        body: 'Your outstanding balance was updated from ' + was + ' to ' + is + '.',
+        type: 'payment',
+      });
+
+      // ── the customer's salesman ──
+      if (customer.salesman_id) {
+        const rows = await pgrestGet('salesmen', { select: 'id,full_name,phone', id: 'eq.' + customer.salesman_id });
+        const sm = rows?.[0];
+        if (sm?.phone) {
+          const text = [
+            '*RHR & Company*',
+            '',
+            'Hello ' + (sm.full_name || '') + ',',
+            'The outstanding balance of your customer *' + name + '* was changed by the office ✏️',
+            'Previous: ' + was,
+            'Now: *' + is + '*',
+            '',
+            'Aap ke customer ' + name + ' ka outstanding balance office ne badla hai: ' + was + ' se ' + is + '.',
+          ].join('\n');
+          Promise.race([
+            sendWhatsAppText(sm.phone, text),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('WhatsApp send timed out')), SEND_TIMEOUT_MS)),
+          ]).catch((e) => console.error('[balance-msg] WhatsApp to salesman failed:', e.message));
+        }
+        await notifyUser({
+          companyId: customer.company_id,
+          recipientId: customer.salesman_id,
+          title: 'Customer balance updated',
+          body: name + "'s outstanding balance was changed from " + was + ' to ' + is + ' by the office.',
+          type: 'payment',
+        });
+      }
+    } catch (err) {
+      console.error('[balance-msg] failed:', err.message);
+    }
+  })();
+}
+
+module.exports = { paymentReceived, paymentPending, balanceChanged };

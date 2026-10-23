@@ -1,6 +1,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { buildStatementPDF } = require('../services/statement.service');
+const paymentMessages = require('../services/paymentMessages.service');
 const { buildExcelBuffer } = require('../services/excel.service');
 
 // Shared access rule: customer sees only their own ledger, salesman only his
@@ -96,7 +97,7 @@ const setOutstandingBalance = async (req, res) => {
     const note = String(req.body?.note || '').trim().slice(0, 200);
 
     const { data: customer } = await supabaseAdmin
-      .from('users').select('id, company_id, full_name').eq('id', customerId).eq('role', 'customer').single();
+      .from('users').select('id, company_id, full_name, shop_name, phone, whatsapp_phone, salesman_id').eq('id', customerId).eq('role', 'customer').single();
     if (!customer) return error(res, 'Customer not found', 404);
 
     const { data: last } = await supabaseAdmin
@@ -122,6 +123,10 @@ const setOutstandingBalance = async (req, res) => {
       .select()
       .single();
     if (dbErr) throw new Error(dbErr.message);
+
+    // tell the customer and their salesman (app + push + WhatsApp); never blocks the response
+    paymentMessages.balanceChanged({ customer, previous: current, current: target });
+
     return success(res, { balance: target, previous: current, changed: true, entry: data }, 'Outstanding balance updated');
   } catch (err) { return error(res, err.message); }
 };
