@@ -364,10 +364,9 @@ export default function Expenses() {
   const unassignedTotal = expenses.filter((e) => !personOf(e)).reduce((n, e) => n + Number(e.amount), 0);
   const selectedPerson = personTotals.find((p) => p.key === personFilter) || null;
   // oldest first so the running total reads like a ledger
-  const personEntries = selectedPerson
-    ? expenses.filter((e) => personOf(e)?.key === personFilter)
-        .sort((a, b) => String(a.expense_date).localeCompare(String(b.expense_date)) || String(a.created_at).localeCompare(String(b.created_at)))
-    : [];
+  // (with no person picked it is every expense in the period — the default "All" view)
+  const personEntries = (selectedPerson ? expenses.filter((e) => personOf(e)?.key === personFilter) : [...expenses])
+        .sort((a, b) => String(a.expense_date).localeCompare(String(b.expense_date)) || String(a.created_at).localeCompare(String(b.created_at)));
   const personMonths = (() => {
     const map = new Map();
     personEntries.forEach((e) => {
@@ -410,7 +409,7 @@ export default function Expenses() {
     doc.text('EXPENSE REPORT', PAGE_W - M, 26, { align: 'right' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
-    doc.text(`Period: ${dateFrom} to ${dateTo}`, PAGE_W - M, 34, { align: 'right' });
+    doc.text(`Period: ${dateFrom && dateTo ? `${dateFrom} to ${dateTo}` : "All Time"}`, PAGE_W - M, 34, { align: 'right' });
     doc.text(`Generated: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`, PAGE_W - M, 40, { align: 'right' });
 
     doc.setDrawColor(30, 30, 40);
@@ -465,7 +464,7 @@ export default function Expenses() {
 
       <div className="bg-navy rounded-2xl px-6 py-5 mb-6 flex items-center justify-between flex-wrap gap-4">
         <div>
-          <p className="text-blue-200/70 text-xs font-semibold uppercase tracking-wide">Total Expenses — {dateFrom} to {dateTo}</p>
+          <p className="text-blue-200/70 text-xs font-semibold uppercase tracking-wide">Total Expenses — {dateFrom && dateTo ? `${dateFrom} to ${dateTo}` : 'All Time'}</p>
           <p className="text-white text-3xl font-bold mt-1">PKR {totalExpenses.toLocaleString()}</p>
         </div>
         <div className="text-right">
@@ -495,14 +494,14 @@ export default function Expenses() {
           <div className="flex items-end justify-between flex-wrap gap-3 mb-4">
             <div>
               <h3 className="font-semibold text-navy text-sm">Who the money went to — {dateFrom && dateTo ? `${dateFrom} to ${dateTo}` : 'all time'}</h3>
-              <p className="text-xs text-gray-500 mt-0.5">Pick a person to see their expenses month by month and as a ledger. Use “All Time” in the date filter above for their full history.</p>
+              <p className="text-xs text-gray-500 mt-0.5">Showing everyone together — pick a person to see only their expenses month by month and as a ledger. Use “All Time” in the date filter above for their full history.</p>
             </div>
             <select
               value={personFilter}
               onChange={(e) => setPersonFilter(e.target.value)}
               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white min-w-[220px]"
             >
-              <option value="">— Select a person —</option>
+              <option value="">All</option>
               {['Driver', 'Salesman', 'Account', 'Worker'].map((g) => {
                 const list = personTotals.filter((p) => p.group === g);
                 return list.length ? (
@@ -536,13 +535,13 @@ export default function Expenses() {
             <p className="text-xs text-gray-400 mt-3">General expenses (no person chosen): PKR {unassignedTotal.toLocaleString()}</p>
           )}
 
-          {selectedPerson && (
+          {expenses.length > 0 && (
             <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-5">
               <div className="lg:col-span-4">
                 <div className="bg-navy rounded-xl px-5 py-4 mb-4">
-                  <p className="text-blue-200/70 text-xs font-semibold uppercase tracking-wide">{selectedPerson.name}</p>
-                  <p className="text-white text-2xl font-bold mt-1">PKR {selectedPerson.total.toLocaleString()}</p>
-                  <p className="text-blue-200/70 text-xs mt-1">{selectedPerson.count} {selectedPerson.count === 1 ? 'entry' : 'entries'} in this period</p>
+                  <p className="text-blue-200/70 text-xs font-semibold uppercase tracking-wide">{selectedPerson ? selectedPerson.name : 'All'}</p>
+                  <p className="text-white text-2xl font-bold mt-1">PKR {(selectedPerson ? selectedPerson.total : totalExpenses).toLocaleString()}</p>
+                  <p className="text-blue-200/70 text-xs mt-1">{personEntries.length} {personEntries.length === 1 ? 'entry' : 'entries'} in this period</p>
                 </div>
                 <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Month by month</h4>
                 <table className="w-full text-sm">
@@ -563,6 +562,7 @@ export default function Expenses() {
                     <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
                       <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Date</th>
                       <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Category</th>
+                      {!selectedPerson && <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Person</th>}
                       <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Description</th>
                       <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Paid From</th>
                       <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
@@ -578,6 +578,7 @@ export default function Expenses() {
                           <tr key={e.id} className="border-b border-gray-50">
                             <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{new Date(e.expense_date).toLocaleDateString('en-GB')}</td>
                             <td className="px-4 py-2.5"><span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-navy-chip text-navy">{e.category}</span></td>
+                            {!selectedPerson && <td className="px-4 py-2.5 text-gray-600 text-xs">{personOf(e)?.name || '—'}</td>}
                             <td className="px-4 py-2.5 text-gray-700">{e.description}</td>
                             <td className="px-4 py-2.5 text-gray-600 text-xs">{getPaidFromLabel(e)}</td>
                             <td className="px-4 py-2.5 text-right font-semibold text-red-600">PKR {Number(e.amount).toLocaleString()}</td>
