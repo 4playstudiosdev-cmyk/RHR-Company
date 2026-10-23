@@ -258,6 +258,28 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
     }
   };
 
+  // Delete from History. For an approved payment the server also puts the amount back on the
+  // customer's balance (their ledger gets a reversing entry), so this is the fix for a payment
+  // that was recorded twice by mistake.
+  const handleDeleteHistory = async (t) => {
+    const who = t.users?.shop_name || t.users?.full_name || 'the customer';
+    const msg = t.status === 'approved'
+      ? 'Delete this PKR ' + Number(t.amount).toLocaleString() + ' payment from ' + who + '?\n\nIt was already counted: the amount is added back to what ' + who + ' owes (a reversing entry appears in their ledger) and is taken off the salesman\'s collections / cash in hand. Use this for a payment recorded twice by mistake. This cannot be undone.'
+      : 'Delete this ' + t.status + ' entry permanently? This cannot be undone.';
+    if (!window.confirm(msg)) return;
+    setApprovingId(t.id);
+    try {
+      await api.delete('/recovery/transactions/' + t.id);
+      toast.success(t.status === 'approved' ? 'Payment deleted and the customer balance restored.' : 'Deleted.');
+      loadTransactions();
+      loadPending();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete.');
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
   const pendingCount = pendingData.online_payments.length + pendingData.cash_closings.length;
 
   // History for everyone, or for one salesman. The picker lists every salesman
@@ -726,7 +748,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
         </div>
         <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
           {transactionsLoading ? (
-            <SkeletonTable rows={6} cols={8} />
+            <SkeletonTable rows={6} cols={9} />
           ) : visibleTransactions.length === 0 ? (
             <EmptyState icon={ListChecks} title="No transactions yet" />
           ) : (
@@ -742,6 +764,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Photo</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-center">Status</th>
+                    <th className="px-4 py-3 w-12"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -767,6 +790,16 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
                         }`}>
                           {t.status}
                         </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-center">
+                        <button
+                          onClick={() => handleDeleteHistory(t)}
+                          disabled={approvingId === t.id}
+                          title="Delete this payment"
+                          className="text-gray-400 hover:text-red-600 disabled:opacity-50 p-1.5 rounded-lg transition-colors"
+                        >
+                          <Trash2 size={15} />
+                        </button>
                       </td>
                     </tr>
                   ))}

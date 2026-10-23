@@ -282,12 +282,70 @@ async function rejectEntry(req, res, table, label) {
   } catch (err) { return error(res, err.message); }
 }
 
+// Pending / rejected entries never touched the books, so they simply go. An APPROVED
+// payment (salesman_recoveries) did: the customer's ledger was credited when it was
+// approved. Deleting it (e.g. it was entered twice by accident) therefore also reverses
+// that credit — a debit entry for the same amount is posted, so the customer owes again
+// exactly what they would have without the payment, and the ledger keeps a visible trail.
+// The salesman's cash in hand is worked out from approved payments, so it drops by itself.
+// An approved deposit (cash closing) is still refused: it has money-movement consequences
+// that can't be undone from here.
+async function debitLedger({ companyId, customerId, amount, description, userId }) {
+  const lastEntries = await pgrestGet('ledger_entries', {
+    select: 'running_balance',
+    customer_id: `eq.${customerId}`,
+    order: 'created_at.desc',
+    limit: '1',
+  });
+  const prevBalance = Number(lastEntries?.[0]?.running_balance) || 0;
+  await pgrestPost('ledger_entries', {
+    company_id: companyId,
+    customer_id: customerId,
+    entry_type: 'debit',
+    amount: Number(amount),
+    running_balance: prevBalance + Number(amount),
+    description,
+    reference_type: 'adjustment',
+    created_by: userId,
+  });
+}
+
 async function deleteEntry(req, res, table, label) {
   try {
-    const rows = await pgrestGet(table, { select: 'id,status', ...scopeFilter(req) });
+    const isPayment = table === 'salesman_recoveries';
+    const rows = await pgrestGet(table, {
+      select: isPayment ? 'id,status,company_id,salesman_id,customer_id,amount,payment_type,payment_method,recovery_date,users!customer_id(full_name,shop_name)' : 'id,status',
+      ...scopeFilter(req),
+    });
     const row = rows?.[0];
     if (!row) return error(res, `${label} not found or access denied`, 404);
-    if (row.status === 'approved') return error(res, `An approved ${label.toLowerCase()} can't be deleted — it has already been counted in the books.`, 400);
+
+    if (row.status === 'approved') {
+      if (!isPayment) return error(res, `An approved ${label.toLowerCase()} can't be deleted — it has already been counted in the books.`, 400);
+      const who = row.users?.shop_name || row.users?.full_name || 'customer';
+      // reverse the ledger credit first; if that fails the payment stays, nothing is half-done
+      if (row.customer_id) {
+        await debitLedger({
+          companyId: row.company_id,
+          customerId: row.customer_id,
+          amount: row.amount,
+          description: `Payment of PKR ${Number(row.amount).toLocaleString('en-US')} removed by admin (entered by mistake) — balance restored`,
+          userId: req.user.id,
+        });
+      }
+      await pgrestDelete(table, { id: `eq.${row.id}` });
+      if (row.salesman_id) {
+        notifyUser({
+          companyId: row.company_id,
+          recipientId: row.salesman_id,
+          title: 'Payment removed',
+          body: `Your PKR ${Number(row.amount).toLocaleString('en-US')} payment from ${who} was removed by the office.`,
+          type: 'payment',
+        });
+      }
+      return success(res, { deleted: true, reversed: true }, `${label} deleted and the customer's balance restored`);
+    }
+
     await pgrestDelete(table, { id: `eq.${row.id}` });
     return success(res, { deleted: true }, `${label} deleted`);
   } catch (err) { return error(res, err.message); }
