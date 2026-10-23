@@ -302,6 +302,27 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
     }
   };
 
+  // Super admin only: set the customer's outstanding balance to an exact amount. The
+  // server posts the difference to the ledger (so every ledger view updates).
+  const handleChangeOutstanding = async (customer, rawValue, currentBalance) => {
+    const target = Number(rawValue);
+    if (rawValue === '' || !Number.isFinite(target)) { toast.error('Enter a valid amount.'); return false; }
+    const was = typeof currentBalance === 'number' ? currentBalance : 0;
+    if (target === was) return true;
+    const label = customer.shop_name || customer.full_name;
+    const diffText = 'PKR ' + Math.abs(target - was).toLocaleString() + (target > was ? ' added to' : ' taken off');
+    if (!window.confirm('Change ' + label + "'s outstanding balance from PKR " + was.toLocaleString() + ' to PKR ' + target.toLocaleString() + '?\n\n' + diffText + ' the ledger. It is recorded as an adjustment and shows in their ledger everywhere (admin, salesman, customer app).')) return false;
+    try {
+      await api.patch('/ledger/' + customer.id + '/balance', { balance: target });
+      setOutstandingMap((prev) => ({ ...prev, [customer.id]: target }));
+      toast.success(label + "'s outstanding balance is now PKR " + target.toLocaleString() + '.');
+      return true;
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update balance.');
+      return false;
+    }
+  };
+
   const handleChangeRateTier = async (customer, rateTier) => {
     if (rateTier === (customer.rate_tier || 'manual')) return;
     try {
@@ -938,7 +959,23 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                             return (
                               <>
                                 <td className="py-3 px-4 text-right font-semibold">
-                                  {balance === undefined ? (
+                                  {user?.role === 'super_admin' && typeof balance === 'number' ? (
+                                    <input
+                                      key={customer.id + '-' + balance}
+                                      type="number"
+                                      step="any"
+                                      defaultValue={balance}
+                                      title="Super admin: change this to set the customer's outstanding balance — the difference is posted to their ledger"
+                                      onBlur={async (e) => {
+                                        const ok = await handleChangeOutstanding(customer, e.target.value, balance);
+                                        if (!ok) e.target.value = balance;
+                                      }}
+                                      onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                                      className={'w-28 border rounded-md px-2 py-1 text-[12px] text-right font-semibold focus:outline-none focus:ring-1 focus:ring-navy-chip focus:border-navy ' + (
+                                        overLimit ? 'border-red-300 bg-red-50 text-red-700' : balance > 0 ? 'border-gray-200 text-red-600' : 'border-gray-200 text-gray-500'
+                                      )}
+                                    />
+                                  ) : balance === undefined ? (
                                     <span className="text-gray-300 text-xs">loading…</span>
                                   ) : balance === null ? (
                                     <span className="text-gray-300 text-xs">—</span>

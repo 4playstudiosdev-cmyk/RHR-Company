@@ -81,6 +81,51 @@ const adjustLedger = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+// PATCH /api/v1/ledger/:customerId/balance — super admin only.
+// Sets a customer's outstanding balance to an exact figure. The ledger itself is
+// never rewritten: the difference between the current balance and the new one is
+// posted as a normal debit (balance goes up) or credit (balance goes down) entry,
+// so the customer's ledger, statement, the salesman's view and the apps all show
+// it right away, with the running balance landing on exactly the new number.
+// A negative figure means the customer is in credit (has paid in advance).
+const setOutstandingBalance = async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    const target = Number(req.body?.balance);
+    if (!Number.isFinite(target)) return error(res, 'balance must be a number', 400);
+    const note = String(req.body?.note || '').trim().slice(0, 200);
+
+    const { data: customer } = await supabaseAdmin
+      .from('users').select('id, company_id, full_name').eq('id', customerId).eq('role', 'customer').single();
+    if (!customer) return error(res, 'Customer not found', 404);
+
+    const { data: last } = await supabaseAdmin
+      .from('ledger_entries').select('running_balance')
+      .eq('customer_id', customerId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    const current = Number(last?.running_balance) || 0;
+    const diff = Math.round((target - current) * 100) / 100;
+    if (diff === 0) return success(res, { balance: current, changed: false }, 'Balance is already that amount');
+
+    const fmt = (n) => 'PKR ' + n.toLocaleString('en-US');
+    const { data, error: dbErr } = await supabaseAdmin
+      .from('ledger_entries')
+      .insert({
+        company_id:      customer.company_id,
+        customer_id:     customerId,
+        entry_type:      diff > 0 ? 'debit' : 'credit',
+        amount:          Math.abs(diff),
+        running_balance: target,
+        description:     'Balance adjusted by admin: ' + fmt(current) + ' → ' + fmt(target) + (note ? ' — ' + note : ''),
+        reference_type:  'adjustment',
+        created_by:      req.user.id,
+      })
+      .select()
+      .single();
+    if (dbErr) throw new Error(dbErr.message);
+    return success(res, { balance: target, previous: current, changed: true, entry: data }, 'Outstanding balance updated');
+  } catch (err) { return error(res, err.message); }
+};
+
 const getLedger = async (req, res) => {
   try {
     const { customerId } = req.params;
@@ -223,4 +268,4 @@ const downloadStatementExcel = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getLedger, adjustLedger, downloadStatement, downloadStatementExcel };
+module.exports = { getLedger, adjustLedger, setOutstandingBalance, downloadStatement, downloadStatementExcel };

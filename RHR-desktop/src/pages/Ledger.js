@@ -190,7 +190,10 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
     description: fromDate ? 'Opening Balance (as of start date)' : 'Opening Balance',
     running_balance: openingBalance,
   };
-  const displayRows = [openingRow, ...chronoEntries];
+  // The "Opening Balance" row is only useful when something was already owed before the
+  // first row shown (e.g. a date range that starts later). A customer whose ledger starts
+  // with their opening-balance entry has nothing before it, so a PKR 0 row is just noise.
+  const displayRows = openingBalance !== 0 ? [openingRow, ...chronoEntries] : chronoEntries;
 
   const totalPages = Math.max(1, Math.ceil(displayRows.length / PAGE_SIZE));
   const pageEntries = displayRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -249,10 +252,11 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
   const handleExportExcel = () => {
     const head = ['Date', 'Description', 'Billed (+)', 'Received (-)', 'Balance', 'Type'];
     const rows = [
-      [
+      // same rule as the table: no "Opening" line when nothing was owed before the first entry
+      ...(openingBalance !== 0 ? [[
         openingRow.created_at ? new Date(openingRow.created_at).toLocaleDateString('en-GB') : '',
         openingRow.description, '', '', Number(openingRow.running_balance), 'Opening',
-      ],
+      ]] : []),
       ...chronoEntries.map((e) => [
         new Date(e.created_at).toLocaleDateString('en-GB'),
         enrichRecoveryDescription(e, customerPayments) || '',
