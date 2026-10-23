@@ -367,6 +367,9 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
   };
 
   const pendingCount = pendingData.online_payments.length + pendingData.cash_closings.length;
+  const pendingChequeCount = cheques.filter((c) => c.cheque_status === 'pending').length;
+  // number shown on a tab (and the highlight ring) while something there is waiting on an admin
+  const tabWaiting = (key) => (key === 'pending' ? pendingCount : key === 'cheques' ? pendingChequeCount : 0);
 
   // History for everyone, or for one salesman. The picker lists every salesman
   // — the salesmen list plus anyone who appears in the history itself.
@@ -404,12 +407,12 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
               onClick={() => setTab(t.key)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 tab === t.key ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-              } ${t.key === 'pending' && pendingCount > 0 && tab !== t.key ? PENDING_RING : ''}`}
+              } ${tabWaiting(t.key) > 0 && tab !== t.key ? PENDING_RING : ''}`}
             >
               <Icon size={15} />
               {t.label}
-              {t.key === 'pending' && pendingCount > 0 && (
-                <span className={PENDING_BADGE}>{pendingCount}</span>
+              {tabWaiting(t.key) > 0 && (
+                <span className={PENDING_BADGE}>{tabWaiting(t.key)}</span>
               )}
             </button>
           );

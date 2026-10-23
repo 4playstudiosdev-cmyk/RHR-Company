@@ -155,11 +155,17 @@ function AppShell() {
   const [page, setPage] = useState(() => {
     try {
       const stored = JSON.parse(localStorage.getItem('rhr_user') || 'null');
+      // a refresh keeps you on the page you were on (saved below); only a fresh login starts on the Dashboard
+      const saved = localStorage.getItem('rhr_page');
+      if (stored && saved && PAGES[saved]) return saved;
       return stored && stored.role !== 'super_admin' && stored.permissions?.dashboard === false ? 'products' : 'dashboard';
     } catch {
       return 'dashboard';
     }
   });
+  useEffect(() => {
+    try { localStorage.setItem('rhr_page', page); } catch { /* storage unavailable — fine */ }
+  }, [page]);
   // Lets Customers.js jump straight to a specific customer's ledger
   const [ledgerCustomerId, setLedgerCustomerId] = useState(null);
   // Lets Ledger.js's clickable order-number links jump straight to that

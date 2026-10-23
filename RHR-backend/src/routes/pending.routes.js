@@ -22,7 +22,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 
     const [
       customers, salesmen, drivers, orders,
-      recoveryPayments, recoveryClosings,
+      recoveryPayments, recoveryClosings, pendingCheques,
       payments, leave,
     ] = await Promise.all([
       count('users',    { role: 'eq.customer', is_approved: 'eq.false', is_active: 'eq.true' }),
@@ -33,6 +33,8 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       // from Salesman Recovery → Pending Approvals, so they're one count
       count('salesman_recoveries',    { status: 'eq.pending', payment_type: 'neq.cheque' }),
       count('salesman_cash_closings', { status: 'eq.pending' }),
+      // cheques wait at the bank until cleared — they still light up Salesman Recovery until dealt with
+      count('salesman_recoveries',    { payment_type: 'eq.cheque', cheque_status: 'eq.pending' }),
       count('payments', { status: 'eq.pending' }),
       count('leave_requests', { status: 'eq.pending' }),
     ]);
@@ -42,7 +44,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       salesmen,
       vehicles: drivers, // pending drivers are approved from the Vehicles panel
       orders,
-      recovery: recoveryPayments + recoveryClosings,
+      recovery: recoveryPayments + recoveryClosings + pendingCheques,
       payments,
       hrm: leave,
     });

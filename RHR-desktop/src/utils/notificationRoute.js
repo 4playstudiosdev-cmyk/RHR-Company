@@ -13,6 +13,8 @@ export function routeForNotification(n) {
   if (type === 'payment') {
     // a salesman-recorded bank transfer waiting for approval -> Salesman Recovery > Pending Approvals
     if (/awaiting approval/i.test(title)) return { page: 'recovery', tab: 'pending' };
+    // a cheque a salesman recorded -> Salesman Recovery > Cheques
+    if (/^cheque/i.test(title)) return { page: 'recovery', tab: 'cheques' };
     // driver collected cash on delivery
     if (/payment collected/i.test(title)) return { page: 'driver-recovery' };
     // salesman recovery results (recorded / approved / rejected, deposits) -> Salesman Recovery > History
