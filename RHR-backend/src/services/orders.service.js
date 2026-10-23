@@ -31,7 +31,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       company_id: `eq.${companyId}`,
       is_active: 'eq.true',
     }),
-    pgrestGet('users', { select: 'rate_tier,full_name,credit_limit,salesman_id', id: `eq.${customerId}` }),
+    pgrestGet('users', { select: 'rate_tier,full_name,shop_name,credit_limit,salesman_id', id: `eq.${customerId}` }),
     // Per-customer, per-product override (Customers page → Set Custom
     // Pricing) — takes precedence over rate_tier for whichever products
     // it covers; anything not overridden still falls through to the
@@ -204,7 +204,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       company_id:     companyId,
       recipient_role: 'branch_admin',
       title:          'New Order',
-      body:           `${customer?.full_name || 'A customer'} placed order ${order.order_number || orderNumber} — PKR ${totalAmount.toLocaleString()}`,
+      body:           `${customer?.shop_name || customer?.full_name || 'A customer'} placed order ${order.order_number || orderNumber} — PKR ${totalAmount.toLocaleString()}`,
       type:           'order',
       reference_id:   order.id,
     });
@@ -218,7 +218,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       companyId,
       recipientId: effectiveSalesmanId,
       title: 'New Order',
-      body: `${customer?.full_name || 'Your customer'} placed order ${order.order_number || orderNumber} — PKR ${totalAmount.toLocaleString()}`,
+      body: `${customer?.shop_name || customer?.full_name || 'Your customer'} placed order ${order.order_number || orderNumber} — PKR ${totalAmount.toLocaleString()}`,
       type: 'order',
       referenceId: order.id,
     });
@@ -234,7 +234,7 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
       companyId,
       recipientId: createdById,
       title: 'Order placed',
-      body: `You placed order ${order.order_number || orderNumber} for ${customer?.full_name || 'your customer'} — ${totalQty} items, PKR ${totalAmount.toLocaleString()}`,
+      body: `You placed order ${order.order_number || orderNumber} for ${customer?.shop_name || customer?.full_name || 'your customer'} — ${totalQty} items, PKR ${totalAmount.toLocaleString()}`,
       type: 'order',
       referenceId: order.id,
     });

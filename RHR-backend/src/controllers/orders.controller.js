@@ -210,7 +210,7 @@ const markInvoiceGenerated = async (req, res) => {
 const deleteInvoice = async (req, res) => {
   try {
     const orders = await pgrestGet('orders', {
-      select: '*,users:customer_id(full_name)',
+      select: '*,users:customer_id(full_name,shop_name)',
       id: `eq.${req.params.id}`,
     });
     const order = orders?.[0];
@@ -228,7 +228,7 @@ const deleteInvoice = async (req, res) => {
     const deletedInvoiceRow = {
       original_order_id: order.id,
       order_number: order.order_number,
-      customer_name: order.users?.full_name || 'Unknown',
+      customer_name: order.users?.shop_name || order.users?.full_name || 'Unknown',
       total_amount: order.total_amount,
       invoice_url: order.invoice_url || null,
       deleted_by: req.user.id,
@@ -316,7 +316,7 @@ const setOrderPriority = async (req, res) => {
       return error(res, "priority must be 'urgent' or 'normal'", 400);
 
     const existingRows = await pgrestGet('orders', {
-      select: 'id,order_number,company_id,salesman_id,customer_id,status,priority,users!customer_id(full_name)',
+      select: 'id,order_number,company_id,salesman_id,customer_id,status,priority,users!customer_id(full_name,shop_name)',
       id: `eq.${req.params.id}`,
     });
     const order = existingRows?.[0];
@@ -340,7 +340,7 @@ const setOrderPriority = async (req, res) => {
           company_id:     order.company_id,
           recipient_role: 'branch_admin',
           title:          'Urgent Order',
-          body:           `Order ${order.order_number} for ${order.users?.full_name || 'a customer'} was flagged urgent — needs delivery ASAP.`,
+          body:           `Order ${order.order_number} for ${order.users?.shop_name || order.users?.full_name || 'a customer'} was flagged urgent — needs delivery ASAP.`,
           type:           'order_urgent',
           reference_id:   order.id,
         });

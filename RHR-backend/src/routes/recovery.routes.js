@@ -465,11 +465,13 @@ router.post('/bank-transfer/me', authenticate, isSalesman, async (req, res) => {
 
     // Best-effort heads-up for the admins who approve it.
     try {
+      const custRows = await pgrestGet('users', { select: 'full_name,shop_name', id: `eq.${customer_id}` }).catch(() => []);
+      const custName = custRows?.[0]?.shop_name || custRows?.[0]?.full_name || '';
       await pgrestPost('notifications', {
         company_id:     req.user.company_id,
         recipient_role: 'branch_admin',
         title:          'Bank transfer awaiting approval',
-        body:           `${req.user.full_name || 'A salesman'} recorded a PKR ${Number(amount).toLocaleString()} bank transfer — approve it in Salesman Recovery → Pending Approvals.`,
+        body:           `${req.user.full_name || 'A salesman'} recorded a PKR ${Number(amount).toLocaleString()} bank transfer${custName ? ` from ${custName}` : ''} — approve it in Salesman Recovery → Pending Approvals.`,
         type:           'payment',
         reference_id:   recovery?.id || null,
       });
