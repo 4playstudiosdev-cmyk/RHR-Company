@@ -74,6 +74,7 @@ const getSalesmanAnalytics = async (req, res) => {
       pgrestGet('salesman_recoveries', {
         select: 'id,amount,payment_type,payment_method,status,recovery_date,created_at,customer_id,notes,users!customer_id(full_name,shop_name)',
         salesman_id: `eq.${id}`,
+        status: 'neq.deleted',
         and: `(created_at.gte.${start},created_at.lte.${end})`,
         order: 'created_at.desc',
       }),

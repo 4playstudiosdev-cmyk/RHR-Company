@@ -75,8 +75,22 @@ async function hasChequeColumns() {
   }
   return chequeColumnsKnown;
 }
+// removed_* columns (phase73) — who rejected/deleted a payment, when and why.
+const REMOVED_COLUMNS = 'removed_reason,removed_at,remover:users!removed_by(full_name)';
+let removedColumnsKnown = null;
+async function hasRemovedColumns() {
+  if (removedColumnsKnown !== null) return removedColumnsKnown;
+  try {
+    await pgrestGet('salesman_recoveries', { select: 'removed_reason', limit: '1' });
+    removedColumnsKnown = true;
+  } catch (e) {
+    return false;
+  }
+  return removedColumnsKnown;
+}
 const withPhoto = async (select) => {
   let out = select;
+  if (await hasRemovedColumns()) out = out.replace('reference_number,', `reference_number,${REMOVED_COLUMNS},`);
   if (await hasPhotoColumn()) out = out.replace('reference_number,', 'reference_number,photo_url,');
   if (await hasChequeColumns()) out = out.replace('reference_number,', `reference_number,${CHEQUE_COLUMNS},`);
   return out;
@@ -92,7 +106,7 @@ router.get('/transactions', authenticate, isAdmin, async (req, res) => {
     const params = { select: await withPhoto(RECOVERY_SELECT), order: 'created_at.desc' };
     if (companyId)   params.company_id  = `eq.${companyId}`;
     if (salesman_id) params.salesman_id = `eq.${salesman_id}`;
-    if (status)      params.status      = `eq.${status}`;
+    params.status = status ? `eq.${status}` : 'neq.deleted';
 
     const data = await pgrestGet('salesman_recoveries', params);
     return success(res, data);
@@ -294,11 +308,16 @@ async function rejectEntry(req, res, table, label) {
     if (!row) return error(res, `${label} not found or access denied`, 404);
     if (row.status !== 'pending') return error(res, `Only a pending ${label.toLowerCase()} can be rejected (this one is ${row.status}).`, 400);
 
-    await pgrestPatch(table, { id: `eq.${row.id}` }, {
-      status: 'rejected',
-      approved_by: req.user.id,
-      approved_at: new Date().toISOString(),
-    });
+    const rejectPatch = { status: 'rejected', approved_by: req.user.id, approved_at: new Date().toISOString() };
+    if (table === 'salesman_recoveries') {
+      // phase73 columns remember who rejected it and why; older databases just skip them
+      await pgrestPatch(table, { id: `eq.${row.id}` }, {
+        ...rejectPatch, removed_reason: String(req.body?.reason || '').slice(0, 200) || null,
+        removed_by: req.user.id, removed_at: new Date().toISOString(),
+      }).catch(() => pgrestPatch(table, { id: `eq.${row.id}` }, rejectPatch));
+    } else {
+      await pgrestPatch(table, { id: `eq.${row.id}` }, rejectPatch);
+    }
     await notifyUser({
       companyId: row.company_id,
       recipientId: row.salesman_id,
@@ -339,6 +358,19 @@ async function debitLedger({ companyId, customerId, amount, description, userId 
   });
 }
 
+// A deleted payment is NOT erased: it stays with status 'deleted' (every total only counts
+// approved ones, so it counts nowhere) and shows up in Salesman Recovery → Rejected / Deleted
+// with who removed it and why. Deposits (cash closings) are still removed outright.
+async function removeRow(table, row, reason, adminId) {
+  if (table !== 'salesman_recoveries') return pgrestDelete(table, { id: `eq.${row.id}` });
+  const base = { status: 'deleted' };
+  return pgrestPatch(table, { id: `eq.${row.id}` }, {
+    ...base, removed_reason: reason, removed_by: adminId, removed_at: new Date().toISOString(),
+  }).catch(() => pgrestPatch(table, { id: `eq.${row.id}` }, {
+    ...base, notes: [row.notes, `Removed: ${reason}`].filter(Boolean).join(' · '),
+  }));
+}
+
 async function deleteEntry(req, res, table, label) {
   try {
     // Removing a payment / deposit always needs a written reason (kept in the ledger and
@@ -348,11 +380,12 @@ async function deleteEntry(req, res, table, label) {
     const adminName = req.user.full_name || 'admin';
     const isPayment = table === 'salesman_recoveries';
     const rows = await pgrestGet(table, {
-      select: isPayment ? 'id,status,company_id,salesman_id,customer_id,amount,payment_type,payment_method,recovery_date,users!customer_id(full_name,shop_name)' : 'id,status',
+      select: isPayment ? 'id,status,company_id,salesman_id,customer_id,amount,payment_type,payment_method,recovery_date,notes,users!customer_id(full_name,shop_name)' : 'id,status',
       ...scopeFilter(req),
     });
     const row = rows?.[0];
     if (!row) return error(res, `${label} not found or access denied`, 404);
+    if (row.status === 'deleted') return error(res, `This ${label.toLowerCase()} was already deleted.`, 400);
 
     if (row.status === 'approved') {
       if (!isPayment) return error(res, `An approved ${label.toLowerCase()} can't be deleted — it has already been counted in the books.`, 400);
@@ -367,7 +400,7 @@ async function deleteEntry(req, res, table, label) {
           userId: req.user.id,
         });
       }
-      await pgrestDelete(table, { id: `eq.${row.id}` });
+      await removeRow(table, row, reason, req.user.id);
       if (row.salesman_id) {
         notifyUser({
           companyId: row.company_id,
@@ -380,7 +413,7 @@ async function deleteEntry(req, res, table, label) {
       return success(res, { deleted: true, reversed: true }, `${label} deleted and the customer's balance restored`);
     }
 
-    await pgrestDelete(table, { id: `eq.${row.id}` });
+    await removeRow(table, row, reason, req.user.id);
     return success(res, { deleted: true }, `${label} deleted`);
   } catch (err) { return error(res, err.message); }
 }
@@ -508,6 +541,7 @@ router.get('/cheques', authenticate, isAdmin, async (req, res) => {
     const params = {
       select: (await withPhoto(RECOVERY_SELECT)),
       payment_type: 'eq.cheque',
+      status: 'neq.deleted',
       order: 'cheque_date.asc,created_at.desc',
     };
     if (companyId) params.company_id = `eq.${companyId}`;
@@ -534,7 +568,7 @@ router.patch('/cheques/:id/clear', authenticate, isAdmin, async (req, res) => {
     const rows = await pgrestGet('salesman_recoveries', { select: '*', payment_type: 'eq.cheque', ...scopeFilter(req) });
     const cheque = rows?.[0];
     if (!cheque) return error(res, 'Cheque not found or access denied', 404);
-    if (cheque.cheque_status !== 'pending') return error(res, `This cheque is already ${cheque.cheque_status}.`, 400);
+    if (cheque.status === 'deleted' || cheque.cheque_status !== 'pending') return error(res, `This cheque is already ${cheque.status === 'deleted' ? 'deleted' : cheque.cheque_status}.`, 400);
 
     let bankLabel = 'Cash';
     let clearedTo = destination;
@@ -580,13 +614,60 @@ router.patch('/cheques/:id/clear', authenticate, isAdmin, async (req, res) => {
   } catch (err) { return error(res, err.message); }
 });
 
+// PATCH /api/v1/recovery/cheques/:id/reject { reason } — the entry is not valid (wrong, never received,
+// duplicate...). Different from Return (the bank bounced a real cheque). A reason is required.
+// A cheque moved over from the old Payments page was already credited, so that credit is reversed.
+router.patch('/cheques/:id/reject', authenticate, isAdmin, async (req, res) => {
+  try {
+    const reason = String(req.body?.reason || '').trim().slice(0, 200);
+    if (reason.length < 3) return error(res, 'A reason is required to reject this cheque (at least 3 characters).', 400);
+    const rows = await pgrestGet('salesman_recoveries', { select: '*', payment_type: 'eq.cheque', ...scopeFilter(req) });
+    const cheque = rows?.[0];
+    if (!cheque) return error(res, 'Cheque not found or access denied', 404);
+    if (cheque.status === 'deleted' || cheque.cheque_status !== 'pending') return error(res, 'Only a pending cheque can be rejected.', 400);
+
+    const wasCredited = cheque.status === 'approved';
+    const patch = { status: 'rejected', approved_by: req.user.id, approved_at: new Date().toISOString(), cheque_status: 'rejected' };
+    const updated = await pgrestPatch('salesman_recoveries', { id: `eq.${cheque.id}`, cheque_status: 'eq.pending' }, {
+      ...patch, removed_reason: reason, removed_by: req.user.id, removed_at: new Date().toISOString(),
+    }).catch(() => pgrestPatch('salesman_recoveries', { id: `eq.${cheque.id}`, cheque_status: 'eq.pending' }, { ...patch, return_reason: reason }));
+    if (!updated?.[0]) return error(res, 'This cheque was just updated by someone else — refresh the list.', 409);
+
+    if (wasCredited) {
+      await debitLedger({
+        companyId: cheque.company_id, customerId: cheque.customer_id, amount: Number(cheque.amount),
+        description: `Cheque #${cheque.cheque_number || '—'} (${cheque.cheque_bank}) rejected by ${req.user.full_name || 'admin'} — reason: ${reason} — balance restored`,
+        userId: req.user.id,
+      });
+    }
+    await notifyUser({
+      companyId: cheque.company_id, recipientId: cheque.salesman_id,
+      title: 'Cheque rejected',
+      body: `Your PKR ${Number(cheque.amount).toLocaleString()} cheque (${cheque.cheque_bank}${cheque.cheque_number ? ` #${cheque.cheque_number}` : ''}) was rejected by the office. Reason: ${reason}`,
+      type: 'payment', referenceId: cheque.id,
+    });
+    return success(res, { rejected: true, reversed: wasCredited }, wasCredited ? 'Cheque rejected and the customer balance restored' : 'Cheque rejected');
+  } catch (err) { return error(res, err.message); }
+});
+
+// GET /api/v1/recovery/removed?salesman_id= — rejected and deleted payments (kept for the record)
+router.get('/removed', authenticate, isAdmin, async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const params = { select: await withPhoto(RECOVERY_SELECT), status: 'in.(rejected,deleted)', order: 'created_at.desc' };
+    if (companyId) params.company_id = `eq.${companyId}`;
+    if (req.query.salesman_id) params.salesman_id = `eq.${req.query.salesman_id}`;
+    return success(res, await pgrestGet('salesman_recoveries', params));
+  } catch (err) { return error(res, err.message); }
+});
+
 // PATCH /api/v1/recovery/cheques/:id/return { reason? } — the cheque bounced / was not passed
 router.patch('/cheques/:id/return', authenticate, isAdmin, async (req, res) => {
   try {
     const rows = await pgrestGet('salesman_recoveries', { select: '*', payment_type: 'eq.cheque', ...scopeFilter(req) });
     const cheque = rows?.[0];
     if (!cheque) return error(res, 'Cheque not found or access denied', 404);
-    if (cheque.cheque_status !== 'pending') return error(res, `This cheque is already ${cheque.cheque_status}.`, 400);
+    if (cheque.status === 'deleted' || cheque.cheque_status !== 'pending') return error(res, `This cheque is already ${cheque.status === 'deleted' ? 'deleted' : cheque.cheque_status}.`, 400);
     const reason = String(req.body?.reason || '').trim().slice(0, 200);
 
     const updated = await pgrestPatch('salesman_recoveries', { id: `eq.${cheque.id}`, cheque_status: 'eq.pending' }, {
@@ -758,6 +839,7 @@ router.get('/bank-transfers/me', authenticate, isSalesman, async (req, res) => {
       select: RECOVERY_SELECT,
       salesman_id: `eq.${req.user.id}`,
       payment_type: 'eq.bank',
+      status: 'neq.deleted',
       order: 'created_at.desc',
     });
     return success(res, data);
@@ -771,6 +853,7 @@ router.get('/transactions/me', authenticate, isSalesman, async (req, res) => {
     const data = await pgrestGet('salesman_recoveries', {
       select: RECOVERY_SELECT,
       salesman_id: `eq.${req.user.id}`,
+      status: 'neq.deleted',
       order: 'created_at.desc',
     });
     return success(res, data);
@@ -924,6 +1007,7 @@ router.get('/driver-transactions/me', authenticate, isDriver, async (req, res) =
     const data = await pgrestGet('salesman_recoveries', {
       select: RECOVERY_SELECT,
       driver_id: `eq.${req.user.id}`,
+      status: 'neq.deleted',
       order: 'created_at.desc',
     });
     return success(res, data);

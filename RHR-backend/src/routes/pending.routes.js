@@ -34,7 +34,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       count('salesman_recoveries',    { status: 'eq.pending', payment_type: 'neq.cheque' }),
       count('salesman_cash_closings', { status: 'eq.pending' }),
       // cheques wait at the bank until cleared — they still light up Salesman Recovery until dealt with
-      count('salesman_recoveries',    { payment_type: 'eq.cheque', cheque_status: 'eq.pending' }),
+      count('salesman_recoveries',    { payment_type: 'eq.cheque', cheque_status: 'eq.pending', status: 'neq.deleted' }),
       count('payments', { status: 'eq.pending' }),
       count('leave_requests', { status: 'eq.pending' }),
     ]);

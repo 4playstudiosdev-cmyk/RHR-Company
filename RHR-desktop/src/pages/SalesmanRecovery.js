@@ -19,6 +19,7 @@ const TABS = [
   { key: 'pending', label: 'Pending Approvals', icon: Clock3 },
   { key: 'cheques', label: 'Cheques', icon: FileText },
   { key: 'history', label: 'History', icon: ListChecks },
+  { key: 'removed', label: 'Rejected / Deleted', icon: Trash2 },
 ];
 
 const EMPTY_FORM = {
@@ -94,6 +95,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
   const [clearTarget, setClearTarget] = useState(null);   // the cheque being cleared
   const [clearDest, setClearDest] = useState('');          // 'cash' | a bank account id
   const [chequeBusy, setChequeBusy] = useState(false);
+  const [removed, setRemoved] = useState([]);   // rejected + deleted payments, kept for the record
 
   useEffect(() => {
     loadSalesmen();
@@ -102,6 +104,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
     loadPending();
     loadCheques();
     loadBanks();
+    loadRemoved();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
 
@@ -154,6 +157,17 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
     }
   };
 
+  const loadRemoved = async () => {
+    try {
+      const data = companyFilter
+        ? (await api.get('/recovery/removed', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/recovery/removed');
+      setRemoved(data);
+    } catch (err) {
+      setRemoved([]);
+    }
+  };
+
   const loadBanks = async () => {
     try {
       const data = companyFilter
@@ -182,14 +196,29 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
     }
   };
 
+  const handleRejectCheque = async (c) => {
+    const reason = askDeleteReason(`Reject cheque ${c.cheque_bank || ''} #${c.cheque_number || '—'} (PKR ${Number(c.amount).toLocaleString()})? It moves to the Rejected / Deleted tab and the salesman is told.${c.status === 'approved' ? ' It was already credited to the customer, so that credit is taken back.' : ''}`);
+    if (!reason) return;
+    setChequeBusy(true);
+    try {
+      const res = await api.patch(`/recovery/cheques/${c.id}/reject`, { reason });
+      toast.success(res.data.message || 'Cheque rejected.');
+      loadCheques(); loadTransactions(); loadRemoved();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to reject the cheque.');
+    } finally {
+      setChequeBusy(false);
+    }
+  };
+
   const handleReturnCheque = async (c) => {
     const reason = window.prompt(`Mark cheque #${c.cheque_number} (PKR ${Number(c.amount).toLocaleString()}) as RETURNED?\n\nOptional reason (e.g. insufficient funds):`, '');
     if (reason === null) return;
     setChequeBusy(true);
     try {
       await api.patch(`/recovery/cheques/${c.id}/return`, { reason: reason.trim() });
-      toast.success('Cheque marked as returned.');
-      loadCheques(); loadTransactions();
+      toast.success('Cheque marked as returned — see Rejected / Deleted.');
+      loadCheques(); loadTransactions(); loadRemoved();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to mark the cheque as returned.');
     } finally {
@@ -299,15 +328,16 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
   // salesman; Delete removes it for good. Both are only for entries that were
   // never approved — approving is what moves money in the books.
   const handleReject = async (id, type) => {
-    const reason = window.prompt('Reason for rejecting (optional) — the salesman will see it:', '');
-    if (reason === null) return; // cancelled
+    const reason = askDeleteReason('Reject this entry? It moves to the Rejected / Deleted tab and the salesman is told.');
+    if (!reason) return; // cancelled
     setApprovingId(id);
     try {
       const endpoint = type === 'payment' ? `/recovery/transactions/${id}/reject` : `/recovery/cash-closing/${id}/reject`;
-      await api.patch(endpoint, { reason: reason.trim() });
-      toast.success('Rejected.');
+      await api.patch(endpoint, { reason });
+      toast.success('Rejected — moved to Rejected / Deleted.');
       loadPending();
       loadTransactions();
+      loadRemoved();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to reject.');
     } finally {
@@ -327,15 +357,16 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
   };
 
   const handleDeleteEntry = async (id, type) => {
-    const reason = askDeleteReason('Delete this entry permanently? This cannot be undone.');
+    const reason = askDeleteReason('Delete this entry? It is kept in the Rejected / Deleted tab (with your reason) but no longer counts anywhere.');
     if (!reason) return;
     setApprovingId(id);
     try {
       const endpoint = type === 'payment' ? `/recovery/transactions/${id}` : `/recovery/cash-closing/${id}`;
       await api.delete(endpoint, { data: { reason } });
-      toast.success('Deleted.');
+      toast.success('Deleted — moved to Rejected / Deleted.');
       loadPending();
       loadTransactions();
+      loadRemoved();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to delete.');
     } finally {
@@ -349,16 +380,17 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
   const handleDeleteHistory = async (t) => {
     const who = t.users?.shop_name || t.users?.full_name || 'the customer';
     const msg = t.status === 'approved'
-      ? 'Delete this PKR ' + Number(t.amount).toLocaleString() + ' payment from ' + who + '?\n\nIt was already counted: the amount is added back to what ' + who + ' owes (a reversing entry appears in their ledger) and is taken off the salesman\'s collections / cash in hand. Use this for a payment recorded twice by mistake. This cannot be undone.'
-      : 'Delete this ' + t.status + ' entry permanently? This cannot be undone.';
+      ? 'Delete this PKR ' + Number(t.amount).toLocaleString() + ' payment from ' + who + '?\n\nIt was already counted: the amount is added back to what ' + who + ' owes (a reversing entry appears in their ledger) and is taken off the salesman\'s collections / cash in hand. Use this for a payment recorded twice by mistake. The entry itself stays visible in Rejected / Deleted.'
+      : 'Delete this ' + t.status + ' entry? It is kept in the Rejected / Deleted tab (with your reason) but no longer counts anywhere.';
     const reason = askDeleteReason(msg);
     if (!reason) return;
     setApprovingId(t.id);
     try {
       await api.delete('/recovery/transactions/' + t.id, { data: { reason } });
-      toast.success(t.status === 'approved' ? 'Payment deleted and the customer balance restored.' : 'Deleted.');
+      toast.success(t.status === 'approved' ? 'Payment deleted and the customer balance restored — see Rejected / Deleted.' : 'Deleted — see Rejected / Deleted.');
       loadTransactions();
       loadPending();
+      loadRemoved();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to delete.');
     } finally {
@@ -379,7 +411,11 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
     return [...byId.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => String(a.name).localeCompare(String(b.name)));
   })();
   const inHistoryRange = (t) => (!historyRange.from || String(t.recovery_date) >= historyRange.from) && (!historyRange.to || String(t.recovery_date) <= historyRange.to);
-  const visibleTransactions = transactions.filter((t) => (!historySalesman || t.salesman_id === historySalesman) && inHistoryRange(t));
+  const visibleTransactions = transactions.filter((t) => t.status !== 'rejected' && t.status !== 'deleted' && (!historySalesman || t.salesman_id === historySalesman) && inHistoryRange(t));
+  // Rejected / Deleted tab: same salesman + date filters as History
+  const removedRowsAll = removed.filter((t) => (!historySalesman || t.salesman_id === historySalesman));
+  const removedInRange = (t) => { const d = String(t.removed_at || t.approved_at || t.created_at || '').slice(0, 10); return (!historyRange.from || d >= historyRange.from) && (!historyRange.to || d <= historyRange.to); };
+  const removedRows = removedRowsAll.filter(removedInRange);
   const historySum = (rows) => rows.reduce((sum, t) => sum + Number(t.amount || 0), 0);
   const historyApproved = visibleTransactions.filter((t) => t.status === 'approved');
   const historyStats = {
@@ -865,7 +901,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
         const shown = cheques.filter((c) => chequeFilter === 'all' || c.cheque_status === chequeFilter);
         const pendingTotal = cheques.filter((c) => c.cheque_status === 'pending').reduce((n, c) => n + Number(c.amount), 0);
         const today = new Date().toISOString().split('T')[0];
-        const STATUS_STYLE = { pending: 'bg-amber-50 text-amber-700', cleared: 'bg-emerald-50 text-emerald-700', returned: 'bg-red-50 text-red-600' };
+        const STATUS_STYLE = { pending: 'bg-amber-50 text-amber-700', cleared: 'bg-emerald-50 text-emerald-700', returned: 'bg-red-50 text-red-600', rejected: 'bg-red-50 text-red-600' };
         return (
           <div>
             <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -939,6 +975,13 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
                                   Mark Cleared
                                 </button>
                                 <button
+                                  onClick={() => handleRejectCheque(c)}
+                                  disabled={chequeBusy}
+                                  className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-50"
+                                >
+                                  Reject
+                                </button>
+                                <button
                                   onClick={() => handleReturnCheque(c)}
                                   disabled={chequeBusy}
                                   className="px-3 py-1.5 rounded-lg border border-red-300 text-red-600 text-xs font-semibold hover:bg-red-50 disabled:opacity-50"
@@ -990,6 +1033,88 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
             </div>
           </div>
         </Modal>
+      )}
+
+      {tab === 'removed' && (
+        <>
+        <div className="flex items-center gap-3 flex-wrap mb-4">
+          <DateRangeFilter
+            from={historyRange.from}
+            to={historyRange.to}
+            defaultPreset="Today"
+            onApply={(from, to) => setHistoryRange({ from, to })}
+          />
+          <select
+            value={historySalesman}
+            onChange={(e) => setHistorySalesman(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy"
+          >
+            <option value="">All salesmen ({historySalesmen.length})</option>
+            {historySalesmen.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+          </select>
+          <div className="flex gap-2 flex-wrap text-xs font-semibold">
+            <span className="px-3 py-1.5 rounded-full bg-navy-chip text-navy">{removedRows.length} entries</span>
+            <span className="px-3 py-1.5 rounded-full bg-red-50 text-red-600">PKR {removedRows.reduce((n, t) => n + Number(t.amount || 0), 0).toLocaleString()} not counted</span>
+          </div>
+        </div>
+        <p className="text-xs text-gray-500 mb-3">Payments an admin rejected or deleted (and returned cheques). They are kept here for the record and do not count in any total or balance.</p>
+        <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+          {removedRows.length === 0 ? (
+            <EmptyState icon={Trash2} title="Nothing rejected or deleted in this period" subtitle="Change the date range above to look further back" />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                    <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Removed On</th>
+                    <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Salesman</th>
+                    <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
+                    <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Type</th>
+                    <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
+                    <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Photo</th>
+                    <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide text-center">Status</th>
+                    <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide">Reason / By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {removedRows.map((t, i) => {
+                    const u = t.users || {};
+                    const label = t.status === 'deleted' ? 'Deleted' : t.cheque_status === 'returned' ? 'Returned' : 'Rejected';
+                    const reason = t.removed_reason || t.return_reason || (t.status === 'deleted' ? t.notes : '') || '';
+                    return (
+                      <tr key={t.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                        <td className="px-5 py-3.5 text-gray-500 whitespace-nowrap">
+                          <WhenCell date={String(t.removed_at || t.approved_at || t.created_at || '').slice(0, 10)} createdAt={t.removed_at || t.approved_at} />
+                          <span className="block text-[11px] text-gray-400">entered {t.recovery_date}</span>
+                        </td>
+                        <td className="px-5 py-3.5 font-medium text-navy">{t.salesmen?.full_name || '—'}</td>
+                        <td className="px-5 py-3.5 text-gray-600">
+                          {u.shop_name || u.full_name || '—'}
+                          {u.shop_name && u.full_name && u.shop_name.trim().toLowerCase() !== u.full_name.trim().toLowerCase() && (
+                            <span className="block text-[11px] text-gray-400">{u.full_name}</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3.5 text-gray-600 text-xs">
+                          {t.payment_type === 'cash' ? 'Cash' : t.payment_type === 'cheque' ? `Cheque${t.cheque_bank ? ` — ${t.cheque_bank}` : ''}${t.cheque_number ? ` #${t.cheque_number}` : ''}` : String(t.payment_method || 'online').replace('_', ' ')}
+                        </td>
+                        <td className="px-5 py-3.5 text-right font-semibold text-navy">PKR {Number(t.amount).toLocaleString()}</td>
+                        <td className="px-5 py-3.5"><PhotoButton url={t.photo_url} onOpen={setPhotoUrl} /></td>
+                        <td className="px-5 py-3.5 text-center">
+                          <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${label === 'Deleted' ? 'bg-gray-200 text-gray-700' : 'bg-red-50 text-red-600'}`}>{label}</span>
+                        </td>
+                        <td className="px-5 py-3.5 text-gray-600 max-w-[260px]">
+                          {reason ? <span className="block text-[13px]">{reason}</span> : <span className="text-gray-300">—</span>}
+                          {t.remover?.full_name && <span className="block text-[11px] text-gray-400">by {t.remover.full_name}</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        </>
       )}
 
       {tab === 'history' && (
