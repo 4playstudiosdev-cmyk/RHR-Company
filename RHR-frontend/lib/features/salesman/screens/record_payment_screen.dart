@@ -548,7 +548,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                           const SizedBox(width: 10),
                           Text(
                             _chequeDate == null
-                                ? 'Select the date written on the cheque'
+                                ? 'Select cheque date'
                                 : '${_chequeDate!.year}-${_chequeDate!.month.toString().padLeft(2, '0')}-${_chequeDate!.day.toString().padLeft(2, '0')}',
                             style: TextStyle(
                                 color: _chequeDate == null ? AppColors.steelBlue : AppColors.navy,
