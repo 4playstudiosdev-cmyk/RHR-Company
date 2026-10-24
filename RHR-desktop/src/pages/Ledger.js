@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { customerLabel } from '../utils/customerLabel';
+import CustomerSelect from '../components/CustomerSelect';
 import { BookOpen, Plus, FileText, FileSpreadsheet, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
@@ -314,19 +314,14 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
       <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5 mb-6 flex flex-wrap gap-4 items-end">
         <div className="min-w-[240px] flex-1 md:flex-none">
           <label className="block text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Select Customer</label>
-          <select
+          <CustomerSelect
             value={customerId}
             onChange={(e) => setCustomerId(e.target.value)}
             disabled={customersLoading}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-shadow bg-white"
-          >
-            <option value="">— Select a customer —</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {customerLabel(c)} ({c.phone})
-              </option>
-            ))}
-          </select>
+            customers={customers}
+            showPhone
+            placeholder="Search or select a customer..."
+          />
         </div>
         <DateRangeFilter
           from={fromDate}

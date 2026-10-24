@@ -1,5 +1,5 @@
 import { PENDING_BADGE } from '../utils/pending';
-import { customerLabel } from '../utils/customerLabel';
+import CustomerSelect from '../components/CustomerSelect';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ShoppingCart, FileDown, Search, Plus, Minus, Trash2, Eye, Truck, Printer } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
@@ -1077,8 +1077,10 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
           <form onSubmit={handleCreateOrder} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Customer *</label>
-              <select
+              <CustomerSelect
                 value={orderForm.customer_id}
+                customers={customers}
+                placeholder="Search or select customer..."
                 onChange={(e) => {
                   const selected = customers.find((c) => c.id === e.target.value);
                   setOrderForm({
@@ -1093,13 +1095,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
                   });
                   loadCustomerPricing(e.target.value);
                 }}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-              >
-                <option value="">Select customer...</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>{customerLabel(c)}</option>
-                ))}
-              </select>
+              />
             </div>
 
             <div>

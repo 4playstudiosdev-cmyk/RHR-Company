@@ -1,5 +1,5 @@
 import { PENDING_RING } from '../utils/pending';
-import { customerLabel } from '../utils/customerLabel';
+import CustomerSelect from '../components/CustomerSelect';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Plus, UserCog, UserCheck, Pencil, UserX, UserCheck2, Trash2,
@@ -914,16 +914,12 @@ export default function Salesmen({ onViewLedger }) {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Customer *</label>
-                    <select
+                    <CustomerSelect
                       value={recoveryForm.customer_id}
                       onChange={(e) => setRecoveryForm({ ...recoveryForm, customer_id: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-                    >
-                      <option value="">— Select —</option>
-                      {recoveryCustomers.map((c) => (
-                        <option key={c.id} value={c.id}>{customerLabel(c)}</option>
-                      ))}
-                    </select>
+                      customers={recoveryCustomers}
+                      placeholder="Search or select..."
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Amount *</label>

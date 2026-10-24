@@ -1,5 +1,6 @@
 import { PENDING_RING, PENDING_BADGE } from '../utils/pending';
 import { customerLabel } from '../utils/customerLabel';
+import CustomerSelect from '../components/CustomerSelect';
 import DateRangeFilter from '../components/DateRangeFilter';
 import React, { useEffect, useState } from 'react';
 import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2, FileText } from 'lucide-react';
@@ -571,16 +572,12 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
 
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1.5">Customer *</label>
-              <select
+              <CustomerSelect
                 value={form.customer_id}
                 onChange={(e) => setForm({ ...form, customer_id: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-              >
-                <option value="">— Select Customer —</option>
-                {customersList.map((c) => (
-                  <option key={c.id} value={c.id}>{customerLabel(c)}</option>
-                ))}
-              </select>
+                customers={customersList}
+                placeholder="Search or select customer..."
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
