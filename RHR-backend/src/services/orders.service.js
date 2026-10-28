@@ -127,7 +127,9 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
     };
   });
 
-  if (creditLimit != null && creditLimit > 0 && currentBalance + totalAmount > creditLimit) {
+  // First order (currentBalance === 0) is always allowed even if it exceeds the credit limit.
+  // From the second order onwards, the running balance must stay within the limit.
+  if (creditLimit != null && creditLimit > 0 && currentBalance > 0 && currentBalance + totalAmount > creditLimit) {
     const remaining = Math.max(0, creditLimit - currentBalance);
     throw new Error(
       `This order exceeds your credit limit. You can order up to PKR ${remaining.toLocaleString()} more — ` +

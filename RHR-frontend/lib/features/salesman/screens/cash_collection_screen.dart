@@ -3,18 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../shared/customer_display.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/router/app_transitions.dart';
+import '../../../shared/widgets/premium_ui.dart';
 
-/// Cash Collection Management — what a salesman has collected from
-/// customers in cash (salesman_recoveries, auto-approved + credits the
-/// customer's ledger immediately) and depositing that cash back to the
-/// company (salesman_cash_closings — pending until an admin approves it,
-/// either as a bank deposit with a slip photo, or handed over as petty
-/// cash). "Cash in hand" is simply collected-minus-deposited.
 class CashCollectionScreen extends StatefulWidget {
   const CashCollectionScreen({super.key});
 
@@ -29,6 +23,7 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
   num _totalDeposited = 0;
   List<Map<String, dynamic>> _closingHistory = [];
   List<Map<String, dynamic>> _bankTransfers = [];
+  String _historyRange = 'Today';
 
   @override
   void initState() {
@@ -67,11 +62,31 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
 
   num get _totalBankTransferred => _bankTransfers.fold<num>(0, (s, t) => s + _asNum(t['amount']));
 
-  // Merges actual cash deposits (salesman_cash_closings) with bank
-  // transfers collected straight from a customer (salesman_recoveries,
-  // payment_type 'bank') into one history list, newest first — a bank
-  // transfer never needed a separate deposit step, so it has no row of
-  // its own in salesman_cash_closings, but still belongs in this view.
+  DateTimeRange _rangeFor(String label) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    switch (label) {
+      case 'Today':
+        return DateTimeRange(start: today, end: today.add(const Duration(days: 1)));
+      case 'Yesterday':
+        return DateTimeRange(start: today.subtract(const Duration(days: 1)), end: today);
+      case 'Last 7 Days':
+        return DateTimeRange(start: today.subtract(const Duration(days: 6)), end: today.add(const Duration(days: 1)));
+      case 'This Month':
+        return DateTimeRange(start: DateTime(now.year, now.month, 1), end: today.add(const Duration(days: 1)));
+      default:
+        return DateTimeRange(start: DateTime(2000), end: today.add(const Duration(days: 1)));
+    }
+  }
+
+  bool _inRange(String? dateStr) {
+    if (dateStr == null) return false;
+    final d = DateTime.tryParse(dateStr);
+    if (d == null) return false;
+    final r = _rangeFor(_historyRange);
+    return !d.isBefore(r.start) && d.isBefore(r.end);
+  }
+
   List<Map<String, dynamic>> get _combinedHistory {
     final combined = [
       ..._closingHistory.map((c) => {
@@ -90,11 +105,23 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
           }),
     ];
     combined.sort((a, b) => (b['date'] ?? '').toString().compareTo((a['date'] ?? '').toString()));
-    return combined;
+    if (_historyRange == 'All Time') return combined;
+    return combined.where((c) => _inRange(c['date'] as String?)).toList();
+  }
+
+  num get _filteredCollected {
+    if (_historyRange == 'All Time') return _totalCollected;
+    return _combinedHistory.fold<num>(0, (s, c) => s + _asNum(c['amount']));
+  }
+
+  num get _filteredDeposited {
+    if (_historyRange == 'All Time') return _totalDeposited + _totalBankTransferred;
+    return _combinedHistory
+        .where((c) => (c['status'] ?? '') == 'approved')
+        .fold<num>(0, (s, c) => s + _asNum(c['amount']));
   }
 
   Future<void> _depositDialog() async {
-    // The deposit is always the whole cash in hand (filled in, not editable).
     if (_cashInHand <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You have no cash in hand to deposit.')));
       return;
@@ -106,32 +133,50 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
     }
     final choice = await showModalBottomSheet<String>(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (sheetContext) => Padding(
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
         padding: const EdgeInsets.all(20),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('Deposit Cash', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.navy)),
-          const SizedBox(height: 16),
-          ListTile(
-            leading: const Icon(Icons.payments_outlined, color: AppColors.orange),
-            title: const Text('Via Cash (hand over to branch)'),
-            subtitle: const Text('Submits directly for admin approval'),
-            onTap: () => Navigator.pop(sheetContext, 'cash'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.account_balance_outlined, color: AppColors.orange),
-            title: const Text('Via Bank Transfer'),
-            subtitle: const Text('Requires a bank slip photo'),
-            onTap: () => Navigator.pop(sheetContext, 'bank'),
-          ),
-        ]),
+        child: SafeArea(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 40, height: 4,
+              margin: const EdgeInsets.only(bottom: 18),
+              decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2)),
+            ),
+            const Text('Deposit Cash', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: kNavy)),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: Container(
+                width: 40, height: 40,
+                decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
+                child: const Icon(Icons.payments_outlined, color: kNavy, size: 20),
+              ),
+              title: const Text('Via Cash', style: TextStyle(fontWeight: FontWeight.w700, color: kNavy)),
+              subtitle: const Text('Hand over to branch — submits directly'),
+              onTap: () => Navigator.pop(sheetContext, 'cash'),
+            ),
+            ListTile(
+              leading: Container(
+                width: 40, height: 40,
+                decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
+                child: const Icon(Icons.account_balance_outlined, color: kNavy, size: 20),
+              ),
+              title: const Text('Via Bank Transfer', style: TextStyle(fontWeight: FontWeight.w700, color: kNavy)),
+              subtitle: const Text('Requires a bank slip photo'),
+              onTap: () => Navigator.pop(sheetContext, 'bank'),
+            ),
+          ]),
+        ),
       ),
     );
     if (choice == 'cash') await _submitCashDeposit();
     if (choice == 'bank') await _submitBankDeposit();
   }
 
-  // The cash in hand as the text of the (read-only) amount field.
   String _depositAmountText() =>
       _cashInHand == _cashInHand.roundToDouble() ? _cashInHand.toStringAsFixed(0) : _cashInHand.toStringAsFixed(2);
 
@@ -140,22 +185,26 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Deposit Via Cash'),
+        title: const Text('Deposit Via Cash', style: TextStyle(color: kNavy, fontWeight: FontWeight.w700)),
         content: TextField(
           controller: amountController,
           keyboardType: TextInputType.number,
-          readOnly: true, // always the full cash in hand — can't be changed
+          readOnly: true,
           decoration: InputDecoration(
             labelText: 'Amount (PKR) — your full cash in hand',
-            border: const OutlineInputBorder(),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             filled: true,
-            fillColor: Colors.grey.shade200,
-            suffixIcon: const Icon(Icons.lock_outline, size: 18),
+            fillColor: kCardBg,
+            suffixIcon: const Icon(Icons.lock_outline, size: 18, color: kTextMuted),
           ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Submit')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(backgroundColor: kNavy, foregroundColor: Colors.white),
+            child: const Text('Submit'),
+          ),
         ],
       ),
     );
@@ -188,26 +237,30 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Deposit Via Bank'),
+          title: const Text('Deposit Via Bank', style: TextStyle(color: kNavy, fontWeight: FontWeight.w700)),
           content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('Date: ${DateTime.now().toString().split(' ')[0]} (today, locked)',
-                style: const TextStyle(color: AppColors.steelBlue, fontSize: 12)),
+                style: const TextStyle(color: kTextMuted, fontSize: 12)),
             const SizedBox(height: 10),
             TextField(
               controller: bankController,
-              decoration: const InputDecoration(labelText: 'Bank Name', border: OutlineInputBorder()),
+              decoration: InputDecoration(
+                labelText: 'Bank Name',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                prefixIcon: const Icon(Icons.account_balance_rounded, color: kTextMuted, size: 20),
+              ),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: amountController,
               keyboardType: TextInputType.number,
-              readOnly: true, // always the full cash in hand — can't be changed
+              readOnly: true,
               decoration: InputDecoration(
                 labelText: 'Amount (PKR) — your full cash in hand',
-                border: const OutlineInputBorder(),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                 filled: true,
-                fillColor: Colors.grey.shade200,
-                suffixIcon: const Icon(Icons.lock_outline, size: 18),
+                fillColor: kCardBg,
+                suffixIcon: const Icon(Icons.lock_outline, size: 18, color: kTextMuted),
               ),
             ),
             const SizedBox(height: 10),
@@ -235,14 +288,19 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
                   setDialogState(() => uploading = false);
                 }
               },
-              icon: Icon(uploadedSlipUrl != null ? Icons.check_circle : Icons.camera_alt_outlined,
-                  color: uploadedSlipUrl != null ? AppColors.success : AppColors.navy),
-              label: Text(uploading ? 'Uploading...' : (uploadedSlipUrl != null ? 'Slip uploaded' : 'Upload Bank Slip *')),
+              style: OutlinedButton.styleFrom(foregroundColor: kNavy, side: const BorderSide(color: Color(0xFFE0E5EF))),
+              icon: Icon(uploadedSlipUrl != null ? Icons.check_circle_rounded : Icons.camera_alt_rounded,
+                  color: uploadedSlipUrl != null ? kGreen : kNavy),
+              label: Text(uploading ? 'Uploading...' : (uploadedSlipUrl != null ? 'Slip uploaded ✓' : 'Upload Bank Slip *')),
             ),
           ]),
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            ElevatedButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Submit')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: ElevatedButton.styleFrom(backgroundColor: kNavy, foregroundColor: Colors.white),
+              child: const Text('Submit'),
+            ),
           ],
         ),
       ),
@@ -277,87 +335,136 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.warmGrey,
-      appBar: AppBar(
-        backgroundColor: AppColors.navy,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => goBack(context, '/salesman-dashboard')),
-        title: const Text('Cash Collection', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      backgroundColor: kCardBg,
+      appBar: premiumAppBar(
+        'Cash Collection',
+        subtitle: 'Collected · Deposited · In Hand',
+        onBack: () => goBack(context, '/salesman-dashboard'),
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.orange))
+          ? const Center(child: CircularProgressIndicator(color: kNavy))
           : RefreshIndicator(
+              color: kGreen,
               onRefresh: _load,
-              child: ListView(padding: const EdgeInsets.all(20), children: [
+              child: ListView(padding: const EdgeInsets.all(16), children: [
+                // Summary card
                 Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(color: AppColors.navy, borderRadius: BorderRadius.circular(16)),
+                  padding: const EdgeInsets.all(22),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [kNavyDark, kNavyLight],
+                    ),
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [BoxShadow(color: kNavy.withValues(alpha: 0.35), blurRadius: 16, offset: const Offset(0, 6))],
+                  ),
                   child: Column(children: [
-                    const Text('Cash In Hand', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                    const Text('Cash In Hand', style: TextStyle(color: Colors.white54, fontSize: 13, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 6),
                     Text('PKR ${_cashInHand.toStringAsFixed(0)}',
-                        style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 14),
-                    Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-                      Column(children: [
-                        Text('PKR ${_totalCollected.toStringAsFixed(0)}',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        const Text('Collected', style: TextStyle(color: Colors.white54, fontSize: 11)),
-                      ]),
-                      Column(children: [
-                        Text('PKR ${(_totalDeposited + _totalBankTransferred).toStringAsFixed(0)}',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        const Text('Deposited', style: TextStyle(color: Colors.white54, fontSize: 11)),
-                      ]),
+                        style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 16),
+                    Row(children: [
+                      Expanded(child: _statPill('Collected', 'PKR ${_filteredCollected.toStringAsFixed(0)}', kGreen)),
+                      const SizedBox(width: 10),
+                      Expanded(child: _statPill('Deposited', 'PKR ${_filteredDeposited.toStringAsFixed(0)}', Colors.white70)),
                     ]),
                   ]),
                 ),
+
                 const SizedBox(height: 16),
+
+                PremiumButton(
+                  text: 'Deposit Cash',
+                  onPressed: _depositDialog,
+                  icon: Icons.upload_outlined,
+                ),
+
+                const SizedBox(height: 24),
+
+                Row(
+                  children: [
+                    const Expanded(child: SectionHeader(title: 'Deposit History')),
+                  ],
+                ),
+                const SizedBox(height: 10),
                 SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _depositDialog,
-                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.orange, foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14)),
-                    icon: const Icon(Icons.upload_outlined),
-                    label: const Text('Deposit'),
+                  height: 34,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: ['Today', 'Yesterday', 'Last 7 Days', 'This Month', 'All Time'].map((label) {
+                      final active = _historyRange == label;
+                      return GestureDetector(
+                        onTap: () => setState(() => _historyRange = label),
+                        child: Container(
+                          margin: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: active ? kNavy : Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: active ? kNavy : const Color(0xFFDDE3EF)),
+                          ),
+                          child: Text(label,
+                              style: TextStyle(
+                                  color: active ? Colors.white : kNavy,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12)),
+                        ),
+                      );
+                    }).toList(),
                   ),
                 ),
-                const SizedBox(height: 24),
-                const Text('Deposit History', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 16)),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
+
                 if (_combinedHistory.isEmpty)
-                  const Padding(padding: EdgeInsets.all(16),
-                      child: Text('No deposits yet.', style: TextStyle(color: AppColors.steelBlue)))
+                  const PremiumEmpty(icon: Icons.history_rounded, title: 'No deposits yet')
                 else
-                  ..._combinedHistory.map((c) => Container(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(12)),
-                        child: Row(children: [
-                          Icon(c['isBank'] == true ? Icons.account_balance_outlined : Icons.payments_outlined,
-                              color: AppColors.orange),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text('PKR ${_asNum(c['amount']).toStringAsFixed(0)} — ${c['label']}',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
-                              Text('${c['date']}', style: const TextStyle(color: AppColors.steelBlue, fontSize: 12)),
-                            ]),
+                  ..._combinedHistory.map((c) {
+                    final isApproved = (c['status'] ?? '') == 'approved';
+                    final isBank = c['isBank'] == true;
+                    return PremiumCard(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      child: Row(children: [
+                        Container(
+                          width: 42, height: 42,
+                          decoration: BoxDecoration(
+                            color: (isBank ? const Color(0xFF1565C0) : kGreen).withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: (c['status'] == 'approved' ? AppColors.success : AppColors.orange).withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(c['status'] ?? '',
-                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold,
-                                    color: c['status'] == 'approved' ? AppColors.success : AppColors.orange)),
+                          child: Icon(
+                            isBank ? Icons.account_balance_rounded : Icons.payments_rounded,
+                            color: isBank ? const Color(0xFF1565C0) : kGreen,
+                            size: 20,
                           ),
-                        ]),
-                      )),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text('PKR ${_asNum(c['amount']).toStringAsFixed(0)}',
+                              style: const TextStyle(fontWeight: FontWeight.w800, color: kNavy, fontSize: 14)),
+                          Text(c['label'] as String? ?? '',
+                              style: const TextStyle(color: kTextMuted, fontSize: 11)),
+                          Text('${c['date']}', style: const TextStyle(color: kTextMuted, fontSize: 11)),
+                        ])),
+                        StatusBadge(c['status'] as String? ?? '', isApproved ? kGreen : kAmber),
+                      ]),
+                    );
+                  }),
               ]),
             ),
     );
   }
+
+  Widget _statPill(String label, String value, Color valueColor) => Container(
+    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Column(children: [
+      Text(value, style: TextStyle(color: valueColor, fontWeight: FontWeight.w700, fontSize: 13)),
+      const SizedBox(height: 2),
+      Text(label, style: const TextStyle(color: Colors.white38, fontSize: 10)),
+    ]),
+  );
 }

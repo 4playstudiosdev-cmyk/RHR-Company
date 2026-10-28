@@ -22,7 +22,7 @@ router.patch('/:id/rate-tier', authenticate, isAdmin,   ctrl.updateRateTier);
 router.patch('/:id/credit-limit', authenticate, isAdmin, ctrl.updateCreditLimit);
 router.patch('/:id/assign-salesman', authenticate, isAdmin, ctrl.assignSalesman);
 router.patch('/:id/assign-driver',   authenticate, isAdmin, ctrl.assignDriver);
-router.patch('/:id',          authenticate, isAdmin,    ctrl.updateCustomer);
+router.patch('/:id',          authenticate, requireRole('super_admin', 'branch_admin', 'salesman'), ctrl.updateCustomer);
 router.delete('/:id',         authenticate, isAdmin,    ctrl.deleteCustomer);
 router.get('/:id/profile-pdf',       authenticate, isSuperAdmin, ctrl.downloadCustomerProfilePDF);
 // Widened to also let a salesman set/read pricing — needed so the

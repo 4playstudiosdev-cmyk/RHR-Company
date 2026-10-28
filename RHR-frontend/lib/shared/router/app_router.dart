@@ -29,6 +29,7 @@ import '../../features/salesman/screens/customers_list_screen.dart';
 import '../../features/salesman/screens/customer_detail_screen.dart';
 import '../../features/salesman/screens/create_order_screen.dart';
 import '../../features/salesman/screens/add_customer_screen.dart';
+import '../../features/salesman/screens/edit_customer_screen.dart';
 import '../../features/salesman/screens/record_payment_screen.dart';
 import '../../features/salesman/screens/salesman_profile_screen.dart';
 import '../../features/salesman/screens/salesman_profile_setup_screen.dart';
@@ -140,6 +141,7 @@ final appRouter = GoRouter(
     GoRoute(path: '/customer-detail',    pageBuilder: (c, s) => slidePage(s, CustomerDetailScreen(customerId: s.extra as String?))),
     GoRoute(path: '/create-order',       pageBuilder: (c, s) => slidePage(s, const CreateOrderScreen())),
     GoRoute(path: '/add-customer',       pageBuilder: (c, s) => slidePage(s, const AddCustomerScreen())),
+    GoRoute(path: '/edit-customer',      pageBuilder: (c, s) => slidePage(s, EditCustomerScreen(customerId: s.extra as String))),
     GoRoute(path: '/record-payment',     pageBuilder: (c, s) => slidePage(s, RecordPaymentScreen(customerId: s.extra as String?))),
     GoRoute(path: '/gps-tracking',       pageBuilder: (c, s) => slidePage(s, const GpsTrackingScreen())),
     GoRoute(path: '/performance',        pageBuilder: (c, s) => slidePage(s, const PerformanceScreen())),

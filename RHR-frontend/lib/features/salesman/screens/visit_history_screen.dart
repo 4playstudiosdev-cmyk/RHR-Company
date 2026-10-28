@@ -1,15 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/customer_display.dart';
 import '../../../shared/router/app_transitions.dart';
+import '../../../shared/widgets/premium_ui.dart';
 
-/// The salesman's own customer-visit history: which customer, what was
-/// noted, and the exact date/time (to the second) each visit was marked.
-/// Opened from the drawer ("Customer Visit History") and from the
-/// "Customers Visited" card on the home screen.
 class VisitHistoryScreen extends StatefulWidget {
   const VisitHistoryScreen({super.key});
 
@@ -56,10 +52,7 @@ class _VisitHistoryScreenState extends State<VisitHistoryScreen> {
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    setState(() { _loading = true; _error = null; });
     try {
       final res = await DioClient.instance.get(ApiEndpoints.visits, queryParameters: _rangeParams());
       if (res.data['success'] == true) {
@@ -67,7 +60,7 @@ class _VisitHistoryScreenState extends State<VisitHistoryScreen> {
       } else {
         _error = res.data['message']?.toString() ?? 'Failed to load visits';
       }
-    } catch (e) {
+    } catch (_) {
       _error = 'Could not load visits. Check your connection and try again.';
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -86,7 +79,6 @@ class _VisitHistoryScreenState extends State<VisitHistoryScreen> {
 
   static const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  // 17 Oct 2026 · 4:47:32 PM — the salesman's local time, with seconds.
   static String _stamp(dynamic iso) {
     final d = DateTime.tryParse(iso?.toString() ?? '')?.toLocal();
     if (d == null) return '—';
@@ -101,43 +93,36 @@ class _VisitHistoryScreenState extends State<VisitHistoryScreen> {
     final customers = list.map((v) => v['customer_id']).toSet().length;
 
     return Scaffold(
-      backgroundColor: AppColors.warmGrey,
-      appBar: AppBar(
-        backgroundColor: AppColors.navy,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => goBack(context, '/salesman-dashboard'),
-        ),
-        title: const Text('Customer Visit History',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      backgroundColor: kCardBg,
+      appBar: premiumAppBar(
+        'Visit History',
+        subtitle: '${list.length} visits · $customers customers',
+        onBack: () => goBack(context, '/salesman-dashboard'),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: AppColors.orange,
+        backgroundColor: kNavy,
         foregroundColor: Colors.white,
         onPressed: () => context.push('/record-visit'),
         icon: const Icon(Icons.add_location_alt_outlined),
-        label: const Text('Record Visit'),
+        label: const Text('Record Visit', style: TextStyle(fontWeight: FontWeight.w700)),
+        elevation: 4,
       ),
       body: Column(children: [
         Container(
-          color: AppColors.white,
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          color: Colors.white,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
           child: Column(children: [
-            TextField(
-              controller: _searchController,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                hintText: 'Search customer or notes...',
-                prefixIcon: const Icon(Icons.search, color: AppColors.steelBlue),
-                filled: true,
-                fillColor: AppColors.warmGrey,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              ),
+            PremiumSearchBar(
+              hint: 'Search customer or notes...',
+              onChanged: (v) {
+                _searchController.text = v;
+                setState(() {});
+              },
+              margin: EdgeInsets.zero,
             ),
             const SizedBox(height: 10),
             SizedBox(
-              height: 38,
+              height: 36,
               child: ListView(scrollDirection: Axis.horizontal, children: [
                 _chip('Today', _Range.today),
                 _chip('Last 7 days', _Range.week),
@@ -147,25 +132,18 @@ class _VisitHistoryScreenState extends State<VisitHistoryScreen> {
             ),
           ]),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-          child: Row(children: [
-            Text('${list.length} visit${list.length == 1 ? '' : 's'} · $customers customer${customers == 1 ? '' : 's'}',
-                style: const TextStyle(color: AppColors.steelBlue, fontSize: 12, fontWeight: FontWeight.w600)),
-          ]),
-        ),
         Expanded(
           child: _loading
-              ? const Center(child: CircularProgressIndicator(color: AppColors.orange))
+              ? const Center(child: CircularProgressIndicator(color: kNavy))
               : _error != null
                   ? _message(Icons.cloud_off_outlined, _error!, retry: true)
                   : list.isEmpty
                       ? _message(Icons.event_busy_outlined, 'No visits in this period.\nTap "Record Visit" to add one.')
                       : RefreshIndicator(
-                          color: AppColors.orange,
+                          color: kGreen,
                           onRefresh: _load,
                           child: ListView.builder(
-                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+                            padding: const EdgeInsets.fromLTRB(16, 14, 16, 96),
                             itemCount: list.length,
                             itemBuilder: (_, i) => _visitCard(list[i]),
                           ),
@@ -179,16 +157,26 @@ class _VisitHistoryScreenState extends State<VisitHistoryScreen> {
     final selected = _range == r;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
-      child: ChoiceChip(
-        label: Text(label),
-        selected: selected,
-        selectedColor: AppColors.orange,
-        labelStyle: TextStyle(color: selected ? Colors.white : AppColors.navy, fontWeight: FontWeight.w600, fontSize: 12),
-        onSelected: (_) {
+      child: GestureDetector(
+        onTap: () {
           if (_range == r) return;
           setState(() => _range = r);
           _load();
         },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? kNavy : Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: selected ? kNavy : const Color(0xFFE0E5EF)),
+            boxShadow: selected ? [BoxShadow(color: kNavy.withValues(alpha: 0.25), blurRadius: 6, offset: const Offset(0, 2))] : [],
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  color: selected ? Colors.white : kNavy,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12)),
+        ),
       ),
     );
   }
@@ -198,12 +186,19 @@ class _VisitHistoryScreenState extends State<VisitHistoryScreen> {
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 48, color: AppColors.steelBlue.withValues(alpha: 0.5)),
+          Icon(icon, size: 52, color: kTextMuted.withValues(alpha: 0.5)),
           const SizedBox(height: 12),
-          Text(text, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.steelBlue)),
+          Text(text, textAlign: TextAlign.center, style: const TextStyle(color: kTextMuted, fontSize: 14)),
           if (retry) ...[
-            const SizedBox(height: 12),
-            TextButton(onPressed: _load, child: const Text('Try again')),
+            const SizedBox(height: 14),
+            GestureDetector(
+              onTap: _load,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(20)),
+                child: const Text('Try again', style: TextStyle(color: kNavy, fontWeight: FontWeight.w700)),
+              ),
+            ),
           ],
         ]),
       ),
@@ -217,38 +212,32 @@ class _VisitHistoryScreenState extends State<VisitHistoryScreen> {
     final shop = (c?['shop_name'] ?? '').toString().trim();
     final notes = (v['notes'] ?? '').toString();
     final followUp = (v['follow_up_date'] ?? '').toString();
+    final initials = title.isNotEmpty ? title[0].toUpperCase() : '?';
 
-    return Container(
+    return PremiumCard(
       margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, 2))],
-      ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          const CircleAvatar(
-            radius: 18,
-            backgroundColor: AppColors.navy,
-            child: Icon(Icons.storefront_outlined, color: Colors.white, size: 18),
+          CircleAvatar(
+            radius: 20,
+            backgroundColor: kNavy.withValues(alpha: 0.08),
+            child: Text(initials, style: const TextStyle(color: kNavy, fontWeight: FontWeight.w700, fontSize: 14)),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(title,
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 15)),
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w700, color: kNavy, fontSize: 14)),
               if (shop.isNotEmpty && person.isNotEmpty)
-                Text(person, style: const TextStyle(color: AppColors.steelBlue, fontSize: 11)),
+                Text(person, style: const TextStyle(color: kTextMuted, fontSize: 11)),
             ]),
           ),
         ]),
         const SizedBox(height: 10),
         Row(children: [
-          const Icon(Icons.schedule, size: 14, color: AppColors.orange),
+          const Icon(Icons.schedule_rounded, size: 14, color: kTextMuted),
           const SizedBox(width: 6),
           Text(_stamp(v['visited_at']),
-              style: const TextStyle(color: AppColors.navy, fontSize: 12, fontWeight: FontWeight.w600)),
+              style: const TextStyle(color: kNavy, fontSize: 12, fontWeight: FontWeight.w600)),
         ]),
         if (notes.isNotEmpty) ...[
           const SizedBox(height: 8),
@@ -257,9 +246,9 @@ class _VisitHistoryScreenState extends State<VisitHistoryScreen> {
         if (followUp.isNotEmpty) ...[
           const SizedBox(height: 8),
           Row(children: [
-            const Icon(Icons.event_repeat, size: 14, color: AppColors.steelBlue),
+            const Icon(Icons.event_repeat_rounded, size: 14, color: kTextMuted),
             const SizedBox(width: 6),
-            Text('Follow-up: $followUp', style: const TextStyle(color: AppColors.steelBlue, fontSize: 12)),
+            Text('Follow-up: $followUp', style: const TextStyle(color: kTextMuted, fontSize: 12)),
           ]),
         ],
       ]),

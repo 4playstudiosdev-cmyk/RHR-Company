@@ -1,17 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/router/app_transitions.dart';
+import '../../../shared/widgets/premium_ui.dart';
 
-/// Product catalogue browse screen for salesmen — category chips up top,
-/// a list of products below. View-only: tapping a product opens its full
-/// description/detail, same as the customer app's catalogue, so a
-/// salesman can show a customer exactly what they're getting. Actually
-/// placing an order always goes through create_order_screen.dart ("New
-/// Order") — this screen used to also let a salesman build a cart and
-/// checkout directly, which meant two different places could create an
-/// order; that's now the New Order screen's job alone.
 class SalesmanProductsScreen extends StatefulWidget {
   const SalesmanProductsScreen({super.key});
 
@@ -23,7 +15,7 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
   List<Map<String, dynamic>> _categories = [];
   List<Map<String, dynamic>> _products = [];
   bool _loading = true;
-  String? _selectedCategoryId; // null = All
+  String? _selectedCategoryId;
 
   @override
   void initState() {
@@ -52,9 +44,6 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
     }
   }
 
-  // Already in the right merchandising order from the backend
-  // (products.service.js#sortByMerchandisingOrder) — filtering by
-  // category just narrows that same ordered list, no re-sort needed.
   List<Map<String, dynamic>> get _filteredProducts {
     return _selectedCategoryId == null
         ? _products
@@ -73,74 +62,87 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
         expand: false,
         builder: (_, scrollController) => Container(
           decoration: const BoxDecoration(
-            color: AppColors.warmGrey,
+            color: kCardBg,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
           child: ListView(
             controller: scrollController,
             padding: const EdgeInsets.all(20),
             children: [
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                width: 40, height: 4,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(color: AppColors.steelBlue.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(2)),
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  margin: const EdgeInsets.only(bottom: 18),
+                  decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2)),
+                ),
               ),
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
                 child: Container(
                   width: double.infinity,
                   height: 180,
-                  color: AppColors.orange.withValues(alpha: 0.12),
+                  color: kNavy.withValues(alpha: 0.07),
                   child: (p['image_url'] != null && (p['image_url'] as String).isNotEmpty)
                       ? Image.network(p['image_url'], fit: BoxFit.cover,
-                          errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 56))
-                      : const Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 56),
+                          errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, color: kNavy, size: 56))
+                      : const Icon(Icons.inventory_2_outlined, color: kNavy, size: 56),
                 ),
               ),
               const SizedBox(height: 16),
-              Text(p['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 19)),
+              Text(p['name'] ?? '',
+                  style: const TextStyle(fontWeight: FontWeight.w800, color: kNavy, fontSize: 19)),
               if ((p['categories']?['name'] ?? '').toString().isNotEmpty) ...[
                 const SizedBox(height: 4),
-                Text(p['categories']['name'], style: const TextStyle(color: AppColors.steelBlue, fontSize: 13)),
+                Text(p['categories']['name'], style: const TextStyle(color: kTextMuted, fontSize: 13)),
               ],
               const SizedBox(height: 12),
               Row(children: [
                 Text('PKR ${((p['price'] ?? 0) as num).toStringAsFixed(0)}',
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.orange, fontSize: 20)),
+                    style: const TextStyle(fontWeight: FontWeight.w800, color: kNavy, fontSize: 22)),
                 if ((p['unit'] ?? '').toString().isNotEmpty) ...[
                   const SizedBox(width: 6),
-                  Text('/ ${p['unit']}', style: const TextStyle(color: AppColors.steelBlue, fontSize: 14)),
+                  Text('/ ${p['unit']}', style: const TextStyle(color: kTextMuted, fontSize: 14)),
                 ],
               ]),
               const SizedBox(height: 10),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: ((p['stock_quantity'] ?? 0) as num) > 0
-                      ? AppColors.success.withValues(alpha: 0.12)
-                      : AppColors.error.withValues(alpha: 0.12),
+                      ? kGreen.withValues(alpha: 0.10)
+                      : kRed.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: ((p['stock_quantity'] ?? 0) as num) > 0
+                      ? kGreen.withValues(alpha: 0.3)
+                      : kRed.withValues(alpha: 0.3)),
                 ),
                 child: Text(
                   ((p['stock_quantity'] ?? 0) as num) > 0
                       ? 'In Stock — ${p['stock_quantity']} ${p['unit'] ?? ''}'
                       : 'Out of Stock',
                   style: TextStyle(
-                    fontWeight: FontWeight.bold, fontSize: 12,
-                    color: ((p['stock_quantity'] ?? 0) as num) > 0 ? AppColors.success : AppColors.error,
+                    fontWeight: FontWeight.w700, fontSize: 12,
+                    color: ((p['stock_quantity'] ?? 0) as num) > 0 ? kGreen : kRed,
                   ),
                 ),
               ),
               if ((p['description'] ?? '').toString().trim().isNotEmpty) ...[
                 const SizedBox(height: 20),
-                const Text('Description', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 15)),
+                const Text('Description', style: TextStyle(fontWeight: FontWeight.w700, color: kNavy, fontSize: 15)),
                 const SizedBox(height: 8),
-                Text(p['description'], style: const TextStyle(color: AppColors.steelBlue, fontSize: 14, height: 1.5)),
+                Text(p['description'], style: const TextStyle(color: kTextMuted, fontSize: 14, height: 1.5)),
               ],
-              const SizedBox(height: 24),
-              const Text('To order this for a customer, use New Order from the dashboard.',
-                  style: TextStyle(color: AppColors.steelBlue, fontSize: 12, fontStyle: FontStyle.italic)),
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(10)),
+                child: const Row(children: [
+                  Icon(Icons.info_outline_rounded, size: 14, color: kTextMuted),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('To order for a customer, use New Order from the dashboard.',
+                      style: TextStyle(color: kTextMuted, fontSize: 12))),
+                ]),
+              ),
               const SizedBox(height: 10),
             ],
           ),
@@ -152,43 +154,41 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.warmGrey,
-      appBar: AppBar(
-        backgroundColor: AppColors.navy,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => goBack(context, '/salesman-dashboard')),
-        title: const Text('Products', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      backgroundColor: kCardBg,
+      appBar: premiumAppBar(
+        'Products',
+        subtitle: '${_filteredProducts.length} items',
+        onBack: () => goBack(context, '/salesman-dashboard'),
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.orange))
+          ? const Center(child: CircularProgressIndicator(color: kNavy))
           : Column(children: [
-              SizedBox(
-                height: 48,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  children: [
-                    _categoryChip(null, 'All'),
-                    ..._categories.map((c) => _categoryChip(c['id'] as String, c['name'] ?? '')),
-                  ],
+              Container(
+                color: Colors.white,
+                child: SizedBox(
+                  height: 48,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    children: [
+                      _categoryChip(null, 'All'),
+                      ..._categories.map((c) => _categoryChip(c['id'] as String, c['name'] ?? '')),
+                    ],
+                  ),
                 ),
               ),
               Expanded(
                 child: RefreshIndicator(
-                  color: AppColors.orange,
+                  color: kGreen,
                   onRefresh: () => _load(showSpinner: false),
                   child: _filteredProducts.isEmpty
                       ? ListView(
                           physics: const AlwaysScrollableScrollPhysics(),
-                          children: const [
-                            Padding(
-                              padding: EdgeInsets.only(top: 80),
-                              child: Center(child: Text('No products in this category.', style: TextStyle(color: AppColors.steelBlue))),
-                            ),
-                          ],
+                          children: const [PremiumEmpty(icon: Icons.inventory_2_outlined, title: 'No products in this category')],
                         )
                       : ListView.builder(
                           physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
                           itemCount: _filteredProducts.length,
                           itemBuilder: (context, i) => _productRow(_filteredProducts[i]),
                         ),
@@ -202,13 +202,22 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
     final selected = _selectedCategoryId == id;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
-      child: ChoiceChip(
-        label: Text(label),
-        selected: selected,
-        selectedColor: AppColors.orange,
-        labelStyle: TextStyle(color: selected ? Colors.white : AppColors.navy, fontWeight: FontWeight.w600),
-        backgroundColor: AppColors.white,
-        onSelected: (_) => setState(() => _selectedCategoryId = id),
+      child: GestureDetector(
+        onTap: () => setState(() => _selectedCategoryId = id),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? kNavy : Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: selected ? kNavy : const Color(0xFFE0E5EF)),
+            boxShadow: selected ? [BoxShadow(color: kNavy.withValues(alpha: 0.25), blurRadius: 6, offset: const Offset(0, 2))] : [],
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  color: selected ? Colors.white : kNavy,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12)),
+        ),
       ),
     );
   }
@@ -216,37 +225,47 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
   Widget _productRow(Map<String, dynamic> p) {
     final imageUrl = p['image_url'] as String?;
     final price = ((p['price'] ?? 0) as num).toDouble();
+    final inStock = ((p['stock_quantity'] ?? 0) as num) > 0;
+
     return GestureDetector(
       onTap: () => _openDetail(p),
-      child: Container(
+      child: PremiumCard(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppColors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 6)],
-        ),
         child: Row(children: [
           Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(color: AppColors.orange.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)),
+            width: 52, height: 52,
+            decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(12)),
+            clipBehavior: Clip.antiAlias,
             child: (imageUrl != null && imageUrl.isNotEmpty)
-                ? ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(imageUrl, fit: BoxFit.cover,
-                        errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 24)))
-                : const Icon(Icons.inventory_2_outlined, color: AppColors.orange, size: 24),
+                ? Image.network(imageUrl, fit: BoxFit.cover,
+                    errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, color: kNavy, size: 24))
+                : const Icon(Icons.inventory_2_outlined, color: kNavy, size: 24),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(p['name'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 13)),
-              Text('PKR ${price.toStringAsFixed(0)}', style: const TextStyle(color: AppColors.orange, fontSize: 12)),
+                  style: const TextStyle(fontWeight: FontWeight.w700, color: kNavy, fontSize: 13)),
+              const SizedBox(height: 2),
+              Text('PKR ${price.toStringAsFixed(0)}',
+                  style: const TextStyle(color: kTextMuted, fontSize: 12, fontWeight: FontWeight.w600)),
             ]),
           ),
-          const Icon(Icons.chevron_right, color: AppColors.steelBlue),
+          const SizedBox(width: 8),
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: (inStock ? kGreen : kRed).withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(inStock ? 'In Stock' : 'Out',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: inStock ? kGreen : kRed)),
+            ),
+            const SizedBox(height: 4),
+            const Icon(Icons.chevron_right_rounded, color: kTextMuted, size: 18),
+          ]),
         ]),
       ),
     );

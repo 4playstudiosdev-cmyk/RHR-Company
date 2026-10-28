@@ -1,20 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/location/location_service.dart';
 import '../../../shared/customer_display.dart';
-import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/router/app_transitions.dart';
+import '../../../shared/widgets/premium_ui.dart';
 
-/// Logs that a salesman visited a customer. Customer is required and notes
-/// are mandatory — a visit can't be marked done without saying what
-/// happened (matches the backend's own validation in visits.routes.js).
-/// The moment "Visit Done" is tapped the phone's location is captured and
-/// sent along, and the server stamps the exact date/time (to the second) —
-/// nothing extra for the salesman to do.
 class RecordVisitScreen extends StatefulWidget {
   const RecordVisitScreen({super.key});
 
@@ -47,9 +40,6 @@ class _RecordVisitScreenState extends State<RecordVisitScreen> {
     }
   }
 
-  // "Visit Done" opens a bottom sheet for the mandatory notes before the
-  // final submit — matches the requested UX (notes captured at the
-  // moment of marking the visit done, not buried in the main form).
   Future<void> _onVisitDone() async {
     if (_selectedCustomerId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -60,33 +50,52 @@ class _RecordVisitScreenState extends State<RecordVisitScreen> {
     final confirmed = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (sheetContext) => Padding(
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
         padding: EdgeInsets.only(
           left: 20, right: 20, top: 20,
           bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
         ),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Visit Notes', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.navy)),
-          const SizedBox(height: 6),
+          Center(
+            child: Container(
+              width: 40, height: 4,
+              margin: const EdgeInsets.only(bottom: 18),
+              decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          const Text('Visit Notes', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: kNavy)),
+          const SizedBox(height: 4),
           const Text('Required — what happened during this visit?',
-              style: TextStyle(color: AppColors.steelBlue, fontSize: 12)),
-          const SizedBox(height: 14),
-          TextField(
-            controller: notesController,
-            maxLines: 4,
-            autofocus: true,
-            decoration: InputDecoration(
-              hintText: 'e.g. Discussed new stock, customer wants a discount...',
-              filled: true,
-              fillColor: AppColors.warmGrey,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+              style: TextStyle(color: kTextMuted, fontSize: 12)),
+          const SizedBox(height: 16),
+          Container(
+            decoration: BoxDecoration(
+              color: kCardBg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE0E5EF)),
+            ),
+            child: TextField(
+              controller: notesController,
+              maxLines: 4,
+              autofocus: true,
+              style: const TextStyle(color: kNavy, fontSize: 14),
+              decoration: const InputDecoration(
+                hintText: 'e.g. Discussed new stock, customer wants a discount...',
+                hintStyle: TextStyle(color: kTextMuted, fontSize: 13),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.all(14),
+              ),
             ),
           ),
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
-            child: ElevatedButton(
+            child: ElevatedButton.icon(
               onPressed: () {
                 if (notesController.text.trim().isEmpty) {
                   ScaffoldMessenger.of(sheetContext).showSnackBar(
@@ -96,11 +105,13 @@ class _RecordVisitScreenState extends State<RecordVisitScreen> {
                 Navigator.of(sheetContext).pop(true);
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.success, foregroundColor: Colors.white,
+                backgroundColor: kGreen, foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 0,
               ),
-              child: const Text('Visit Done', style: TextStyle(fontWeight: FontWeight.bold)),
+              icon: const Icon(Icons.check_circle_rounded, size: 18),
+              label: const Text('Visit Done', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
             ),
           ),
         ]),
@@ -112,7 +123,6 @@ class _RecordVisitScreenState extends State<RecordVisitScreen> {
   Future<void> _submit(String notes) async {
     setState(() => _submitting = true);
     try {
-      // Captured now, at the moment of marking — see LocationService.
       final pos = await LocationService.getPositionForVisit();
       final res = await DioClient.instance.post(ApiEndpoints.visits, data: {
         'customer_id': _selectedCustomerId,
@@ -140,59 +150,71 @@ class _RecordVisitScreenState extends State<RecordVisitScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.warmGrey,
-      appBar: AppBar(
-        backgroundColor: AppColors.navy,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => goBack(context, '/salesman-dashboard')),
-        title: const Text('Record Customer Visit', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      backgroundColor: kCardBg,
+      appBar: premiumAppBar(
+        'Record Customer Visit',
+        subtitle: 'Timestamp is captured automatically',
+        onBack: () => goBack(context, '/salesman-dashboard'),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(14),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8)]),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Date & time', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
-            const SizedBox(height: 10),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-              decoration: BoxDecoration(color: AppColors.warmGrey, borderRadius: BorderRadius.circular(10)),
-              child: const Row(children: [
-                Icon(Icons.schedule, size: 18, color: AppColors.steelBlue),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text('Recorded automatically when you tap Visit Done',
-                      style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w600, fontSize: 13)),
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Timestamp info card
+          PremiumCard(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+            margin: const EdgeInsets.only(bottom: 20),
+            child: Row(children: [
+              Container(
+                width: 40, height: 40,
+                decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(10)),
+                child: const Icon(Icons.schedule_rounded, size: 20, color: kNavy),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Date & time are recorded automatically when you tap Visit Done',
+                  style: TextStyle(color: kNavy, fontWeight: FontWeight.w600, fontSize: 13),
                 ),
-              ]),
-            ),
-            const SizedBox(height: 20),
-            const Text('Customer', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
-            const SizedBox(height: 10),
-            _loadingCustomers
-                ? const Center(child: Padding(padding: EdgeInsets.all(8),
-                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.orange)))
-                : DropdownButtonFormField<String>(
-                    initialValue: _selectedCustomerId,
-                    isExpanded: true,
-                    decoration: InputDecoration(
-                      filled: true, fillColor: AppColors.warmGrey,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      hintText: 'Select customer',
-                    ),
-                    items: _customers.map((c) => DropdownMenuItem(
-                      value: c['id'] as String,
-                      child: Text(customerTitle(c), overflow: TextOverflow.ellipsis),
-                    )).toList(),
-                    onChanged: (v) => setState(() => _selectedCustomerId = v),
+              ),
+            ]),
+          ),
+
+          // Customer picker
+          const Text('Customer', style: TextStyle(color: kNavy, fontSize: 13, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          _loadingCustomers
+              ? const Center(child: Padding(
+                  padding: EdgeInsets.all(8),
+                  child: CircularProgressIndicator(strokeWidth: 2, color: kNavy)))
+              : DropdownButtonFormField<String>(
+                  value: _selectedCustomerId,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE0E5EF))),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE0E5EF))),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: kNavy, width: 1.5)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                    hintText: 'Select customer',
+                    prefixIcon: const Icon(Icons.store_rounded, color: kTextMuted, size: 20),
                   ),
-            const SizedBox(height: 28),
-            RHRButton(text: 'Visit Done', onPressed: _onVisitDone, isLoading: _submitting),
-          ]),
-        ),
+                  items: _customers.map((c) => DropdownMenuItem(
+                    value: c['id'] as String,
+                    child: Text(customerTitle(c), overflow: TextOverflow.ellipsis),
+                  )).toList(),
+                  onChanged: (v) => setState(() => _selectedCustomerId = v),
+                ),
+
+          const SizedBox(height: 28),
+
+          PremiumButton(
+            text: 'Mark Visit Done',
+            onPressed: _onVisitDone,
+            isLoading: _submitting,
+            icon: Icons.check_circle_rounded,
+          ),
+        ]),
       ),
     );
   }

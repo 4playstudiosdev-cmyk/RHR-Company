@@ -1,6 +1,8 @@
 import { PENDING_BADGE } from '../utils/pending';
-import React, { useEffect, useState } from 'react';
-import { Users, UserCheck, BookOpen, Search, Phone, Mail, AlertTriangle, User, Tag, DollarSign, RotateCcw, Plus, Pencil, Trash2, MapPin, ChevronDown, ChevronUp, IdCard, Calendar } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { Users, UserCheck, BookOpen, Search, Phone, Mail, AlertTriangle, User, Tag, DollarSign, RotateCcw, Plus, Pencil, Trash2, MapPin, ChevronDown, ChevronUp, IdCard, Calendar, X } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
@@ -9,6 +11,119 @@ import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
+
+// Leaflet map picker — opens a modal with OSM map; click or drag marker to set location
+function MapLocationPicker({ initialLat, initialLng, onSave, onClose }) {
+  const mapRef = useRef(null);
+  const markerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const [pickedLat, setPickedLat] = useState(initialLat ?? 24.8607);
+  const [pickedLng, setPickedLng] = useState(initialLng ?? 67.0011);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const lat = initialLat ?? 24.8607;
+    const lng = initialLng ?? 67.0011;
+    const map = L.map(mapRef.current).setView([lat, lng], initialLat ? 16 : 12);
+    mapInstanceRef.current = map;
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors', maxZoom: 19,
+    }).addTo(map);
+
+    const icon = L.divIcon({
+      className: '',
+      html: '<div style="width:32px;height:32px;background:#073c9f;border:3px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.4);"><svg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'16\' viewBox=\'0 0 24 24\' fill=\'white\'><path d=\'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z\'/></svg></div>',
+      iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -34],
+    });
+    const marker = L.marker([lat, lng], { icon, draggable: true }).addTo(map);
+    markerRef.current = marker;
+
+    marker.on('dragend', (e) => {
+      const { lat: la, lng: lo } = e.target.getLatLng();
+      setPickedLat(la); setPickedLng(lo);
+    });
+    map.on('click', (e) => {
+      const { lat: la, lng: lo } = e.latlng;
+      marker.setLatLng([la, lo]);
+      setPickedLat(la); setPickedLng(lo);
+    });
+
+    const t = setTimeout(() => map.invalidateSize(), 200);
+    return () => { clearTimeout(t); map.remove(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSearch = async () => {
+    if (searchQuery.trim().length < 3) return;
+    setSearching(true);
+    try {
+      const res = await api.get('/geocode/search', { params: { q: searchQuery.trim() } });
+      const results = res.data?.data || [];
+      if (results.length > 0) {
+        const { latitude: la, longitude: lo } = results[0];
+        setPickedLat(la); setPickedLng(lo);
+        markerRef.current?.setLatLng([la, lo]);
+        mapInstanceRef.current?.setView([la, lo], 16);
+      }
+    } catch (_) {}
+    setSearching(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <h3 className="font-bold text-navy text-lg">Pick Shop Location</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Click on the map or drag the pin to set location</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="px-5 py-3 flex gap-2">
+          <input
+            type="text"
+            placeholder="Search an address (e.g. Gulshan Karachi)…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy"
+          />
+          <button
+            onClick={handleSearch}
+            disabled={searching}
+            className="px-4 py-2 bg-navy text-white rounded-lg text-sm font-semibold hover:bg-navy/90 disabled:opacity-50"
+          >
+            {searching ? '…' : 'Search'}
+          </button>
+        </div>
+
+        <div ref={mapRef} className="flex-1 h-80 z-0" />
+
+        <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between">
+          <p className="text-xs text-gray-500">
+            <span className="font-semibold text-navy">Lat:</span> {Number(pickedLat).toFixed(6)}
+            {'  '}
+            <span className="font-semibold text-navy ml-2">Lng:</span> {Number(pickedLng).toFixed(6)}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold text-gray-600 hover:bg-gray-50">Cancel</button>
+            <button
+              onClick={() => { onSave(pickedLat, pickedLng); onClose(); }}
+              className="px-5 py-2 bg-navy text-white rounded-lg text-sm font-bold hover:bg-navy/90"
+            >
+              Save Location
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // New customers created while "All Cities" is selected land in Karachi —
 // same default the Products/Raw Materials pages use, since there's no
@@ -413,6 +528,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
   const [locationSearch, setLocationSearch] = useState('');
   const [locationResults, setLocationResults] = useState([]);
   const [searchingLocation, setSearchingLocation] = useState(false);
+  const [showMapPicker, setShowMapPicker] = useState(false);
 
   const handleUseCurrentLocation = () => {
     if (!navigator.geolocation) {
@@ -1604,11 +1720,10 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={handleUseCurrentLocation}
-                  disabled={locatingMe}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-navy hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap"
+                  onClick={() => setShowMapPicker(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-navy/30 bg-navy/5 text-sm font-semibold text-navy hover:bg-navy/10 whitespace-nowrap"
                 >
-                  <MapPin size={14} /> {locatingMe ? 'Locating...' : 'Update Location'}
+                  <MapPin size={14} /> Pick on Map
                 </button>
                 <input
                   type="text"
@@ -1829,6 +1944,15 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
             </div>
           </form>
         </Modal>
+      )}
+
+      {showMapPicker && (
+        <MapLocationPicker
+          initialLat={customerForm.shop_latitude ? Number(customerForm.shop_latitude) : null}
+          initialLng={customerForm.shop_longitude ? Number(customerForm.shop_longitude) : null}
+          onSave={(lat, lng) => setCustomerForm((f) => ({ ...f, shop_latitude: lat, shop_longitude: lng }))}
+          onClose={() => setShowMapPicker(false)}
+        />
       )}
     </div>
   );

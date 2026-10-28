@@ -252,6 +252,8 @@ const updateCustomer = async (req, res) => {
 
     const filter = { id: `eq.${req.params.id}`, role: 'eq.customer' };
     if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
+    // Salesmen can only update customers assigned to them
+    if (req.user.role === 'salesman') filter.salesman_id = `eq.${req.user.id}`;
 
     const baseBody = {
       full_name,

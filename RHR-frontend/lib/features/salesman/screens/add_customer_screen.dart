@@ -6,19 +6,14 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
-import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/widgets/shop_location_picker_screen.dart';
 import '../../../shared/router/app_transitions.dart';
 import '../../../shared/utils/input_formatters.dart';
+import '../../../shared/widgets/premium_ui.dart';
 
-/// Lets a salesman register a new customer/dealer on the spot — the
-/// backend auto-assigns the new customer to the creating salesman and
-/// their own branch (see customers.controller.js's createCustomer),
-/// auto-approved immediately, same as an admin adding one by hand.
 class AddCustomerScreen extends StatefulWidget {
   const AddCustomerScreen({super.key});
 
@@ -37,8 +32,6 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   final _openingBalanceController = TextEditingController();
   final _nicNumberController = TextEditingController();
   bool _saving = false;
-  // A driver with sales access adds customers too: the customer becomes that
-  // driver's own, and a salesman can optionally be assigned as well.
   bool _isDriver = false;
   List<Map<String, dynamic>> _salesmen = [];
   String? _salesmanId;
@@ -48,19 +41,18 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   File? _nicFrontImageFile;
   File? _nicBackImageFile;
 
-  // 3-step wizard — Details -> Pricing -> Review, same shape as the
-  // admin desktop's own Add Customer wizard (Customers.js's
-  // handleSaveNewCustomerWithPricing / addStep). Since the customer
-  // doesn't exist yet, custom prices are staged locally in
-  // _customPrices and only actually applied (via PUT
-  // /customers/:id/pricing/:productId, looped) once step 3's final
-  // submit has created the customer and has a real id to target.
   int _step = 1;
   List<Map<String, dynamic>> _categories = [];
   List<Map<String, dynamic>> _products = [];
   bool _loadingProducts = false;
   String _productSearch = '';
   final Map<String, String> _customPrices = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDriverExtras();
+  }
 
   @override
   void dispose() {
@@ -76,26 +68,55 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     super.dispose();
   }
 
+  Future<void> _loadDriverExtras() async {
+    if (await SecureStorage.getRole() != 'driver') return;
+    try {
+      final res = await DioClient.instance.get(ApiEndpoints.salesmenDirectory);
+      if (!mounted) return;
+      setState(() {
+        _isDriver = true;
+        if (res.data['success'] == true) {
+          _salesmen = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
+        }
+      });
+    } catch (e) {
+      if (mounted) setState(() => _isDriver = true);
+    }
+  }
+
   Future<void> _pickImage(String target) async {
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) => Container(
         decoration: const BoxDecoration(
-          color: AppColors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: SafeArea(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 40, height: 4,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2)),
+            ),
             ListTile(
-              leading: const Icon(Icons.camera_alt_outlined, color: AppColors.orange),
-              title: const Text('Take Photo'),
+              leading: Container(
+                width: 40, height: 40,
+                decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
+                child: const Icon(Icons.camera_alt_rounded, color: kNavy, size: 20),
+              ),
+              title: const Text('Take Photo', style: TextStyle(fontWeight: FontWeight.w600, color: kNavy)),
               onTap: () => Navigator.of(sheetContext).pop(ImageSource.camera),
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library_outlined, color: AppColors.orange),
-              title: const Text('Choose from Gallery'),
+              leading: Container(
+                width: 40, height: 40,
+                decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
+                child: const Icon(Icons.photo_library_rounded, color: kNavy, size: 20),
+              ),
+              title: const Text('Choose from Gallery', style: TextStyle(fontWeight: FontWeight.w600, color: kNavy)),
               onTap: () => Navigator.of(sheetContext).pop(ImageSource.gallery),
             ),
           ]),
@@ -197,14 +218,6 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     }).toList();
   }
 
-  // Every one of these mirrors customers.controller.js's own
-  // REQUIRED_PROFILE_FIELDS (isProfileComplete) — a customer registered
-  // here with any of them missing would immediately be flagged
-  // incomplete anyway, so Add Customer requires them up front instead
-  // of letting a salesman create a half-filled record. Credit Limit and
-  // Opening Balance aren't part of that backend list but are required
-  // here too — a number must actually be entered (0 is fine), not left
-  // blank.
   bool _validateStep1() {
     final checks = <String, bool>{
       'Full Name': _nameController.text.trim().isNotEmpty,
@@ -232,9 +245,6 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     if (!_validateStep1()) return;
     setState(() => _saving = true);
     try {
-      // Upload whichever photos were picked before submitting — same
-      // buckets the customer's own Complete Profile flow uses, so these
-      // show up identically in the admin desktop either way.
       String? shopImageUrl;
       String? nicFrontUrl;
       String? nicBackUrl;
@@ -262,9 +272,6 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
       if (res.data['success'] == true) {
         final newCustomerId = res.data['data']?['id'] as String?;
 
-        // Apply whatever custom prices were staged in step 2, now that
-        // there's a real customer id to target — mirrors the admin
-        // desktop wizard's handleSaveNewCustomerWithPricing.
         final pricesToApply = _customPrices.entries
             .where((e) => e.value.trim().isNotEmpty && double.tryParse(e.value.trim()) != null)
             .toList();
@@ -311,83 +318,6 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     }
   }
 
-  Widget _field(String label, TextEditingController controller,
-      {bool required = false, TextInputType? keyboardType, IconData? icon, List<TextInputFormatter>? inputFormatters, String? hint}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(required ? '$label *' : label,
-            style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.navy, fontSize: 13)),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          keyboardType: keyboardType,
-          inputFormatters: inputFormatters,
-          decoration: InputDecoration(
-            hintText: hint,
-            prefixIcon: icon != null ? Icon(icon, color: AppColors.orange, size: 20) : null,
-            filled: true,
-            fillColor: AppColors.warmGrey,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          ),
-        ),
-      ]),
-    );
-  }
-
-  Widget _imagePicker({required String label, required File? file, required VoidCallback onTap}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.navy)),
-        const SizedBox(height: 6),
-        GestureDetector(
-          onTap: onTap,
-          child: Container(
-            width: double.infinity,
-            height: 110,
-            decoration: BoxDecoration(color: AppColors.warmGrey, borderRadius: BorderRadius.circular(10), border: Border.all(color: AppColors.disabled)),
-            clipBehavior: Clip.antiAlias,
-            child: file != null
-                ? Image.file(file, fit: BoxFit.cover, width: double.infinity)
-                : Column(mainAxisAlignment: MainAxisAlignment.center, children: const [
-                    Icon(Icons.add_photo_alternate_outlined, color: AppColors.steelBlue, size: 26),
-                    SizedBox(height: 6),
-                    Text('Tap to upload', style: TextStyle(color: AppColors.steelBlue, fontSize: 12)),
-                  ]),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _sectionCard({required String title, required IconData icon, required List<Widget> children}) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 3))],
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(color: AppColors.orange.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(9)),
-            child: Icon(icon, color: AppColors.orange, size: 18),
-          ),
-          const SizedBox(width: 10),
-          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 15)),
-        ]),
-        const SizedBox(height: 16),
-        ...children,
-      ]),
-    );
-  }
-
   void _goBackAStep() {
     if (_step > 1) {
       setState(() => _step--);
@@ -397,95 +327,146 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   }
 
   Widget _stepIndicator() {
-    Widget circle(int n, String label) {
-      final active = _step == n;
-      final done = _step > n;
-      return Expanded(
-        child: Column(children: [
-          CircleAvatar(
-            radius: 14,
-            backgroundColor: done ? AppColors.success : (active ? AppColors.orange : AppColors.white),
-            child: done
-                ? const Icon(Icons.check, size: 14, color: Colors.white)
-                : Text('$n', style: TextStyle(color: active ? Colors.white : AppColors.steelBlue, fontWeight: FontWeight.bold, fontSize: 12)),
-          ),
-          const SizedBox(height: 4),
-          Text(label, style: TextStyle(
-              fontSize: 11,
-              color: active || done ? AppColors.navy : AppColors.steelBlue,
-              fontWeight: active ? FontWeight.bold : FontWeight.normal)),
-        ]),
-      );
-    }
-
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16)),
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8)],
+      ),
       child: Row(children: [
-        circle(1, 'Details'),
-        circle(2, 'Pricing'),
-        circle(3, 'Review'),
+        _stepCircle(1, 'Details'),
+        Expanded(child: Container(height: 2, color: _step > 1 ? kNavy : const Color(0xFFE0E5EF))),
+        _stepCircle(2, 'Pricing'),
+        Expanded(child: Container(height: 2, color: _step > 2 ? kNavy : const Color(0xFFE0E5EF))),
+        _stepCircle(3, 'Review'),
       ]),
     );
   }
 
+  Widget _stepCircle(int n, String label) {
+    final active = _step == n;
+    final done = _step > n;
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      CircleAvatar(
+        radius: 14,
+        backgroundColor: done ? kGreen : (active ? kNavy : const Color(0xFFE0E5EF)),
+        child: done
+            ? const Icon(Icons.check_rounded, size: 14, color: Colors.white)
+            : Text('$n', style: TextStyle(
+                color: active ? Colors.white : kTextMuted,
+                fontWeight: FontWeight.w700, fontSize: 12)),
+      ),
+      const SizedBox(height: 4),
+      Text(label, style: TextStyle(
+          fontSize: 11,
+          color: active || done ? kNavy : kTextMuted,
+          fontWeight: active ? FontWeight.w700 : FontWeight.normal)),
+    ]);
+  }
+
+  Widget _sectionCard({required String title, required IconData icon, required List<Widget> children}) {
+    return PremiumCard(
+      margin: const EdgeInsets.only(bottom: 14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Container(
+            width: 34, height: 34,
+            decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(9)),
+            child: Icon(icon, color: kNavy, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w700, color: kNavy, fontSize: 15)),
+        ]),
+        const SizedBox(height: 16),
+        ...children,
+      ]),
+    );
+  }
+
+  Widget _field(String label, TextEditingController controller,
+      {bool required = false, TextInputType? keyboardType, IconData? icon,
+       List<TextInputFormatter>? inputFormatters, String? hint}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: PremiumInput(
+        label: required ? '$label *' : label,
+        hint: hint,
+        controller: controller,
+        keyboardType: keyboardType,
+        prefixIcon: icon,
+        inputFormatters: inputFormatters,
+      ),
+    );
+  }
+
+  Widget _imagePicker({required String label, required File? file, required VoidCallback onTap}) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kNavy)),
+      const SizedBox(height: 6),
+      GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          height: 110,
+          decoration: BoxDecoration(
+            color: kCardBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE0E5EF)),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: file != null
+              ? Image.file(file, fit: BoxFit.cover, width: double.infinity)
+              : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(Icons.add_photo_alternate_rounded, color: kNavy.withValues(alpha: 0.3), size: 28),
+                  const SizedBox(height: 6),
+                  const Text('Tap to upload', style: TextStyle(color: kTextMuted, fontSize: 12)),
+                ]),
+        ),
+      ),
+    ]);
+  }
+
   Widget _buildStep1() {
     return Column(children: [
-      Container(
-        width: double.infinity,
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: AppColors.navy,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(color: AppColors.orange.withValues(alpha: 0.18), borderRadius: BorderRadius.circular(12)),
-            child: const Icon(Icons.person_add_alt_1, color: AppColors.orange, size: 24),
-          ),
-          const SizedBox(width: 14),
-          const Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('New Customer', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-              SizedBox(height: 3),
-              Text('They will be auto-approved and linked to you', style: TextStyle(color: Colors.white60, fontSize: 12)),
-            ]),
-          ),
-        ]),
-      ),
       _sectionCard(title: 'Customer Details', icon: Icons.badge_outlined, children: [
-        _field('Full Name', _nameController, required: true, icon: Icons.person_outline),
-        _field('Phone Number', _phoneController, required: true, keyboardType: TextInputType.phone, icon: Icons.phone_outlined),
+        _field('Full Name', _nameController, required: true, icon: Icons.person_outline_rounded),
+        _field('Phone Number', _phoneController, required: true,
+            keyboardType: TextInputType.phone, icon: Icons.phone_outlined),
       ]),
       _sectionCard(title: 'Shop Details', icon: Icons.storefront_outlined, children: [
         _field('Shop Name', _shopNameController, required: true, icon: Icons.store_outlined),
         _field('Shop Address', _addressController, required: true, icon: Icons.home_outlined),
         _field('City', _cityController, required: true, icon: Icons.location_city_outlined),
         _field('Area', _areaController, required: true, icon: Icons.map_outlined),
-        OutlinedButton.icon(
-          onPressed: _pickLocation,
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.orange,
-            side: const BorderSide(color: AppColors.orange),
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        GestureDetector(
+          onTap: _pickLocation,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: kNavy.withValues(alpha: 0.4)),
+            ),
+            child: Row(children: [
+              const Icon(Icons.my_location_rounded, size: 18, color: kNavy),
+              const SizedBox(width: 8),
+              Text(_shopLatitude != null ? 'Update Shop Location' : 'Set Shop Location *',
+                  style: const TextStyle(color: kNavy, fontWeight: FontWeight.w700, fontSize: 13)),
+            ]),
           ),
-          icon: const Icon(Icons.my_location, size: 18),
-          label: Text(_shopLatitude != null ? 'Update Location' : 'Set Shop Location'),
         ),
         if (_shopLatitude != null && _shopLongitude != null)
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Row(children: [
-              const Icon(Icons.check_circle, size: 14, color: AppColors.success),
+              const Icon(Icons.check_circle_rounded, size: 14, color: kGreen),
               const SizedBox(width: 6),
               Text(
                 'Location captured (${_shopLatitude!.toStringAsFixed(5)}, ${_shopLongitude!.toStringAsFixed(5)})',
-                style: const TextStyle(color: AppColors.success, fontSize: 11),
+                style: const TextStyle(color: kGreen, fontSize: 11),
               ),
             ]),
           ),
@@ -493,8 +474,10 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         _imagePicker(label: 'Shop Photo *', file: _shopImageFile, onTap: () => _pickImage('shop')),
       ]),
       _sectionCard(title: 'Identification', icon: Icons.badge_outlined, children: [
-        _field('NIC Number (optional)', _nicNumberController, required: false, icon: Icons.badge_outlined, hint: '42101-1234567-1',
-            keyboardType: TextInputType.number, inputFormatters: [CnicInputFormatter()]),
+        _field('NIC Number (optional)', _nicNumberController, required: false,
+            icon: Icons.badge_outlined, hint: '42101-1234567-1',
+            keyboardType: TextInputType.number,
+            inputFormatters: [CnicInputFormatter()]),
         Row(children: [
           Expanded(child: _imagePicker(label: 'NIC Front (optional)', file: _nicFrontImageFile, onTap: () => _pickImage('nicFront'))),
           const SizedBox(width: 12),
@@ -506,19 +489,28 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
             keyboardType: TextInputType.number, icon: Icons.speed_outlined, hint: '0 for no limit'),
         _field('Opening Balance — Amount Owed (PKR)', _openingBalanceController, required: true,
             keyboardType: TextInputType.number, icon: Icons.account_balance_outlined, hint: '0 for a fresh account'),
-        const Text(
-          'Both are visible to the customer and in the admin panel. Enter 0 for no limit / a fresh account.',
-          style: TextStyle(color: AppColors.steelBlue, fontSize: 11),
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(8)),
+          child: const Row(children: [
+            Icon(Icons.info_outline_rounded, size: 13, color: kTextMuted),
+            SizedBox(width: 6),
+            Expanded(child: Text(
+              'Both are visible to the customer and in admin. Enter 0 for no limit / fresh account.',
+              style: TextStyle(color: kTextMuted, fontSize: 11),
+            )),
+          ]),
         ),
       ]),
       if (_isDriver)
-        _sectionCard(title: 'Salesman (optional)', icon: Icons.person_outline, children: [
+        _sectionCard(title: 'Salesman (optional)', icon: Icons.person_outline_rounded, children: [
           DropdownButtonFormField<String?>(
-            initialValue: _salesmanId,
+            value: _salesmanId,
             isExpanded: true,
             decoration: InputDecoration(
-              filled: true, fillColor: AppColors.warmGrey,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+              filled: true, fillColor: kCardBg,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE0E5EF))),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE0E5EF))),
               contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             ),
             items: [
@@ -528,10 +520,6 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
             ],
             onChanged: (v) => setState(() => _salesmanId = v),
           ),
-          const Text(
-            'This customer is added under you. You can also attach a salesman to look after them.',
-            style: TextStyle(color: AppColors.steelBlue, fontSize: 11),
-          ),
         ]),
     ]);
   }
@@ -540,32 +528,34 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     if (_loadingProducts) {
       return const Padding(
         padding: EdgeInsets.only(top: 60),
-        child: Center(child: CircularProgressIndicator(color: AppColors.orange)),
+        child: Center(child: CircularProgressIndicator(color: kNavy)),
       );
     }
     return Column(children: [
       _sectionCard(title: 'Custom Pricing', icon: Icons.sell_outlined, children: [
-        const Text(
-          'Optional — leave blank to use the default catalog price for any product.',
-          style: TextStyle(color: AppColors.steelBlue, fontSize: 12),
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(8)),
+          child: const Row(children: [
+            Icon(Icons.info_outline_rounded, size: 13, color: kTextMuted),
+            SizedBox(width: 6),
+            Expanded(child: Text(
+              'Optional — leave blank to use default catalog price.',
+              style: TextStyle(color: kTextMuted, fontSize: 12),
+            )),
+          ]),
         ),
         const SizedBox(height: 12),
-        TextField(
+        PremiumSearchBar(
+          hint: 'Search products or categories…',
           onChanged: (v) => setState(() => _productSearch = v),
-          decoration: InputDecoration(
-            hintText: 'Search products or categories…',
-            prefixIcon: const Icon(Icons.search, color: AppColors.orange, size: 20),
-            filled: true,
-            fillColor: AppColors.warmGrey,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          ),
+          margin: EdgeInsets.zero,
         ),
       ]),
       if (_visibleProducts.isEmpty)
         const Padding(
           padding: EdgeInsets.only(top: 30),
-          child: Center(child: Text('No products found.', style: TextStyle(color: AppColors.steelBlue))),
+          child: PremiumEmpty(icon: Icons.inventory_2_outlined, title: 'No products found'),
         )
       else
         ..._visibleProducts.map((p) {
@@ -573,36 +563,31 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
           final name = p['name'] as String? ?? '';
           final price = p['price'];
           final category = _categoryName(p['category_id'] as String?);
-          return Container(
+          return PremiumCard(
             margin: const EdgeInsets.only(bottom: 10),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.white,
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
-            ),
+            padding: const EdgeInsets.all(12),
             child: Row(children: [
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(name, style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.navy, fontSize: 14), overflow: TextOverflow.ellipsis),
-                  if (category.isNotEmpty)
-                    Text(category, style: const TextStyle(color: AppColors.steelBlue, fontSize: 11)),
-                  Text('Default: PKR ${_formatPrice(price)}',
-                      style: const TextStyle(color: AppColors.steelBlue, fontSize: 11)),
-                ]),
-              ),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(name, style: const TextStyle(fontWeight: FontWeight.w700, color: kNavy, fontSize: 13), overflow: TextOverflow.ellipsis),
+                if (category.isNotEmpty) Text(category, style: const TextStyle(color: kTextMuted, fontSize: 11)),
+                Text('Default: PKR ${_formatPrice(price)}', style: const TextStyle(color: kTextMuted, fontSize: 11)),
+              ])),
               const SizedBox(width: 10),
               SizedBox(
                 width: 110,
                 child: TextField(
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   textAlign: TextAlign.right,
+                  style: const TextStyle(color: kNavy, fontWeight: FontWeight.w700, fontSize: 14),
                   decoration: InputDecoration(
                     hintText: _formatPrice(price),
+                    hintStyle: const TextStyle(color: kTextMuted),
                     isDense: true,
                     filled: true,
-                    fillColor: AppColors.warmGrey,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                    fillColor: kCardBg,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE0E5EF))),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE0E5EF))),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: kNavy, width: 1.5)),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                   ),
                   controller: TextEditingController(text: _customPrices[id] ?? '')
@@ -625,8 +610,9 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        SizedBox(width: 120, child: Text(label, style: const TextStyle(color: AppColors.steelBlue, fontSize: 12))),
-        Expanded(child: Text(value.isEmpty ? '—' : value, style: const TextStyle(color: AppColors.navy, fontSize: 13, fontWeight: FontWeight.w600))),
+        SizedBox(width: 120, child: Text(label, style: const TextStyle(color: kTextMuted, fontSize: 12))),
+        Expanded(child: Text(value.isEmpty ? '—' : value,
+            style: const TextStyle(color: kNavy, fontSize: 13, fontWeight: FontWeight.w600))),
       ]),
     );
   }
@@ -640,14 +626,17 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         _reviewRow('Full Name', _nameController.text.trim()),
         _reviewRow('Phone', _phoneController.text.trim()),
         if (_isDriver)
-          _reviewRow('Salesman', _salesmen.where((s) => s['id'] == _salesmanId).map((s) => (s['full_name'] ?? '').toString()).firstOrNull ?? 'None — my own customer'),
+          _reviewRow('Salesman', _salesmen.where((s) => s['id'] == _salesmanId)
+              .map((s) => (s['full_name'] ?? '').toString()).firstOrNull ?? 'None — my own'),
       ]),
       _sectionCard(title: 'Shop Details', icon: Icons.storefront_outlined, children: [
         _reviewRow('Shop Name', _shopNameController.text.trim()),
         _reviewRow('Address', _addressController.text.trim()),
         _reviewRow('City', _cityController.text.trim()),
         _reviewRow('Area', _areaController.text.trim()),
-        _reviewRow('Location', _shopLatitude != null ? '${_shopLatitude!.toStringAsFixed(5)}, ${_shopLongitude!.toStringAsFixed(5)}' : ''),
+        _reviewRow('Location', _shopLatitude != null
+            ? '${_shopLatitude!.toStringAsFixed(5)}, ${_shopLongitude!.toStringAsFixed(5)}'
+            : ''),
       ]),
       _sectionCard(title: 'Identification', icon: Icons.badge_outlined, children: [
         _reviewRow('NIC Number', _nicNumberController.text.trim()),
@@ -659,7 +648,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
       _sectionCard(title: 'Custom Pricing', icon: Icons.sell_outlined, children: [
         if (pricedEntries.isEmpty)
           const Text('No custom prices set — default catalog prices will apply.',
-              style: TextStyle(color: AppColors.steelBlue, fontSize: 12))
+              style: TextStyle(color: kTextMuted, fontSize: 12))
         else
           ...pricedEntries.map((e) {
             final product = _products.firstWhere((p) => p['id'] == e.key, orElse: () => {});
@@ -668,37 +657,15 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
       ]),
       Container(
         padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: AppColors.orange.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+        decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(12)),
         child: const Row(children: [
-          Icon(Icons.info_outline, color: AppColors.orange, size: 18),
+          Icon(Icons.check_circle_outlined, color: kNavy, size: 18),
           SizedBox(width: 10),
           Expanded(child: Text('Review everything above — tap Add Customer to create the account.',
-              style: TextStyle(color: AppColors.navy, fontSize: 12))),
+              style: TextStyle(color: kNavy, fontSize: 12))),
         ]),
       ),
     ]);
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _loadDriverExtras();
-  }
-
-  Future<void> _loadDriverExtras() async {
-    if (await SecureStorage.getRole() != 'driver') return;
-    try {
-      final res = await DioClient.instance.get(ApiEndpoints.salesmenDirectory);
-      if (!mounted) return;
-      setState(() {
-        _isDriver = true;
-        if (res.data['success'] == true) {
-          _salesmen = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
-        }
-      });
-    } catch (e) {
-      if (mounted) setState(() => _isDriver = true);
-    }
   }
 
   @override
@@ -709,20 +676,20 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         if (!didPop) _goBackAStep();
       },
       child: Scaffold(
-        backgroundColor: AppColors.warmGrey,
-        appBar: AppBar(
-          backgroundColor: AppColors.navy,
-          leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: _goBackAStep),
-          title: const Text('Add Customer', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        backgroundColor: kCardBg,
+        appBar: premiumAppBar(
+          'Add Customer',
+          subtitle: 'Step $_step of 3',
+          onBack: _goBackAStep,
         ),
         body: Column(children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
             child: _stepIndicator(),
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
               children: [
                 if (_step == 1) _buildStep1()
                 else if (_step == 2) _buildStep2()
@@ -730,32 +697,43 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Row(children: [
-              if (_step > 1)
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _goBackAStep,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.navy,
-                      side: const BorderSide(color: AppColors.navy),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Color(0xFFE0E5EF))),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Row(children: [
+                if (_step > 1)
+                  Expanded(child: GestureDetector(
+                    onTap: _goBackAStep,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE0E5EF)),
+                      ),
+                      child: const Text('Back', textAlign: TextAlign.center,
+                          style: TextStyle(color: kNavy, fontWeight: FontWeight.w700)),
                     ),
-                    child: const Text('Back'),
+                  )),
+                if (_step > 1) const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: PremiumButton(
+                    text: _step == 1 ? 'Next' : (_step == 2 ? 'Next: Review' : 'Add Customer'),
+                    onPressed: _step == 1
+                        ? _goToPricingStep
+                        : (_step == 2 ? () => setState(() => _step = 3) : _save),
+                    isLoading: _saving,
+                    icon: _step == 3 ? Icons.person_add_rounded : Icons.arrow_forward_rounded,
                   ),
                 ),
-              if (_step > 1) const SizedBox(width: 12),
-              Expanded(
-                flex: 2,
-                child: _step == 1
-                    ? RHRButton(text: 'Next', onPressed: _goToPricingStep, isLoading: false)
-                    : (_step == 2
-                        ? RHRButton(text: 'Next: Review', onPressed: () => setState(() => _step = 3), isLoading: false)
-                        : RHRButton(text: 'Add Customer', onPressed: _save, isLoading: _saving)),
-              ),
-            ]),
+              ]),
+            ),
           ),
         ]),
       ),

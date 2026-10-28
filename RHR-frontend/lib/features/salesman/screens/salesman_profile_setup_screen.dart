@@ -4,17 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../shared/router/app_transitions.dart';
 import '../../../shared/utils/input_formatters.dart';
+import '../../../shared/widgets/premium_ui.dart';
 
-/// Forced on a salesman's first login once their profile is missing any
-/// required field (see salesmen.routes.js's isProfileComplete), and also
-/// reachable any time after via My Profile → Edit Profile. Required:
-/// salesman photo + name, NIC number, NIC front/back images, phone.
 class SalesmanProfileSetupScreen extends StatefulWidget {
   final bool forced;
   const SalesmanProfileSetupScreen({super.key, this.forced = false});
@@ -78,19 +74,32 @@ class _SalesmanProfileSetupScreenState extends State<SalesmanProfileSetupScreen>
       builder: (sheetContext) => Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: SafeArea(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 40, height: 4,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2)),
+            ),
             ListTile(
-              leading: const Icon(Icons.camera_alt_outlined, color: AppColors.orange),
-              title: const Text('Take Photo'),
+              leading: Container(
+                width: 40, height: 40,
+                decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
+                child: const Icon(Icons.camera_alt_rounded, color: kNavy, size: 20),
+              ),
+              title: const Text('Take Photo', style: TextStyle(fontWeight: FontWeight.w600, color: kNavy)),
               onTap: () => Navigator.of(sheetContext).pop(ImageSource.camera),
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library_outlined, color: AppColors.orange),
-              title: const Text('Choose from Gallery'),
+              leading: Container(
+                width: 40, height: 40,
+                decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
+                child: const Icon(Icons.photo_library_rounded, color: kNavy, size: 20),
+              ),
+              title: const Text('Choose from Gallery', style: TextStyle(fontWeight: FontWeight.w600, color: kNavy)),
               onTap: () => Navigator.of(sheetContext).pop(ImageSource.gallery),
             ),
           ]),
@@ -146,18 +155,15 @@ class _SalesmanProfileSetupScreenState extends State<SalesmanProfileSetupScreen>
       return;
     }
     if (_profileImageFile == null && _existingProfileUrl == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Your photo is required.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your photo is required.')));
       return;
     }
     if (_nicFrontImageFile == null && _existingNicFrontUrl == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('NIC front image is required.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('NIC front image is required.')));
       return;
     }
     if (_nicBackImageFile == null && _existingNicBackUrl == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('NIC back image is required.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('NIC back image is required.')));
       return;
     }
 
@@ -175,8 +181,6 @@ class _SalesmanProfileSetupScreenState extends State<SalesmanProfileSetupScreen>
 
       final res = await DioClient.instance.patch(ApiEndpoints.salesmanMyProfile, data: {
         'full_name':          _nameController.text.trim(),
-        // Canonical, no spaces — same `phone` column OTP login matches
-        // against (see driver_profile_setup_screen.dart's identical fix).
         'phone':              '+92${_phoneController.text.replaceAll(' ', '').trim()}',
         'nic_number':         _nicController.text.trim(),
         'profile_photo_url':  profileUrl,
@@ -201,179 +205,175 @@ class _SalesmanProfileSetupScreenState extends State<SalesmanProfileSetupScreen>
     }
   }
 
-  static const _fieldBorder = Color(0xFFCED4DA);
-
-  Widget _field({
-    required String label,
-    required IconData icon,
-    required TextEditingController controller,
-    String? hint,
-    TextInputType? keyboardType,
-    List<TextInputFormatter>? inputFormatters,
-    String? prefixText,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.steelBlue)),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          keyboardType: keyboardType,
-          inputFormatters: inputFormatters,
-          style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w600),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: TextStyle(color: AppColors.steelBlue.withValues(alpha: 0.55), fontWeight: FontWeight.normal),
-            prefixText: prefixText,
-            prefixStyle: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w600),
-            prefixIcon: Icon(icon, color: AppColors.steelBlue),
-            filled: true,
-            fillColor: AppColors.white,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: _fieldBorder)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: _fieldBorder)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.navy, width: 2)),
-            contentPadding: const EdgeInsets.symmetric(vertical: 14),
-          ),
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !widget.forced,
+      child: Scaffold(
+        backgroundColor: kCardBg,
+        appBar: premiumAppBar(
+          'Complete Your Profile',
+          subtitle: 'All fields are required',
+          onBack: widget.forced ? null : () => goBack(context, '/salesman-profile'),
         ),
-      ],
+        body: _loading
+            ? const Center(child: CircularProgressIndicator(color: kNavy))
+            : SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  if (widget.forced)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: kAmber.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: kAmber.withValues(alpha: 0.4)),
+                      ),
+                      child: const Row(children: [
+                        Icon(Icons.info_outline_rounded, color: kAmber, size: 18),
+                        SizedBox(width: 10),
+                        Expanded(child: Text('Please complete your profile to continue — all fields are required.',
+                            style: TextStyle(fontSize: 13, color: kNavy))),
+                      ]),
+                    ),
+
+                  // Profile photo
+                  Center(child: Stack(children: [
+                    CircleAvatar(
+                      radius: 52,
+                      backgroundColor: kNavy.withValues(alpha: 0.07),
+                      backgroundImage: _profileImageFile != null
+                          ? FileImage(_profileImageFile!)
+                          : (_existingProfileUrl != null ? NetworkImage(_existingProfileUrl!) as ImageProvider : null),
+                      child: (_profileImageFile == null && _existingProfileUrl == null)
+                          ? const Icon(Icons.person, size: 48, color: kTextMuted) : null,
+                    ),
+                    Positioned(
+                      bottom: 0, right: 0,
+                      child: GestureDetector(
+                        onTap: () => _pickImage('profile'),
+                        child: Container(
+                          width: 34, height: 34,
+                          decoration: BoxDecoration(
+                            color: kNavy, shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                            boxShadow: [BoxShadow(color: kNavy.withValues(alpha: 0.3), blurRadius: 6)],
+                          ),
+                          child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 16),
+                        ),
+                      ),
+                    ),
+                  ])),
+                  const SizedBox(height: 20),
+
+                  // Form fields
+                  PremiumCard(child: Column(children: [
+                    PremiumInput(
+                      label: 'Full Name *',
+                      hint: 'Enter your full name',
+                      controller: _nameController,
+                      prefixIcon: Icons.person_outline_rounded,
+                    ),
+                    const SizedBox(height: 14),
+                    PremiumInput(
+                      label: 'Phone Number *',
+                      hint: '310 2110584',
+                      controller: _phoneController,
+                      keyboardType: TextInputType.phone,
+                      prefixIcon: Icons.phone_outlined,
+                      inputFormatters: [PhoneLocalInputFormatter()],
+                    ),
+                    const SizedBox(height: 14),
+                    PremiumInput(
+                      label: 'NIC Number *',
+                      hint: '42101-1234567-1',
+                      controller: _nicController,
+                      keyboardType: TextInputType.number,
+                      prefixIcon: Icons.badge_outlined,
+                      inputFormatters: [CnicInputFormatter()],
+                    ),
+                  ])),
+                  const SizedBox(height: 16),
+
+                  // NIC images
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Expanded(child: _nicImagePicker(
+                      label: 'NIC Front *',
+                      file: _nicFrontImageFile,
+                      existingUrl: _existingNicFrontUrl,
+                      onTap: () => _pickImage('nicFront'),
+                      locked: _existingNicFrontUrl != null,
+                    )),
+                    const SizedBox(width: 12),
+                    Expanded(child: _nicImagePicker(
+                      label: 'NIC Back *',
+                      file: _nicBackImageFile,
+                      existingUrl: _existingNicBackUrl,
+                      onTap: () => _pickImage('nicBack'),
+                      locked: _existingNicBackUrl != null,
+                    )),
+                  ]),
+                  const SizedBox(height: 24),
+
+                  PremiumButton(
+                    text: 'Save Profile',
+                    onPressed: _save,
+                    isLoading: _saving,
+                    icon: Icons.check_rounded,
+                  ),
+                  const SizedBox(height: 20),
+                ]),
+              ),
+      ),
     );
   }
 
-  Widget _imagePicker({
+  Widget _nicImagePicker({
     required String label,
     required File? file,
     required String? existingUrl,
     required VoidCallback onTap,
     bool locked = false,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.steelBlue)),
-        const SizedBox(height: 6),
-        GestureDetector(
-          onTap: locked ? null : onTap,
-          child: Container(
-            width: double.infinity,
-            height: 120,
-            decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: _fieldBorder)),
-            clipBehavior: Clip.antiAlias,
-            child: file != null
-                ? Image.file(file, fit: BoxFit.cover, width: double.infinity)
-                : (existingUrl != null
-                    ? Stack(fit: StackFit.expand, children: [
-                        Image.network(existingUrl, fit: BoxFit.cover),
-                        Container(
-                          alignment: Alignment.bottomRight,
-                          padding: const EdgeInsets.all(6),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.55), borderRadius: BorderRadius.circular(20)),
-                            child: Text(locked ? 'Locked' : 'Tap to change', style: const TextStyle(color: Colors.white, fontSize: 11)),
-                          ),
-                        ),
-                      ])
-                    : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                        const Icon(Icons.add_photo_alternate_outlined, color: AppColors.steelBlue, size: 28),
-                        const SizedBox(height: 6),
-                        const Text('Tap to upload', style: TextStyle(color: AppColors.steelBlue, fontSize: 12)),
-                      ])),
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: const TextStyle(color: kNavy, fontSize: 13, fontWeight: FontWeight.w700)),
+      const SizedBox(height: 6),
+      GestureDetector(
+        onTap: locked ? null : onTap,
+        child: Container(
+          width: double.infinity,
+          height: 110,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE0E5EF)),
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6)],
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _circleImagePicker({required File? file, required String? existingUrl, required VoidCallback onTap}) {
-    return Center(
-      child: Stack(children: [
-        CircleAvatar(
-          radius: 48,
-          backgroundColor: AppColors.warmGrey,
-          backgroundImage: file != null ? FileImage(file) : (existingUrl != null ? NetworkImage(existingUrl) as ImageProvider : null),
-          child: (file == null && existingUrl == null) ? const Icon(Icons.person, size: 44, color: AppColors.steelBlue) : null,
-        ),
-        Positioned(
-          bottom: 0, right: 0,
-          child: GestureDetector(
-            onTap: onTap,
-            child: Container(
-              width: 32, height: 32,
-              decoration: BoxDecoration(color: AppColors.orange, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)),
-              child: const Icon(Icons.camera_alt, color: Colors.white, size: 16),
-            ),
-          ),
-        ),
-      ]),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return PopScope(
-      canPop: !widget.forced,
-      child: Scaffold(
-        backgroundColor: AppColors.warmGrey,
-        appBar: AppBar(
-          backgroundColor: AppColors.navy,
-          automaticallyImplyLeading: false,
-          leading: widget.forced ? null : IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => goBack(context, '/salesman-profile')),
-          title: const Text('Complete Your Profile', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        ),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator(color: AppColors.navy))
-            : SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  if (widget.forced)
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(color: AppColors.orange.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.orange)),
-                      child: const Row(children: [
-                        Icon(Icons.info, color: AppColors.orange, size: 20),
-                        SizedBox(width: 10),
-                        Expanded(child: Text('Please complete your profile to continue — all fields are required.', style: TextStyle(fontSize: 13, color: AppColors.navy))),
-                      ]),
-                    ),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)]),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      _circleImagePicker(file: _profileImageFile, existingUrl: _existingProfileUrl, onTap: () => _pickImage('profile')),
-                      const SizedBox(height: 14),
-                      _field(label: 'Full Name *', icon: Icons.person, controller: _nameController, hint: 'Enter your full name'),
-                      const SizedBox(height: 12),
-                      _field(label: 'Phone Number *', icon: Icons.phone_outlined, controller: _phoneController, hint: '310 2110584',
-                          keyboardType: TextInputType.phone, prefixText: '+92 ', inputFormatters: [PhoneLocalInputFormatter()]),
-                      const SizedBox(height: 12),
-                      _field(label: 'NIC Number *', icon: Icons.badge_outlined, controller: _nicController, hint: '42101-1234567-1',
-                          keyboardType: TextInputType.number, inputFormatters: [CnicInputFormatter()]),
-                      const SizedBox(height: 12),
-                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Expanded(child: _imagePicker(label: 'NIC Front *', file: _nicFrontImageFile, existingUrl: _existingNicFrontUrl, onTap: () => _pickImage('nicFront'), locked: _existingNicFrontUrl != null)),
-                        const SizedBox(width: 12),
-                        Expanded(child: _imagePicker(label: 'NIC Back *', file: _nicBackImageFile, existingUrl: _existingNicBackUrl, onTap: () => _pickImage('nicBack'), locked: _existingNicBackUrl != null)),
-                      ]),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _saving ? null : _save,
-                          style: ElevatedButton.styleFrom(backgroundColor: AppColors.navy, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                          child: _saving
-                              ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
-                              : const Text('Save Profile', style: TextStyle(fontWeight: FontWeight.bold)),
+          clipBehavior: Clip.antiAlias,
+          child: file != null
+              ? Image.file(file, fit: BoxFit.cover)
+              : (existingUrl != null
+                  ? Stack(fit: StackFit.expand, children: [
+                      Image.network(existingUrl, fit: BoxFit.cover),
+                      Container(
+                        alignment: Alignment.bottomRight,
+                        padding: const EdgeInsets.all(6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.55), borderRadius: BorderRadius.circular(20)),
+                          child: Text(locked ? 'Locked' : 'Tap to change',
+                              style: const TextStyle(color: Colors.white, fontSize: 11)),
                         ),
                       ),
-                    ]),
-                  ),
-                ]),
-              ),
+                    ])
+                  : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Icon(Icons.add_photo_alternate_outlined, color: kNavy.withValues(alpha: 0.4), size: 28),
+                      const SizedBox(height: 6),
+                      const Text('Tap to upload', style: TextStyle(color: kTextMuted, fontSize: 12)),
+                    ])),
+        ),
       ),
-    );
+    ]);
   }
 }

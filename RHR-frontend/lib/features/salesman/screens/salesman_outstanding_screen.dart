@@ -1,17 +1,12 @@
 import 'package:flutter/material.dart';
 import '../../../shared/customer_display.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
-import '../../../shared/widgets/tap_scale.dart';
+import '../../../shared/widgets/premium_ui.dart';
 import '../../../shared/router/app_transitions.dart';
 
-/// Every one of this salesman's customers, sorted by outstanding
-/// balance (highest first) — for prioritizing who to collect from next.
-/// Reachable from the dashboard's "My Customers" header and the sidebar
-/// drawer.
 class SalesmanOutstandingScreen extends StatefulWidget {
   const SalesmanOutstandingScreen({super.key});
 
@@ -51,82 +46,80 @@ class _SalesmanOutstandingScreenState extends State<SalesmanOutstandingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final withBalance = _customers.where((c) => _asNum(c['outstanding_balance']) > 0).length;
     return Scaffold(
-      backgroundColor: AppColors.warmGrey,
-      appBar: AppBar(
-        backgroundColor: AppColors.navy,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => goBack(context, '/salesman-dashboard')),
-        title: const Text('Outstanding Balances', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      backgroundColor: kCardBg,
+      appBar: premiumAppBar(
+        'Outstanding Balances',
+        subtitle: '$withBalance customers with balance',
+        onBack: () => goBack(context, '/salesman-dashboard'),
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.orange))
+          ? const Center(child: CircularProgressIndicator(color: kNavy))
           : RefreshIndicator(
-              color: AppColors.orange,
+              color: kGreen,
               onRefresh: _load,
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(16),
                 children: [
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(color: AppColors.navy, borderRadius: BorderRadius.circular(16)),
-                    child: Column(children: [
-                      const Text('Total Outstanding — All Customers', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                      const SizedBox(height: 6),
-                      Text('PKR ${_totalOutstanding.toStringAsFixed(0)}',
-                          style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
-                    ]),
+                  PremiumSummaryCard(
+                    label: 'Total Outstanding',
+                    value: 'PKR ${_totalOutstanding.toStringAsFixed(0)}',
+                    sublabel: 'Across all customers · highest first',
+                    icon: Icons.account_balance_wallet_outlined,
+                    valueColor: _totalOutstanding > 0 ? const Color(0xFFFF6B6B) : kGreen,
                   ),
                   const SizedBox(height: 16),
                   if (_customers.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 60),
-                      child: Center(child: Text('No customers yet.', style: TextStyle(color: AppColors.steelBlue))),
-                    )
+                    const PremiumEmpty(icon: Icons.people_outline, title: 'No customers yet')
                   else
                     ..._customers.asMap().entries.map((entry) {
                       final i = entry.key;
                       final c = entry.value;
                       final outstanding = _asNum(c['outstanding_balance']);
                       final creditLimit = c['credit_limit'];
+                      final title = customerTitle(c, fallback: '');
+                      final initials = title.isNotEmpty ? title[0].toUpperCase() : '?';
+
                       return StaggeredFadeIn(
                         index: i,
-                        child: TapScale(
+                        child: PremiumCard(
                           onTap: () => context.push('/customer-detail', extra: c['id'] as String),
-                          child: Container(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: AppColors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              border: outstanding > 0 ? Border.all(color: AppColors.error.withValues(alpha: 0.3)) : null,
-                              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, 2))],
+                          borderColor: outstanding > 0 ? kRed.withValues(alpha: 0.25) : null,
+                          child: Row(children: [
+                            CircleAvatar(
+                              radius: 22,
+                              backgroundColor: outstanding > 0
+                                  ? kRed.withValues(alpha: 0.08)
+                                  : kNavy.withValues(alpha: 0.07),
+                              child: Text(initials,
+                                  style: TextStyle(
+                                      color: outstanding > 0 ? kRed : kNavy,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 15)),
                             ),
-                            child: Row(children: [
-                              CircleAvatar(
-                                backgroundColor: AppColors.navy,
-                                child: Text(customerTitle(c, fallback: '?').isNotEmpty ? customerTitle(c, fallback: '?')[0].toUpperCase() : '?',
-                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  Text(customerTitle(c, fallback: ''), style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 14)),
-                                  Text(c['phone'] ?? '', style: const TextStyle(color: AppColors.steelBlue, fontSize: 11)),
-                                ]),
-                              ),
-                              Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                                Text('PKR ${outstanding.toStringAsFixed(0)}',
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.bold, fontSize: 14,
-                                        color: outstanding > 0 ? AppColors.error : AppColors.success)),
-                                if (creditLimit != null)
-                                  Text('Limit: PKR ${_asNum(creditLimit).toStringAsFixed(0)}',
-                                      style: const TextStyle(color: AppColors.steelBlue, fontSize: 10)),
-                              ]),
+                            const SizedBox(width: 12),
+                            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(title,
+                                  style: const TextStyle(fontWeight: FontWeight.w700, color: kNavy, fontSize: 13)),
+                              if ((c['phone'] ?? '').isNotEmpty)
+                                Text(c['phone'].toString(),
+                                    style: const TextStyle(color: kTextMuted, fontSize: 11)),
+                            ])),
+                            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                              Text('PKR ${outstanding.toStringAsFixed(0)}',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                      color: outstanding > 0 ? kRed : kGreen)),
+                              if (creditLimit != null) ...[
+                                const SizedBox(height: 2),
+                                Text('Limit: PKR ${_asNum(creditLimit).toStringAsFixed(0)}',
+                                    style: const TextStyle(color: kTextMuted, fontSize: 10)),
+                              ],
                             ]),
-                          ),
+                          ]),
                         ),
                       );
                     }),
