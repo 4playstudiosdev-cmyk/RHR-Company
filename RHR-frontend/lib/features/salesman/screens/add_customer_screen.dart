@@ -226,7 +226,6 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
       'Shop Address': _addressController.text.trim().isNotEmpty,
       'City': _cityController.text.trim().isNotEmpty,
       'Area': _areaController.text.trim().isNotEmpty,
-      'Shop Location': _shopLatitude != null && _shopLongitude != null,
       'Shop Photo': _shopImageFile != null,
       'Credit Limit': double.tryParse(_creditLimitController.text.trim()) != null,
       'Opening Balance': double.tryParse(_openingBalanceController.text.trim()) != null,
