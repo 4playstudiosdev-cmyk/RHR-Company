@@ -1,7 +1,7 @@
 const { sendOTP, verifyOTP } = require('../services/otp.service');
 const {
   registerCustomer, registerSalesman, registerDriver,
-  loginWithCredentials, releaseSessionLock,
+  loginWithCredentials, loginSalesmanWithEmail, releaseSessionLock,
   approveCustomer, approveSalesman, approveDriver,
   findCustomerByPhone, findSalesmanByPhone, findDriverByPhone,
   generateToken
@@ -203,10 +203,25 @@ const approveDriverHandler = async (req, res) => {
   }
 };
 
+const salesmanEmailLoginHandler = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) return error(res, 'email and password are required', 400);
+    const result = await loginSalesmanWithEmail({
+      email: String(email).toLowerCase().trim(),
+      password: String(password),
+    });
+    return success(res, result, 'Login successful');
+  } catch (err) {
+    return error(res, err.message, 401);
+  }
+};
+
 module.exports = {
   sendOTPHandler,
   verifyOTPHandler,
   loginHandler,
+  salesmanEmailLoginHandler,
   logoutHandler,
   approveCustomerHandler,
   approveSalesmanHandler,

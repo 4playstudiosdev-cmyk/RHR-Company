@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/constants/api_endpoints.dart';
-import '../../../core/utils/phone_normalizer.dart';
+import '../../../core/storage/secure_storage.dart';
+import '../../../services/gps_service.dart';
+import '../../../services/push_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -14,56 +17,80 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _phoneController = TextEditingController();
-  bool _isLoading = false;
+  final _emailController    = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLoading   = false;
+  bool _obscure     = true;
 
   static const _navy     = Color(0xFF00185D);
   static const _navyDark = Color(0xFF000D3A);
 
   @override
   void dispose() {
-    _phoneController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
-  void _sendOtp() async {
-    if (_phoneController.text.isEmpty) return;
+  void _login() async {
+    final email    = _emailController.text.trim().toLowerCase();
+    final password = _passwordController.text;
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter your email and password.')));
+      return;
+    }
+
     setState(() => _isLoading = true);
-
-    final phone = PhoneNormalizer.normalize(_phoneController.text);
-
     try {
       final response = await DioClient.instance.post(
-        ApiEndpoints.sendOtp,
-        data: {'phone': phone},
+        ApiEndpoints.salesmanLogin,
+        data: {'email': email, 'password': password},
       );
-      // ignore: avoid_print
-      print('=== SEND OTP RESPONSE ===');
-      // ignore: avoid_print
-      print(response.data);
 
       if (response.data['success'] == true) {
-        final isNewUser  = response.data['data']?['isNewUser'] == true;
-        final isPending  = response.data['data']?['isPending'] == true;
-        if (mounted) {
-          if (isPending) {
-            context.go('/pending-approval');
-          } else if (isNewUser) {
-            context.push('/signup', extra: phone);
-          } else {
-            context.push('/otp', extra: phone);
-          }
+        final data = response.data['data'];
+        await SecureStorage.saveToken(data['token']);
+        final role = data['user']?['role'] ?? 'salesman';
+        await SecureStorage.saveRole(role);
+
+        final loggedInName = data['user']?['fullName'] as String?;
+        if (loggedInName != null && loggedInName.isNotEmpty) {
+          await SecureStorage.saveFullName(loggedInName);
+        }
+        if (data['user']?['id'] != null) {
+          await SecureStorage.saveUserId(data['user']['id'] as String);
+        }
+        final loggedInPosition = data['user']?['position'] as String?;
+        if (loggedInPosition != null && loggedInPosition.isNotEmpty) {
+          await SecureStorage.savePosition(loggedInPosition);
+        }
+
+        unawaited(PushService.registerToken());
+
+        final profileComplete = data['user']?['profileComplete'] == true;
+        await SecureStorage.saveSalesmanProfileComplete(profileComplete);
+
+        if (!mounted) return;
+        final locationGranted = await GPSService().startTrackingWithConsent(context);
+        if (!mounted) return;
+        if (!locationGranted) {
+          context.go('/location-required');
+        } else if (!profileComplete) {
+          context.go('/salesman-profile-setup', extra: true);
+        } else {
+          context.go('/salesman-dashboard');
         }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(response.data['message'] ?? 'Please try again.')));
+            SnackBar(content: Text(response.data['message'] ?? 'Invalid credentials.')));
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Server error. Please try again.')));
+          const SnackBar(content: Text('Login failed. Check your credentials and try again.')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -147,44 +174,64 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Phone label
-                          const Text('Phone Number',
+                          // Email
+                          const Text('Email',
                               style: TextStyle(color: _navy, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 0.2)),
                           const SizedBox(height: 8),
-
-                          // Phone input
                           Container(
                             decoration: BoxDecoration(
                               color: const Color(0xFFF5F7FA),
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(color: const Color(0xFFE0E5EF)),
                             ),
-                            child: Row(children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
-                                decoration: const BoxDecoration(
-                                  border: Border(right: BorderSide(color: Color(0xFFE0E5EF))),
-                                ),
-                                child: Row(children: [
-                                  const Text('🇵🇰', style: TextStyle(fontSize: 18)),
-                                  const SizedBox(width: 6),
-                                  Text('+92', style: AppTextStyles.bodyMd.copyWith(color: _navy, fontWeight: FontWeight.w700)),
-                                ]),
+                            child: TextField(
+                              controller: _emailController,
+                              keyboardType: TextInputType.emailAddress,
+                              textInputAction: TextInputAction.next,
+                              style: AppTextStyles.bodyMd.copyWith(color: _navy),
+                              decoration: InputDecoration(
+                                hintText: 'firstname@rhr.com',
+                                hintStyle: AppTextStyles.bodyMd.copyWith(color: AppColors.outline),
+                                border: InputBorder.none,
+                                prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFF7B8DB0), size: 20),
+                                contentPadding: const EdgeInsets.symmetric(vertical: 15),
                               ),
-                              Expanded(
-                                child: TextField(
-                                  controller: _phoneController,
-                                  keyboardType: TextInputType.phone,
-                                  style: AppTextStyles.bodyMd.copyWith(color: _navy),
-                                  decoration: InputDecoration(
-                                    hintText: '3XX XXXXXXX',
-                                    hintStyle: AppTextStyles.bodyMd.copyWith(color: AppColors.outline),
-                                    border: InputBorder.none,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                            ),
+                          ),
+
+                          const SizedBox(height: 20),
+
+                          // Password
+                          const Text('Password',
+                              style: TextStyle(color: _navy, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 0.2)),
+                          const SizedBox(height: 8),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF5F7FA),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: const Color(0xFFE0E5EF)),
+                            ),
+                            child: TextField(
+                              controller: _passwordController,
+                              obscureText: _obscure,
+                              textInputAction: TextInputAction.done,
+                              onSubmitted: (_) => _login(),
+                              style: AppTextStyles.bodyMd.copyWith(color: _navy),
+                              decoration: InputDecoration(
+                                hintText: '••••••••••',
+                                hintStyle: AppTextStyles.bodyMd.copyWith(color: AppColors.outline),
+                                border: InputBorder.none,
+                                prefixIcon: const Icon(Icons.lock_outline_rounded, color: Color(0xFF7B8DB0), size: 20),
+                                contentPadding: const EdgeInsets.symmetric(vertical: 15),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                                    color: const Color(0xFF7B8DB0), size: 20,
                                   ),
+                                  onPressed: () => setState(() => _obscure = !_obscure),
                                 ),
                               ),
-                            ]),
+                            ),
                           ),
 
                           const SizedBox(height: 28),
@@ -193,7 +240,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
-                              onPressed: _isLoading ? null : _sendOtp,
+                              onPressed: _isLoading ? null : _login,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: _navy,
                                 foregroundColor: Colors.white,
@@ -207,43 +254,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                       child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
                                     )
                                   : Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                                      Text('Send OTP', style: AppTextStyles.headlineSm.copyWith(color: Colors.white, fontSize: 16)),
+                                      Text('Sign In', style: AppTextStyles.headlineSm.copyWith(color: Colors.white, fontSize: 16)),
                                       const SizedBox(width: 8),
                                       const Icon(Icons.arrow_forward_rounded, size: 20),
                                     ]),
-                            ),
-                          ),
-
-                          const SizedBox(height: 24),
-
-                          // Divider
-                          Row(children: [
-                            const Expanded(child: Divider(color: Color(0xFFE0E5EF))),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              child: Text('OR', style: AppTextStyles.bodySm.copyWith(color: Colors.black38, letterSpacing: 1.2)),
-                            ),
-                            const Expanded(child: Divider(color: Color(0xFFE0E5EF))),
-                          ]),
-
-                          const SizedBox(height: 24),
-
-                          // Register link
-                          Center(
-                            child: GestureDetector(
-                              onTap: () => context.push('/signup'),
-                              child: RichText(
-                                text: TextSpan(
-                                  text: 'New Customer? ',
-                                  style: AppTextStyles.bodyMd.copyWith(color: Colors.black45, fontWeight: FontWeight.w500),
-                                  children: [
-                                    TextSpan(
-                                      text: 'Register here',
-                                      style: AppTextStyles.bodyMd.copyWith(color: _navy, fontWeight: FontWeight.w700),
-                                    ),
-                                  ],
-                                ),
-                              ),
                             ),
                           ),
 
@@ -263,7 +277,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               const SizedBox(width: 8),
                               const Expanded(
                                 child: Text(
-                                  'Accounts are created by RHR admin.',
+                                  'Login credentials are provided by RHR admin.',
                                   style: TextStyle(color: Colors.black45, fontSize: 12),
                                 ),
                               ),

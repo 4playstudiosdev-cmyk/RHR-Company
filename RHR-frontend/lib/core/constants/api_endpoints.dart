@@ -14,6 +14,7 @@ class ApiEndpoints {
   static const String sendOtp         = '/api/v1/auth/send-otp';
   static const String verifyOtp       = '/api/v1/auth/verify-otp';
   static const String login           = '/api/v1/auth/login';
+  static const String salesmanLogin   = '/api/v1/auth/salesman-login';
   static const String approveCustomer = '/api/v1/auth/approve-customer/';
 
   // COMPANIES

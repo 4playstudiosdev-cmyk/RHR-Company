@@ -675,9 +675,51 @@ async function releaseSessionLock(userId) {
   await closeOpenSession(userId, 'logout');
 }
 
+async function loginSalesmanWithEmail({ email, password }) {
+  const rows = await pgrestGet('salesmen', {
+    select: '*',
+    email: `eq.${email}`,
+  }).catch(() => []);
+
+  const salesman = rows?.[0];
+  if (!salesman) throw new Error('Invalid email or password');
+  if (!salesman.is_approved) throw new Error('Account is pending admin approval');
+  if (salesman.is_active === false) throw new Error('Account has been deactivated');
+
+  const signInOk = await withRetry(async () => {
+    const { error: signInError } = await createAuthClient().auth.signInWithPassword({ email, password });
+    if (signInError) throw new Error(`signIn: ${signInError.status || ''} ${signInError.code || ''} ${signInError.message}`);
+    return true;
+  }, 5, 500).catch((e) => { console.error('[salesman-email-login] signInWithPassword failed:', e.message); return false; });
+
+  if (!signInOk) throw new Error('Invalid email or password');
+
+  const user = { ...salesman, role: 'salesman' };
+  const token = generateToken(user);
+
+  const requiredFields = [
+    'full_name', 'phone', 'nic_number',
+    'profile_photo_url', 'nic_image_url', 'nic_back_image_url',
+  ];
+  const profileComplete = requiredFields.every(
+    (f) => user[f] != null && String(user[f]).trim() !== ''
+  );
+
+  return {
+    token,
+    user: {
+      id: user.id,
+      fullName: user.full_name,
+      role: 'salesman',
+      position: user.position,
+      profileComplete,
+    },
+  };
+}
+
 module.exports = {
   registerCustomer, registerSalesman, registerDriver,
-  loginWithCredentials, releaseSessionLock, closeOpenSession,
+  loginWithCredentials, loginSalesmanWithEmail, releaseSessionLock, closeOpenSession,
   approveCustomer, approveSalesman, approveDriver,
   generateToken,
   findCustomerByPhone, findSalesmanByPhone, findDriverByPhone

@@ -4,6 +4,7 @@ const {
   sendOTPHandler,
   verifyOTPHandler,
   loginHandler,
+  salesmanEmailLoginHandler,
   logoutHandler,
   approveCustomerHandler,
   approveSalesmanHandler,
@@ -53,9 +54,10 @@ router.delete('/fcm-token', authMw, async (req, res) => {
   } catch (err) { return error(res, err.message); }
 });
 
-router.post('/send-otp',    otpLimiter,       sendOTPHandler);
-router.post('/verify-otp',  verifyOtpLimiter, verifyOTPHandler);
-router.post('/login',       loginLimiter,     loginHandler);
+router.post('/send-otp',         otpLimiter,       sendOTPHandler);
+router.post('/verify-otp',       verifyOtpLimiter, verifyOTPHandler);
+router.post('/login',            loginLimiter,     loginHandler);
+router.post('/salesman-login',   loginLimiter,     salesmanEmailLoginHandler);
 
 // Protected routes
 router.post('/logout', authenticate, logoutHandler);
