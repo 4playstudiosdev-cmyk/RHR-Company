@@ -78,7 +78,16 @@ const createProduct = async (req, res) => {
 
 const updateProduct = async (req, res) => {
   try {
-    const data = await svc.updateProduct(req.params.id, resolveCompanyId(req), req.body);
+    // super_admin can edit any branch's product — don't lock them to their
+    // own company_id, otherwise editing a HYD/SUK product while logged in
+    // as KHI super_admin always fails ("product not found"). Only apply the
+    // company_id filter when an explicit ?company_id= is given in the query
+    // (which the frontend never sends on a PUT, so this is super_admin-only).
+    // branch_admin stays scoped to their own branch as before.
+    const companyId = req.user.role === 'super_admin'
+      ? (req.query.company_id || null)
+      : req.user.company_id;
+    const data = await svc.updateProduct(req.params.id, companyId, req.body);
     return success(res, data, 'Product updated');
   } catch (err) { return error(res, err.message, 404); }
 };
@@ -87,14 +96,20 @@ const updateStock = async (req, res) => {
   try {
     const { quantity } = req.body;
     if (quantity === undefined) return error(res, 'quantity is required', 400);
-    const data = await svc.updateStock(req.params.id, resolveCompanyId(req), quantity);
+    const companyId = req.user.role === 'super_admin'
+      ? (req.query.company_id || null)
+      : req.user.company_id;
+    const data = await svc.updateStock(req.params.id, companyId, quantity);
     return success(res, data, 'Stock updated');
   } catch (err) { return error(res, err.message, 404); }
 };
 
 const deleteProduct = async (req, res) => {
   try {
-    const data = await svc.deleteProduct(req.params.id, resolveCompanyId(req));
+    const companyId = req.user.role === 'super_admin'
+      ? (req.query.company_id || null)
+      : req.user.company_id;
+    const data = await svc.deleteProduct(req.params.id, companyId);
     return success(res, data, 'Product deleted');
   } catch (err) { return error(res, err.message, 404); }
 };
