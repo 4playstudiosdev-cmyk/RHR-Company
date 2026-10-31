@@ -34,12 +34,16 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
   String? _uploadedPhotoUrl;
   DateTime? _chequeDate;
 
-  final List<String> _methods = ['Cash', 'Bank Transfer', 'Cheque'];
+  final List<String> _methods = ['Cash', 'Bank Transfer', 'Cheque', 'Vendor Transfer'];
 
   List<Map<String, dynamic>> _bankAccounts = [];
   bool _loadingBankAccounts = false;
   String? _selectedBankAccountId;
   DateTime _transferDate = DateTime.now();
+
+  List<Map<String, dynamic>> _suppliers = [];
+  String? _selectedSupplierId;
+  final _referenceController = TextEditingController();
 
   String? _selectedCustomerId;
   List<Map<String, dynamic>> _customers = [];
@@ -49,7 +53,17 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
     super.initState();
     _selectedCustomerId = widget.customerId;
     if (widget.customerId == null) _loadCustomers();
+    _loadSuppliers();
     _customerSearchFocus.addListener(() => setState(() {}));
+  }
+
+  Future<void> _loadSuppliers() async {
+    try {
+      final res = await DioClient.instance.get(ApiEndpoints.suppliers);
+      if (res.data['success'] == true && mounted) {
+        setState(() => _suppliers = List<Map<String, dynamic>>.from(res.data['data'] ?? []));
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadCustomers() async {
@@ -122,6 +136,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
     _chequeNumberController.dispose();
     _amountController.dispose();
     _notesController.dispose();
+    _referenceController.dispose();
     _customerSearchController.dispose();
     _customerSearchFocus.dispose();
     super.dispose();
@@ -212,8 +227,13 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter an amount.')));
       return;
     }
-    if (_uploadedPhotoUrl == null) {
+    // Photo is required for cash/bank/cheque but NOT for vendor transfer
+    if (_selectedMethod != 'Vendor Transfer' && _uploadedPhotoUrl == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please upload a payment photo.')));
+      return;
+    }
+    if (_selectedMethod == 'Vendor Transfer' && _selectedSupplierId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select a vendor / supplier.')));
       return;
     }
     if (_selectedMethod == 'Bank Transfer' && _selectedBankAccountId == null) {
@@ -229,8 +249,9 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
     }
     setState(() => _isLoading = true);
     try {
-      final amount = double.parse(_amountController.text);
-      final notes  = _notesController.text.trim().isNotEmpty ? _notesController.text.trim() : null;
+      final amount    = double.parse(_amountController.text);
+      final notes     = _notesController.text.trim().isNotEmpty ? _notesController.text.trim() : null;
+      final reference = _referenceController.text.trim().isNotEmpty ? _referenceController.text.trim() : null;
 
       late Response response;
       if (_selectedMethod == 'Cash') {
@@ -249,6 +270,14 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           'bank_account_id': _selectedBankAccountId,
           if (bankLabel != null) 'bank_account_label': bankLabel,
           'photo_url': _uploadedPhotoUrl,
+          if (notes != null) 'notes': notes,
+        });
+      } else if (_selectedMethod == 'Vendor Transfer') {
+        response = await DioClient.instance.post(ApiEndpoints.recoveryVendorTransferMe, data: {
+          'customer_id': _selectedCustomerId,
+          'supplier_id': _selectedSupplierId,
+          'amount': amount,
+          if (reference != null) 'reference_number': reference,
           if (notes != null) 'notes': notes,
         });
       } else {
@@ -271,7 +300,9 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                   ? 'Submitted — pending approval'
                   : _selectedMethod == 'Cheque'
                       ? 'Cheque saved — pending until it clears'
-                      : 'Payment Recorded!');
+                      : _selectedMethod == 'Vendor Transfer'
+                          ? 'Vendor Transfer Recorded!'
+                          : 'Payment Recorded!');
           if (mounted) context.go('/salesman-dashboard');
         }
       } else {
@@ -291,7 +322,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
       backgroundColor: kCardBg,
       appBar: premiumAppBar(
         'Record Payment',
-        subtitle: 'Cash · Bank Transfer · Cheque',
+        subtitle: 'Cash · Bank Transfer · Cheque · Vendor Transfer',
         onBack: () => goBack(context, '/salesman-dashboard'),
       ),
       body: SingleChildScrollView(
@@ -403,43 +434,52 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           // ── Payment method ───────────────────────────────────────────────
           _fieldLabel('Payment Method'),
           const SizedBox(height: 10),
-          Row(children: _methods.asMap().entries.map((e) {
-            final method   = e.value;
-            final selected = _selectedMethod == method;
-            final icons    = [Icons.payments_rounded, Icons.account_balance_rounded, Icons.assignment_outlined];
-            return Expanded(
-              child: Padding(
-                padding: EdgeInsets.only(right: e.key < 2 ? 8 : 0),
-                child: TapScale(
-                  onTap: () {
-                    setState(() => _selectedMethod = method);
-                    if (method == 'Bank Transfer') _loadBankAccounts();
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: selected ? kNavy : Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: selected ? kNavy : const Color(0xFFE0E5EF)),
-                      boxShadow: selected
-                          ? [BoxShadow(color: kNavy.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 3))]
-                          : [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 4)],
-                    ),
-                    child: Column(children: [
-                      Icon(icons[e.key], color: selected ? Colors.white : kNavy, size: 20),
-                      const SizedBox(height: 4),
-                      Text(method,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                              color: selected ? Colors.white : kNavy,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 11)),
-                    ]),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            childAspectRatio: 2.8,
+            children: _methods.asMap().entries.map((e) {
+              final method   = e.value;
+              final selected = _selectedMethod == method;
+              final icons    = [
+                Icons.payments_rounded,
+                Icons.account_balance_rounded,
+                Icons.assignment_outlined,
+                Icons.swap_horiz_rounded,
+              ];
+              return TapScale(
+                onTap: () {
+                  setState(() => _selectedMethod = method);
+                  if (method == 'Bank Transfer') _loadBankAccounts();
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: selected ? kNavy : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: selected ? kNavy : const Color(0xFFE0E5EF)),
+                    boxShadow: selected
+                        ? [BoxShadow(color: kNavy.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 3))]
+                        : [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 4)],
                   ),
+                  child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Icon(icons[e.key], color: selected ? Colors.white : kNavy, size: 18),
+                    const SizedBox(width: 6),
+                    Flexible(child: Text(method,
+                        textAlign: TextAlign.center,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: selected ? Colors.white : kNavy,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12))),
+                  ]),
                 ),
-              ),
-            );
-          }).toList()),
+              );
+            }).toList(),
+          ),
 
           // ── Bank Transfer fields ─────────────────────────────────────────
           if (_selectedMethod == 'Bank Transfer') ...[
@@ -499,6 +539,56 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
             ),
           ],
 
+          // ── Vendor Transfer fields ───────────────────────────────────────
+          if (_selectedMethod == 'Vendor Transfer') ...[
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEEF0FF),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Row(children: [
+                Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFF4F46E5)),
+                SizedBox(width: 6),
+                Expanded(child: Text(
+                  "Customer balance reduces immediately. No cash or bank movement.",
+                  style: TextStyle(color: Color(0xFF4F46E5), fontSize: 11),
+                )),
+              ]),
+            ),
+            const SizedBox(height: 14),
+            _fieldLabel('Vendor / Supplier *'),
+            const SizedBox(height: 8),
+            _suppliers.isEmpty
+                ? Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE0E5EF)),
+                    ),
+                    child: const Text('No vendors found — add one in admin panel.',
+                        style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 13)),
+                  )
+                : _dropdownField(
+                    hint: 'Select vendor',
+                    value: _selectedSupplierId,
+                    items: _suppliers.map((s) => DropdownMenuItem(
+                      value: s['id'] as String,
+                      child: Text(s['name']?.toString() ?? '', overflow: TextOverflow.ellipsis),
+                    )).toList(),
+                    onChanged: (v) => setState(() => _selectedSupplierId = v),
+                  ),
+            const SizedBox(height: 14),
+            PremiumInput(
+              label: 'Reference / Transaction Number (optional)',
+              hint: 'e.g. TXN-001',
+              controller: _referenceController,
+              prefixIcon: Icons.tag_rounded,
+            ),
+          ],
+
           const SizedBox(height: 20),
 
           // ── Notes ────────────────────────────────────────────────────────
@@ -511,6 +601,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           const SizedBox(height: 20),
 
           // ── Photo upload ─────────────────────────────────────────────────
+          if (_selectedMethod != 'Vendor Transfer') ...[
           _fieldLabel('Payment Photo Proof'),
           const SizedBox(height: 4),
           const Text('Required — take a photo of the cash / receipt',
@@ -559,13 +650,24 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           ),
 
           const SizedBox(height: 28),
+          ], // end if (_selectedMethod != 'Vendor Transfer')
+
+          if (_selectedMethod == 'Vendor Transfer') const SizedBox(height: 8),
 
           // ── Submit ───────────────────────────────────────────────────────
           PremiumButton(
-            text: _selectedMethod == 'Cheque' ? 'Save Cheque' : 'Submit Payment',
+            text: _selectedMethod == 'Cheque'
+                ? 'Save Cheque'
+                : _selectedMethod == 'Vendor Transfer'
+                    ? 'Record Vendor Transfer'
+                    : 'Submit Payment',
             onPressed: _submitPayment,
             isLoading: _isLoading,
-            icon: _selectedMethod == 'Cheque' ? Icons.assignment_outlined : Icons.send_rounded,
+            icon: _selectedMethod == 'Cheque'
+                ? Icons.assignment_outlined
+                : _selectedMethod == 'Vendor Transfer'
+                    ? Icons.swap_horiz_rounded
+                    : Icons.send_rounded,
           ),
           const SizedBox(height: 20),
         ]),

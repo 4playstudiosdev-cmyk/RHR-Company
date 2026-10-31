@@ -1090,6 +1090,46 @@ async function hasVendorColumn() {
   return vendorColumnKnown;
 }
 
+// POST /api/v1/recovery/vendor-transfer/me — salesman version.
+// Same FK caveat as /transactions/me: approved_by and created_by must stay
+// null because they FK to users(id) and a salesman's id is in salesmen, not users.
+router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) => {
+  try {
+    const { customer_id, supplier_id, amount, recovery_date, reference_number, notes } = req.body;
+    if (!customer_id || !supplier_id || !amount || Number(amount) <= 0)
+      return error(res, 'customer_id, supplier_id and a positive amount are required', 400);
+
+    const rowData = {
+      company_id:       req.user.company_id,
+      salesman_id:      req.user.id,
+      customer_id,
+      amount:           Number(amount),
+      payment_type:     'vendor_transfer',
+      payment_method:   'vendor_transfer',
+      reference_number: reference_number || null,
+      notes:            notes || null,
+      status:           'approved',
+      approved_by:      null,
+      approved_at:      new Date().toISOString(),
+      recovery_date:    recovery_date || new Date().toISOString().split('T')[0],
+      created_by:       null,
+    };
+    if (await hasVendorColumn()) rowData.vendor_id = supplier_id;
+
+    const [recovery] = await pgrestPost('salesman_recoveries', rowData);
+
+    await creditLedger({
+      companyId:   req.user.company_id,
+      customerId:  customer_id,
+      amount:      Number(amount),
+      description: 'Direct vendor transfer — customer balance settled via supplier',
+      userId:      null,
+    });
+
+    return success(res, recovery, 'Direct vendor transfer recorded', 201);
+  } catch (err) { return error(res, err.message, err.status || 500); }
+});
+
 // POST /api/v1/recovery/vendor-transfer — direct customer-to-vendor transfer.
 // Auto-approved: credits customer ledger immediately. Does NOT touch company
 // cash or bank balances. The vendor_id records which supplier payable was cleared.

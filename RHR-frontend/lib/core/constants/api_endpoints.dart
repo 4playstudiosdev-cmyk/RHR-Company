@@ -50,7 +50,11 @@ class ApiEndpoints {
   static const String recoveryCashClosingMe  = '/api/v1/recovery/cash-closing/me';
   static const String recoveryBankTransferMe  = '/api/v1/recovery/bank-transfer/me';
   static const String recoveryChequeMe        = '/api/v1/recovery/cheque/me';
-  static const String recoveryBankTransfersMe = '/api/v1/recovery/bank-transfers/me';
+  static const String recoveryBankTransfersMe  = '/api/v1/recovery/bank-transfers/me';
+  static const String recoveryVendorTransferMe = '/api/v1/recovery/vendor-transfer/me';
+
+  // SUPPLIERS (readable by salesmen for vendor-transfer)
+  static const String suppliers = '/api/v1/suppliers';
 
   // CASH COLLECTION (driver recovery self-service)
   static const String driverRecoveryTransactionsMe = '/api/v1/recovery/driver-transactions/me';
