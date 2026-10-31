@@ -87,6 +87,9 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
   const [pdfLoadingId, setPdfLoadingId] = useState(null);
   const [tab, setTab] = useState('pending');
   const [sourceFilter, setSourceFilter] = useState('all');
+  const [salesmanFilter, setSalesmanFilter] = useState('');
+  const [areaFilter, setAreaFilter] = useState('');
+  const [salesmenList, setSalesmenList] = useState([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [deletedInvoices, setDeletedInvoices] = useState([]);
@@ -139,6 +142,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
 
   useEffect(() => {
     loadOrders();
+    loadSalesmen();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
 
@@ -338,6 +342,15 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadSalesmen = async () => {
+    try {
+      const companyFilter = selectedCity === 'all' ? null : selectedCity;
+      const params = companyFilter ? { company_id: companyFilter } : {};
+      const res = await api.get('/salesmen', { params });
+      setSalesmenList(res.data.data || []);
+    } catch (_) {}
   };
 
   // Super-admin-only — removes the invoice state from an order (order
@@ -734,6 +747,13 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
   // up there, not mixed in with All/Pending/.../Cancelled.
   const visibleOrders = useMemo(() => orders.filter((o) => !o.invoice_deleted_at), [orders]);
 
+  // Unique areas from orders' customer data for the area filter dropdown.
+  const areaOptions = useMemo(() => {
+    const seen = new Set();
+    visibleOrders.forEach((o) => { if (o.users?.area) seen.add(o.users.area); });
+    return Array.from(seen).sort();
+  }, [visibleOrders]);
+
   const counts = useMemo(() => {
     const c = { all: visibleOrders.length };
     STATUS_OPTIONS.forEach((s) => { c[s] = visibleOrders.filter((o) => o.status === s).length; });
@@ -749,6 +769,12 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
           : o.created_by_role === sourceFilter
       );
     }
+    if (sourceFilter === 'salesman' && salesmanFilter) {
+      list = list.filter((o) => o.salesman_id === salesmanFilter);
+    }
+    if (areaFilter) {
+      list = list.filter((o) => o.users?.area === areaFilter);
+    }
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(
@@ -756,7 +782,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
       );
     }
     return list;
-  }, [visibleOrders, tab, sourceFilter, search]);
+  }, [visibleOrders, tab, sourceFilter, salesmanFilter, areaFilter, search]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageOrders = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -769,13 +795,37 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
           <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
           <select
             value={sourceFilter}
-            onChange={(e) => { setSourceFilter(e.target.value); setPage(1); }}
+            onChange={(e) => { setSourceFilter(e.target.value); setSalesmanFilter(''); setPage(1); }}
             className="bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-all shadow-sm"
           >
             {SOURCE_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
+          {sourceFilter === 'salesman' && salesmenList.length > 0 && (
+            <select
+              value={salesmanFilter}
+              onChange={(e) => { setSalesmanFilter(e.target.value); setPage(1); }}
+              className="bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-all shadow-sm"
+            >
+              <option value="">All Salesmen</option>
+              {salesmenList.map((s) => (
+                <option key={s.id} value={s.id}>{s.full_name}</option>
+              ))}
+            </select>
+          )}
+          {areaOptions.length > 0 && (
+            <select
+              value={areaFilter}
+              onChange={(e) => { setAreaFilter(e.target.value); setPage(1); }}
+              className="bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy transition-all shadow-sm"
+            >
+              <option value="">All Areas</option>
+              {areaOptions.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+          )}
           <div className="relative w-full sm:w-72">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -931,6 +981,9 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
                       </td>
                       <td className="px-6 py-3.5">
                         <SourceBadge role={order.created_by_role} />
+                        {order.salesmen?.full_name && (
+                          <div className="text-xs text-gray-400 mt-0.5">{order.salesmen.full_name}</div>
+                        )}
                       </td>
                       <td className="px-6 py-3.5 text-gray-600 text-xs">
                         {order.drivers?.full_name ? (
