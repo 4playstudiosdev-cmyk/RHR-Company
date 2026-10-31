@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Wallet, ImageOff, ExternalLink } from 'lucide-react';
+import { Wallet, ImageOff, ExternalLink, ArrowLeftRight } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
@@ -8,7 +8,7 @@ import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
 
-const TABS = ['all', 'pending', 'approved', 'rejected'];
+const TABS = ['all', 'pending', 'approved', 'rejected', 'direct_transfers'];
 const PAGE_SIZE = 10;
 
 function getInitials(name) {
@@ -29,11 +29,29 @@ export default function Payments() {
   const [reviewingId, setReviewingId] = useState(null);
   const [tab, setTab] = useState('pending');
   const [page, setPage] = useState(1);
+  const [directTransfers, setDirectTransfers] = useState([]);
+  const [directLoading, setDirectLoading] = useState(false);
 
   useEffect(() => {
     loadPayments();
+    loadDirectTransfers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
+
+  const loadDirectTransfers = async () => {
+    setDirectLoading(true);
+    try {
+      const companyFilter = selectedCity === 'all' ? null : selectedCity;
+      const data = companyFilter
+        ? (await api.get('/recovery/vendor-transfers', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/recovery/vendor-transfers');
+      setDirectTransfers(data);
+    } catch (_) {
+      setDirectTransfers([]);
+    } finally {
+      setDirectLoading(false);
+    }
+  };
 
   const loadPayments = async () => {
     setLoading(true);
@@ -71,8 +89,9 @@ export default function Payments() {
     all: payments.length,
     pending: payments.filter((p) => p.status === 'pending').length,
     approved: payments.filter((p) => p.status === 'approved').length,
-    rejected: payments.filter((p) => p.status === 'rejected').length
-  }), [payments]);
+    rejected: payments.filter((p) => p.status === 'rejected').length,
+    direct_transfers: directTransfers.length,
+  }), [payments, directTransfers]);
 
   const filtered = tab === 'all' ? payments : payments.filter((p) => p.status === tab);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -105,7 +124,8 @@ export default function Payments() {
                 tab === t ? 'text-navy border-navy' : 'text-gray-400 border-transparent hover:text-navy'
               }`}
             >
-              <span className="capitalize">{t}</span>
+              {t === 'direct_transfers' && <ArrowLeftRight size={13} />}
+              <span className="capitalize">{t === 'direct_transfers' ? 'Direct Transfers' : t}</span>
               <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium ${
                 tab === t ? 'bg-navy-chip text-navy' : 'bg-gray-100 text-gray-500'
               }`}>
@@ -115,7 +135,55 @@ export default function Payments() {
           ))}
         </div>
 
-        {loading ? (
+        {tab === 'direct_transfers' ? (
+          directLoading ? (
+            <SkeletonTable rows={5} cols={6} />
+          ) : directTransfers.length === 0 ? (
+            <EmptyState icon={ArrowLeftRight} title="No direct transfers" subtitle="Direct vendor transfers will appear here" />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Vendor</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Amount</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Reference</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Type</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {directTransfers.map((dt, i) => (
+                    <tr
+                      key={dt.id}
+                      className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}
+                    >
+                      <td className="px-6 py-3.5 font-medium text-navy">
+                        {dt.users?.shop_name || dt.users?.full_name || '—'}
+                      </td>
+                      <td className="px-6 py-3.5 text-gray-600">
+                        {dt.suppliers?.name || dt.notes || '—'}
+                      </td>
+                      <td className="px-6 py-3.5 font-semibold text-navy">
+                        PKR {Number(dt.amount).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-3.5 text-gray-500 text-xs">{dt.reference_number || '—'}</td>
+                      <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">
+                        {dt.recovery_date || new Date(dt.created_at).toLocaleDateString('en-GB')}
+                      </td>
+                      <td className="px-6 py-3.5">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[11px] font-bold">
+                          <ArrowLeftRight size={10} /> Direct Transfer
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : loading ? (
           <SkeletonTable rows={6} cols={7} />
         ) : filtered.length === 0 ? (
           <EmptyState icon={Wallet} title="No payments here" subtitle="Submitted payment proofs will appear here" />

@@ -1079,6 +1079,90 @@ router.get('/driver-cash-closing/me', authenticate, isDriver, async (req, res) =
 });
 
 // ════════════════════════════════════════════════════════════════
+// vendor_id column (phase74) — same lazy-check as photo_url/cheque.
+let vendorColumnKnown = null;
+async function hasVendorColumn() {
+  if (vendorColumnKnown !== null) return vendorColumnKnown;
+  try {
+    await pgrestGet('salesman_recoveries', { select: 'vendor_id', limit: '1' });
+    vendorColumnKnown = true;
+  } catch (_) { return false; }
+  return vendorColumnKnown;
+}
+
+// POST /api/v1/recovery/vendor-transfer — direct customer-to-vendor transfer.
+// Auto-approved: credits customer ledger immediately. Does NOT touch company
+// cash or bank balances. The vendor_id records which supplier payable was cleared.
+router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
+  try {
+    const { customer_id, supplier_id, amount, salesman_id, recovery_date, reference_number, notes } = req.body;
+    if (!customer_id || !supplier_id || !amount || Number(amount) <= 0)
+      return error(res, 'customer_id, supplier_id and a positive amount are required', 400);
+
+    const companyId = req.user.company_id;
+    const rowData = {
+      company_id:       companyId,
+      customer_id,
+      salesman_id:      salesman_id || null,
+      amount:           Number(amount),
+      payment_type:     'vendor_transfer',
+      payment_method:   'vendor_transfer',
+      reference_number: reference_number || null,
+      notes:            notes || null,
+      status:           'approved',
+      approved_by:      req.user.id,
+      approved_at:      new Date().toISOString(),
+      recovery_date:    recovery_date || new Date().toISOString().split('T')[0],
+      created_by:       req.user.id,
+    };
+    if (await hasVendorColumn()) rowData.vendor_id = supplier_id;
+
+    const [recovery] = await pgrestPost('salesman_recoveries', rowData);
+
+    await creditLedger({
+      companyId,
+      customerId:  customer_id,
+      amount:      Number(amount),
+      description: 'Direct vendor transfer — customer balance settled via supplier',
+      userId:      req.user.id,
+    });
+
+    return success(res, recovery, 'Direct vendor transfer recorded', 201);
+  } catch (err) { return error(res, err.message, err.status || 500); }
+});
+
+// GET /api/v1/recovery/vendor-transfers — vendor-transfer entries with
+// customer + supplier names; used by the Payments page "Direct Transfers" tab.
+router.get('/vendor-transfers', authenticate, isAdmin, async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const baseSelect = 'id,company_id,salesman_id,customer_id,amount,reference_number,notes,recovery_date,created_at,salesmen(id,full_name),users!customer_id(id,full_name,phone,shop_name)';
+    const params = {
+      select: baseSelect,
+      payment_type: 'eq.vendor_transfer',
+      order: 'created_at.desc',
+    };
+    if (companyId) params.company_id = `eq.${companyId}`;
+
+    let data;
+    if (await hasVendorColumn()) {
+      try {
+        data = await pgrestGet('salesman_recoveries', {
+          ...params,
+          select: baseSelect + ',suppliers!vendor_id(id,name)',
+        });
+      } catch (_) {
+        data = await pgrestGet('salesman_recoveries', params);
+      }
+    } else {
+      data = await pgrestGet('salesman_recoveries', params);
+    }
+
+    return success(res, data || []);
+  } catch (err) { return error(res, err.message); }
+});
+
+// ════════════════════════════════════════════════════════════════
 // Driver Recovery panel (admin only) — a plain log of cash a driver
 // has physically handed over to/received from a salesman. No ledger
 // write here on purpose (see sql/phase58_driver_recovery.sql's comment

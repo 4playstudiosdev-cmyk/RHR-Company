@@ -3,7 +3,7 @@ import { customerLabel } from '../utils/customerLabel';
 import CustomerSelect from '../components/CustomerSelect';
 import DateRangeFilter from '../components/DateRangeFilter';
 import React, { useEffect, useState } from 'react';
-import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2, FileText } from 'lucide-react';
+import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2, FileText, ArrowLeftRight } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import PageHeader from '../components/PageHeader';
 import Button from '../components/Button';
@@ -29,6 +29,7 @@ const EMPTY_FORM = {
   reference_number: '', notes: '',
   cheque_bank: '', cheque_number: '', cheque_date: '',
   recovery_date: new Date().toISOString().split('T')[0],
+  vendor_id: '',
 };
 
 const EMPTY_CLOSING_FORM = { salesman_id: '', amount: '', deposit_to: 'bank', bank_account: '', notes: '' };
@@ -97,6 +98,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
   const [clearDest, setClearDest] = useState('');          // 'cash' | a bank account id
   const [chequeBusy, setChequeBusy] = useState(false);
   const [removed, setRemoved] = useState([]);   // rejected + deleted payments, kept for the record
+  const [suppliersList, setSuppliersList] = useState([]);
 
   useEffect(() => {
     loadSalesmen();
@@ -106,6 +108,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
     loadCheques();
     loadBanks();
     loadRemoved();
+    loadSuppliers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
 
@@ -177,6 +180,17 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
       setBanksList(data);
     } catch (err) {
       setBanksList([]);
+    }
+  };
+
+  const loadSuppliers = async () => {
+    try {
+      const data = companyFilter
+        ? (await api.get('/suppliers', { params: { company_id: companyFilter } })).data.data || []
+        : await fetchAllCities('/suppliers');
+      setSuppliersList(data);
+    } catch (err) {
+      setSuppliersList([]);
     }
   };
 
@@ -258,6 +272,33 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
 
   const handleAddRecovery = async (e) => {
     e.preventDefault();
+    if (form.payment_type === 'vendor_transfer') {
+      if (!form.customer_id || !form.amount || Number(form.amount) <= 0 || !form.vendor_id) {
+        toast.error('Customer, vendor and a valid amount are required.');
+        return;
+      }
+      setSaving(true);
+      try {
+        await api.post('/recovery/vendor-transfer', {
+          customer_id: form.customer_id,
+          supplier_id: form.vendor_id,
+          salesman_id: form.salesman_id || null,
+          amount: Number(form.amount),
+          recovery_date: form.recovery_date,
+          reference_number: form.reference_number || null,
+          notes: form.notes || null,
+        });
+        toast.success('Direct vendor transfer recorded — customer balance updated.');
+        setForm({ ...EMPTY_FORM, salesman_id: form.salesman_id });
+        loadTransactions();
+      } catch (err) {
+        toast.error(err.response?.data?.message || 'Failed to record vendor transfer.');
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     if (!form.salesman_id || !form.customer_id || !form.amount || Number(form.amount) <= 0) {
       toast.error('Salesman, customer and a valid amount are required.');
       return;
@@ -423,7 +464,8 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
     count: visibleTransactions.length,
     total: historySum(historyApproved),
     cash: historySum(historyApproved.filter((t) => t.payment_type === 'cash')),
-    online: historySum(historyApproved.filter((t) => t.payment_type !== 'cash')),
+    online: historySum(historyApproved.filter((t) => t.payment_type !== 'cash' && t.payment_type !== 'vendor_transfer')),
+    vendor: historySum(historyApproved.filter((t) => t.payment_type === 'vendor_transfer')),
     pending: historySum(visibleTransactions.filter((t) => t.status === 'pending')),
   };
 
@@ -463,11 +505,12 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
 
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1.5">Payment Type *</label>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
-                  { v: 'cash', label: 'Cash', desc: 'Auto-approved', icon: Banknote },
-                  { v: 'online', label: 'Online', desc: 'Needs approval', icon: Smartphone },
-                  { v: 'cheque', label: 'Cheque', desc: 'Pending till cleared', icon: FileText },
+                  { v: 'cash',            label: 'Cash',           desc: 'Auto-approved',       icon: Banknote },
+                  { v: 'online',          label: 'Online',         desc: 'Needs approval',      icon: Smartphone },
+                  { v: 'cheque',          label: 'Cheque',         desc: 'Pending till cleared', icon: FileText },
+                  { v: 'vendor_transfer', label: 'Vendor Transfer', desc: 'Direct to vendor',    icon: ArrowLeftRight },
                 ].map((pt) => {
                   const Icon = pt.icon;
                   const active = form.payment_type === pt.v;
@@ -475,8 +518,8 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
                     <button
                       type="button"
                       key={pt.v}
-                      onClick={() => setForm({ ...form, payment_type: pt.v, payment_method: pt.v === 'cash' ? 'cash' : pt.v === 'cheque' ? 'cheque' : 'easypaisa' })}
-                      className={`flex flex-col items-center gap-1 rounded-xl border-2 px-4 py-3 text-center transition-colors ${
+                      onClick={() => setForm({ ...form, payment_type: pt.v, payment_method: pt.v === 'cash' ? 'cash' : pt.v === 'cheque' ? 'cheque' : pt.v === 'vendor_transfer' ? 'vendor_transfer' : 'easypaisa' })}
+                      className={`flex flex-col items-center gap-1 rounded-xl border-2 px-3 py-3 text-center transition-colors ${
                         active ? 'border-navy bg-navy-chip/30' : 'border-gray-200 hover:border-navy/40'
                       }`}
                     >
@@ -549,8 +592,41 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
               </div>
             )}
 
+            {form.payment_type === 'vendor_transfer' && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3.5 space-y-3">
+                <p className="text-xs text-indigo-700 font-medium">
+                  Customer's outstanding balance reduces immediately. Vendor payable is also cleared. No cash or bank movement.
+                </p>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Vendor / Supplier *</label>
+                  <select
+                    value={form.vendor_id}
+                    onChange={(e) => setForm({ ...form, vendor_id: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                  >
+                    <option value="">— Select Vendor —</option>
+                    {suppliersList.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Reference / Transaction Number</label>
+                  <input
+                    type="text"
+                    value={form.reference_number}
+                    onChange={(e) => setForm({ ...form, reference_number: e.target.value })}
+                    placeholder="e.g. TXN-123456"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+                  />
+                </div>
+              </div>
+            )}
+
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1.5">Salesman *</label>
+              <label className="block text-xs font-medium text-gray-700 mb-1.5">
+                Salesman{form.payment_type === 'vendor_transfer' ? ' (optional)' : ' *'}
+              </label>
               <select
                 value={form.salesman_id}
                 onChange={(e) => { setForm({ ...form, salesman_id: e.target.value }); loadCashInHand(e.target.value); }}
@@ -615,7 +691,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
             </div>
 
             <Button type="submit" variant="accent" disabled={saving} className="w-full">
-              {saving ? 'Saving...' : form.payment_type === 'cash' ? 'Record Cash Payment' : form.payment_type === 'cheque' ? 'Record Cheque' : 'Submit Online Payment'}
+              {saving ? 'Saving...' : form.payment_type === 'cash' ? 'Record Cash Payment' : form.payment_type === 'cheque' ? 'Record Cheque' : form.payment_type === 'vendor_transfer' ? 'Record Vendor Transfer' : 'Submit Online Payment'}
             </Button>
           </form>
 
@@ -642,6 +718,14 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
                 Customer pays directly via Easypaisa/JazzCash/bank transfer. It sits pending until an admin
                 verifies and approves it from the Pending Approvals tab — only then does the customer's
                 balance update.
+              </p>
+            </div>
+            <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5">
+              <h4 className="font-semibold text-indigo-800 text-sm mb-1.5">Vendor Transfer</h4>
+              <p className="text-sm text-indigo-900/80">
+                Customer's outstanding balance is settled by offsetting it against money we owe a vendor.
+                Auto-approved — balance updates immediately. Does <b>not</b> touch company cash or bank.
+                Visible in Recovery History and the Payments page under <b>Direct Transfers</b>.
               </p>
             </div>
           </div>
@@ -1135,6 +1219,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
             <span className="px-3 py-1.5 rounded-full bg-navy-chip text-navy">{historyStats.count} entries</span>
             <span className="px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700">Collected PKR {historyStats.total.toLocaleString()}</span>
             <span className="px-3 py-1.5 rounded-full bg-gray-100 text-gray-600">Cash {historyStats.cash.toLocaleString()} · Bank/online {historyStats.online.toLocaleString()}</span>
+            {historyStats.vendor > 0 && <span className="px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-700">Vendor Transfer PKR {historyStats.vendor.toLocaleString()}</span>}
             {historyStats.pending > 0 && <span className="px-3 py-1.5 rounded-full bg-orange/10 text-orange">Pending PKR {historyStats.pending.toLocaleString()}</span>}
           </div>
         </div>
@@ -1172,12 +1257,15 @@ export default function SalesmanRecovery({ initialTab, initialTabToken }) {
                       </td>
                       <td className="px-6 py-3.5">
                         <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                          t.payment_type === 'cash' ? 'bg-emerald-50 text-emerald-700' : t.payment_type === 'cheque' ? 'bg-amber-50 text-amber-700' : 'bg-navy-chip text-navy'
+                          t.payment_type === 'cash' ? 'bg-emerald-50 text-emerald-700'
+                          : t.payment_type === 'cheque' ? 'bg-amber-50 text-amber-700'
+                          : t.payment_type === 'vendor_transfer' ? 'bg-indigo-50 text-indigo-700'
+                          : 'bg-navy-chip text-navy'
                         }`}>
-                          {t.payment_type === 'cash' ? 'Cash' : t.payment_type === 'cheque' ? 'Cheque' : 'Online'}
+                          {t.payment_type === 'cash' ? 'Cash' : t.payment_type === 'cheque' ? 'Cheque' : t.payment_type === 'vendor_transfer' ? 'Direct Transfer' : 'Online'}
                         </span>
                       </td>
-                      <td className="px-6 py-3.5 text-gray-500 text-xs capitalize">{t.payment_method}</td>
+                      <td className="px-6 py-3.5 text-gray-500 text-xs capitalize">{t.payment_type === 'vendor_transfer' ? 'Vendor Transfer' : t.payment_method}</td>
                       <td className="px-6 py-3.5 text-right font-semibold text-navy">PKR {Number(t.amount).toLocaleString()}</td>
                       <td className="px-6 py-3.5"><PhotoButton url={t.photo_url} onOpen={setPhotoUrl} /></td>
                       <td className="px-6 py-3.5 text-center">
