@@ -26,6 +26,7 @@ const personKey = (kind, id) => (id ? `${kind}:${id}` : '');
 const personOf = (e) => {
   if (e.drivers) return { key: personKey('driver', e.driver_id), name: e.drivers.full_name, group: 'Driver' };
   if (e.salesmen) return { key: personKey('salesman', e.salesman_id), name: e.salesmen.full_name, group: 'Salesman' };
+  if (e.employees) return { key: personKey('employee', e.employee_id), name: e.employees.full_name, group: 'Employee' };
   if (e.expense_accounts) return { key: personKey('account', e.expense_account_id), name: e.expense_accounts.name, group: 'Account' };
   if (e.manufacturing_workers) return { key: personKey('worker', e.manufacturing_worker_id), name: e.manufacturing_workers.full_name, group: 'Worker' };
   return null;
@@ -56,6 +57,7 @@ export default function Expenses() {
   const [driversList, setDriversList] = useState([]);
   const [salesmenList, setSalesmenList] = useState([]);
   const [workersList, setWorkersList] = useState([]);
+  const [employeesList, setEmployeesList] = useState([]);
   const [suppliersList, setSuppliersList] = useState([]);
   const [accountsList, setAccountsList] = useState([]);
   const [tab, setTab] = useState('all');           // 'all' | 'person'
@@ -134,6 +136,21 @@ export default function Expenses() {
     };
     loadSalesmen();
     loadWorkers();
+  }, [selectedCity]);
+
+  useEffect(() => {
+    const loadEmployees = async () => {
+      try {
+        const companyFilter = selectedCity === 'all' ? null : selectedCity;
+        const data = companyFilter
+          ? (await api.get('/employees', { params: { company_id: companyFilter } })).data.data || []
+          : await fetchAllCities('/employees');
+        setEmployeesList(data);
+      } catch (err) {
+        setEmployeesList([]);
+      }
+    };
+    loadEmployees();
   }, [selectedCity]);
 
   // Powers the "Vendor" picker shown when Category = Raw Material Purchase.
@@ -251,6 +268,7 @@ export default function Expenses() {
       salesman_id: kind === 'salesman' ? id : null,
       expense_account_id: kind === 'account' ? id : null,
       manufacturing_worker_id: kind === 'worker' ? id : null,
+      employee_id: kind === 'employee' ? id : null,
     };
   };
 
@@ -342,6 +360,7 @@ export default function Expenses() {
   const getEmployeeLabel = (e) => {
     if (e.drivers) return `${e.drivers.full_name}${e.drivers.car_number ? ` — ${e.drivers.car_number}` : ''}`;
     if (e.salesmen) return e.salesmen.full_name;
+    if (e.employees) return `${e.employees.full_name}${e.employees.city ? ` — ${e.employees.city}` : ''}`;
     if (e.expense_accounts) return e.expense_accounts.name;
     if (e.manufacturing_workers) return e.manufacturing_workers.full_name;
     return '—';
@@ -502,10 +521,10 @@ export default function Expenses() {
               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white min-w-[220px]"
             >
               <option value="">All</option>
-              {['Driver', 'Salesman', 'Account', 'Worker'].map((g) => {
+              {['Driver', 'Salesman', 'Employee', 'Account', 'Worker'].map((g) => {
                 const list = personTotals.filter((p) => p.group === g);
                 return list.length ? (
-                  <optgroup key={g} label={g === 'Account' ? 'Expense Accounts' : g === 'Worker' ? 'Manufacturing Workers' : g + 's'}>
+                  <optgroup key={g} label={g === 'Account' ? 'Expense Accounts' : g === 'Worker' ? 'Manufacturing Workers' : g === 'Employee' ? 'HRM Employees' : g + 's'}>
                     {list.map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}
                   </optgroup>
                 ) : null;
@@ -621,6 +640,11 @@ export default function Expenses() {
                 {salesmenList.length > 0 && (
                   <optgroup label="Salesmen">
                     {salesmenList.map((s) => <option key={s.id} value={personKey('salesman', s.id)}>{s.full_name}</option>)}
+                  </optgroup>
+                )}
+                {employeesList.length > 0 && (
+                  <optgroup label="HRM Employees">
+                    {employeesList.map((emp) => <option key={emp.id} value={personKey('employee', emp.id)}>{emp.full_name}{emp.city ? ` — ${emp.city}` : ''}</option>)}
                   </optgroup>
                 )}
                 <optgroup label="Expense Accounts">

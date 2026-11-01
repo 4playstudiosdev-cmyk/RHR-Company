@@ -31,7 +31,15 @@ const getExpenses = async (req, res) => {
     // breaks mid-migration.
     // receipt_url (phase67) — photo of the bill. Tried first; if the column
     // hasn't been added yet this fails and the older lists below take over.
-    // expense_account_id (phase71) — the person/shop the expense was for. Tried first.
+    // expense_account_id (phase71) — the person/shop the expense was for.
+    // employee_id (phase75) — HRM employee the expense is tied to. Tried first.
+    try {
+      const data = await pgrestGetRaw(
+        `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),vehicle_id,vehicles(name,plate_number),fuel_price_per_liter,fuel_liters,bags_delivered,salesman_id,salesmen(full_name),manufacturing_worker_id,manufacturing_workers(full_name),supplier_id,suppliers(name),cash_amount,bank_amount,receipt_url,expense_account_id,expense_accounts(name),employee_id,employees(full_name,city),created_at&order=expense_date.desc${filterStr}`
+      );
+      return success(res, data);
+    } catch (eEmployee) { /* employee_id / phase75 not added yet */ }
+
     try {
       const data = await pgrestGetRaw(
         `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),vehicle_id,vehicles(name,plate_number),fuel_price_per_liter,fuel_liters,bags_delivered,salesman_id,salesmen(full_name),manufacturing_worker_id,manufacturing_workers(full_name),supplier_id,suppliers(name),cash_amount,bank_amount,receipt_url,expense_account_id,expense_accounts(name),created_at&order=expense_date.desc${filterStr}`
@@ -118,7 +126,7 @@ const createExpense = async (req, res) => {
       category, amount, description, expense_date, company_id, method, bank_account_id, driver_id,
       vehicle_id, fuel_price_per_liter, fuel_liters, bags_delivered,
       salesman_id, manufacturing_worker_id, supplier_id, cash_amount, bank_amount, receipt_url,
-      expense_account_id,
+      expense_account_id, employee_id,
     } = req.body;
     if (!category || !amount || Number(amount) <= 0)
       return error(res, 'category and a positive amount are required', 400);
@@ -143,6 +151,27 @@ const createExpense = async (req, res) => {
     };
 
     const resolvedMethod = method === 'split' ? 'split' : method === 'bank' ? 'bank' : 'cash';
+
+    if (employee_id) {
+      try {
+        const [data] = await pgrestPost('expenses', {
+          ...baseRow,
+          method: resolvedMethod,
+          bank_account_id: resolvedMethod !== 'cash' ? bank_account_id : null,
+          driver_id: driver_id || null,
+          salesman_id: salesman_id || null,
+          manufacturing_worker_id: manufacturing_worker_id || null,
+          supplier_id: supplier_id || null,
+          expense_account_id: expense_account_id || null,
+          employee_id,
+          cash_amount: resolvedMethod === 'split' ? Number(cash_amount) || 0 : null,
+          bank_amount: resolvedMethod === 'split' ? Number(bank_amount) || 0 : null,
+        });
+        return respondCreated(res, data, receipt_url);
+      } catch (e) {
+        return error(res, 'Could not save this expense for the employee — run sql/phase75_expense_hrm_employee.sql in Supabase first. (' + e.message + ')', 400);
+      }
+    }
 
     if (expense_account_id) {
       try {
