@@ -754,14 +754,10 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
     return Array.from(seen).sort();
   }, [visibleOrders]);
 
-  const counts = useMemo(() => {
-    const c = { all: visibleOrders.length };
-    STATUS_OPTIONS.forEach((s) => { c[s] = visibleOrders.filter((o) => o.status === s).length; });
-    return c;
-  }, [visibleOrders]);
-
-  const filtered = useMemo(() => {
-    let list = tab === 'all' ? visibleOrders : visibleOrders.filter((o) => o.status === tab);
+  // Pre-filtered list: source + salesman + area + search applied, but NOT tab.
+  // Tab counts are derived from this so they reflect the active filters.
+  const preFiltered = useMemo(() => {
+    let list = visibleOrders;
     if (sourceFilter !== 'all') {
       list = list.filter((o) =>
         sourceFilter === 'admin'
@@ -782,7 +778,17 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
       );
     }
     return list;
-  }, [visibleOrders, tab, sourceFilter, salesmanFilter, areaFilter, search]);
+  }, [visibleOrders, sourceFilter, salesmanFilter, areaFilter, search]);
+
+  const counts = useMemo(() => {
+    const c = { all: preFiltered.length };
+    STATUS_OPTIONS.forEach((s) => { c[s] = preFiltered.filter((o) => o.status === s).length; });
+    return c;
+  }, [preFiltered]);
+
+  const filtered = useMemo(() => {
+    return tab === 'all' ? preFiltered : preFiltered.filter((o) => o.status === tab);
+  }, [preFiltered, tab]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageOrders = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
