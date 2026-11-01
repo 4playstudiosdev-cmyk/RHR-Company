@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Wallet, Plus, Download, Trash2, Receipt, Camera, Image as ImageIcon, X, Users, List, UserPlus, ChevronDown, Search } from 'lucide-react';
@@ -549,7 +549,7 @@ export default function Expenses() {
           <div className="flex items-end justify-between flex-wrap gap-3 mb-4">
             <div>
               <h3 className="font-semibold text-navy text-sm">Who the money went to — {dateFrom && dateTo ? `${dateFrom} to ${dateTo}` : 'all time'}</h3>
-              <p className="text-xs text-gray-500 mt-0.5">Showing everyone together — pick a person to see only their expenses month by month and as a ledger. Use “All Time” in the date filter above for their full history.</p>
+              <p className="text-xs text-gray-500 mt-0.5">Showing everyone together — pick a person to see only their expenses month by month and as a ledger. Use "All Time" in the date filter above for their full history.</p>
             </div>
             <select
               value={personFilter}
@@ -663,34 +663,34 @@ export default function Expenses() {
                   <UserPlus size={12} /> New account
                 </button>
               </label>
-              <div className=”relative” ref={personDropdownRef}>
+              <div className="relative" ref={personDropdownRef}>
                 {/* Always-visible search input — click / type to open the list */}
-                <div className=”relative flex items-center”>
-                  <Search size={13} className=”absolute left-2.5 text-gray-400 pointer-events-none” />
+                <div className="relative flex items-center">
+                  <Search size={13} className="absolute left-2.5 text-gray-400 pointer-events-none" />
                   <input
-                    type=”text”
+                    type="text"
                     value={personDropdownOpen ? personSearch : (form.person ? (personLabelFor(form.person) || '') : '')}
-                    placeholder=”Search name…”
+                    placeholder="Search name…"
                     onFocus={() => { setPersonDropdownOpen(true); setPersonSearch(''); }}
                     onChange={(e) => { setPersonSearch(e.target.value); setPersonDropdownOpen(true); }}
-                    className=”w-full border border-gray-300 rounded-lg pl-8 pr-7 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white”
+                    className="w-full border border-gray-300 rounded-lg pl-8 pr-7 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
                   />
                   {form.person && !personDropdownOpen && (
-                    <button type=”button” onClick={() => setForm({ ...form, person: '' })}
-                      className=”absolute right-2 text-gray-400 hover:text-red-500”>
+                    <button type="button" onClick={() => setForm({ ...form, person: '' })}
+                      className="absolute right-2 text-gray-400 hover:text-red-500">
                       <X size={13} />
                     </button>
                   )}
                 </div>
                 {!form.person && !personDropdownOpen && (
-                  <p className=”text-[11px] text-gray-400 mt-1”>No person selected — expense will be recorded as general.</p>
+                  <p className="text-[11px] text-gray-400 mt-1">No person selected — expense will be recorded as general.</p>
                 )}
                 {personDropdownOpen && (
-                  <div className=”absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto”>
+                  <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
                     {(!personSearch || 'general'.includes(personSearch.toLowerCase())) && (
-                      <button type=”button”
+                      <button type="button"
                         onClick={() => { setForm({ ...form, person: '' }); setPersonDropdownOpen(false); }}
-                        className=”w-full text-left px-3 py-2 text-sm text-gray-400 italic hover:bg-gray-50 border-b border-gray-100”>
+                        className="w-full text-left px-3 py-2 text-sm text-gray-400 italic hover:bg-gray-50 border-b border-gray-100">
                         — General / not person-specific —
                       </button>
                     )}
@@ -707,9 +707,9 @@ export default function Expenses() {
                       if (!filtered.length) return null;
                       return (
                         <div key={label}>
-                          <p className=”px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-400 bg-gray-50 sticky top-0 border-b border-gray-100”>{label}</p>
+                          <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-400 bg-gray-50 sticky top-0 border-b border-gray-100">{label}</p>
                           {filtered.map((item) => (
-                            <button key={item.key} type=”button”
+                            <button key={item.key} type="button"
                               onClick={() => { setForm({ ...form, person: item.key }); setPersonDropdownOpen(false); }}
                               className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${form.person === item.key ? 'bg-navy-chip font-semibold text-navy' : 'text-gray-800'}`}>
                               {item.label}
