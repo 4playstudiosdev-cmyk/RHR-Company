@@ -8,7 +8,7 @@ const { notifyUser } = require('../services/notify.service');
 
 const createOrder = async (req, res) => {
   try {
-    const { items, notes, delivery_address, customer_id } = req.body;
+    const { items, notes, delivery_address, customer_id, company_id } = req.body;
     const user = req.user;
 
     if (!items || items.length === 0)
@@ -25,10 +25,15 @@ const createOrder = async (req, res) => {
       if (!rows?.[0] || rows[0].company_id !== user.company_id) return error(res, 'Customer not found', 404);
     }
 
+    // super_admin can create orders for any branch — use the company_id
+    // sent by the frontend (CityFilter selection). Falls back to the
+    // admin's own branch if not supplied (branch_admin, salesman, etc.)
+    const companyId = (user.role === 'super_admin' && company_id) ? company_id : user.company_id;
+
     const data = await svc.createOrder({
       customerId,
       salesmanId:      user.role === 'salesman' ? user.id : null,
-      companyId:       user.company_id,
+      companyId,
       items,
       notes,
       deliveryAddress: delivery_address,

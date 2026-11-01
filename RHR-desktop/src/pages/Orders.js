@@ -314,7 +314,8 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
         customer_id: orderForm.customer_id,
         items,
         delivery_address: orderForm.delivery_address,
-        notes: orderForm.notes
+        notes: orderForm.notes,
+        company_id: companyFilter,
       });
       toast.success('Order created.');
       setShowCreateOrder(false);
