@@ -27,6 +27,7 @@ const personOf = (e) => {
   if (e.drivers) return { key: personKey('driver', e.driver_id), name: e.drivers.full_name, group: 'Driver' };
   if (e.salesmen) return { key: personKey('salesman', e.salesman_id), name: e.salesmen.full_name, group: 'Salesman' };
   if (e.employees) return { key: personKey('employee', e.employee_id), name: e.employees.full_name, group: 'Employee' };
+  if (e.manufacturing_heads) return { key: personKey('head', e.manufacturing_head_id), name: e.manufacturing_heads.full_name, group: 'Head' };
   if (e.expense_accounts) return { key: personKey('account', e.expense_account_id), name: e.expense_accounts.name, group: 'Account' };
   if (e.manufacturing_workers) return { key: personKey('worker', e.manufacturing_worker_id), name: e.manufacturing_workers.full_name, group: 'Worker' };
   return null;
@@ -56,6 +57,7 @@ export default function Expenses() {
   const [bankAccounts, setBankAccounts] = useState([]);
   const [driversList, setDriversList] = useState([]);
   const [salesmenList, setSalesmenList] = useState([]);
+  const [headsList, setHeadsList] = useState([]);
   const [workersList, setWorkersList] = useState([]);
   const [employeesList, setEmployeesList] = useState([]);
   const [suppliersList, setSuppliersList] = useState([]);
@@ -137,8 +139,19 @@ export default function Expenses() {
         setWorkersList([]);
       }
     };
+    const loadHeads = async () => {
+      try {
+        const data = companyFilter
+          ? (await api.get('/manufacturing/heads', { params: { company_id: companyFilter } })).data.data || []
+          : await fetchAllCities('/manufacturing/heads');
+        setHeadsList(data);
+      } catch (err) {
+        setHeadsList([]);
+      }
+    };
     loadSalesmen();
     loadWorkers();
+    loadHeads();
   }, [selectedCity]);
 
   useEffect(() => {
@@ -213,6 +226,7 @@ export default function Expenses() {
     if (kind === 'driver')   { const d = driversList.find((x) => x.id === id);    return d ? d.full_name + (d.car_number ? ` — ${d.car_number}` : '') : ''; }
     if (kind === 'salesman') { const s = salesmenList.find((x) => x.id === id);   return s?.full_name || ''; }
     if (kind === 'employee') { const e = employeesList.find((x) => x.id === id);  return e ? e.full_name + (e.city ? ` — ${e.city}` : '') : ''; }
+    if (kind === 'head')     { const h = headsList.find((x) => x.id === id);      return h?.full_name || ''; }
     if (kind === 'account')  { const a = accountsList.find((x) => x.id === id);   return a?.name || ''; }
     if (kind === 'worker')   { const w = workersList.find((x) => x.id === id);    return w?.full_name || ''; }
     return '';
@@ -288,6 +302,7 @@ export default function Expenses() {
       salesman_id: kind === 'salesman' ? id : null,
       expense_account_id: kind === 'account' ? id : null,
       manufacturing_worker_id: kind === 'worker' ? id : null,
+      manufacturing_head_id: kind === 'head' ? id : null,
       employee_id: kind === 'employee' ? id : null,
     };
   };
@@ -381,6 +396,7 @@ export default function Expenses() {
     if (e.drivers) return `${e.drivers.full_name}${e.drivers.car_number ? ` — ${e.drivers.car_number}` : ''}`;
     if (e.salesmen) return e.salesmen.full_name;
     if (e.employees) return `${e.employees.full_name}${e.employees.city ? ` — ${e.employees.city}` : ''}`;
+    if (e.manufacturing_heads) return e.manufacturing_heads.full_name;
     if (e.expense_accounts) return e.expense_accounts.name;
     if (e.manufacturing_workers) return e.manufacturing_workers.full_name;
     return '—';
@@ -541,10 +557,11 @@ export default function Expenses() {
               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white min-w-[220px]"
             >
               <option value="">All</option>
-              {['Driver', 'Salesman', 'Employee', 'Account', 'Worker'].map((g) => {
+              {['Driver', 'Salesman', 'Employee', 'Head', 'Worker', 'Account'].map((g) => {
                 const list = personTotals.filter((p) => p.group === g);
+                const label = g === 'Account' ? 'Expense Accounts' : g === 'Worker' ? 'Manufacturing Workers' : g === 'Head' ? 'Manufacturing Heads' : g === 'Employee' ? 'HRM Employees' : g + 's';
                 return list.length ? (
-                  <optgroup key={g} label={g === 'Account' ? 'Expense Accounts' : g === 'Worker' ? 'Manufacturing Workers' : g === 'Employee' ? 'HRM Employees' : g + 's'}>
+                  <optgroup key={g} label={label}>
                     {list.map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}
                   </optgroup>
                 ) : null;
@@ -681,8 +698,9 @@ export default function Expenses() {
                       { label: 'Drivers', items: driversList.map((d) => ({ key: personKey('driver', d.id), label: d.full_name + (d.car_number ? ` — ${d.car_number}` : '') })) },
                       { label: 'Salesmen', items: salesmenList.map((s) => ({ key: personKey('salesman', s.id), label: s.full_name })) },
                       { label: 'HRM Employees', items: employeesList.map((emp) => ({ key: personKey('employee', emp.id), label: emp.full_name + (emp.city ? ` — ${emp.city}` : '') })) },
+                      { label: 'Manufacturing Heads', items: headsList.map((h) => ({ key: personKey('head', h.id), label: h.full_name })) },
+                      { label: 'Manufacturing Workers', items: workersList.map((w) => ({ key: personKey('worker', w.id), label: w.full_name })) },
                       { label: 'Expense Accounts', items: accountsList.map((a) => ({ key: personKey('account', a.id), label: a.name })) },
-                      ...(form.category === 'Salaries' ? [{ label: 'Manufacturing Workers', items: workersList.map((w) => ({ key: personKey('worker', w.id), label: w.full_name })) }] : []),
                     ].map(({ label, items }) => {
                       const q = personSearch.toLowerCase();
                       const filtered = q ? items.filter((i) => i.label.toLowerCase().includes(q) || label.toLowerCase().includes(q)) : items;
