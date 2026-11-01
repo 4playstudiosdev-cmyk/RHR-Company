@@ -447,6 +447,21 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
       );
       toast.success(`Order ${dispatchingOrder.order_number} dispatched.`);
       setShowDispatchModal(false);
+
+      // After dispatch, immediately open the invoice creation flow so the
+      // admin can edit the order, choose tax and add conveyance before the
+      // driver leaves — same as clicking "Create Invoice" manually.
+      try {
+        const detailRes = await api.get(`/orders/${dispatchingOrder.id}`);
+        setInvoiceOrder(detailRes.data.data);
+        setInvoiceStep(0);
+        setTaxChoice(null);
+        setWantsConveyance(false);
+        setConveyanceAmount('');
+        setConveyanceError('');
+      } catch (_) {
+        // invoice flow is optional — dispatch already succeeded
+      }
       setDispatchingOrder(null);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to dispatch order.');
