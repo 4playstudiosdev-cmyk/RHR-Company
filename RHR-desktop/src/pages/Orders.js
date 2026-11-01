@@ -309,13 +309,14 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
     }
 
     setCreating(true);
+    const orderCompanyId = selectedCity === 'all' ? defaultCity : selectedCity;
     try {
       await api.post('/orders', {
         customer_id: orderForm.customer_id,
         items,
         delivery_address: orderForm.delivery_address,
         notes: orderForm.notes,
-        company_id: companyFilter,
+        company_id: orderCompanyId,
       });
       toast.success('Order created.');
       setShowCreateOrder(false);
