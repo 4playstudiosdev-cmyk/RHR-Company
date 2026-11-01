@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Wallet, Plus, Download, Trash2, Receipt, Camera, Image as ImageIcon, X, Users, List, UserPlus } from 'lucide-react';
+import { Wallet, Plus, Download, Trash2, Receipt, Camera, Image as ImageIcon, X, Users, List, UserPlus, ChevronDown, Search } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
@@ -72,6 +72,9 @@ export default function Expenses() {
   const [receiptPreview, setReceiptPreview] = useState('');
   const [viewReceipt, setViewReceipt] = useState(null);
   const receiptInputRef = useRef(null);
+  const personDropdownRef = useRef(null);
+  const [personSearch, setPersonSearch] = useState('');
+  const [personDropdownOpen, setPersonDropdownOpen] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
@@ -196,6 +199,23 @@ export default function Expenses() {
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to add the account.');
     }
+  };
+
+  useEffect(() => {
+    const onOutside = (e) => { if (personDropdownRef.current && !personDropdownRef.current.contains(e.target)) setPersonDropdownOpen(false); };
+    document.addEventListener('mousedown', onOutside);
+    return () => document.removeEventListener('mousedown', onOutside);
+  }, []);
+
+  const personLabelFor = (key) => {
+    if (!key) return '';
+    const [kind, id] = key.split(':');
+    if (kind === 'driver')   { const d = driversList.find((x) => x.id === id);    return d ? d.full_name + (d.car_number ? ` — ${d.car_number}` : '') : ''; }
+    if (kind === 'salesman') { const s = salesmenList.find((x) => x.id === id);   return s?.full_name || ''; }
+    if (kind === 'employee') { const e = employeesList.find((x) => x.id === id);  return e ? e.full_name + (e.city ? ` — ${e.city}` : '') : ''; }
+    if (kind === 'account')  { const a = accountsList.find((x) => x.id === id);   return a?.name || ''; }
+    if (kind === 'worker')   { const w = workersList.find((x) => x.id === id);    return w?.full_name || ''; }
+    return '';
   };
 
   const loadExpenses = async () => {
@@ -626,38 +646,67 @@ export default function Expenses() {
                   <UserPlus size={12} /> New account
                 </button>
               </label>
-              <select
-                value={form.person}
-                onChange={(e) => setForm({ ...form, person: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-              >
-                <option value="">— General / not person-specific —</option>
-                {driversList.length > 0 && (
-                  <optgroup label="Drivers">
-                    {driversList.map((d) => <option key={d.id} value={personKey('driver', d.id)}>{d.full_name}{d.car_number ? ` — ${d.car_number}` : ''}</option>)}
-                  </optgroup>
+              <div className=”relative” ref={personDropdownRef}>
+                <button
+                  type=”button”
+                  onClick={() => { setPersonDropdownOpen((o) => !o); setPersonSearch(''); }}
+                  className=”w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white”
+                >
+                  <span className={form.person ? 'text-gray-800 truncate' : 'text-gray-400'}>
+                    {form.person ? (personLabelFor(form.person) || '—') : '— General / not person-specific —'}
+                  </span>
+                  <ChevronDown size={14} className=”text-gray-400 flex-shrink-0” />
+                </button>
+                {personDropdownOpen && (
+                  <div className=”absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden”>
+                    <div className=”p-2 border-b border-gray-100 flex items-center gap-2”>
+                      <Search size={13} className=”text-gray-400 flex-shrink-0” />
+                      <input
+                        type=”text”
+                        value={personSearch}
+                        onChange={(e) => setPersonSearch(e.target.value)}
+                        placeholder=”Search...”
+                        autoFocus
+                        className=”flex-1 text-sm outline-none bg-transparent placeholder-gray-400”
+                      />
+                    </div>
+                    <div className=”max-h-56 overflow-y-auto”>
+                      {(!personSearch || 'general'.includes(personSearch.toLowerCase())) && (
+                        <button type=”button”
+                          onClick={() => { setForm({ ...form, person: '' }); setPersonDropdownOpen(false); }}
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${!form.person ? 'bg-navy-chip font-semibold text-navy' : 'text-gray-400 italic'}`}>
+                          — General / not person-specific —
+                        </button>
+                      )}
+                      {[
+                        { label: 'Drivers', items: driversList.map((d) => ({ key: personKey('driver', d.id), label: d.full_name + (d.car_number ? ` — ${d.car_number}` : '') })) },
+                        { label: 'Salesmen', items: salesmenList.map((s) => ({ key: personKey('salesman', s.id), label: s.full_name })) },
+                        { label: 'HRM Employees', items: employeesList.map((emp) => ({ key: personKey('employee', emp.id), label: emp.full_name + (emp.city ? ` — ${emp.city}` : '') })) },
+                        { label: 'Expense Accounts', items: accountsList.map((a) => ({ key: personKey('account', a.id), label: a.name })) },
+                        ...(form.category === 'Salaries' ? [{ label: 'Manufacturing Workers', items: workersList.map((w) => ({ key: personKey('worker', w.id), label: w.full_name })) }] : []),
+                      ].map(({ label, items }) => {
+                        const q = personSearch.toLowerCase();
+                        const filtered = q ? items.filter((i) => i.label.toLowerCase().includes(q) || label.toLowerCase().includes(q)) : items;
+                        if (!filtered.length) return null;
+                        return (
+                          <div key={label}>
+                            <p className=”px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-400 bg-gray-50 border-t border-gray-100”>{label}</p>
+                            {filtered.map((item) => (
+                              <button key={item.key} type=”button”
+                                onClick={() => { setForm({ ...form, person: item.key }); setPersonDropdownOpen(false); }}
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${form.person === item.key ? 'bg-navy-chip font-semibold text-navy' : 'text-gray-800'}`}>
+                                {item.label}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
-                {salesmenList.length > 0 && (
-                  <optgroup label="Salesmen">
-                    {salesmenList.map((s) => <option key={s.id} value={personKey('salesman', s.id)}>{s.full_name}</option>)}
-                  </optgroup>
-                )}
-                {employeesList.length > 0 && (
-                  <optgroup label="HRM Employees">
-                    {employeesList.map((emp) => <option key={emp.id} value={personKey('employee', emp.id)}>{emp.full_name}{emp.city ? ` — ${emp.city}` : ''}</option>)}
-                  </optgroup>
-                )}
-                <optgroup label="Expense Accounts">
-                  {accountsList.map((a) => <option key={a.id} value={personKey('account', a.id)}>{a.name}</option>)}
-                </optgroup>
-                {form.category === 'Salaries' && workersList.length > 0 && (
-                  <optgroup label="Manufacturing Workers">
-                    {workersList.map((w) => <option key={w.id} value={personKey('worker', w.id)}>{w.full_name}</option>)}
-                  </optgroup>
-                )}
-              </select>
+              </div>
               {accountsList.length === 0 && (
-                <p className="text-xs text-gray-400 mt-1">No expense accounts yet — add one with “New account”.</p>
+                <p className=”text-xs text-gray-400 mt-1”>No expense accounts yet — add one with “New account”.</p>
               )}
             </div>
             <div>
