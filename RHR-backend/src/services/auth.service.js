@@ -678,7 +678,7 @@ async function releaseSessionLock(userId) {
 async function loginSalesmanWithEmail({ email, password }) {
   const rows = await pgrestGet('salesmen', {
     select: '*',
-    email: `eq.${email}`,
+    email: `ilike.${email}`,
   }).catch(() => []);
 
   const salesman = rows?.[0];
