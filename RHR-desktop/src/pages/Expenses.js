@@ -647,67 +647,62 @@ export default function Expenses() {
                 </button>
               </label>
               <div className=”relative” ref={personDropdownRef}>
-                <button
-                  type=”button”
-                  onClick={() => { setPersonDropdownOpen((o) => !o); setPersonSearch(''); }}
-                  className=”w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm text-left flex items-center justify-between gap-2 focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white”
-                >
-                  <span className={form.person ? 'text-gray-800 truncate' : 'text-gray-400'}>
-                    {form.person ? (personLabelFor(form.person) || '—') : '— General / not person-specific —'}
-                  </span>
-                  <ChevronDown size={14} className=”text-gray-400 flex-shrink-0” />
-                </button>
+                {/* Always-visible search input — click / type to open the list */}
+                <div className=”relative flex items-center”>
+                  <Search size={13} className=”absolute left-2.5 text-gray-400 pointer-events-none” />
+                  <input
+                    type=”text”
+                    value={personDropdownOpen ? personSearch : (form.person ? (personLabelFor(form.person) || '') : '')}
+                    placeholder=”Search name…”
+                    onFocus={() => { setPersonDropdownOpen(true); setPersonSearch(''); }}
+                    onChange={(e) => { setPersonSearch(e.target.value); setPersonDropdownOpen(true); }}
+                    className=”w-full border border-gray-300 rounded-lg pl-8 pr-7 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white”
+                  />
+                  {form.person && !personDropdownOpen && (
+                    <button type=”button” onClick={() => setForm({ ...form, person: '' })}
+                      className=”absolute right-2 text-gray-400 hover:text-red-500”>
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+                {!form.person && !personDropdownOpen && (
+                  <p className=”text-[11px] text-gray-400 mt-1”>No person selected — expense will be recorded as general.</p>
+                )}
                 {personDropdownOpen && (
-                  <div className=”absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden”>
-                    <div className=”p-2 border-b border-gray-100 flex items-center gap-2”>
-                      <Search size={13} className=”text-gray-400 flex-shrink-0” />
-                      <input
-                        type=”text”
-                        value={personSearch}
-                        onChange={(e) => setPersonSearch(e.target.value)}
-                        placeholder=”Search...”
-                        autoFocus
-                        className=”flex-1 text-sm outline-none bg-transparent placeholder-gray-400”
-                      />
-                    </div>
-                    <div className=”max-h-56 overflow-y-auto”>
-                      {(!personSearch || 'general'.includes(personSearch.toLowerCase())) && (
-                        <button type=”button”
-                          onClick={() => { setForm({ ...form, person: '' }); setPersonDropdownOpen(false); }}
-                          className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${!form.person ? 'bg-navy-chip font-semibold text-navy' : 'text-gray-400 italic'}`}>
-                          — General / not person-specific —
-                        </button>
-                      )}
-                      {[
-                        { label: 'Drivers', items: driversList.map((d) => ({ key: personKey('driver', d.id), label: d.full_name + (d.car_number ? ` — ${d.car_number}` : '') })) },
-                        { label: 'Salesmen', items: salesmenList.map((s) => ({ key: personKey('salesman', s.id), label: s.full_name })) },
-                        { label: 'HRM Employees', items: employeesList.map((emp) => ({ key: personKey('employee', emp.id), label: emp.full_name + (emp.city ? ` — ${emp.city}` : '') })) },
-                        { label: 'Expense Accounts', items: accountsList.map((a) => ({ key: personKey('account', a.id), label: a.name })) },
-                        ...(form.category === 'Salaries' ? [{ label: 'Manufacturing Workers', items: workersList.map((w) => ({ key: personKey('worker', w.id), label: w.full_name })) }] : []),
-                      ].map(({ label, items }) => {
-                        const q = personSearch.toLowerCase();
-                        const filtered = q ? items.filter((i) => i.label.toLowerCase().includes(q) || label.toLowerCase().includes(q)) : items;
-                        if (!filtered.length) return null;
-                        return (
-                          <div key={label}>
-                            <p className=”px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-400 bg-gray-50 border-t border-gray-100”>{label}</p>
-                            {filtered.map((item) => (
-                              <button key={item.key} type=”button”
-                                onClick={() => { setForm({ ...form, person: item.key }); setPersonDropdownOpen(false); }}
-                                className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${form.person === item.key ? 'bg-navy-chip font-semibold text-navy' : 'text-gray-800'}`}>
-                                {item.label}
-                              </button>
-                            ))}
-                          </div>
-                        );
-                      })}
-                    </div>
+                  <div className=”absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto”>
+                    {(!personSearch || 'general'.includes(personSearch.toLowerCase())) && (
+                      <button type=”button”
+                        onClick={() => { setForm({ ...form, person: '' }); setPersonDropdownOpen(false); }}
+                        className=”w-full text-left px-3 py-2 text-sm text-gray-400 italic hover:bg-gray-50 border-b border-gray-100”>
+                        — General / not person-specific —
+                      </button>
+                    )}
+                    {[
+                      { label: 'Drivers', items: driversList.map((d) => ({ key: personKey('driver', d.id), label: d.full_name + (d.car_number ? ` — ${d.car_number}` : '') })) },
+                      { label: 'Salesmen', items: salesmenList.map((s) => ({ key: personKey('salesman', s.id), label: s.full_name })) },
+                      { label: 'HRM Employees', items: employeesList.map((emp) => ({ key: personKey('employee', emp.id), label: emp.full_name + (emp.city ? ` — ${emp.city}` : '') })) },
+                      { label: 'Expense Accounts', items: accountsList.map((a) => ({ key: personKey('account', a.id), label: a.name })) },
+                      ...(form.category === 'Salaries' ? [{ label: 'Manufacturing Workers', items: workersList.map((w) => ({ key: personKey('worker', w.id), label: w.full_name })) }] : []),
+                    ].map(({ label, items }) => {
+                      const q = personSearch.toLowerCase();
+                      const filtered = q ? items.filter((i) => i.label.toLowerCase().includes(q) || label.toLowerCase().includes(q)) : items;
+                      if (!filtered.length) return null;
+                      return (
+                        <div key={label}>
+                          <p className=”px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-400 bg-gray-50 sticky top-0 border-b border-gray-100”>{label}</p>
+                          {filtered.map((item) => (
+                            <button key={item.key} type=”button”
+                              onClick={() => { setForm({ ...form, person: item.key }); setPersonDropdownOpen(false); }}
+                              className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${form.person === item.key ? 'bg-navy-chip font-semibold text-navy' : 'text-gray-800'}`}>
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
-              {accountsList.length === 0 && (
-                <p className=”text-xs text-gray-400 mt-1”>No expense accounts yet — add one with “New account”.</p>
-              )}
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
