@@ -632,12 +632,6 @@ export default function RawMaterials() {
                         ) : (
                           <div className="flex items-center gap-3">
                             <button
-                              onClick={() => openAddStock(m)}
-                              className="text-xs font-medium text-navy hover:underline"
-                            >
-                              + Add Stock
-                            </button>
-                            <button
                               onClick={() => openConversionModal(m)}
                               className="text-navy hover:bg-navy/10 p-1.5 rounded-lg transition-colors"
                               title="Unit Conversion"
