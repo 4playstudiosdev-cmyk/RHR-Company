@@ -54,11 +54,14 @@ const createBankAccount = async (req, res) => {
 // row carries a `type` of 'payment' or 'expense' so the UI can tell them
 // apart — this is a read-only view over those two tables, not a
 // separate ledger.
+// Cash payments (method='cash') are included and tagged under the
+// "Cash in Hand" virtual account so the Bank page can show a cash total.
 const getBankTransactions = async (req, res) => {
   try {
     const companyId = resolveCompanyId(req);
     const { from, to } = req.query;
 
+    // ── Bank-transfer payments (bank_account_id set) ──
     const paymentParts = [
       'select=id,amount,method,created_at,customer:users!customer_id(full_name),salesman:salesmen!salesman_id(full_name),bank_accounts(account_name,bank_name,account_number)',
       'bank_account_id=not.is.null',
@@ -74,7 +77,28 @@ const getBankTransactions = async (req, res) => {
       payments = await pgrestGetRaw(`payments?${paymentParts.join('&')}`);
     } catch (e) { /* bank_account_id is a phase18 addition */ }
 
-    // Cheques cleared into a bank account (salesman_recoveries, phase72) are money IN too.
+    // ── Cash payments (no bank_account_id) — tagged as "Cash in Hand" ──
+    const cashParts = [
+      'select=id,amount,method,created_at,customer:users!customer_id(full_name),salesman:salesmen!salesman_id(full_name)',
+      'bank_account_id=is.null',
+      'method=eq.cash',
+      'status=eq.approved',
+      'order=created_at.desc',
+    ];
+    if (companyId) cashParts.push(`company_id=eq.${companyId}`);
+    if (from) cashParts.push(`created_at=gte.${from}T00:00:00`);
+    if (to)   cashParts.push(`created_at=lte.${to}T23:59:59`);
+
+    let cashPayments = [];
+    try {
+      const raw = await pgrestGetRaw(`payments?${cashParts.join('&')}`);
+      cashPayments = (raw || []).map((p) => ({
+        ...p,
+        bank_accounts: { account_name: 'Cash in Hand', bank_name: 'Cash', account_number: '' },
+      }));
+    } catch (e) { /* ignore */ }
+
+    // ── Cheques cleared into a bank account (salesman_recoveries, phase72) ──
     let chequeIn = [];
     try {
       const chequeParts = [
@@ -88,6 +112,7 @@ const getBankTransactions = async (req, res) => {
       chequeIn = await pgrestGetRaw(`salesman_recoveries?${chequeParts.join('&')}`);
     } catch (e) { /* phase72 not run yet */ }
 
+    // ── Expenses paid from a bank account (debit) ──
     const expenseParts = [
       'select=id,amount,method,category,description,expense_date,bank_accounts(account_name,bank_name,account_number),cash_amount,bank_amount',
       'bank_account_id=not.is.null',
@@ -101,7 +126,6 @@ const getBankTransactions = async (req, res) => {
     try {
       expenses = await pgrestGetRaw(`expenses?${expenseParts.join('&')}`);
     } catch (e) {
-      // cash_amount/bank_amount is a phase46 addition — fall back without it.
       try {
         expenses = await pgrestGetRaw(`expenses?${expenseParts.join('&').replace(',cash_amount,bank_amount', '')}`);
       } catch (e2) { /* bank_account_id is a phase24 addition */ }
@@ -109,10 +133,8 @@ const getBankTransactions = async (req, res) => {
 
     const merged = [
       ...(payments || []).map((p) => ({ ...p, type: 'payment' })),
+      ...(cashPayments || []).map((p) => ({ ...p, type: 'payment' })),
       ...(chequeIn || []).map((c) => ({ ...c, type: 'payment', method: 'cheque', created_at: c.cleared_at })),
-      // A 'split' expense's amount field is the FULL purchase (cash +
-      // bank) — only the bank_amount portion actually moved through this
-      // bank account, so that's what belongs in a bank statement view.
       ...(expenses || []).map((e) => ({
         ...e,
         type: 'expense',

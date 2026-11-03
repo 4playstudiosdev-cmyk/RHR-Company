@@ -141,17 +141,32 @@ export default function Bank() {
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Account Number</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Bank</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Branch</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Balance</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {accounts.map((a, i) => (
-                    <tr key={a.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                      <td className="px-6 py-3.5 font-medium text-navy">{a.account_name}</td>
-                      <td className="px-6 py-3.5 text-gray-600">{a.account_number}</td>
-                      <td className="px-6 py-3.5 text-gray-600">{a.bank_name}</td>
-                      <td className="px-6 py-3.5 text-gray-500">{a.branch_name || '—'}</td>
-                    </tr>
-                  ))}
+                  {accounts.map((a, i) => {
+                    const acctTxns = transactions.filter((t) => t.bank_accounts?.account_name === a.account_name);
+                    const totalIn  = acctTxns.filter((t) => t.type !== 'expense').reduce((s, t) => s + Number(t.amount || 0), 0);
+                    const totalOut = acctTxns.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount || 0), 0);
+                    const bal = totalIn - totalOut;
+                    return (
+                      <tr key={a.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                        <td className="px-6 py-3.5 font-medium text-navy">{a.account_name}</td>
+                        <td className="px-6 py-3.5 text-gray-600">{a.account_number}</td>
+                        <td className="px-6 py-3.5 text-gray-600">{a.bank_name}</td>
+                        <td className="px-6 py-3.5 text-gray-500">{a.branch_name || '—'}</td>
+                        <td className="px-6 py-3.5 text-right">
+                          <p className={`font-bold text-sm ${bal >= 0 ? 'text-green-700' : 'text-red-600'}`}>PKR {Math.abs(bal).toLocaleString()}</p>
+                          {acctTxns.length > 0 && (
+                            <p className="text-[10px] text-gray-400 mt-0.5">
+                              +{totalIn.toLocaleString()} in &nbsp;·&nbsp; −{totalOut.toLocaleString()} out
+                            </p>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
