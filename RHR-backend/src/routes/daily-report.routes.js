@@ -212,7 +212,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         total_sale_bags: totalSaleBags,
         total_sale_kg: totalSaleKg,
         total_sales: totalSales,
-        profit: totalSales - totalProdCost - totalExpenses,
+        profit: totalSales - totalProdCost,
       },
     });
   } catch (err) { return error(res, err.message); }

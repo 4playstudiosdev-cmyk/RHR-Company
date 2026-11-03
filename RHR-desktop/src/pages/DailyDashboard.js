@@ -128,8 +128,7 @@ export default function DailyDashboard() {
               </h3>
               {[
                 { label: 'Sales Revenue', value: fmt(data?.financial?.total_sales), color: 'text-green-700' },
-                { label: 'Production Cost (COGS)', value: `- ${fmt(data?.financial?.total_production_cost)}`, color: 'text-red-700' },
-                { label: 'Expenses', value: `- ${fmt(data?.financial?.total_expenses)}`, color: 'text-red-700' },
+                { label: 'Production Cost (incl. expenses & overhead)', value: `- ${fmt(data?.financial?.total_production_cost)}`, color: 'text-red-700' },
               ].map((row) => (
                 <div key={row.label} className="flex justify-between items-center pb-2.5 mb-2.5 border-b border-gray-100">
                   <span className="text-sm text-gray-600">{row.label}</span>

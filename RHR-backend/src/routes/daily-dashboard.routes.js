@@ -127,7 +127,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
     // are wired into that cost calculation, this may read as 0 — it's not
     // a dashboard bug, the source figure itself isn't populated yet.
     const totalProductionCost = productionData.reduce((s, p) => s + Number(p.total_cost || 0), 0);
-    const dailyProfit = totalSales - totalProductionCost - totalExpenses;
+    const dailyProfit = totalSales - totalProductionCost;
 
     // ── LOW STOCK ALERTS
     const lowRawMaterials = rawMatsData.filter((m) =>
