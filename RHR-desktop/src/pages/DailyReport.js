@@ -203,7 +203,7 @@ async function buildDailyReportPdf(reportDate, data) {
     const isCashInHand = i === sumLeft.length - 1;
     doc.setFont('helvetica', isCashInHand ? 'bold' : 'normal');
     doc.setFontSize(isCashInHand ? 9 : 8);
-    doc.setTextColor(isCashInHand ? ...NAVY : ...[60, 60, 60]);
+    if (isCashInHand) { doc.setTextColor(...NAVY); } else { doc.setTextColor(60, 60, 60); }
     doc.text(label, M + 4, rowY);
     doc.text(val, colMid - 4, rowY, { align: 'right' });
     if (isCashInHand) {
@@ -219,7 +219,7 @@ async function buildDailyReportPdf(reportDate, data) {
     const isProfit = i === sumRight.length - 1;
     doc.setFont('helvetica', isProfit ? 'bold' : 'normal');
     doc.setFontSize(isProfit ? 9 : 8);
-    doc.setTextColor(isProfit ? ...ORANGE : ...[60, 60, 60]);
+    if (isProfit) { doc.setTextColor(...ORANGE); } else { doc.setTextColor(60, 60, 60); }
     doc.text(label, colMid + 4, rowY);
     doc.text(val, PAGE_W - M - 4, rowY, { align: 'right' });
     rowY += 7;
