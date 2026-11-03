@@ -232,4 +232,239 @@ const getExpensesReport = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { exportReport, getOutstanding, getPurchasesReport, getExpensesReport };
+// GET /reports/sale-detail?from=&to=&customer_id=&salesman_id=&product=&company_id=
+const getSaleReport = async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const { from, to, customer_id, salesman_id, product } = req.query;
+
+    let q = supabaseAdmin
+      .from('orders')
+      .select('id,order_number,total_amount,created_at,users!customer_id(id,full_name,shop_name),salesmen(id,full_name),order_items(id,product_name,quantity,unit_price,subtotal,products(unit))')
+      .neq('status', 'cancelled')
+      .is('invoice_deleted_at', null)
+      .order('created_at', { ascending: false });
+
+    if (companyId) q = q.eq('company_id', companyId);
+    if (from) q = q.gte('created_at', `${from}T00:00:00`);
+    if (to)   q = q.lte('created_at', `${to}T23:59:59`);
+    if (customer_id) q = q.eq('customer_id', customer_id);
+    if (salesman_id) q = q.eq('salesman_id', salesman_id);
+
+    const { data: orders, error: qErr } = await q;
+    if (qErr) throw new Error(qErr.message);
+
+    // Flatten to per-item rows
+    let rows = [];
+    (orders || []).forEach((o) => {
+      (o.order_items || []).forEach((item) => {
+        if (product && !item.product_name?.toLowerCase().includes(product.toLowerCase())) return;
+        rows.push({
+          date: o.created_at,
+          order_number: o.order_number,
+          customer: o.users?.shop_name || o.users?.full_name || '—',
+          salesman: o.salesmen?.full_name || '—',
+          product_name: item.product_name,
+          unit: item.products?.unit || '—',
+          quantity: Number(item.quantity),
+          unit_price: Number(item.unit_price),
+          subtotal: Number(item.subtotal),
+        });
+      });
+    });
+
+    const totalQty = rows.reduce((s, r) => s + r.quantity, 0);
+    const grandTotal = rows.reduce((s, r) => s + r.subtotal, 0);
+    return success(res, { rows, total_qty: totalQty, grand_total: grandTotal });
+  } catch (err) { return error(res, err.message); }
+};
+
+// GET /reports/customer-summary?company_id=
+const getCustomerSummary = async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    let q = supabaseAdmin
+      .from('users')
+      .select('id,full_name,shop_name,phone,salesman_id,salesmen(full_name)')
+      .eq('role', 'customer')
+      .eq('is_approved', true)
+      .order('full_name');
+    if (companyId) q = q.eq('company_id', companyId);
+    const { data: customers } = await q;
+
+    const rows = await Promise.all((customers || []).map(async (c) => {
+      const [salesRes, payRes, ledgerRes] = await Promise.all([
+        supabaseAdmin.from('orders').select('total_amount').eq('customer_id', c.id).neq('status', 'cancelled'),
+        supabaseAdmin.from('payments').select('amount').eq('customer_id', c.id).eq('status', 'approved'),
+        supabaseAdmin.from('ledger_entries').select('running_balance').eq('customer_id', c.id).order('created_at', { ascending: false }).limit(1),
+      ]);
+      const totalSales = (salesRes.data || []).reduce((s, o) => s + Number(o.total_amount), 0);
+      const totalRecovery = (payRes.data || []).reduce((s, p) => s + Number(p.amount), 0);
+      const currentBalance = ledgerRes.data?.[0]?.running_balance || 0;
+      return {
+        customer_id: c.id,
+        full_name: c.full_name,
+        shop_name: c.shop_name,
+        phone: c.phone,
+        salesman: c.salesmen?.full_name || '—',
+        total_sales: totalSales,
+        total_recovery: totalRecovery,
+        current_balance: currentBalance,
+      };
+    }));
+
+    return success(res, rows);
+  } catch (err) { return error(res, err.message); }
+};
+
+// GET /reports/customer-ledger/:id?from=&to=
+const getCustomerLedger = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { from, to } = req.query;
+    let q = supabaseAdmin
+      .from('ledger_entries')
+      .select('id,entry_type,debit,credit,running_balance,description,created_at,order_id,payment_id')
+      .eq('customer_id', id)
+      .order('created_at', { ascending: true });
+    if (from) q = q.gte('created_at', `${from}T00:00:00`);
+    if (to)   q = q.lte('created_at', `${to}T23:59:59`);
+    const { data, error: qErr } = await q;
+    if (qErr) throw new Error(qErr.message);
+    return success(res, data || []);
+  } catch (err) { return error(res, err.message); }
+};
+
+// GET /reports/vendor-summary?company_id=
+const getVendorSummary = async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const parts = [
+      'select=supplier_name,quantity,price_per_unit,logged_date',
+      'quantity=gt.0',
+      'supplier_name=not.is.null',
+    ];
+    if (companyId) parts.push(`company_id=eq.${companyId}`);
+    const rows = await pgrestGetRaw(`raw_material_stock_logs?${parts.join('&')}`);
+
+    const map = new Map();
+    (rows || []).forEach((r) => {
+      const key = r.supplier_name;
+      if (!map.has(key)) map.set(key, { supplier_name: key, total_purchases: 0, transaction_count: 0 });
+      const g = map.get(key);
+      if (r.price_per_unit != null) g.total_purchases += Number(r.quantity) * Number(r.price_per_unit);
+      g.transaction_count += 1;
+    });
+
+    const vendors = Array.from(map.values()).sort((a, b) => b.total_purchases - a.total_purchases);
+    return success(res, vendors);
+  } catch (err) { return success(res, []); }
+};
+
+// GET /reports/vendor-ledger?vendor=<name>&from=&to=&company_id=
+const getVendorLedger = async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const { vendor, from, to } = req.query;
+    if (!vendor) return error(res, 'vendor name required', 400);
+
+    const parts = [
+      'select=id,quantity,price_per_unit,logged_date,note,purchase_id,raw_materials(name,unit)',
+      'quantity=gt.0',
+      `supplier_name=eq.${encodeURIComponent(vendor)}`,
+    ];
+    if (companyId) parts.push(`company_id=eq.${companyId}`);
+    if (from) parts.push(`logged_date=gte.${from}`);
+    if (to)   parts.push(`logged_date=lte.${to}`);
+
+    const rows = await pgrestGetRaw(`raw_material_stock_logs?${parts.join('&')}&order=logged_date.asc`);
+    let running = 0;
+    const ledger = (rows || []).map((r) => {
+      const amount = r.price_per_unit != null ? Number(r.quantity) * Number(r.price_per_unit) : 0;
+      running += amount;
+      return {
+        date: r.logged_date,
+        description: `${r.raw_materials?.name || 'Item'} — ${r.quantity} ${r.raw_materials?.unit || ''}${r.note ? ` (${r.note})` : ''}`,
+        debit: amount,
+        credit: 0,
+        running_balance: running,
+      };
+    });
+    return success(res, ledger);
+  } catch (err) { return success(res, []); }
+};
+
+// GET /reports/recovery?from=&to=&customer_id=&salesman_id=&method=&status=&company_id=
+const getRecoveryReport = async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const { from, to, customer_id, salesman_id, method, status } = req.query;
+
+    // Regular payments
+    let pq = supabaseAdmin
+      .from('payments')
+      .select('id,amount,method,status,created_at,notes,bank_account_id,bank_accounts(account_name,bank_name),users!customer_id(full_name,shop_name),salesmen(full_name)')
+      .order('created_at', { ascending: false });
+    if (companyId) pq = pq.eq('company_id', companyId);
+    if (from) pq = pq.gte('created_at', `${from}T00:00:00`);
+    if (to)   pq = pq.lte('created_at', `${to}T23:59:59`);
+    if (customer_id) pq = pq.eq('customer_id', customer_id);
+    if (salesman_id) pq = pq.eq('salesman_id', salesman_id);
+    if (method && method !== 'all') pq = pq.eq('method', method);
+    if (status && status !== 'all') pq = pq.eq('status', status);
+    const { data: payments } = await pq;
+
+    // Salesman recoveries (cheques)
+    let chequeParts = [
+      'select=id,amount,method,status,created_at,notes,cheque_number,cheque_bank,cheque_date,cleared_at,cleared_bank_account_id,bank_accounts:bank_accounts!cleared_bank_account_id(account_name,bank_name),customer:users!customer_id(full_name,shop_name),salesman:salesmen!salesman_id(full_name)',
+      'order=created_at.desc',
+    ];
+    if (companyId) chequeParts.push(`company_id=eq.${companyId}`);
+    if (from) chequeParts.push(`created_at=gte.${from}T00:00:00`);
+    if (to)   chequeParts.push(`created_at=lte.${to}T23:59:59`);
+    if (customer_id) chequeParts.push(`customer_id=eq.${customer_id}`);
+    if (salesman_id) chequeParts.push(`salesman_id=eq.${salesman_id}`);
+    if (status && status !== 'all') chequeParts.push(`status=eq.${status}`);
+
+    let cheques = [];
+    try {
+      cheques = await pgrestGetRaw(`salesman_recoveries?${chequeParts.join('&')}`);
+      if (method && method !== 'all' && method !== 'cheque') cheques = [];
+    } catch (e) { /* phase72 not run */ }
+
+    const merged = [
+      ...(payments || []).map((p) => ({
+        id: p.id,
+        date: p.created_at,
+        customer: p.users?.shop_name || p.users?.full_name || '—',
+        salesman: p.salesmen?.full_name || '—',
+        method: p.method,
+        deposit_to: p.bank_accounts ? `${p.bank_accounts.account_name} — ${p.bank_accounts.bank_name}` : (p.method === 'cash' ? 'Cash' : '—'),
+        cheque_number: '—',
+        cheque_date: '—',
+        status: p.status,
+        amount: Number(p.amount),
+        source: 'payment',
+      })),
+      ...(cheques || []).map((c) => ({
+        id: c.id,
+        date: c.created_at,
+        customer: c.customer?.shop_name || c.customer?.full_name || '—',
+        salesman: c.salesman?.full_name || '—',
+        method: 'cheque',
+        deposit_to: c.bank_accounts ? `${c.bank_accounts.account_name} — ${c.bank_accounts.bank_name}` : '—',
+        cheque_number: c.cheque_number || '—',
+        cheque_date: c.cheque_date ? new Date(c.cheque_date).toLocaleDateString('en-GB') : '—',
+        status: c.status,
+        amount: Number(c.amount),
+        source: 'cheque',
+      })),
+    ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const totalCleared = merged.filter((r) => r.status === 'approved' || r.status === 'cleared').reduce((s, r) => s + r.amount, 0);
+    const totalPending = merged.filter((r) => r.status === 'pending').reduce((s, r) => s + r.amount, 0);
+    return success(res, { rows: merged, total_cleared: totalCleared, total_pending: totalPending });
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { exportReport, getOutstanding, getPurchasesReport, getExpensesReport, getSaleReport, getCustomerSummary, getCustomerLedger, getVendorSummary, getVendorLedger, getRecoveryReport };
