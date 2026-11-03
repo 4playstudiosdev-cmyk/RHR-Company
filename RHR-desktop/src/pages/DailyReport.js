@@ -366,10 +366,10 @@ export default function DailyReport() {
           {/* ── Summary cards ── */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
             {[
-              { label: 'Prev. Cash Balance', value: fmtPKR(s.previous_cash_balance), color: 'text-navy' },
+              { label: 'Previous Balance', value: fmtPKR(s.previous_cash_balance), color: 'text-navy' },
               { label: 'Total Recovery', value: fmtPKR(s.total_recovery), color: 'text-green-700' },
               { label: 'Total Expenses', value: fmtPKR(s.total_expenses), color: 'text-red-600' },
-              { label: 'Net Cash', value: fmtPKR(s.net_cash), color: 'text-orange' },
+              { label: 'Net Balance', value: fmtPKR(s.net_cash), color: 'text-orange' },
               { label: 'Total Sales', value: fmtPKR(s.total_sales), color: 'text-navy' },
               { label: 'Profit', value: fmtPKR(s.profit), color: s.profit >= 0 ? 'text-green-700' : 'text-red-600' },
             ].map((c) => (
@@ -540,10 +540,10 @@ export default function DailyReport() {
               </div>
               <div className="p-5 space-y-2">
                 {[
-                  { label: 'Previous Cash Balance', value: fmtPKR(s.previous_cash_balance), normal: true },
+                  { label: 'Previous Balance', value: fmtPKR(s.previous_cash_balance), normal: true },
                   { label: '+ Total Recovery', value: fmtPKR(s.total_recovery), color: 'text-green-700' },
                   { label: '- Total Expenses', value: fmtPKR(s.total_expenses), color: 'text-red-600' },
-                  { label: 'Net Cash', value: fmtPKR(s.net_cash), bold: true },
+                  { label: 'Net Balance', value: fmtPKR(s.net_cash), bold: true },
                   { label: 'Cash In Hand', value: fmtPKR(s.cash_in_hand), bold: true, color: 'text-navy' },
                 ].map((row) => (
                   <div key={row.label} className={`flex justify-between items-center py-1 ${row.bold ? 'border-t border-gray-200 pt-2 mt-1' : ''}`}>
