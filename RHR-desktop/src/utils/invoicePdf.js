@@ -13,7 +13,7 @@ const TAX_RATE = 0.18; // 18% sales tax
 // subtract it and relabel the header). Async because the logo has to
 // load before it can be embedded — every call site already runs inside
 // an async handler, so this just needs an `await` added.
-export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, invoiceNumber, returnAmount = 0, preview = false, previousBalance = 0 } = {}) {
+export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, invoiceNumber, returnAmount = 0, preview = false, previousBalance = 0, invoiceDate = null, withRate = true } = {}) {
   const doc = new jsPDF();
   const customer = order.users || {};
   const driver = order.drivers || {};
@@ -61,7 +61,8 @@ export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, 
   leftY = field(colLeftX, leftY, 'Delivery Addr:', order.delivery_address || customer.shop_address);
   leftY = field(colLeftX, leftY, 'Contact:', customer.phone);
 
-  rightY = field(colRightX, rightY, 'Date:', new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
+  const dateObj = invoiceDate ? new Date(invoiceDate + 'T00:00:00') : new Date();
+  rightY = field(colRightX, rightY, 'Date:', dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
   rightY = field(colRightX, rightY, 'Sales Officer:', salesman.full_name);
   rightY = field(colRightX, rightY, 'Vehicle:', driver.car_number);
   rightY = field(colRightX, rightY, 'Driver:', driver.full_name ? `${driver.full_name}${driver.phone ? ' (' + driver.phone + ')' : ''}` : null);
@@ -69,94 +70,99 @@ export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, 
 
   const tableStartY = Math.max(leftY, rightY) + 5;
 
-  const rows = items.map((item, i) => [
-    i + 1,
-    item.product_name,
-    item.products?.unit || '—',
-    item.quantity,
-    `Rs ${Number(item.unit_price).toLocaleString()}`,
-    `Rs ${Number(item.subtotal).toLocaleString()}`
-  ]);
+  const rows = withRate
+    ? items.map((item, i) => [
+        i + 1,
+        item.product_name,
+        item.products?.unit || '—',
+        item.quantity,
+        `Rs ${Number(item.unit_price).toLocaleString()}`,
+        `Rs ${Number(item.subtotal).toLocaleString()}`
+      ])
+    : items.map((item, i) => [
+        i + 1,
+        item.product_name,
+        item.products?.unit || '—',
+        item.quantity,
+      ]);
 
   autoTable(doc, {
     startY: tableStartY,
-    head: [['#', 'Product Description', 'Pack Size', 'Qty', 'Rate (PKR)', 'Amount (PKR)']],
+    head: [withRate
+      ? ['#', 'Product Description', 'Pack Size', 'Qty', 'Rate (PKR)', 'Amount (PKR)']
+      : ['#', 'Product Description', 'Pack Size', 'Qty']],
     body: rows,
     margin: { left: M, right: M },
     headStyles: { fillColor: [27, 39, 58], textColor: 255, fontStyle: 'bold', fontSize: 9.5 },
     bodyStyles: { fontSize: 9.5, textColor: [30, 30, 30] },
-    columnStyles: {
-      0: { cellWidth: 10 },
-      3: { halign: 'right' },
-      4: { halign: 'right' },
-      5: { halign: 'right', fontStyle: 'bold' }
-    },
+    columnStyles: withRate
+      ? { 0: { cellWidth: 10 }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' } }
+      : { 0: { cellWidth: 10 }, 3: { halign: 'right' } },
     styles: { cellPadding: { top: 4, bottom: 4, left: 4, right: 4 } }
   });
 
-  const subtotal = Number(order.total_amount);
-  const taxAmount = withTax ? subtotal * TAX_RATE : 0;
-  const grandTotal = subtotal + taxAmount + conveyance - returnAmount;
-
   let lineY = doc.lastAutoTable.finalY + 10;
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9.5);
-  doc.setTextColor(60, 60, 60);
-  doc.text(`Subtotal: Rs ${subtotal.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
-  lineY += 6;
-  if (withTax) {
-    doc.text(`Sales Tax (18%): Rs ${taxAmount.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
-    lineY += 6;
-  }
-  if (conveyance > 0) {
-    doc.text(`Conveyance: Rs ${conveyance.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
-    lineY += 6;
-  }
-  if (returnAmount > 0) {
-    doc.setTextColor(192, 57, 43);
-    doc.text(`Returned: -Rs ${returnAmount.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
-    doc.setTextColor(60, 60, 60);
-    lineY += 6;
-  }
-  lineY += 2;
+  if (withRate) {
+    const subtotal = Number(order.total_amount);
+    const taxAmount = withTax ? subtotal * TAX_RATE : 0;
+    const grandTotal = subtotal + taxAmount + conveyance - returnAmount;
 
-  doc.setDrawColor(30, 30, 40);
-  doc.setLineWidth(0.4);
-  doc.line(110, lineY, PAGE_W - M, lineY);
-  lineY += 8;
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(20, 20, 30);
-  doc.text('Net Total Payable:', 110, lineY);
-  doc.text(`Rs ${grandTotal.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
-  lineY += 4;
-  doc.line(110, lineY, PAGE_W - M, lineY);
-
-  // ── Previous Balance + Total Due ──
-  if (previousBalance > 0) {
-    lineY += 10;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
     doc.setTextColor(60, 60, 60);
-    doc.text('Previous Balance:', 110, lineY);
-    doc.text(`Rs ${Number(previousBalance).toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
+    doc.text(`Subtotal: Rs ${subtotal.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
     lineY += 6;
-    doc.text('This Order:', 110, lineY);
-    doc.text(`Rs ${grandTotal.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
-    lineY += 4;
+    if (withTax) {
+      doc.text(`Sales Tax (18%): Rs ${taxAmount.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
+      lineY += 6;
+    }
+    if (conveyance > 0) {
+      doc.text(`Conveyance: Rs ${conveyance.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
+      lineY += 6;
+    }
+    if (returnAmount > 0) {
+      doc.setTextColor(192, 57, 43);
+      doc.text(`Returned: -Rs ${returnAmount.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
+      doc.setTextColor(60, 60, 60);
+      lineY += 6;
+    }
+    lineY += 2;
     doc.setDrawColor(30, 30, 40);
     doc.setLineWidth(0.4);
     doc.line(110, lineY, PAGE_W - M, lineY);
     lineY += 8;
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setTextColor(155, 0, 0);
-    doc.text('Total Due:', 110, lineY);
-    doc.text(`Rs ${(previousBalance + grandTotal).toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
+    doc.setFontSize(11);
+    doc.setTextColor(20, 20, 30);
+    doc.text('Net Total Payable:', 110, lineY);
+    doc.text(`Rs ${grandTotal.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
     lineY += 4;
     doc.line(110, lineY, PAGE_W - M, lineY);
+
+    if (previousBalance > 0) {
+      lineY += 10;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(60, 60, 60);
+      doc.text('Previous Balance:', 110, lineY);
+      doc.text(`Rs ${Number(previousBalance).toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
+      lineY += 6;
+      doc.text('This Order:', 110, lineY);
+      doc.text(`Rs ${grandTotal.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
+      lineY += 4;
+      doc.setDrawColor(30, 30, 40);
+      doc.setLineWidth(0.4);
+      doc.line(110, lineY, PAGE_W - M, lineY);
+      lineY += 8;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.setTextColor(155, 0, 0);
+      doc.text('Total Due:', 110, lineY);
+      doc.text(`Rs ${(previousBalance + grandTotal).toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
+      lineY += 4;
+      doc.line(110, lineY, PAGE_W - M, lineY);
+    }
   }
 
   const signY = lineY + 30;

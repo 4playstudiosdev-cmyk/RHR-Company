@@ -122,6 +122,8 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
   const [taxChoice, setTaxChoice] = useState(null); // 'with' | 'without'
   const [wantsConveyance, setWantsConveyance] = useState(false);
   const [conveyanceAmount, setConveyanceAmount] = useState('');
+  const [invoiceDate, setInvoiceDate] = useState('');
+  const [withRate, setWithRate] = useState(true);
   const [conveyanceError, setConveyanceError] = useState('');
   const [generatingInvoice, setGeneratingInvoice] = useState(false);
 
@@ -496,6 +498,8 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
       setWantsConveyance(false);
       setConveyanceAmount('');
       setConveyanceError('');
+      setInvoiceDate('');
+      setWithRate(true);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load order details.');
     } finally {
@@ -660,7 +664,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
         previousBalance = Math.max(0, currentBalance - Number(detail.total_amount));
       } catch (e) { /* ledger unavailable — skip previous balance */ }
 
-      await buildInvoicePdf(detail, { withTax, conveyance, previousBalance });
+      await buildInvoicePdf(detail, { withTax, conveyance, previousBalance, invoiceDate: invoiceDate || null, withRate });
 
       // Tax and conveyance aren't part of orders.total_amount, so without
       // this the customer's ledger (and anything that rolls up from it —
@@ -1685,27 +1689,65 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
 
       {invoiceOrder && invoiceStep === 1 && (
         <Modal title={`Create Invoice — ${invoiceOrder.order_number}`} onClose={() => setInvoiceOrder(null)}>
-          <div className="space-y-4">
-            <p className="text-sm text-gray-600">Include the 18% sales tax on this invoice?</p>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => chooseTax('with')}
-                className="border-2 border-navy/20 hover:border-navy hover:bg-navy-chip/30 rounded-xl px-4 py-4 text-center transition-colors"
-              >
-                <p className="font-semibold text-navy text-sm">With Tax</p>
-                <p className="text-xs text-gray-400 mt-1">Adds 18% sales tax</p>
-              </button>
-              <button
-                type="button"
-                onClick={() => chooseTax('without')}
-                className="border-2 border-navy/20 hover:border-navy hover:bg-navy-chip/30 rounded-xl px-4 py-4 text-center transition-colors"
-              >
-                <p className="font-semibold text-navy text-sm">Without Tax</p>
-                <p className="text-xs text-gray-400 mt-1">Order total only</p>
-              </button>
+          <div className="space-y-5">
+            {/* ── Invoice Date ── */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Invoice Date</label>
+              <input
+                type="date"
+                value={invoiceDate}
+                onChange={(e) => setInvoiceDate(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+              <p className="text-xs text-gray-400 mt-1">Leave blank to use today's date.</p>
             </div>
-            <div className="flex justify-end pt-2">
+
+            {/* ── With / Without Rate ── */}
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-2">Show product rates on invoice?</p>
+              <div className="flex rounded-lg overflow-hidden border border-gray-300">
+                <button
+                  type="button"
+                  onClick={() => setWithRate(true)}
+                  className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${withRate ? 'bg-navy text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                >
+                  With Rate
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWithRate(false)}
+                  className={`flex-1 py-2.5 text-sm font-semibold transition-colors border-l border-gray-300 ${!withRate ? 'bg-navy text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                >
+                  Without Rate
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">{withRate ? 'Rate (PKR) and Amount columns will appear.' : 'No pricing shown — delivery challan style.'}</p>
+            </div>
+
+            {/* ── Tax choice ── */}
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-2">Include 18% sales tax?</p>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => chooseTax('with')}
+                  className="border-2 border-navy/20 hover:border-navy hover:bg-navy-chip/30 rounded-xl px-4 py-4 text-center transition-colors"
+                >
+                  <p className="font-semibold text-navy text-sm">With Tax</p>
+                  <p className="text-xs text-gray-400 mt-1">Adds 18% sales tax</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => chooseTax('without')}
+                  className="border-2 border-navy/20 hover:border-navy hover:bg-navy-chip/30 rounded-xl px-4 py-4 text-center transition-colors"
+                >
+                  <p className="font-semibold text-navy text-sm">Without Tax</p>
+                  <p className="text-xs text-gray-400 mt-1">Order total only</p>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-1">
               <Button type="button" variant="secondary" onClick={() => setInvoiceOrder(null)}>Cancel</Button>
             </div>
           </div>
