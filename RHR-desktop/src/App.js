@@ -28,6 +28,7 @@ import Payments from './pages/Payments';
 import Bank from './pages/Bank';
 import Expenses from './pages/Expenses';
 import Ledger from './pages/Ledger';
+import VendorLedger from './pages/VendorLedger';
 import Reports from './pages/Reports';
 import GPS from './pages/GPS';
 import Notifications from './pages/Notifications';
@@ -68,6 +69,7 @@ const PAGES = {
   bank: Bank,
   expenses: Expenses,
   ledger: Ledger,
+  'vendor-ledger': VendorLedger,
   reports: Reports,
   gps: GPS,
   notifications: Notifications,
@@ -121,7 +123,8 @@ const PAGE_ACCESS = {
   'manufacturing-employees': { requiredPermission: 'can_manage_production' },
   'opening-balances': { requiredRole: 'super_admin' },
   'whatsapp-broadcast': { requiredRole: 'super_admin' },
-  promotions: { requiredPermission: 'promotions' }
+  promotions: { requiredPermission: 'promotions' },
+  'vendor-ledger': { requiredPermission: 'ledger' }
 };
 
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 hours
@@ -246,6 +249,12 @@ function AppShell() {
     setPage('ledger');
   };
 
+  const [vendorLedgerId, setVendorLedgerId] = useState(null);
+  const goToVendorLedger = (supplierId) => {
+    setVendorLedgerId(supplierId);
+    setPage('vendor-ledger');
+  };
+
   const goToOrder = (orderNumber) => {
     setTargetOrderNumber(orderNumber);
     setPage('orders');
@@ -342,8 +351,10 @@ function AppShell() {
                 user={user}
                 setPage={setPage}
                 onViewLedger={goToLedger}
+                onViewVendorLedger={goToVendorLedger}
                 onQuickAction={triggerQuickAction}
                 initialCustomerId={ledgerCustomerId}
+                initialSupplierId={vendorLedgerId}
                 onViewOrderNumber={goToOrder}
                 initialOrderNumber={targetOrderNumber}
                 initialTab={targetTab?.page === page ? targetTab.tab : null}

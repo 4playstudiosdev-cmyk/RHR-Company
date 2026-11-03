@@ -352,7 +352,31 @@ const purchaseMaterials = async (req, res) => {
     // lookup fails, since the purchase itself already succeeded.
     if (supplier_name && purchaseCompanyId) {
       try {
-        await require('./suppliers.controller').findOrCreateSupplier(purchaseCompanyId, supplier_name);
+        const supplier = await require('./suppliers.controller').findOrCreateSupplier(purchaseCompanyId, supplier_name);
+        // Auto-post a debit to the supplier ledger for this purchase total
+        if (supplier?.id) {
+          const grandTotal = results.reduce((sum, r) => sum + r.total, 0);
+          try {
+            const last = await pgrestGet('supplier_ledger_entries', {
+              select: 'running_balance',
+              supplier_id: `eq.${supplier.id}`,
+              order: 'created_at.desc',
+              limit: '1',
+            });
+            const prevBalance = Number(last?.[0]?.running_balance) || 0;
+            const itemsDesc = results.map((r) => `${r.name} ×${r.qty} ${r.unit}`).join(', ');
+            await pgrestPost('supplier_ledger_entries', {
+              company_id:      purchaseCompanyId,
+              supplier_id:     supplier.id,
+              entry_type:      'debit',
+              amount:          grandTotal,
+              running_balance: prevBalance + grandTotal,
+              description:     `Purchase ${purchaseDate} — ${itemsDesc}`,
+              reference_type:  'purchase',
+              created_by:      req.user.id,
+            });
+          } catch (ledgerErr) { /* phase77_supplier_ledger.sql not run yet — ignore */ }
+        }
       } catch (e) { /* suppliers is a phase21 addition — ignore until it's run */ }
     }
 

@@ -270,9 +270,8 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
   const [outstandingMap, setOutstandingMap] = useState({});
   const [outstandingLoading, setOutstandingLoading] = useState({});
 
-  // Opening balance — the initial debit set when the customer account was created,
-  // distinct from the current running outstanding. Loaded once per city/company.
-  const [openingBalanceMap, setOpeningBalanceMap] = useState({});
+  // Balance field for the Edit Customer modal — pre-filled with the current outstanding.
+  const [editBalanceValue, setEditBalanceValue] = useState('');
 
   useEffect(() => {
     loadCustomers();
@@ -678,6 +677,20 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
       shop_latitude:  customer.shop_latitude ?? null,
       shop_longitude: customer.shop_longitude ?? null
     });
+    // Pre-fill edit balance with already-loaded outstanding; fetch if not yet loaded
+    const currentBal = outstandingMap[customer.id];
+    if (currentBal !== undefined) {
+      setEditBalanceValue(String(currentBal));
+    } else {
+      setEditBalanceValue('');
+      api.get(`/ledger/${customer.id}`)
+        .then((r) => {
+          const bal = r.data?.data?.currentBalance ?? 0;
+          setOutstandingMap((prev) => ({ ...prev, [customer.id]: bal }));
+          setEditBalanceValue(String(bal));
+        })
+        .catch(() => setEditBalanceValue(''));
+    }
     setShowCustomerModal(true);
   };
 
@@ -696,6 +709,18 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
       await api.patch(`/customers/${editingCustomer.id}`, { ...rest, phone: toApiPhone(customerForm.phone) });
       if (salesman_id !== (editingCustomer.salesman_id || '')) {
         await api.patch(`/customers/${editingCustomer.id}/assign-salesman`, { salesman_id: salesman_id || null });
+      }
+      // If the admin changed the outstanding balance, post it to the ledger
+      if (editBalanceValue !== '' && Number.isFinite(Number(editBalanceValue))) {
+        const currentBal = outstandingMap[editingCustomer.id];
+        if (currentBal === undefined || Number(editBalanceValue) !== Number(currentBal)) {
+          try {
+            await api.patch(`/ledger/${editingCustomer.id}/balance`, { balance: Number(editBalanceValue) });
+            setOutstandingMap((prev) => ({ ...prev, [editingCustomer.id]: Number(editBalanceValue) }));
+          } catch (balErr) {
+            toast.error('Customer saved but balance update failed: ' + (balErr.response?.data?.message || balErr.message));
+          }
+        }
       }
       toast.success('Customer updated.');
       setShowCustomerModal(false);
@@ -773,25 +798,6 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, search, all]);
 
-  // Load opening balances whenever the customer list changes
-  useEffect(() => {
-    if (!all.length) return;
-    const companyFilter = selectedCity === 'all' ? null : selectedCity;
-    const params = { entity_type: 'customer' };
-    if (companyFilter) params.company_id = companyFilter;
-    api.get('/opening-balances', { params }).then((res) => {
-      const rows = res.data?.data || [];
-      const map = {};
-      rows.forEach((r) => {
-        if (r.entity_id && r.amount) {
-          // Keep only the earliest (first) opening balance per customer
-          if (!(r.entity_id in map)) map[r.entity_id] = r.amount;
-        }
-      });
-      setOpeningBalanceMap(map);
-    }).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [all, selectedCity]);
 
   useEffect(() => {
     setPage(1);
@@ -991,7 +997,6 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Area</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Orders</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Outstanding</th>
-                      <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Opening Bal.</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Credit Limit</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-center">Status</th>
                       <th className="py-3 px-6 font-semibold text-xs uppercase tracking-wide text-right">Actions</th>
@@ -1056,23 +1061,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                             return (
                               <>
                                 <td className="py-3 px-4 text-right font-semibold">
-                                  {user?.role === 'super_admin' && typeof balance === 'number' ? (
-                                    <input
-                                      key={customer.id + '-' + balance}
-                                      type="number"
-                                      step="any"
-                                      defaultValue={balance}
-                                      title="Super admin: change this to set the customer's outstanding balance — the difference is posted to their ledger"
-                                      onBlur={async (e) => {
-                                        const ok = await handleChangeOutstanding(customer, e.target.value, balance);
-                                        if (!ok) e.target.value = balance;
-                                      }}
-                                      onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
-                                      className={'w-28 border rounded-md px-2 py-1 text-[12px] text-right font-semibold focus:outline-none focus:ring-1 focus:ring-navy-chip focus:border-navy ' + (
-                                        overLimit ? 'border-red-300 bg-red-50 text-red-700' : balance > 0 ? 'border-gray-200 text-red-600' : 'border-gray-200 text-gray-500'
-                                      )}
-                                    />
-                                  ) : balance === undefined ? (
+                                  {balance === undefined ? (
                                     <span className="text-gray-300 text-xs">loading…</span>
                                   ) : balance === null ? (
                                     <span className="text-gray-300 text-xs">—</span>
@@ -1083,13 +1072,6 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                                     </span>
                                   ) : (
                                     <span className="text-gray-400">PKR 0</span>
-                                  )}
-                                </td>
-                                <td className="py-3 px-4 text-right text-gray-600 text-[13px]">
-                                  {openingBalanceMap[customer.id] != null ? (
-                                    <span className="font-medium text-gray-700">PKR {Number(openingBalanceMap[customer.id]).toLocaleString()}</span>
-                                  ) : (
-                                    <span className="text-gray-300">—</span>
                                   )}
                                 </td>
                                 <td className="py-3 px-4 text-right">
@@ -1852,7 +1834,22 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
               </select>
             </div>
             {editingCustomer && (
-              <p className="text-xs text-gray-400">Phone number can't be changed here.</p>
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Opening / Outstanding Balance (PKR)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editBalanceValue}
+                    onChange={(e) => setEditBalanceValue(e.target.value)}
+                    placeholder="e.g. 50000"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Change to adjust this customer's current outstanding — the difference is posted to their ledger automatically.</p>
+                </div>
+                <p className="text-xs text-gray-400">Phone number can't be changed here.</p>
+              </>
             )}
             </>
             )}

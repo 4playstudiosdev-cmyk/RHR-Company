@@ -43,6 +43,7 @@ const NAV_ITEMS = [
   { key: 'bank', label: 'Bank', icon: Landmark, requiredPermission: 'can_view_payments' },
   { key: 'expenses', label: 'Expenses', icon: Receipt, requiredPermission: 'can_view_payments' },
   { key: 'ledger', label: 'Ledger', icon: BookOpen, requiredPermission: 'ledger' },
+  { key: 'vendor-ledger', label: 'Vendor Ledgers', icon: Store, requiredPermission: 'ledger' },
   { key: 'reports', label: 'Sales Report', icon: FileSpreadsheet, requiredPermission: 'can_export_reports' },
   { key: 'gps', label: 'Live GPS', icon: MapPin, requiredPermission: 'can_view_gps' },
   { key: 'notifications', label: 'Notifications', icon: Bell, requiredPermission: 'notifications' },
@@ -121,7 +122,7 @@ const GROUPS = [
   },
   {
     key: 'finance', label: 'Finance & Accounts', icon: Wallet,
-    children: ['ledger', 'payments', 'bank', 'expenses']
+    children: ['ledger', 'vendor-ledger', 'payments', 'bank', 'expenses']
   },
   {
     key: 'hr', label: 'HR & Administration', icon: Briefcase,

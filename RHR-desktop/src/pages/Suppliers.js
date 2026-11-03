@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Store, UserX, Pencil, Search, BookOpen, X, ChevronDown } from 'lucide-react';
+import { Plus, Store, UserX, Pencil, Search, BookOpen } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
 import Button from '../components/Button';
@@ -22,9 +22,7 @@ const CATEGORIES = [
 const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.value, c.label]));
 const EMPTY_FORM = { name: '', address: '', contact_number: '', categories: [], opening_balance_amount: '' };
 
-const fmtPKR = (n) => 'PKR ' + Number(n).toLocaleString();
-
-export default function Suppliers() {
+export default function Suppliers({ onViewVendorLedger }) {
   const toast = useToast();
   const user = getCurrentUser();
   const defaultCity = user?.role === 'super_admin' ? KARACHI_COMPANY_ID : user?.companyId;
@@ -40,13 +38,6 @@ export default function Suppliers() {
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
 
-  // Ledger modal state
-  const [ledgerSupplier, setLedgerSupplier] = useState(null);
-  const [ledgerEntries, setLedgerEntries] = useState([]);
-  const [ledgerBalance, setLedgerBalance] = useState(0);
-  const [ledgerLoading, setLedgerLoading] = useState(false);
-  const [adjustForm, setAdjustForm] = useState({ entry_type: 'debit', amount: '', description: '' });
-  const [adjusting, setAdjusting] = useState(false);
 
   useEffect(() => {
     loadSuppliers();
@@ -153,48 +144,6 @@ export default function Suppliers() {
     }
   };
 
-  const openLedger = async (supplier) => {
-    setLedgerSupplier(supplier);
-    setLedgerEntries([]);
-    setLedgerBalance(0);
-    setAdjustForm({ entry_type: 'debit', amount: '', description: '' });
-    setLedgerLoading(true);
-    try {
-      const r = await api.get(`/suppliers/${supplier.id}/ledger`);
-      setLedgerEntries(r.data?.data?.entries || []);
-      setLedgerBalance(r.data?.data?.currentBalance ?? 0);
-    } catch (err) {
-      toast.error('Failed to load ledger.');
-    } finally {
-      setLedgerLoading(false);
-    }
-  };
-
-  const closeLedger = () => setLedgerSupplier(null);
-
-  const handleAdjust = async (e) => {
-    e.preventDefault();
-    if (!adjustForm.amount || Number(adjustForm.amount) <= 0) { toast.error('Enter a positive amount.'); return; }
-    if (!adjustForm.description.trim()) { toast.error('Enter a description.'); return; }
-    setAdjusting(true);
-    try {
-      await api.post(`/suppliers/${ledgerSupplier.id}/ledger/adjustment`, {
-        entry_type: adjustForm.entry_type,
-        amount: Number(adjustForm.amount),
-        description: adjustForm.description.trim(),
-      });
-      toast.success('Entry added.');
-      setAdjustForm({ entry_type: 'debit', amount: '', description: '' });
-      // Reload ledger
-      const r = await api.get(`/suppliers/${ledgerSupplier.id}/ledger`);
-      setLedgerEntries(r.data?.data?.entries || []);
-      setLedgerBalance(r.data?.data?.currentBalance ?? 0);
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to add entry.');
-    } finally {
-      setAdjusting(false);
-    }
-  };
 
   const filtered = suppliers
     .filter((s) => categoryTab === 'All' || (s.categories || []).includes(categoryTab))
@@ -281,13 +230,15 @@ export default function Suppliers() {
                     </td>
                     <td className="px-6 py-3.5">
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => openLedger(s)}
-                          className="inline-flex items-center gap-1.5 text-xs text-navy hover:underline font-medium"
-                          title="View ledger"
-                        >
-                          <BookOpen size={13} /> Ledger
-                        </button>
+                        {onViewVendorLedger && (
+                          <button
+                            onClick={() => onViewVendorLedger(s.id)}
+                            className="inline-flex items-center gap-1.5 text-xs text-navy hover:underline font-medium"
+                            title="View ledger"
+                          >
+                            <BookOpen size={13} /> Ledger
+                          </button>
+                        )}
                         <button
                           onClick={() => openEdit(s)}
                           className="p-2 rounded-lg text-navy hover:bg-navy/10 transition-colors"
@@ -389,124 +340,6 @@ export default function Suppliers() {
         </Modal>
       )}
 
-      {/* Supplier Ledger Modal */}
-      {ledgerSupplier && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <div>
-                <h2 className="text-lg font-bold text-navy">{ledgerSupplier.name} — Ledger</h2>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Current Balance:&nbsp;
-                  <span className={`font-semibold ${ledgerBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                    {fmtPKR(ledgerBalance)}
-                  </span>
-                  {ledgerBalance > 0 && <span className="text-gray-400 ml-1">(you owe)</span>}
-                  {ledgerBalance < 0 && <span className="text-gray-400 ml-1">(they owe you)</span>}
-                </p>
-              </div>
-              <button onClick={closeLedger} className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Add Entry Form */}
-            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">Add Entry</p>
-              <form onSubmit={handleAdjust} className="flex flex-wrap gap-2 items-end">
-                <div className="flex-shrink-0">
-                  <label className="block text-xs text-gray-500 mb-1">Type</label>
-                  <select
-                    value={adjustForm.entry_type}
-                    onChange={(e) => setAdjustForm({ ...adjustForm, entry_type: e.target.value })}
-                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white"
-                  >
-                    <option value="debit">Debit (we owe more)</option>
-                    <option value="credit">Credit (payment / discount)</option>
-                  </select>
-                </div>
-                <div className="flex-shrink-0">
-                  <label className="block text-xs text-gray-500 mb-1">Amount (PKR)</label>
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    required
-                    value={adjustForm.amount}
-                    onChange={(e) => setAdjustForm({ ...adjustForm, amount: e.target.value })}
-                    placeholder="0"
-                    className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy"
-                  />
-                </div>
-                <div className="flex-1 min-w-[160px]">
-                  <label className="block text-xs text-gray-500 mb-1">Description</label>
-                  <input
-                    type="text"
-                    required
-                    value={adjustForm.description}
-                    onChange={(e) => setAdjustForm({ ...adjustForm, description: e.target.value })}
-                    placeholder="e.g. Invoice #1234 payment"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy"
-                  />
-                </div>
-                <Button type="submit" variant="accent" disabled={adjusting} className="flex-shrink-0">
-                  {adjusting ? 'Adding...' : 'Add'}
-                </Button>
-              </form>
-            </div>
-
-            {/* Ledger Entries */}
-            <div className="overflow-y-auto flex-1">
-              {ledgerLoading ? (
-                <div className="flex items-center justify-center py-12 text-gray-400 text-sm">Loading…</div>
-              ) : ledgerEntries.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-gray-400">
-                  <BookOpen size={32} className="mb-2 opacity-30" />
-                  <p className="text-sm">No ledger entries yet.</p>
-                  <p className="text-xs mt-1">Add an opening balance above or record a payment.</p>
-                </div>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-white border-b border-gray-100 z-10">
-                    <tr className="text-left text-gray-500 bg-gray-50">
-                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
-                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Description</th>
-                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Debit</th>
-                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Credit</th>
-                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Balance</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ledgerEntries.map((e, i) => (
-                      <tr key={e.id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                        <td className="px-6 py-3 text-gray-500 text-xs whitespace-nowrap">
-                          {new Date(e.created_at).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </td>
-                        <td className="px-6 py-3 text-gray-700">
-                          {e.description}
-                          {e.reference_type === 'opening_balance' && (
-                            <span className="ml-1.5 text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-medium">Opening</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-3 text-right text-red-600 font-medium">
-                          {e.entry_type === 'debit' ? fmtPKR(e.amount) : '—'}
-                        </td>
-                        <td className="px-6 py-3 text-right text-green-600 font-medium">
-                          {e.entry_type === 'credit' ? fmtPKR(e.amount) : '—'}
-                        </td>
-                        <td className="px-6 py-3 text-right font-semibold text-navy">
-                          {fmtPKR(e.running_balance)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
