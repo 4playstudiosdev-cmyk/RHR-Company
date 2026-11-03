@@ -369,7 +369,7 @@ export default function DailyReport() {
               { label: 'Previous Balance', value: fmtPKR(s.previous_cash_balance), color: 'text-navy' },
               { label: 'Total Recovery', value: fmtPKR(s.total_recovery), color: 'text-green-700' },
               { label: 'Total Expenses', value: fmtPKR(s.total_expenses), color: 'text-red-600' },
-              { label: 'Net Balance', value: fmtPKR(s.net_cash), color: 'text-orange' },
+              { label: 'Net Balance', value: fmtPKR(s.net_cash), color: 'text-green-700' },
               { label: 'Total Sales', value: fmtPKR(s.total_sales), color: 'text-navy' },
               { label: 'Profit', value: fmtPKR(s.profit), color: s.profit >= 0 ? 'text-green-700' : 'text-red-600' },
             ].map((c) => (
