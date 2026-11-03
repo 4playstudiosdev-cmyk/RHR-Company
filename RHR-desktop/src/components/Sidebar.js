@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, UserCog, Wallet, LogOut,
-  BookOpen, FileSpreadsheet, MapPin, Bell, Briefcase, Factory, KeyRound,
+  BookOpen, FileSpreadsheet, FileText, MapPin, Bell, Briefcase, Factory, KeyRound,
   Gauge, Boxes, ClipboardList, FileBarChart2, ChevronDown, ChevronLeft, ChevronRight, X,
   PackageCheck, ArrowLeftRight, PackageSearch, Landmark, Receipt, Store, RotateCcw,
   HandCoins, Car, CalendarCheck, WalletCards, LayoutPanelTop, Trash2, HardHat, Truck,
@@ -44,6 +44,7 @@ const NAV_ITEMS = [
   { key: 'expenses', label: 'Expenses', icon: Receipt, requiredPermission: 'can_view_payments' },
   { key: 'ledger', label: 'Ledger', icon: BookOpen, requiredPermission: 'ledger' },
   { key: 'vendor-ledger', label: 'Vendor Ledgers', icon: Store, requiredPermission: 'ledger' },
+  { key: 'daily-report', label: 'Daily Report', icon: FileText, requiredPermission: 'can_export_reports' },
   { key: 'reports', label: 'Sales Report', icon: FileSpreadsheet, requiredPermission: 'can_export_reports' },
   { key: 'gps', label: 'Live GPS', icon: MapPin, requiredPermission: 'can_view_gps' },
   { key: 'notifications', label: 'Notifications', icon: Bell, requiredPermission: 'notifications' },
@@ -130,7 +131,7 @@ const GROUPS = [
   },
   {
     key: 'reports', label: 'Reports & Audit', icon: FileBarChart2,
-    children: ['stock-reports', 'reports', 'deleted-items']
+    children: ['daily-report', 'stock-reports', 'reports', 'deleted-items']
   }
 ];
 
