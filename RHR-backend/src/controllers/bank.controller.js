@@ -78,6 +78,7 @@ const getBankTransactions = async (req, res) => {
     } catch (e) { /* bank_account_id is a phase18 addition */ }
 
     // ── Cash payments (no bank_account_id) — tagged as "Cash in Hand" ──
+    // (old-style `payments` table entries — most cash now goes through salesman_recoveries)
     const cashParts = [
       'select=id,amount,method,created_at,customer:users!customer_id(full_name),salesman:salesmen!salesman_id(full_name)',
       'bank_account_id=is.null',
@@ -94,6 +95,80 @@ const getBankTransactions = async (req, res) => {
       const raw = await pgrestGetRaw(`payments?${cashParts.join('&')}`);
       cashPayments = (raw || []).map((p) => ({
         ...p,
+        bank_accounts: { account_name: 'Cash in Hand', bank_name: 'Cash', account_number: '' },
+      }));
+    } catch (e) { /* ignore */ }
+
+    // ── Salesman / driver cash recoveries — the PRIMARY source of Cash in Hand ──
+    // Every approved cash collection by a salesman or driver that has NOT been
+    // deposited yet is physically held as cash. Tagged as Cash in Hand (IN).
+    const recoveryParts = [
+      'select=id,amount,recovery_date,created_at,customer:users!customer_id(full_name),salesman:salesmen!salesman_id(full_name)',
+      'payment_type=eq.cash',
+      'status=eq.approved',
+      'order=recovery_date.desc',
+    ];
+    if (companyId) recoveryParts.push(`company_id=eq.${companyId}`);
+    if (from) recoveryParts.push(`recovery_date=gte.${from}`);
+    if (to)   recoveryParts.push(`recovery_date=lte.${to}`);
+
+    let cashRecoveries = [];
+    try {
+      const raw = await pgrestGetRaw(`salesman_recoveries?${recoveryParts.join('&')}`);
+      cashRecoveries = (raw || []).map((r) => ({
+        ...r,
+        method: 'cash',
+        created_at: r.recovery_date || r.created_at,
+        bank_accounts: { account_name: 'Cash in Hand', bank_name: 'Cash', account_number: '' },
+      }));
+    } catch (e) { /* ignore */ }
+
+    // ── Cash closings (approved deposits) — Cash in Hand OUT ──
+    // When a salesman deposits their cash (to bank or petty cash) and an admin
+    // approves it, that money physically leaves Cash in Hand. Tag as expense so
+    // the balance calculation subtracts it from the Cash in Hand total.
+    const closingParts = [
+      'select=id,amount,deposit_to,bank_account,closing_date,created_at,salesmen(full_name)',
+      'status=eq.approved',
+      'order=closing_date.desc',
+    ];
+    if (companyId) closingParts.push(`company_id=eq.${companyId}`);
+    if (from) closingParts.push(`closing_date=gte.${from}`);
+    if (to)   closingParts.push(`closing_date=lte.${to}`);
+
+    let cashClosings = [];
+    try {
+      const raw = await pgrestGetRaw(`salesman_cash_closings?${closingParts.join('&')}`);
+      cashClosings = (raw || []).map((c) => ({
+        ...c,
+        type: 'expense',
+        method: 'cash',
+        created_at: c.closing_date || c.created_at,
+        category: 'Cash Deposit',
+        description: `${c.salesmen?.full_name || 'Salesman'} deposited to ${c.deposit_to === 'bank' ? `bank${c.bank_account ? ` (${c.bank_account})` : ''}` : 'petty cash'}`,
+        bank_accounts: { account_name: 'Cash in Hand', bank_name: 'Cash', account_number: '' },
+      }));
+    } catch (e) { /* ignore */ }
+
+    // ── Cash expenses (method=cash, no bank_account) — Cash in Hand OUT ──
+    const cashExpParts = [
+      'select=id,amount,category,description,expense_date',
+      'method=eq.cash',
+      'bank_account_id=is.null',
+      'order=expense_date.desc',
+    ];
+    if (companyId) cashExpParts.push(`company_id=eq.${companyId}`);
+    if (from) cashExpParts.push(`expense_date=gte.${from}`);
+    if (to)   cashExpParts.push(`expense_date=lte.${to}`);
+
+    let cashExpenses = [];
+    try {
+      const raw = await pgrestGetRaw(`expenses?${cashExpParts.join('&')}`);
+      cashExpenses = (raw || []).map((e) => ({
+        ...e,
+        type: 'expense',
+        method: 'cash',
+        created_at: e.expense_date,
         bank_accounts: { account_name: 'Cash in Hand', bank_name: 'Cash', account_number: '' },
       }));
     } catch (e) { /* ignore */ }
@@ -132,15 +207,18 @@ const getBankTransactions = async (req, res) => {
     }
 
     const merged = [
-      ...(payments || []).map((p) => ({ ...p, type: 'payment' })),
+      ...(payments    || []).map((p) => ({ ...p, type: 'payment' })),
       ...(cashPayments || []).map((p) => ({ ...p, type: 'payment' })),
-      ...(chequeIn || []).map((c) => ({ ...c, type: 'payment', method: 'cheque', created_at: c.cleared_at })),
-      ...(expenses || []).map((e) => ({
+      ...(cashRecoveries || []).map((r) => ({ ...r, type: 'payment' })),
+      ...(chequeIn   || []).map((c) => ({ ...c, type: 'payment', method: 'cheque', created_at: c.cleared_at })),
+      ...(expenses   || []).map((e) => ({
         ...e,
         type: 'expense',
         amount: e.method === 'split' ? Number(e.bank_amount || 0) : e.amount,
         created_at: e.expense_date,
       })),
+      ...(cashClosings || []),
+      ...(cashExpenses || []),
     ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
     return success(res, merged);
