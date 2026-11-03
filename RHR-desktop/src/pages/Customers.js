@@ -270,6 +270,10 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
   const [outstandingMap, setOutstandingMap] = useState({});
   const [outstandingLoading, setOutstandingLoading] = useState({});
 
+  // Opening balance — the initial debit set when the customer account was created,
+  // distinct from the current running outstanding. Loaded once per city/company.
+  const [openingBalanceMap, setOpeningBalanceMap] = useState({});
+
   useEffect(() => {
     loadCustomers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -769,6 +773,26 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, search, all]);
 
+  // Load opening balances whenever the customer list changes
+  useEffect(() => {
+    if (!all.length) return;
+    const companyFilter = selectedCity === 'all' ? null : selectedCity;
+    const params = { entity_type: 'customer' };
+    if (companyFilter) params.company_id = companyFilter;
+    api.get('/opening-balances', { params }).then((res) => {
+      const rows = res.data?.data || [];
+      const map = {};
+      rows.forEach((r) => {
+        if (r.entity_id && r.amount) {
+          // Keep only the earliest (first) opening balance per customer
+          if (!(r.entity_id in map)) map[r.entity_id] = r.amount;
+        }
+      });
+      setOpeningBalanceMap(map);
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [all, selectedCity]);
+
   useEffect(() => {
     setPage(1);
   }, [search, filterCity, filterArea, filterSalesman]);
@@ -967,6 +991,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide">Area</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Orders</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Outstanding</th>
+                      <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Opening Bal.</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-right">Credit Limit</th>
                       <th className="py-3 px-4 font-semibold text-xs uppercase tracking-wide text-center">Status</th>
                       <th className="py-3 px-6 font-semibold text-xs uppercase tracking-wide text-right">Actions</th>
@@ -1058,6 +1083,13 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                                     </span>
                                   ) : (
                                     <span className="text-gray-400">PKR 0</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-right text-gray-600 text-[13px]">
+                                  {openingBalanceMap[customer.id] != null ? (
+                                    <span className="font-medium text-gray-700">PKR {Number(openingBalanceMap[customer.id]).toLocaleString()}</span>
+                                  ) : (
+                                    <span className="text-gray-300">—</span>
                                   )}
                                 </td>
                                 <td className="py-3 px-4 text-right">

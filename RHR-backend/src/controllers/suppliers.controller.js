@@ -2,6 +2,76 @@ const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 
+// ─── Supplier Ledger ─────────────────────────────────────────────────────────
+
+// GET /api/v1/suppliers/:id/ledger
+const getSupplierLedger = async (req, res) => {
+  try {
+    const { id } = req.params;
+    let data;
+    try {
+      data = await pgrestGet('supplier_ledger_entries', {
+        select: '*',
+        supplier_id: `eq.${id}`,
+        order: 'created_at.desc',
+      });
+    } catch (e) {
+      // Table doesn't exist yet — run phase77_supplier_ledger.sql
+      return success(res, { entries: [], currentBalance: 0 });
+    }
+    const currentBalance = data?.length > 0 ? Number(data[0].running_balance) : 0;
+    return success(res, { entries: data || [], currentBalance });
+  } catch (err) { return error(res, err.message); }
+};
+
+// POST /api/v1/suppliers/:id/ledger/adjustment
+const adjustSupplierLedger = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { entry_type, amount, description } = req.body;
+    if (!entry_type || !amount || !description)
+      return error(res, 'entry_type, amount, description are required', 400);
+    if (!['debit', 'credit'].includes(entry_type))
+      return error(res, 'entry_type must be debit or credit', 400);
+    if (isNaN(Number(amount)) || Number(amount) <= 0)
+      return error(res, 'amount must be a positive number', 400);
+
+    const suppliers = await pgrestGet('suppliers', { select: 'id,company_id', id: `eq.${id}` });
+    const supplier = suppliers?.[0];
+    if (!supplier) return error(res, 'Supplier not found', 404);
+    if (req.user.role !== 'super_admin' && supplier.company_id !== req.user.company_id)
+      return error(res, 'Access denied', 403);
+
+    let last;
+    try {
+      last = await pgrestGet('supplier_ledger_entries', {
+        select: 'running_balance',
+        supplier_id: `eq.${id}`,
+        order: 'created_at.desc',
+        limit: '1',
+      });
+    } catch (e) {
+      return error(res, 'Supplier ledger table not set up yet — run phase77_supplier_ledger.sql in Supabase', 500);
+    }
+    const prevBalance = Number(last?.[0]?.running_balance) || 0;
+    const newBalance = entry_type === 'debit'
+      ? prevBalance + Number(amount)
+      : prevBalance - Number(amount);
+
+    const [data] = await pgrestPost('supplier_ledger_entries', {
+      company_id:      supplier.company_id,
+      supplier_id:     id,
+      entry_type,
+      amount:          Number(amount),
+      running_balance: newBalance,
+      description,
+      reference_type:  'adjustment',
+      created_by:      req.user.id,
+    });
+    return success(res, data, 'Ledger entry added', 201);
+  } catch (err) { return error(res, err.message); }
+};
+
 // GET /api/v1/suppliers?company_id= — active suppliers for the autocomplete
 // on Raw Materials → Purchase, and for the standalone Suppliers panel.
 const SELECT_FIELDS = 'id,company_id,name,address,contact_number,categories,is_active,created_at';
@@ -130,4 +200,4 @@ async function findOrCreateSupplier(companyId, name) {
   return created;
 }
 
-module.exports = { getSuppliers, createSupplier, updateSupplier, deleteSupplier, findOrCreateSupplier };
+module.exports = { getSuppliers, createSupplier, updateSupplier, deleteSupplier, findOrCreateSupplier, getSupplierLedger, adjustSupplierLedger };

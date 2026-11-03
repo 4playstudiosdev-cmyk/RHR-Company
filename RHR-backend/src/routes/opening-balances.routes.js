@@ -101,6 +101,40 @@ router.post('/', authenticate, requireRole('super_admin', 'branch_admin', 'sales
       });
     }
 
+    if (entity_type === 'vendor') {
+      if (!entity_id) return error(res, 'entity_id (supplier id) is required', 400);
+      if (!balance_type || !['debit', 'credit'].includes(balance_type)) {
+        return error(res, "balance_type must be 'debit' or 'credit' for a vendor opening balance", 400);
+      }
+      if (!amount || Number(amount) <= 0) return error(res, 'A positive amount is required', 400);
+
+      try {
+        const last = await pgrestGet('supplier_ledger_entries', {
+          select: 'running_balance',
+          supplier_id: `eq.${entity_id}`,
+          order: 'created_at.desc',
+          limit: '1',
+        });
+        const prevBalance = Number(last?.[0]?.running_balance) || 0;
+        const newBalance = balance_type === 'debit'
+          ? prevBalance + Number(amount)
+          : prevBalance - Number(amount);
+
+        await pgrestPost('supplier_ledger_entries', {
+          company_id:      companyId,
+          supplier_id:     entity_id,
+          entry_type:      balance_type,
+          amount:          Number(amount),
+          running_balance: newBalance,
+          description:     notes || 'Opening balance',
+          reference_type:  'opening_balance',
+          created_by:      req.user.id,
+        });
+      } catch (e) {
+        console.error('Supplier ledger write failed (run phase77_supplier_ledger.sql):', e.message);
+      }
+    }
+
     if (entity_type === 'raw_material') {
       if (!entity_id || quantity === undefined || quantity === '') {
         return error(res, 'entity_id (raw material id) and quantity are required', 400);
