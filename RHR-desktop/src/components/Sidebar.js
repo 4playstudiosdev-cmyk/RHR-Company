@@ -24,7 +24,6 @@ import { PENDING_RING, PENDING_BADGE } from '../utils/pending';
 // (super_admin-only) are deliberately NOT toggleable — those are a hard
 // block for every branch admin, not a per-admin preference.
 const NAV_ITEMS = [
-  { key: 'daily-dashboard', label: 'Daily Dashboard', icon: LayoutPanelTop, requiredPermission: 'daily-dashboard' },
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiredPermission: 'dashboard' },
   { key: 'products', label: 'Products', icon: Package, requiredPermission: 'products' },
   { key: 'production-materials', label: 'Raw Materials', icon: Boxes, requiredPermission: 'can_manage_production' },
@@ -105,7 +104,7 @@ export const TOGGLEABLE_PANELS = NAV_ITEMS
 const GROUPS = [
   {
     key: 'dash', label: 'Dashboard & Tracking', icon: LayoutPanelTop,
-    children: ['daily-dashboard', 'dashboard', 'gps', 'notifications', 'promotions', 'whatsapp-broadcast']
+    children: ['dashboard', 'daily-report', 'gps', 'notifications', 'promotions', 'whatsapp-broadcast']
   },
   {
     key: 'sales', label: 'Sales & Recovery', icon: ShoppingCart,
@@ -132,7 +131,7 @@ const GROUPS = [
   },
   {
     key: 'reports', label: 'Reports & Audit', icon: FileBarChart2,
-    children: ['daily-report', 'stock-reports', 'reports', 'deleted-items']
+    children: ['stock-reports', 'reports', 'deleted-items']
   }
 ];
 

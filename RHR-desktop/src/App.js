@@ -13,7 +13,6 @@ import Topbar from './components/Topbar';
 import GlobalSearch from './components/GlobalSearch';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import DailyDashboard from './pages/DailyDashboard';
 import Products from './pages/Products';
 import Orders from './pages/Orders';
 import Customers from './pages/Customers';
@@ -54,7 +53,6 @@ import WhatsappBroadcast from './pages/WhatsappBroadcast';
 
 const PAGES = {
   dashboard: Dashboard,
-  'daily-dashboard': DailyDashboard,
   products: Products,
   orders: Orders,
   customers: Customers,
