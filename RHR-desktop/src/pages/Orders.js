@@ -86,6 +86,9 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
   const [updatingId, setUpdatingId] = useState(null);
   const [pdfLoadingId, setPdfLoadingId] = useState(null);
   const [tab, setTab] = useState('pending');
+  const [deliveredDateFilter, setDeliveredDateFilter] = useState('all');
+  const [deliveredDateFrom, setDeliveredDateFrom] = useState('');
+  const [deliveredDateTo, setDeliveredDateTo] = useState('');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [salesmanFilter, setSalesmanFilter] = useState('');
   const [areaFilter, setAreaFilter] = useState('');
@@ -817,8 +820,26 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
   }, [preFiltered]);
 
   const filtered = useMemo(() => {
-    return tab === 'all' ? preFiltered : preFiltered.filter((o) => o.status === tab);
-  }, [preFiltered, tab]);
+    let list = tab === 'all' ? preFiltered : preFiltered.filter((o) => o.status === tab);
+    if (tab === 'delivered' && deliveredDateFilter !== 'all') {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+      const weekAgo = new Date(today); weekAgo.setDate(today.getDate() - 6);
+      list = list.filter((o) => {
+        const d = new Date(o.updated_at || o.created_at);
+        if (deliveredDateFilter === 'today')     return d >= today;
+        if (deliveredDateFilter === 'yesterday') return d >= yesterday && d < today;
+        if (deliveredDateFilter === 'week')      return d >= weekAgo;
+        if (deliveredDateFilter === 'custom' && deliveredDateFrom && deliveredDateTo) {
+          const from = new Date(deliveredDateFrom); from.setHours(0, 0, 0, 0);
+          const to   = new Date(deliveredDateTo);   to.setHours(23, 59, 59, 999);
+          return d >= from && d <= to;
+        }
+        return true;
+      });
+    }
+    return list;
+  }, [preFiltered, tab, deliveredDateFilter, deliveredDateFrom, deliveredDateTo]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageOrders = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -923,6 +944,48 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
             </button>
           )}
         </div>
+
+        {/* Delivered date filter — only visible on the Delivered tab */}
+        {tab === 'delivered' && (
+          <div className="px-6 py-3 border-b border-gray-100 flex flex-wrap items-center gap-2">
+            {[
+              { value: 'all',       label: 'All' },
+              { value: 'today',     label: 'Today' },
+              { value: 'yesterday', label: 'Yesterday' },
+              { value: 'week',      label: 'Last 7 Days' },
+              { value: 'custom',    label: 'Custom Range' },
+            ].map(({ value, label }) => (
+              <button
+                key={value}
+                onClick={() => { setDeliveredDateFilter(value); setPage(1); }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+                  deliveredDateFilter === value
+                    ? 'bg-navy text-white border-navy'
+                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+            {deliveredDateFilter === 'custom' && (
+              <div className="flex items-center gap-2 ml-2">
+                <input
+                  type="date"
+                  value={deliveredDateFrom}
+                  onChange={(e) => { setDeliveredDateFrom(e.target.value); setPage(1); }}
+                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-navy"
+                />
+                <span className="text-gray-400 text-xs">to</span>
+                <input
+                  type="date"
+                  value={deliveredDateTo}
+                  onChange={(e) => { setDeliveredDateTo(e.target.value); setPage(1); }}
+                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-navy"
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {tab === 'deleted-invoices' ? (
           loadingDeleted ? (

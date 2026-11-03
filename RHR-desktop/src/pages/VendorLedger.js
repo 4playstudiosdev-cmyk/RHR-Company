@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { BookOpen, Plus, TrendingDown, TrendingUp, Wallet, X, Banknote, Building2, FileText } from 'lucide-react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { BookOpen, TrendingDown, TrendingUp, Wallet, X, Banknote, Building2, FileText, ImagePlus } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
@@ -51,11 +51,6 @@ export default function VendorLedger({ initialSupplierId }) {
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
 
-  // Add Adjustment modal
-  const [showAdjustModal, setShowAdjustModal] = useState(false);
-  const [adjustForm, setAdjustForm] = useState({ entry_type: 'debit', amount: '', description: '' });
-  const [saving, setSaving] = useState(false);
-
   // Add Payment modal
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentForm, setPaymentForm] = useState({
@@ -65,6 +60,9 @@ export default function VendorLedger({ initialSupplierId }) {
     payment_date: new Date().toISOString().split('T')[0],
   });
   const [savingPayment, setSavingPayment] = useState(false);
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [receiptFile, setReceiptFile] = useState(null);
+  const receiptInputRef = useRef(null);
 
   useEffect(() => {
     loadSuppliers();
@@ -75,10 +73,16 @@ export default function VendorLedger({ initialSupplierId }) {
     setSuppliersLoading(true);
     try {
       const companyFilter = selectedCity === 'all' ? null : selectedCity;
-      const data = companyFilter
-        ? (await api.get('/suppliers', { params: { company_id: companyFilter } })).data.data || []
-        : await fetchAllCities('/suppliers');
-      setSuppliers(data);
+      const [suppData, bankData] = await Promise.all([
+        companyFilter
+          ? (await api.get('/suppliers', { params: { company_id: companyFilter } })).data.data || []
+          : fetchAllCities('/suppliers'),
+        companyFilter
+          ? (await api.get('/bank/accounts', { params: { company_id: companyFilter } })).data.data || []
+          : fetchAllCities('/bank/accounts'),
+      ]);
+      setSuppliers(suppData);
+      setBankAccounts(bankData);
     } catch {
       toast.error('Failed to load supplier list.');
     } finally {
@@ -134,9 +138,26 @@ export default function VendorLedger({ initialSupplierId }) {
     }
   };
 
+  const uploadReceipt = async (file) => {
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const res = await api.post('/storage/upload', {
+      bucket: 'expense-receipts',
+      fileName: file.name,
+      fileBase64: base64,
+      mimeType: file.type,
+    });
+    return res.data.data.url;
+  };
+
   const handlePaymentSubmit = async (e) => {
     e.preventDefault();
     if (!paymentForm.amount || Number(paymentForm.amount) <= 0) { toast.error('Enter a positive amount.'); return; }
+    if (!receiptFile) { toast.error('Please attach a payment receipt image.'); return; }
     setSavingPayment(true);
     try {
       const method = paymentForm.payment_method;
@@ -150,14 +171,18 @@ export default function VendorLedger({ initialSupplierId }) {
       }
       if (paymentForm.notes) desc += ` (${paymentForm.notes})`;
 
+      const receipt_url = await uploadReceipt(receiptFile);
+
       await api.post(`/suppliers/${supplierId}/ledger/adjustment`, {
         entry_type:     'credit',
         amount:         Number(paymentForm.amount),
         description:    desc,
         reference_type: 'payment',
+        receipt_url,
       });
       toast.success('Payment recorded.');
       setShowPaymentModal(false);
+      setReceiptFile(null);
       setPaymentForm({
         amount: '', payment_method: 'cash', notes: '',
         bank_name: '', reference_number: '',
@@ -183,20 +208,12 @@ export default function VendorLedger({ initialSupplierId }) {
         <div className="flex gap-2 items-center flex-wrap">
           <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
           <Button
-            variant="secondary"
+            variant="accent"
             onClick={() => setShowPaymentModal(true)}
             disabled={!supplierId}
             className="flex items-center gap-1.5 disabled:opacity-50"
           >
             <Wallet size={16} /> Add Payment
-          </Button>
-          <Button
-            variant="accent"
-            onClick={() => setShowAdjustModal(true)}
-            disabled={!supplierId}
-            className="flex items-center gap-1.5 disabled:opacity-50"
-          >
-            <Plus size={16} /> Add Entry
           </Button>
         </div>
       </div>
@@ -335,55 +352,6 @@ export default function VendorLedger({ initialSupplierId }) {
         </>
       )}
 
-      {/* Add Entry (Adjustment) Modal */}
-      {showAdjustModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h2 className="text-lg font-bold text-navy">Add Ledger Entry</h2>
-              <button onClick={() => setShowAdjustModal(false)} className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"><X size={18} /></button>
-            </div>
-            <form onSubmit={handleAdjustSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Entry Type</label>
-                <select
-                  value={adjustForm.entry_type}
-                  onChange={(e) => setAdjustForm({ ...adjustForm, entry_type: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white"
-                >
-                  <option value="debit">Debit — We owe more (invoice / purchase)</option>
-                  <option value="credit">Credit — Reduce balance (payment / discount)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Amount (PKR)</label>
-                <input
-                  type="number" min="0.01" step="0.01" required
-                  value={adjustForm.amount}
-                  onChange={(e) => setAdjustForm({ ...adjustForm, amount: e.target.value })}
-                  placeholder="0"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
-                <input
-                  type="text" required
-                  value={adjustForm.description}
-                  onChange={(e) => setAdjustForm({ ...adjustForm, description: e.target.value })}
-                  placeholder="e.g. Invoice #1234 or manual adjustment"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy"
-                />
-              </div>
-              <div className="flex justify-end gap-3 pt-2">
-                <Button type="button" variant="secondary" onClick={() => setShowAdjustModal(false)}>Cancel</Button>
-                <Button type="submit" variant="accent" disabled={saving}>{saving ? 'Saving…' : 'Add Entry'}</Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Add Payment Modal */}
       {showPaymentModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
@@ -430,14 +398,17 @@ export default function VendorLedger({ initialSupplierId }) {
               {paymentForm.payment_method === 'bank' && (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Bank Name</label>
-                    <input
-                      type="text"
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Bank Account</label>
+                    <select
                       value={paymentForm.bank_name}
                       onChange={(e) => setPaymentForm({ ...paymentForm, bank_name: e.target.value })}
-                      placeholder="e.g. HBL, MCB, UBL"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy"
-                    />
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white"
+                    >
+                      <option value="">— Select bank —</option>
+                      {bankAccounts.map((b) => (
+                        <option key={b.id} value={b.bank_name}>{b.account_name} — {b.bank_name}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">Reference / Transaction Number</label>
@@ -455,14 +426,17 @@ export default function VendorLedger({ initialSupplierId }) {
               {paymentForm.payment_method === 'cheque' && (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Bank Name</label>
-                    <input
-                      type="text"
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Bank Account</label>
+                    <select
                       value={paymentForm.cheque_bank}
                       onChange={(e) => setPaymentForm({ ...paymentForm, cheque_bank: e.target.value })}
-                      placeholder="e.g. HBL, MCB, UBL"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy"
-                    />
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white"
+                    >
+                      <option value="">— Select bank —</option>
+                      {bankAccounts.map((b) => (
+                        <option key={b.id} value={b.bank_name}>{b.account_name} — {b.bank_name}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -499,9 +473,48 @@ export default function VendorLedger({ initialSupplierId }) {
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Receipt / Proof of Payment <span className="text-red-500">*</span>
+                </label>
+                <input
+                  ref={receiptInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
+                />
+                {receiptFile ? (
+                  <div className="flex items-center gap-3 border border-emerald-200 bg-emerald-50 rounded-lg px-3 py-2.5">
+                    <img
+                      src={URL.createObjectURL(receiptFile)}
+                      alt="Receipt preview"
+                      className="w-12 h-12 object-cover rounded-lg border border-gray-200"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-700 truncate">{receiptFile.name}</p>
+                      <p className="text-xs text-gray-400">{(receiptFile.size / 1024).toFixed(0)} KB</p>
+                    </div>
+                    <button type="button" onClick={() => { setReceiptFile(null); if (receiptInputRef.current) receiptInputRef.current.value = ''; }}
+                      className="text-gray-400 hover:text-red-500 transition-colors">
+                      <X size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => receiptInputRef.current?.click()}
+                    className="w-full border-2 border-dashed border-gray-300 rounded-lg px-3 py-4 flex flex-col items-center gap-1.5 text-gray-400 hover:border-navy hover:text-navy transition-colors"
+                  >
+                    <ImagePlus size={20} />
+                    <span className="text-sm">Tap to attach receipt photo</span>
+                  </button>
+                )}
+              </div>
+
               <div className="flex justify-end gap-3 pt-2">
-                <Button type="button" variant="secondary" onClick={() => setShowPaymentModal(false)}>Cancel</Button>
-                <Button type="submit" variant="accent" disabled={savingPayment}>{savingPayment ? 'Saving…' : 'Record Payment'}</Button>
+                <Button type="button" variant="secondary" onClick={() => { setShowPaymentModal(false); setReceiptFile(null); }}>Cancel</Button>
+                <Button type="submit" variant="accent" disabled={savingPayment}>{savingPayment ? 'Uploading…' : 'Record Payment'}</Button>
               </div>
             </form>
           </div>

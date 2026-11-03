@@ -64,7 +64,7 @@ export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, 
   rightY = field(colRightX, rightY, 'Date:', new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
   rightY = field(colRightX, rightY, 'Sales Officer:', salesman.full_name);
   rightY = field(colRightX, rightY, 'Vehicle:', driver.car_number);
-  rightY = field(colRightX, rightY, 'Driver:', driver.full_name);
+  rightY = field(colRightX, rightY, 'Driver:', driver.full_name ? `${driver.full_name}${driver.phone ? ' (' + driver.phone + ')' : ''}` : null);
   rightY = field(colRightX, rightY, 'Status:', order.status ? order.status.toUpperCase() : null);
 
   const tableStartY = Math.max(leftY, rightY) + 5;
@@ -160,9 +160,6 @@ export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, 
   }
 
   const signY = lineY + 30;
-  doc.setDrawColor(180, 180, 180);
-  doc.setLineWidth(0.3);
-  doc.line(M, signY, M + 70, signY);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(90, 90, 90);

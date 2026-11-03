@@ -677,20 +677,14 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
       shop_latitude:  customer.shop_latitude ?? null,
       shop_longitude: customer.shop_longitude ?? null
     });
-    // Pre-fill edit balance with already-loaded outstanding; fetch if not yet loaded
-    const currentBal = outstandingMap[customer.id];
-    if (currentBal !== undefined) {
-      setEditBalanceValue(String(currentBal));
-    } else {
-      setEditBalanceValue('');
-      api.get(`/ledger/${customer.id}`)
-        .then((r) => {
-          const bal = r.data?.data?.currentBalance ?? 0;
-          setOutstandingMap((prev) => ({ ...prev, [customer.id]: bal }));
-          setEditBalanceValue(String(bal));
-        })
-        .catch(() => setEditBalanceValue(''));
-    }
+    // Pre-fill edit balance with historical opening balance (from opening_balances table)
+    setEditBalanceValue('');
+    api.get('/opening-balances', { params: { entity_type: 'customer', entity_id: customer.id } })
+      .then((r) => {
+        const latest = (r.data?.data || [])[0];
+        setEditBalanceValue(latest?.amount != null ? String(latest.amount) : '');
+      })
+      .catch(() => setEditBalanceValue(''));
     setShowCustomerModal(true);
   };
 
@@ -710,16 +704,15 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
       if (salesman_id !== (editingCustomer.salesman_id || '')) {
         await api.patch(`/customers/${editingCustomer.id}/assign-salesman`, { salesman_id: salesman_id || null });
       }
-      // If the admin changed the outstanding balance, post it to the ledger
-      if (editBalanceValue !== '' && Number.isFinite(Number(editBalanceValue))) {
-        const currentBal = outstandingMap[editingCustomer.id];
-        if (currentBal === undefined || Number(editBalanceValue) !== Number(currentBal)) {
-          try {
-            await api.patch(`/ledger/${editingCustomer.id}/balance`, { balance: Number(editBalanceValue) });
-            setOutstandingMap((prev) => ({ ...prev, [editingCustomer.id]: Number(editBalanceValue) }));
-          } catch (balErr) {
-            toast.error('Customer saved but balance update failed: ' + (balErr.response?.data?.message || balErr.message));
-          }
+      // Update historical opening balance record (reference only — does NOT touch the ledger)
+      if (editBalanceValue !== '' && Number.isFinite(Number(editBalanceValue)) && Number(editBalanceValue) >= 0) {
+        try {
+          await api.patch(`/opening-balances/customer/${editingCustomer.id}`, {
+            amount: Number(editBalanceValue),
+            entity_name: editingCustomer.shop_name || editingCustomer.full_name,
+          });
+        } catch (balErr) {
+          toast.error('Customer saved but opening balance update failed: ' + (balErr.response?.data?.message || balErr.message));
         }
       }
       toast.success('Customer updated.');
@@ -1836,7 +1829,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
             {editingCustomer && (
               <>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Opening / Outstanding Balance (PKR)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Opening Balance (PKR)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -1846,7 +1839,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                     placeholder="e.g. 50000"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
                   />
-                  <p className="text-xs text-gray-400 mt-1">Change to adjust this customer's current outstanding — the difference is posted to their ledger automatically.</p>
+                  <p className="text-xs text-gray-400 mt-1">Sets the recorded opening balance for this customer. Does not affect their current outstanding balance.</p>
                 </div>
                 <p className="text-xs text-gray-400">Phone number can't be changed here.</p>
               </>

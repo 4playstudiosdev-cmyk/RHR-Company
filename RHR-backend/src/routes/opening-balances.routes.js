@@ -13,6 +13,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
     const params = { select: '*', order: 'created_at.desc' };
     if (companyId) params.company_id = `eq.${companyId}`;
     if (req.query.entity_type) params.entity_type = `eq.${req.query.entity_type}`;
+    if (req.query.entity_id)   params.entity_id   = `eq.${req.query.entity_id}`;
     const data = await pgrestGet('opening_balances', params);
     return success(res, data);
   } catch (err) { return error(res, err.message); }
@@ -151,6 +152,45 @@ router.post('/', authenticate, requireRole('super_admin', 'branch_admin', 'sales
 
     const [data] = await pgrestPost('opening_balances', row);
     return success(res, data, 'Opening balance recorded', 201);
+  } catch (err) { return error(res, err.message); }
+});
+
+// PATCH /api/v1/opening-balances/customer/:entityId
+// Updates only the opening_balances table row (reference record).
+// Deliberately does NOT touch ledger_entries so the running outstanding
+// balance is unaffected — this is for correcting the historical opening
+// balance record only, not for adjusting a customer's current balance.
+router.patch('/customer/:entityId', authenticate, isAdmin, async (req, res) => {
+  try {
+    const { entityId } = req.params;
+    const { amount, entity_name } = req.body;
+    if (amount === undefined || isNaN(Number(amount)) || Number(amount) < 0)
+      return error(res, 'A non-negative amount is required', 400);
+
+    const existing = await pgrestGet('opening_balances', {
+      select: 'id',
+      entity_type: 'eq.customer',
+      entity_id:   `eq.${entityId}`,
+      order:       'created_at.desc',
+      limit:       '1',
+    });
+
+    if (existing?.[0]) {
+      await pgrestPatch('opening_balances', { id: `eq.${existing[0].id}` }, { amount: Number(amount) });
+    } else {
+      // No existing record — create one (reference only, no ledger write)
+      await pgrestPost('opening_balances', {
+        company_id:   req.user.company_id,
+        entity_type:  'customer',
+        entity_id:    entityId,
+        entity_name:  entity_name || '',
+        balance_type: 'debit',
+        amount:       Number(amount),
+        notes:        'Opening balance (reference)',
+        created_by:   req.user.id,
+      });
+    }
+    return success(res, null, 'Opening balance updated');
   } catch (err) { return error(res, err.message); }
 });
 

@@ -28,7 +28,7 @@ const getSupplierLedger = async (req, res) => {
 const adjustSupplierLedger = async (req, res) => {
   try {
     const { id } = req.params;
-    const { entry_type, amount, description } = req.body;
+    const { entry_type, amount, description, reference_type: refType, receipt_url } = req.body;
     if (!entry_type || !amount || !description)
       return error(res, 'entry_type, amount, description are required', 400);
     if (!['debit', 'credit'].includes(entry_type))
@@ -58,16 +58,32 @@ const adjustSupplierLedger = async (req, res) => {
       ? prevBalance + Number(amount)
       : prevBalance - Number(amount);
 
-    const [data] = await pgrestPost('supplier_ledger_entries', {
-      company_id:      supplier.company_id,
-      supplier_id:     id,
-      entry_type,
-      amount:          Number(amount),
-      running_balance: newBalance,
-      description,
-      reference_type:  'adjustment',
-      created_by:      req.user.id,
-    });
+    let data;
+    try {
+      [data] = await pgrestPost('supplier_ledger_entries', {
+        company_id:      supplier.company_id,
+        supplier_id:     id,
+        entry_type,
+        amount:          Number(amount),
+        running_balance: newBalance,
+        description,
+        reference_type:  refType || 'adjustment',
+        receipt_url:     receipt_url || null,
+        created_by:      req.user.id,
+      });
+    } catch (e) {
+      // receipt_url column may not exist yet — retry without it
+      [data] = await pgrestPost('supplier_ledger_entries', {
+        company_id:      supplier.company_id,
+        supplier_id:     id,
+        entry_type,
+        amount:          Number(amount),
+        running_balance: newBalance,
+        description,
+        reference_type:  refType || 'adjustment',
+        created_by:      req.user.id,
+      });
+    }
     return success(res, data, 'Ledger entry added', 201);
   } catch (err) { return error(res, err.message); }
 };
