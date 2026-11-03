@@ -44,6 +44,7 @@ const EMPTY_FORM = {
   category: EXPENSE_CATEGORIES[0], amount: '', description: '', expense_date: todayISO(),
   method: 'cash', bank_account_id: '', person: '',
   supplier_id: '', splitPayment: false, cashAmount: '', onlineAmount: '',
+  payLater: false,
 };
 
 export default function Expenses() {
@@ -394,7 +395,7 @@ export default function Expenses() {
         toast.error('Amount is required.');
         return;
       }
-      if (form.method === 'bank' && !form.bank_account_id) {
+      if (!form.payLater && form.method === 'bank' && !form.bank_account_id) {
         toast.error('Select a bank account.');
         return;
       }
@@ -426,7 +427,14 @@ export default function Expenses() {
           bank_account_id: splitOnline > 0 ? form.bank_account_id : null,
         });
       } else {
-        await api.post('/expenses', { ...form, ...baseRow, amount: Number(form.amount) });
+        const expensePayload = {
+          ...form,
+          ...baseRow,
+          amount: Number(form.amount),
+          method: form.payLater ? 'pending' : form.method,
+          bank_account_id: form.payLater ? null : (form.bank_account_id || null),
+        };
+        await api.post('/expenses', expensePayload);
       }
       toast.success(receipt_url ? 'Expense recorded with photo.' : 'Expense recorded.');
       setForm({ ...EMPTY_FORM, expense_date: form.expense_date });
@@ -516,6 +524,7 @@ export default function Expenses() {
   })();
 
   const getPaidFromLabel = (e) => {
+    if (e.method === 'pending') return 'Pending';
     if (e.method === 'split') {
       return `Cash Rs ${Number(e.cash_amount || 0).toLocaleString()} + Bank Rs ${Number(e.bank_amount || 0).toLocaleString()}${e.bank_accounts ? ` — ${e.bank_accounts.account_name}` : ''}`;
     }
@@ -791,7 +800,13 @@ export default function Expenses() {
                                     </>
                                   ) : (
                                     <>
-                                      {!isAccountView && <td className="px-6 py-3.5 text-gray-500 text-xs">{getPaidFromLabel(entry)}</td>}
+                                      {!isAccountView && (
+                                        <td className="px-6 py-3.5 text-gray-500 text-xs">
+                                          {entry.method === 'pending'
+                                            ? <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange/15 text-orange">PENDING</span>
+                                            : getPaidFromLabel(entry)}
+                                        </td>
+                                      )}
                                       <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(entry.amount).toLocaleString()}</td>
                                     </>
                                   )}
@@ -985,32 +1000,62 @@ export default function Expenses() {
               </>
             ) : (
               <>
+                {/* ── Pay Now / Pay Later toggle ── */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Paid From</label>
-                  <select
-                    value={form.method}
-                    onChange={(e) => setForm({ ...form, method: e.target.value, bank_account_id: '' })}
-                    className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-                  >
-                    <option value="cash">Cash</option>
-                    <option value="bank">Bank Transfer</option>
-                  </select>
-                </div>
-                {form.method === 'bank' && (
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Bank Account *</label>
-                    <select
-                      value={form.bank_account_id}
-                      onChange={(e) => setForm({ ...form, bank_account_id: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Payment</label>
+                  <div className="flex rounded-lg overflow-hidden border border-gray-300">
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, payLater: false })}
+                      className={`flex-1 py-2 text-sm font-semibold transition-colors ${!form.payLater ? 'bg-navy text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
                     >
-                      <option value="">— Select —</option>
-                      {bankAccounts.map((b) => (
-                        <option key={b.id} value={b.id}>{b.account_name} — {b.bank_name}</option>
-                      ))}
-                    </select>
+                      Pay Now
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, payLater: true, bank_account_id: '' })}
+                      className={`flex-1 py-2 text-sm font-semibold transition-colors border-l border-gray-300 ${form.payLater ? 'bg-orange text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                    >
+                      Pay Later
+                    </button>
                   </div>
+                  {form.payLater && (
+                    <p className="text-[11px] text-orange mt-1.5">Expense will be recorded as pending — pay from the ledger when ready.</p>
+                  )}
+                </div>
+
+                {/* ── Paid From (only when Pay Now) ── */}
+                {!form.payLater && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Paid From</label>
+                      <select
+                        value={form.method}
+                        onChange={(e) => setForm({ ...form, method: e.target.value, bank_account_id: '' })}
+                        className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                      >
+                        <option value="cash">Cash</option>
+                        <option value="bank">Bank Transfer</option>
+                      </select>
+                    </div>
+                    {form.method === 'bank' && (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Bank Account *</label>
+                        <select
+                          value={form.bank_account_id}
+                          onChange={(e) => setForm({ ...form, bank_account_id: e.target.value })}
+                          className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                        >
+                          <option value="">— Select —</option>
+                          {bankAccounts.map((b) => (
+                            <option key={b.id} value={b.id}>{b.account_name} — {b.bank_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </>
                 )}
+
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Amount (PKR) *</label>
                   <input
@@ -1115,7 +1160,9 @@ export default function Expenses() {
                         {getEmployeeLabel(e)}
                       </td>
                       <td className="px-6 py-3.5 text-gray-600 text-xs">
-                        {getPaidFromLabel(e)}
+                        {e.method === 'pending'
+                          ? <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange/15 text-orange">PENDING</span>
+                          : getPaidFromLabel(e)}
                       </td>
                       <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(e.amount).toLocaleString()}</td>
                       <td className="px-6 py-3.5 whitespace-nowrap">
