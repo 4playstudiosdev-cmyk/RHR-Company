@@ -467,4 +467,116 @@ const getRecoveryReport = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { exportReport, getOutstanding, getPurchasesReport, getExpensesReport, getSaleReport, getCustomerSummary, getCustomerLedger, getVendorSummary, getVendorLedger, getRecoveryReport };
+// GET /reports/cash-complete?from=&to=&company_id=
+// Merges ALL cash-money movement into one chronological list:
+//   1. salesman_recoveries (payment_type=cash, approved)   → Cash IN
+//   2. payments (method=cash, approved, no bank_account)   → Cash IN
+//   3. expenses (method=cash)                              → Cash OUT
+//   4. salesman_cash_closings (approved)                   → Cash OUT (deposited)
+const getCashReport = async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const { from, to } = req.query;
+
+    // ── 1. Salesman / driver cash recoveries ──
+    const recParts = [
+      'select=id,amount,payment_type,recovery_date,created_at,notes,salesmen(full_name),drivers(full_name),users!customer_id(full_name,shop_name)',
+      'payment_type=eq.cash',
+      'status=eq.approved',
+      'order=recovery_date.desc',
+    ];
+    if (companyId) recParts.push(`company_id=eq.${companyId}`);
+    if (from) recParts.push(`recovery_date=gte.${from}`);
+    if (to)   recParts.push(`recovery_date=lte.${to}`);
+    let recoveries = [];
+    try { recoveries = await pgrestGetRaw(`salesman_recoveries?${recParts.join('&')}`); } catch (_) {}
+
+    // ── 2. Old-style payments table (method=cash, no bank account) ──
+    const payParts = [
+      'select=id,amount,created_at,users!customer_id(full_name,shop_name),salesmen!salesman_id(full_name)',
+      'method=eq.cash',
+      'status=eq.approved',
+      'bank_account_id=is.null',
+      'order=created_at.desc',
+    ];
+    if (companyId) payParts.push(`company_id=eq.${companyId}`);
+    if (from) payParts.push(`created_at=gte.${from}T00:00:00`);
+    if (to)   payParts.push(`created_at=lte.${to}T23:59:59`);
+    let oldPayments = [];
+    try { oldPayments = await pgrestGetRaw(`payments?${payParts.join('&')}`); } catch (_) {}
+
+    // ── 3. Cash expenses (cash OUT) ──
+    const expParts = [
+      'select=id,amount,category,description,expense_date,salesmen(full_name)',
+      'method=eq.cash',
+      'order=expense_date.desc',
+    ];
+    if (companyId) expParts.push(`company_id=eq.${companyId}`);
+    if (from) expParts.push(`expense_date=gte.${from}`);
+    if (to)   expParts.push(`expense_date=lte.${to}`);
+    let expenses = [];
+    try { expenses = await pgrestGetRaw(`expenses?${expParts.join('&')}`); } catch (_) {}
+
+    // ── 4. Cash deposits / closings (cash OUT — handed to bank or petty cash) ──
+    const closParts = [
+      'select=id,amount,deposit_to,bank_account,closing_date,created_at,salesmen(full_name)',
+      'status=eq.approved',
+      'order=closing_date.desc',
+    ];
+    if (companyId) closParts.push(`company_id=eq.${companyId}`);
+    if (from) closParts.push(`closing_date=gte.${from}`);
+    if (to)   closParts.push(`closing_date=lte.${to}`);
+    let closings = [];
+    try { closings = await pgrestGetRaw(`salesman_cash_closings?${closParts.join('&')}`); } catch (_) {}
+
+    const rows = [
+      ...(recoveries || []).map((r) => ({
+        date:        r.recovery_date || r.created_at,
+        type:        'recovery',
+        label:       'Cash Recovery',
+        person:      r.salesmen?.full_name || r.drivers?.full_name || '—',
+        customer:    r.users?.shop_name || r.users?.full_name || '—',
+        description: r.notes || 'Cash collected from customer',
+        amount_in:   Number(r.amount),
+        amount_out:  0,
+      })),
+      ...(oldPayments || []).map((p) => ({
+        date:        p.created_at,
+        type:        'payment',
+        label:       'Cash Payment',
+        person:      p.salesmen?.full_name || '—',
+        customer:    p.users?.shop_name || p.users?.full_name || '—',
+        description: 'Cash payment (direct)',
+        amount_in:   Number(p.amount),
+        amount_out:  0,
+      })),
+      ...(expenses || []).map((e) => ({
+        date:        e.expense_date,
+        type:        'expense',
+        label:       'Cash Expense',
+        person:      e.salesmen?.full_name || '—',
+        customer:    '—',
+        description: `${e.category}${e.description ? ` — ${e.description}` : ''}`,
+        amount_in:   0,
+        amount_out:  Number(e.amount),
+      })),
+      ...(closings || []).map((c) => ({
+        date:        c.closing_date || c.created_at,
+        type:        'deposit',
+        label:       'Cash Deposit',
+        person:      c.salesmen?.full_name || '—',
+        customer:    '—',
+        description: `Deposited → ${c.deposit_to === 'bank' ? `Bank${c.bank_account ? ` (${c.bank_account})` : ''}` : 'Petty Cash'}`,
+        amount_in:   0,
+        amount_out:  Number(c.amount),
+      })),
+    ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const totalIn  = rows.reduce((s, r) => s + r.amount_in,  0);
+    const totalOut = rows.reduce((s, r) => s + r.amount_out, 0);
+
+    return success(res, { rows, total_in: totalIn, total_out: totalOut, net: totalIn - totalOut });
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { exportReport, getOutstanding, getPurchasesReport, getExpensesReport, getSaleReport, getCustomerSummary, getCustomerLedger, getVendorSummary, getVendorLedger, getRecoveryReport, getCashReport };

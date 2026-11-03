@@ -42,6 +42,7 @@ const NAV_ITEMS = [
   { key: 'bank', label: 'Bank', icon: Landmark, requiredPermission: 'can_view_payments' },
   { key: 'expenses', label: 'Expenses', icon: Receipt, requiredPermission: 'can_view_payments' },
   { key: 'cash-closing', label: 'Cash Closing', icon: Landmark, requiredPermission: 'can_view_payments' },
+  { key: 'cash-report', label: 'Cash Report', icon: WalletCards, requiredPermission: 'can_view_payments' },
   { key: 'ledger', label: 'Ledger', icon: BookOpen, requiredPermission: 'ledger' },
   { key: 'vendor-ledger', label: 'Vendor Ledgers', icon: Store, requiredPermission: 'ledger' },
   { key: 'daily-report', label: 'Daily Report', icon: FileText, requiredPermission: 'can_export_reports' },
@@ -123,7 +124,7 @@ const GROUPS = [
   },
   {
     key: 'finance', label: 'Finance & Accounts', icon: Wallet,
-    children: ['cash-closing', 'ledger', 'vendor-ledger', 'payments', 'bank', 'expenses']
+    children: ['cash-report', 'cash-closing', 'ledger', 'vendor-ledger', 'payments', 'bank', 'expenses']
   },
   {
     key: 'hr', label: 'HR & Administration', icon: Briefcase,
