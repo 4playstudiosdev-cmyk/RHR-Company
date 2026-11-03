@@ -13,7 +13,7 @@ const TAX_RATE = 0.18; // 18% sales tax
 // subtract it and relabel the header). Async because the logo has to
 // load before it can be embedded — every call site already runs inside
 // an async handler, so this just needs an `await` added.
-export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, invoiceNumber, returnAmount = 0, preview = false } = {}) {
+export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, invoiceNumber, returnAmount = 0, preview = false, previousBalance = 0 } = {}) {
   const doc = new jsPDF();
   const customer = order.users || {};
   const driver = order.drivers || {};
@@ -61,7 +61,7 @@ export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, 
   leftY = field(colLeftX, leftY, 'Delivery Addr:', order.delivery_address || customer.shop_address);
   leftY = field(colLeftX, leftY, 'Contact:', customer.phone);
 
-  rightY = field(colRightX, rightY, 'Order Date:', new Date(order.created_at || Date.now()).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
+  rightY = field(colRightX, rightY, 'Date:', new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
   rightY = field(colRightX, rightY, 'Sales Officer:', salesman.full_name);
   rightY = field(colRightX, rightY, 'Vehicle:', driver.car_number);
   rightY = field(colRightX, rightY, 'Driver:', driver.full_name);
@@ -133,6 +133,31 @@ export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, 
   doc.text(`Rs ${grandTotal.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
   lineY += 4;
   doc.line(110, lineY, PAGE_W - M, lineY);
+
+  // ── Previous Balance + Total Due ──
+  if (previousBalance > 0) {
+    lineY += 10;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor(60, 60, 60);
+    doc.text('Previous Balance:', 110, lineY);
+    doc.text(`Rs ${Number(previousBalance).toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
+    lineY += 6;
+    doc.text('This Order:', 110, lineY);
+    doc.text(`Rs ${grandTotal.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
+    lineY += 4;
+    doc.setDrawColor(30, 30, 40);
+    doc.setLineWidth(0.4);
+    doc.line(110, lineY, PAGE_W - M, lineY);
+    lineY += 8;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(155, 0, 0);
+    doc.text('Total Due:', 110, lineY);
+    doc.text(`Rs ${(previousBalance + grandTotal).toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
+    lineY += 4;
+    doc.line(110, lineY, PAGE_W - M, lineY);
+  }
 
   const signY = lineY + 30;
   doc.setDrawColor(180, 180, 180);

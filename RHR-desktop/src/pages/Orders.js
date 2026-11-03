@@ -610,7 +610,13 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
     try {
       const res = await api.get(`/orders/${order.id}`);
       const detail = res.data.data;
-      await buildInvoicePdf(detail, { withTax: !!detail.invoice_with_tax, conveyance: Number(detail.invoice_conveyance) || 0 });
+      let previousBalance = 0;
+      try {
+        const ledgerRes = await api.get(`/ledger/${detail.customer_id}`);
+        const currentBalance = ledgerRes.data?.data?.currentBalance ?? 0;
+        previousBalance = Math.max(0, currentBalance - Number(detail.total_amount));
+      } catch (e) { /* ledger unavailable — skip previous balance */ }
+      await buildInvoicePdf(detail, { withTax: !!detail.invoice_with_tax, conveyance: Number(detail.invoice_conveyance) || 0, previousBalance });
       toast.success(`Invoice for ${order.order_number} downloaded.`);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to download invoice.');
@@ -644,7 +650,14 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
       const detail = res.data.data;
       const taxAmount = withTax ? Number(detail.total_amount) * TAX_RATE : 0;
 
-      await buildInvoicePdf(detail, { withTax, conveyance });
+      let previousBalance = 0;
+      try {
+        const ledgerRes = await api.get(`/ledger/${detail.customer_id}`);
+        const currentBalance = ledgerRes.data?.data?.currentBalance ?? 0;
+        previousBalance = Math.max(0, currentBalance - Number(detail.total_amount));
+      } catch (e) { /* ledger unavailable — skip previous balance */ }
+
+      await buildInvoicePdf(detail, { withTax, conveyance, previousBalance });
 
       // Tax and conveyance aren't part of orders.total_amount, so without
       // this the customer's ledger (and anything that rolls up from it —
