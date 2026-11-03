@@ -479,6 +479,62 @@ router.get('/pending-approvals', authenticate, isAdmin, async (req, res) => {
   } catch (err) { return error(res, err.message); }
 });
 
+// GET /api/v1/recovery/cash-summary?company_id=
+// Per-salesman cash collection vs deposit summary for the Cash Closing panel.
+// Returns per-salesman breakdown (collected, closed, in-hand) + recent closings list.
+router.get('/cash-summary', authenticate, isAdmin, async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const cfObj = companyId ? { company_id: `eq.${companyId}` } : {};
+
+    const [salesmen, recoveries, closings] = await Promise.all([
+      pgrestGet('salesmen', { select: 'id,full_name', ...cfObj, is_active: 'eq.true', order: 'full_name.asc' }),
+      pgrestGet('salesman_recoveries', {
+        select: 'salesman_id,amount,payment_type,status,recovery_date',
+        payment_type: 'eq.cash',
+        status: 'eq.approved',
+        ...cfObj,
+      }),
+      pgrestGet('salesman_cash_closings', {
+        select: 'id,salesman_id,amount,status,deposit_to,bank_account,notes,closing_date,created_at',
+        ...cfObj,
+        order: 'created_at.desc',
+      }),
+    ]);
+
+    const perSalesman = (salesmen || []).map(s => {
+      const sRec = (recoveries || []).filter(r => r.salesman_id === s.id);
+      const sClo = (closings || []).filter(c => c.salesman_id === s.id);
+      const totalCollected = sRec.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+      const totalClosed = sClo.filter(c => c.status === 'approved').reduce((sum, c) => sum + Number(c.amount || 0), 0);
+      const pendingClosed = sClo.filter(c => c.status === 'pending').reduce((sum, c) => sum + Number(c.amount || 0), 0);
+      return {
+        id: s.id,
+        name: s.full_name,
+        total_collected: totalCollected,
+        total_deposited: totalClosed,
+        pending_deposit: pendingClosed,
+        cash_in_hand: totalCollected - totalClosed,
+      };
+    }).filter(s => s.total_collected > 0 || s.total_deposited > 0 || s.pending_deposit > 0);
+
+    const salesmanMap = Object.fromEntries((salesmen || []).map(s => [s.id, s.full_name]));
+    const recentClosings = (closings || []).slice(0, 100).map(c => ({
+      ...c,
+      salesman_name: salesmanMap[c.salesman_id] || 'Unknown',
+    }));
+
+    const totals = {
+      total_collected: perSalesman.reduce((s, p) => s + p.total_collected, 0),
+      total_deposited: perSalesman.reduce((s, p) => s + p.total_deposited, 0),
+      pending_deposit: perSalesman.reduce((s, p) => s + p.pending_deposit, 0),
+      cash_in_hand: perSalesman.reduce((s, p) => s + p.cash_in_hand, 0),
+    };
+
+    return success(res, { per_salesman: perSalesman, recent_closings: recentClosings, totals });
+  } catch (err) { return error(res, err.message); }
+});
+
 // ── Cheques ──
 // A cheque is recorded with its details (bank, number, date) and stays PENDING. Nothing is
 // credited to the customer yet. When the bank clears it an admin marks it Cleared and says

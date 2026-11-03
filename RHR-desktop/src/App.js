@@ -29,6 +29,7 @@ import Bank from './pages/Bank';
 import Expenses from './pages/Expenses';
 import Ledger from './pages/Ledger';
 import VendorLedger from './pages/VendorLedger';
+import CashClosing from './pages/CashClosing';
 import DailyReport from './pages/DailyReport';
 import Reports from './pages/Reports';
 import GPS from './pages/GPS';
@@ -71,6 +72,7 @@ const PAGES = {
   expenses: Expenses,
   ledger: Ledger,
   'vendor-ledger': VendorLedger,
+  'cash-closing': CashClosing,
   'daily-report': DailyReport,
   reports: Reports,
   gps: GPS,
@@ -106,6 +108,7 @@ const PAGE_ACCESS = {
   vehicles: { requiredPermission: 'can_view_payments' },
   bank: { requiredPermission: 'can_view_payments' },
   expenses: { requiredPermission: 'can_view_payments' },
+  'cash-closing': { requiredPermission: 'can_view_payments' },
   'daily-report': { requiredPermission: 'can_export_reports' },
   reports: { requiredPermission: 'can_export_reports' },
   'stock-reports': { requiredPermission: 'can_export_reports' },
