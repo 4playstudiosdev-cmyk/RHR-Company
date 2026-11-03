@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Wallet, Plus, Download, Trash2, Receipt, Camera, Image as ImageIcon, X, Users, List, UserPlus, ChevronDown, Search } from 'lucide-react';
+import { Wallet, Plus, Download, Trash2, Receipt, Camera, Image as ImageIcon, X, Users, List, UserPlus, Search } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
@@ -51,8 +51,8 @@ export default function Expenses() {
   const user = getCurrentUser();
   const defaultCity = user?.role === 'super_admin' ? KARACHI_COMPANY_ID : user?.companyId;
   const [selectedCity, setSelectedCity] = useState(defaultCity);
-  const [dateFrom, setDateFrom] = useState(monthStartISO());
-  const [dateTo, setDateTo] = useState(todayISO());
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [expenses, setExpenses] = useState([]);
   const [bankAccounts, setBankAccounts] = useState([]);
   const [driversList, setDriversList] = useState([]);
@@ -78,6 +78,17 @@ export default function Expenses() {
   const [personSearch, setPersonSearch] = useState('');
   const [personDropdownOpen, setPersonDropdownOpen] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  // New account modal
+  const [showNewAcctModal, setShowNewAcctModal] = useState(false);
+  const [newAcctForm, setNewAcctForm] = useState({ name: '', opening_balance: '' });
+  const [newAcctSaving, setNewAcctSaving] = useState(false);
+  // Payments for the selected account (By Person tab)
+  const [accountPayments, setAccountPayments] = useState([]);
+  const [loadingPayments, setLoadingPayments] = useState(false);
+  // Add payment modal
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentForm, setPaymentForm] = useState({ amount: '', notes: '', payment_date: todayISO() });
+  const [paymentSaving, setPaymentSaving] = useState(false);
 
   useEffect(() => {
     loadExpenses();
@@ -198,19 +209,64 @@ export default function Expenses() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
 
-  const handleAddAccount = async () => {
-    const name = window.prompt('New expense account name (a shop, mechanic, person …):', '');
-    if (!name || !name.trim()) return;
+  const handleAddAccount = () => {
+    setNewAcctForm({ name: '', opening_balance: '' });
+    setShowNewAcctModal(true);
+  };
+
+  const handleSaveNewAcct = async (e) => {
+    e.preventDefault();
+    const name = newAcctForm.name.trim();
+    if (!name) return;
+    setNewAcctSaving(true);
     try {
       const res = await api.post('/expenses/accounts', {
-        name: name.trim(),
+        name,
+        opening_balance: newAcctForm.opening_balance ? Number(newAcctForm.opening_balance) : 0,
         company_id: selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity,
       });
       await loadAccounts();
       if (res.data.data?.id) setForm((f) => ({ ...f, person: personKey('account', res.data.data.id) }));
       toast.success(res.data.message || 'Account added.');
+      setShowNewAcctModal(false);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to add the account.');
+    } finally {
+      setNewAcctSaving(false);
+    }
+  };
+
+  const loadAccountPayments = async (accountId) => {
+    setLoadingPayments(true);
+    try {
+      const res = await api.get(`/expenses/accounts/${accountId}/payments`);
+      setAccountPayments(res.data.data || []);
+    } catch {
+      setAccountPayments([]);
+    } finally {
+      setLoadingPayments(false);
+    }
+  };
+
+  const handleSavePayment = async (e) => {
+    e.preventDefault();
+    const [, accountId] = personFilter.split(':');
+    if (!accountId) return;
+    setPaymentSaving(true);
+    try {
+      await api.post(`/expenses/accounts/${accountId}/payments`, {
+        amount: Number(paymentForm.amount),
+        notes: paymentForm.notes || null,
+        payment_date: paymentForm.payment_date || todayISO(),
+      });
+      await loadAccountPayments(accountId);
+      toast.success('Payment recorded.');
+      setShowPaymentModal(false);
+      setPaymentForm({ amount: '', notes: '', payment_date: todayISO() });
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to record payment.');
+    } finally {
+      setPaymentSaving(false);
     }
   };
 
@@ -219,6 +275,17 @@ export default function Expenses() {
     document.addEventListener('mousedown', onOutside);
     return () => document.removeEventListener('mousedown', onOutside);
   }, []);
+
+  // Load payments whenever an expense account is selected in By Person tab
+  useEffect(() => {
+    if (personFilter?.startsWith('account:')) {
+      const [, id] = personFilter.split(':');
+      loadAccountPayments(id);
+    } else {
+      setAccountPayments([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personFilter]);
 
   const personLabelFor = (key) => {
     if (!key) return '';
@@ -418,10 +485,24 @@ export default function Expenses() {
   })();
   const unassignedTotal = expenses.filter((e) => !personOf(e)).reduce((n, e) => n + Number(e.amount), 0);
   const selectedPerson = personTotals.find((p) => p.key === personFilter) || null;
+  // Opening balance of the selected expense account (if any)
+  const selectedAccountOpeningBalance = (() => {
+    if (!personFilter?.startsWith('account:')) return 0;
+    const [, id] = personFilter.split(':');
+    return Number(accountsList.find((a) => a.id === id)?.opening_balance || 0);
+  })();
   // oldest first so the running total reads like a ledger
   // (with no person picked it is every expense in the period — the default "All" view)
   const personEntries = (selectedPerson ? expenses.filter((e) => personOf(e)?.key === personFilter) : [...expenses])
         .sort((a, b) => String(a.expense_date).localeCompare(String(b.expense_date)) || String(a.created_at).localeCompare(String(b.created_at)));
+  // Merge expense entries + payment entries for a chronological ledger (account view only)
+  const isAccountView = personFilter?.startsWith('account:');
+  const mergedLedgerEntries = (() => {
+    if (!isAccountView) return personEntries.map((e) => ({ ...e, _type: 'expense' }));
+    const exps = personEntries.map((e) => ({ ...e, _type: 'expense', _date: e.expense_date }));
+    const pmts = accountPayments.map((p) => ({ ...p, _type: 'payment', _date: p.payment_date }));
+    return [...exps, ...pmts].sort((a, b) => String(a._date).localeCompare(String(b._date)) || String(a.created_at).localeCompare(String(b.created_at)));
+  })();
   const personMonths = (() => {
     const map = new Map();
     personEntries.forEach((e) => {
@@ -508,7 +589,7 @@ export default function Expenses() {
           <DateRangeFilter
             from={dateFrom}
             to={dateTo}
-            defaultPreset="This Month"
+            defaultPreset="All Time"
             onApply={(from, to) => { setDateFrom(from); setDateTo(to); }}
           />
           <Button variant="primary" onClick={exportToPdf} className="flex items-center gap-2">
@@ -557,94 +638,183 @@ export default function Expenses() {
               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white min-w-[220px]"
             >
               <option value="">All</option>
-              {['Driver', 'Salesman', 'Employee', 'Head', 'Worker', 'Account'].map((g) => {
-                const list = personTotals.filter((p) => p.group === g);
-                const label = g === 'Account' ? 'Expense Accounts' : g === 'Worker' ? 'Manufacturing Workers' : g === 'Head' ? 'Manufacturing Heads' : g === 'Employee' ? 'HRM Employees' : g + 's';
-                return list.length ? (
-                  <optgroup key={g} label={label}>
-                    {list.map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}
+              {[
+                { label: 'Drivers', items: driversList.map((d) => ({ key: personKey('driver', d.id), label: d.full_name + (d.car_number ? ` — ${d.car_number}` : '') })) },
+                { label: 'Salesmen', items: salesmenList.map((s) => ({ key: personKey('salesman', s.id), label: s.full_name })) },
+                { label: 'HRM Employees', items: employeesList.map((emp) => ({ key: personKey('employee', emp.id), label: emp.full_name + (emp.city ? ` — ${emp.city}` : '') })) },
+                { label: 'Manufacturing Heads', items: headsList.map((h) => ({ key: personKey('head', h.id), label: h.full_name })) },
+                { label: 'Manufacturing Workers', items: workersList.map((w) => ({ key: personKey('worker', w.id), label: w.full_name })) },
+                { label: 'Expense Accounts', items: accountsList.map((a) => ({ key: personKey('account', a.id), label: a.name })) },
+              ].map(({ label, items }) =>
+                items.length ? (
+                  <optgroup key={label} label={label}>
+                    {items.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
                   </optgroup>
-                ) : null;
-              })}
+                ) : null
+              )}
             </select>
           </div>
 
-          {personTotals.length === 0 ? (
-            <p className="text-sm text-gray-400 py-6 text-center">No person-wise expenses in this period yet. Choose a Person / Account when adding an expense.</p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-              {personTotals.map((p) => (
-                <button
-                  key={p.key}
-                  onClick={() => setPersonFilter(p.key)}
-                  className={`text-left rounded-xl border px-4 py-3 transition-colors ${personFilter === p.key ? 'border-navy bg-navy-chip' : 'border-gray-200 hover:border-navy/40 bg-white'}`}
-                >
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{p.group}</p>
-                  <p className="font-semibold text-navy text-sm truncate">{p.name}</p>
-                  <p className="text-red-600 font-bold mt-1">PKR {p.total.toLocaleString()}</p>
-                  <p className="text-[11px] text-gray-400">{p.count} {p.count === 1 ? 'entry' : 'entries'}</p>
-                </button>
-              ))}
-            </div>
-          )}
-          {unassignedTotal > 0 && (
-            <p className="text-xs text-gray-400 mt-3">General expenses (no person chosen): PKR {unassignedTotal.toLocaleString()}</p>
-          )}
-
-          {expenses.length > 0 && (
-            <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-5">
-              <div className="lg:col-span-4">
-                <div className="bg-navy rounded-xl px-5 py-4 mb-4">
-                  <p className="text-blue-200/70 text-xs font-semibold uppercase tracking-wide">{selectedPerson ? selectedPerson.name : 'All'}</p>
-                  <p className="text-white text-2xl font-bold mt-1">PKR {(selectedPerson ? selectedPerson.total : totalExpenses).toLocaleString()}</p>
-                  <p className="text-blue-200/70 text-xs mt-1">{personEntries.length} {personEntries.length === 1 ? 'entry' : 'entries'} in this period</p>
+          {(personEntries.length > 0 || personFilter) && (
+            <div className="mt-6">
+              {/* ── Summary cards ── */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+                <div className="bg-white rounded-2xl shadow-card border border-red-100 p-5">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-md bg-red-50 flex items-center justify-center">
+                      <Receipt size={16} className="text-red-500" />
+                    </div>
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Total Spent</span>
+                  </div>
+                  <p className="text-2xl font-bold text-red-600">PKR {(selectedPerson ? selectedPerson.total : (personFilter ? 0 : totalExpenses)).toLocaleString()}</p>
                 </div>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Month by month</h4>
-                <table className="w-full text-sm">
-                  <tbody>
-                    {personMonths.map((m) => (
-                      <tr key={m.ym} className="border-b border-gray-100">
-                        <td className="py-2 text-gray-700">{monthLabel(m.ym)}<span className="block text-[11px] text-gray-400">{m.count} {m.count === 1 ? 'entry' : 'entries'}</span></td>
-                        <td className="py-2 text-right font-semibold text-red-600">PKR {m.total.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-md bg-gray-50 flex items-center justify-center">
+                      <List size={16} className="text-gray-500" />
+                    </div>
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Entries</span>
+                  </div>
+                  <p className="text-2xl font-bold text-navy">{personEntries.length}</p>
+                </div>
+                <div className="bg-white rounded-2xl shadow-card border border-blue-100 p-5">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-md bg-blue-50 flex items-center justify-center">
+                      <Users size={16} className="text-blue-500" />
+                    </div>
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{personFilter ? 'Person' : 'People'}</span>
+                  </div>
+                  <p className="text-2xl font-bold text-navy truncate">{personFilter ? (selectedPerson?.name || personLabelFor(personFilter)) : personTotals.length}</p>
+                </div>
               </div>
-              <div className="lg:col-span-8 overflow-x-auto">
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Ledger</h4>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
-                      <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Date</th>
-                      <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Category</th>
-                      {!selectedPerson && <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Person</th>}
-                      <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Description</th>
-                      <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide">Paid From</th>
-                      <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
-                      <th className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wide text-right">Running Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(() => {
-                      let run = 0;
-                      return personEntries.map((e) => {
-                        run += Number(e.amount);
-                        return (
-                          <tr key={e.id} className="border-b border-gray-50">
-                            <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{new Date(e.expense_date).toLocaleDateString('en-GB')}</td>
-                            <td className="px-4 py-2.5"><span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-navy-chip text-navy">{e.category}</span></td>
-                            {!selectedPerson && <td className="px-4 py-2.5 text-gray-600 text-xs">{personOf(e)?.name || '—'}</td>}
-                            <td className="px-4 py-2.5 text-gray-700">{e.description}</td>
-                            <td className="px-4 py-2.5 text-gray-600 text-xs">{getPaidFromLabel(e)}</td>
-                            <td className="px-4 py-2.5 text-right font-semibold text-red-600">PKR {Number(e.amount).toLocaleString()}</td>
-                            <td className="px-4 py-2.5 text-right text-gray-700">PKR {run.toLocaleString()}</td>
-                          </tr>
-                        );
-                      });
-                    })()}
-                  </tbody>
-                </table>
+
+              {/* ── Month breakdown (only when a person is picked) ── */}
+              {personFilter && personMonths.length > 0 && (
+                <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden mb-5">
+                  <div className="px-6 py-3.5 border-b border-gray-100 bg-gray-50/50">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Month by Month</h4>
+                  </div>
+                  <div className="divide-y divide-gray-50">
+                    {personMonths.map((m) => (
+                      <div key={m.ym} className="flex items-center justify-between px-6 py-3">
+                        <div>
+                          <p className="text-sm font-medium text-navy">{monthLabel(m.ym)}</p>
+                          <p className="text-[11px] text-gray-400">{m.count} {m.count === 1 ? 'entry' : 'entries'}</p>
+                        </div>
+                        <p className="text-sm font-bold text-red-600">PKR {m.total.toLocaleString()}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Ledger table ── */}
+              <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+                  <h4 className="font-semibold text-navy text-sm">
+                    {personFilter ? `${selectedPerson?.name || personLabelFor(personFilter)} — Ledger` : 'All Expense Entries'}
+                  </h4>
+                  {isAccountView && personFilter && (
+                    <button
+                      type="button"
+                      onClick={() => { setPaymentForm({ amount: '', notes: '', payment_date: todayISO() }); setShowPaymentModal(true); }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      <Plus size={13} /> Add Payment
+                    </button>
+                  )}
+                </div>
+                {mergedLedgerEntries.length === 0 && !selectedAccountOpeningBalance ? (
+                  <div className="py-10 text-center text-sm text-gray-400">No entries in this period.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                          <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
+                          <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Description</th>
+                          {!isAccountView && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>}
+                          {!selectedPerson && !personFilter && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Person</th>}
+                          {!isAccountView && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Paid From</th>}
+                          {isAccountView && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Debit</th>}
+                          {isAccountView && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Credit</th>}
+                          {!isAccountView && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>}
+                          <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Balance</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          let run = selectedAccountOpeningBalance;
+                          const rows = [];
+                          // Opening balance row (accounts only)
+                          if (isAccountView && selectedAccountOpeningBalance > 0) {
+                            rows.push(
+                              <tr key="opening" className="bg-gray-50/80 border-b border-gray-100">
+                                <td className="px-6 py-3 text-gray-400 whitespace-nowrap text-xs">—</td>
+                                <td className="px-6 py-3 text-gray-500 font-medium text-xs italic" colSpan={3}>Opening Balance</td>
+                                <td className="px-6 py-3 text-right font-semibold text-gray-600 text-xs">PKR {selectedAccountOpeningBalance.toLocaleString()}</td>
+                                <td className="px-6 py-3 text-right font-semibold text-navy text-xs">PKR {run.toLocaleString()}</td>
+                              </tr>
+                            );
+                          }
+                          mergedLedgerEntries.forEach((entry, i) => {
+                            if (entry._type === 'payment') {
+                              run -= Number(entry.amount);
+                              rows.push(
+                                <tr key={`pmt-${entry.id}`} className={`border-b border-gray-50 last:border-0 hover:bg-green-50/40 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                                  <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(entry.payment_date).toLocaleDateString('en-GB')}</td>
+                                  <td className="px-6 py-3.5 text-green-700 font-medium">{entry.notes || 'Payment'}</td>
+                                  <td className="px-6 py-3.5 text-right text-gray-300">—</td>
+                                  <td className="px-6 py-3.5 text-right font-semibold text-green-600">PKR {Number(entry.amount).toLocaleString()}</td>
+                                  <td className="px-6 py-3.5 text-right font-semibold text-navy">PKR {run.toLocaleString()}</td>
+                                </tr>
+                              );
+                            } else {
+                              // expense entry
+                              if (isAccountView) run += Number(entry.amount);
+                              else run += Number(entry.amount);
+                              const runDisplay = isAccountView ? run : run;
+                              rows.push(
+                                <tr key={`exp-${entry.id}`} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                                  <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(entry.expense_date).toLocaleDateString('en-GB')}</td>
+                                  <td className="px-6 py-3.5 text-navy font-medium">{entry.description}</td>
+                                  {!isAccountView && (
+                                    <td className="px-6 py-3.5">
+                                      <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wide bg-navy-chip text-navy">{entry.category}</span>
+                                    </td>
+                                  )}
+                                  {!selectedPerson && !personFilter && <td className="px-6 py-3.5 text-gray-600 text-xs">{personOf(entry)?.name || '—'}</td>}
+                                  {isAccountView ? (
+                                    <>
+                                      <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(entry.amount).toLocaleString()}</td>
+                                      <td className="px-6 py-3.5 text-right text-gray-300">—</td>
+                                    </>
+                                  ) : (
+                                    <>
+                                      {!isAccountView && <td className="px-6 py-3.5 text-gray-500 text-xs">{getPaidFromLabel(entry)}</td>}
+                                      <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(entry.amount).toLocaleString()}</td>
+                                    </>
+                                  )}
+                                  <td className="px-6 py-3.5 text-right font-semibold text-navy">PKR {runDisplay.toLocaleString()}</td>
+                                </tr>
+                              );
+                            }
+                          });
+                          return rows;
+                        })()}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-navy">
+                          <td colSpan={isAccountView ? 3 : (!selectedPerson && !personFilter ? 5 : 4)} className="px-6 py-3.5 text-white font-bold text-xs">TOTAL EXPENSES</td>
+                          {isAccountView && <td className="px-6 py-3.5 text-orange font-bold text-right">PKR {personEntries.reduce((s, e) => s + Number(e.amount), 0).toLocaleString()}</td>}
+                          {isAccountView && <td className="px-6 py-3.5 text-green-300 font-bold text-right">PKR {accountPayments.reduce((s, p) => s + Number(p.amount), 0).toLocaleString()}</td>}
+                          {!isAccountView && <td className="px-6 py-3.5 text-orange font-bold text-right">PKR {personEntries.reduce((s, e) => s + Number(e.amount), 0).toLocaleString()}</td>}
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1002,6 +1172,87 @@ export default function Expenses() {
               Open in new tab
             </a>
           </div>
+        </Modal>
+      )}
+
+      {/* ── New Account Modal ── */}
+      {showNewAcctModal && (
+        <Modal title="New Expense Account" onClose={() => setShowNewAcctModal(false)}>
+          <form onSubmit={handleSaveNewAcct} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Account Name *</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Safeer Mechanic, Kohinoor Oil…"
+                value={newAcctForm.name}
+                onChange={(e) => setNewAcctForm((f) => ({ ...f, name: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Opening Balance <span className="text-gray-400 font-normal">(optional)</span></label>
+              <p className="text-xs text-gray-400 mb-2">How much the company already owes this account before any expenses are recorded here.</p>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                placeholder="0"
+                value={newAcctForm.opening_balance}
+                onChange={(e) => setNewAcctForm((f) => ({ ...f, opening_balance: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setShowNewAcctModal(false)}>Cancel</Button>
+              <Button type="submit" variant="accent" disabled={newAcctSaving}>{newAcctSaving ? 'Saving…' : 'Create Account'}</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ── Add Payment Modal ── */}
+      {showPaymentModal && (
+        <Modal title={`Add Payment — ${selectedPerson?.name || personLabelFor(personFilter)}`} onClose={() => setShowPaymentModal(false)}>
+          <form onSubmit={handleSavePayment} className="space-y-4">
+            <p className="text-xs text-gray-500">Record a payment made <strong>to</strong> this account. It will appear as a credit (green) in the ledger and reduce the outstanding balance.</p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Amount (PKR) *</label>
+              <input
+                type="number"
+                required
+                min="1"
+                step="1"
+                placeholder="0"
+                value={paymentForm.amount}
+                onChange={(e) => setPaymentForm((f) => ({ ...f, amount: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Date</label>
+              <input
+                type="date"
+                value={paymentForm.payment_date}
+                onChange={(e) => setPaymentForm((f) => ({ ...f, payment_date: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+              <input
+                type="text"
+                placeholder="e.g. Cash paid, cheque #…"
+                value={paymentForm.notes}
+                onChange={(e) => setPaymentForm((f) => ({ ...f, notes: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setShowPaymentModal(false)}>Cancel</Button>
+              <Button type="submit" variant="accent" disabled={paymentSaving}>{paymentSaving ? 'Saving…' : 'Record Payment'}</Button>
+            </div>
+          </form>
         </Modal>
       )}
     </div>

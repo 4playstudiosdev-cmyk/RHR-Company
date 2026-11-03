@@ -330,33 +330,41 @@ const deleteExpense = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-// ── Expense accounts (phase71): the people / shops expenses are recorded against ──
+// ── Expense accounts (phase71/80): the people / shops expenses are recorded against ──
 // GET /api/v1/expenses/accounts?company_id= — active accounts of the branch (empty list if
 // phase71 hasn't been run yet, so the picker still works for drivers and salesmen).
 const getAccounts = async (req, res) => {
   try {
     const companyId = resolveCompanyId(req);
-    const params = { select: 'id,company_id,name', is_active: 'eq.true', order: 'name.asc' };
+    const params = { select: 'id,company_id,name,opening_balance', is_active: 'eq.true', order: 'name.asc' };
     if (companyId) params.company_id = `eq.${companyId}`;
-    const data = await pgrestGet('expense_accounts', params).catch(() => []);
+    const data = await pgrestGet('expense_accounts', params).catch(() => {
+      // phase80 not run yet — fall back without opening_balance
+      const p2 = { select: 'id,company_id,name', is_active: 'eq.true', order: 'name.asc' };
+      if (companyId) p2.company_id = `eq.${companyId}`;
+      return pgrestGet('expense_accounts', p2).catch(() => []);
+    });
     return success(res, data || []);
   } catch (err) { return error(res, err.message); }
 };
 
-// POST /api/v1/expenses/accounts { name, company_id? }
+// POST /api/v1/expenses/accounts { name, opening_balance?, company_id? }
 const createAccount = async (req, res) => {
   try {
     const name = String(req.body?.name || '').trim().slice(0, 200);
     if (name.length < 2) return error(res, 'Account name is required', 400);
+    const openingBalance = Number(req.body?.opening_balance || 0);
     const companyId = req.user.role === 'branch_admin'
       ? req.user.company_id
       : (req.body?.company_id || req.user.company_id);
     try {
-      const [row] = await pgrestPost('expense_accounts', { company_id: companyId, name });
+      const payload = { company_id: companyId, name };
+      if (openingBalance) payload.opening_balance = openingBalance;
+      const [row] = await pgrestPost('expense_accounts', payload);
       return success(res, row, 'Account added', 201);
     } catch (e) {
       // already there (maybe switched off earlier) -> bring it back / return it
-      const existing = await pgrestGet('expense_accounts', { select: 'id,company_id,name,is_active', company_id: `eq.${companyId}`, name: `eq.${name}` }).catch(() => []);
+      const existing = await pgrestGet('expense_accounts', { select: 'id,company_id,name,is_active,opening_balance', company_id: `eq.${companyId}`, name: `eq.${name}` }).catch(() => []);
       if (existing?.[0]) {
         if (!existing[0].is_active) await pgrestPatch('expense_accounts', { id: `eq.${existing[0].id}` }, { is_active: true });
         return success(res, { ...existing[0], is_active: true }, 'Account already exists');
@@ -377,4 +385,51 @@ const deleteAccount = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getExpenses, createExpense, deleteExpense, getAccounts, createAccount, deleteAccount, EXPENSE_CATEGORIES };
+// ── Expense account payments (phase80) ──
+// GET /api/v1/expenses/accounts/:id/payments
+const getAccountPayments = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = await pgrestGet('expense_account_payments', {
+      select: 'id,expense_account_id,company_id,amount,notes,payment_date,created_at',
+      expense_account_id: `eq.${id}`,
+      order: 'payment_date.asc,created_at.asc',
+    }).catch(() => []);
+    return success(res, data || []);
+  } catch (err) { return error(res, err.message); }
+};
+
+// POST /api/v1/expenses/accounts/:id/payments { amount, notes?, payment_date? }
+const createAccountPayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const amount = Number(req.body?.amount || 0);
+    if (!amount || amount <= 0) return error(res, 'Amount must be positive', 400);
+    const companyId = req.user.company_id;
+    const [row] = await pgrestPost('expense_account_payments', {
+      expense_account_id: id,
+      company_id: companyId,
+      amount,
+      notes: req.body?.notes || null,
+      payment_date: req.body?.payment_date || new Date().toISOString().split('T')[0],
+    });
+    return success(res, row, 'Payment recorded', 201);
+  } catch (err) {
+    if (err.message?.includes('expense_account_payments')) {
+      return error(res, 'Run sql/phase80_expense_account_payments.sql in Supabase first.', 400);
+    }
+    return error(res, err.message);
+  }
+};
+
+// DELETE /api/v1/expenses/accounts/payments/:id
+const deleteAccountPayment = async (req, res) => {
+  try {
+    const filter = { id: `eq.${req.params.pid}` };
+    if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
+    await pgrestDelete('expense_account_payments', filter);
+    return success(res, { deleted: true }, 'Payment removed');
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { getExpenses, createExpense, deleteExpense, getAccounts, createAccount, deleteAccount, getAccountPayments, createAccountPayment, deleteAccountPayment, EXPENSE_CATEGORIES };

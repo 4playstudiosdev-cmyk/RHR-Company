@@ -94,19 +94,23 @@ async function buildDailyReportPdf(reportDate, data) {
     doc.text('No recovery recorded for this date.', M + 3, y + 6);
     y += 10;
   } else {
+    const byS = {};
+    data.recovery.forEach((r) => {
+      if (!byS[r.salesman]) byS[r.salesman] = { salesman: r.salesman, customers: 0, amount: 0 };
+      byS[r.salesman].customers += 1;
+      byS[r.salesman].amount += Number(r.amount);
+    });
+    const recRows = Object.values(byS).sort((a, b) => b.amount - a.amount);
     autoTable(doc, {
       startY: y,
-      head: [['SNo', 'Date', 'Salesman', 'Customer', 'Type', 'Notes', 'Amount']],
-      body: data.recovery.map(r => [
-        r.sno, r.date, r.salesman, r.customer,
-        r.payment_type, r.notes, fmtPKR(r.amount),
-      ]),
-      foot: [['', '', '', '', '', 'Grand Total', fmtPKR(data.summary.total_recovery)]],
+      head: [['SNo', 'Salesman', 'Customers Collected From', 'Total Amount']],
+      body: recRows.map((r, i) => [i + 1, r.salesman, r.customers, fmtPKR(r.amount)]),
+      foot: [['', '', 'Grand Total', fmtPKR(data.summary.total_recovery)]],
       margin: { left: M, right: M },
       headStyles: { fillColor: NAVY, textColor: WHITE, fontSize: 8, fontStyle: 'bold' },
       bodyStyles: { fontSize: 7.5, textColor: [30, 30, 30] },
       footStyles: { fillColor: NAVY, textColor: ORANGE, fontStyle: 'bold', fontSize: 8 },
-      columnStyles: { 0: { cellWidth: 10 }, 6: { halign: 'right' } },
+      columnStyles: { 0: { cellWidth: 10 }, 2: { halign: 'center' }, 3: { halign: 'right' } },
       styles: { cellPadding: { top: 2.5, bottom: 2.5, left: 3, right: 3 } },
     });
     y = doc.lastAutoTable.finalY + 6;
@@ -278,7 +282,7 @@ function NoData({ msg }) {
   return <p className="text-xs text-gray-400 italic px-5 py-4">{msg}</p>;
 }
 
-export default function DailyReport() {
+export default function DailyReport({ setPage }) {
   const user = getCurrentUser();
   const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId;
 
@@ -369,13 +373,18 @@ export default function DailyReport() {
               { label: 'Previous Balance', value: fmtPKR(s.previous_cash_balance), color: 'text-navy' },
               { label: 'Total Recovery', value: fmtPKR(s.total_recovery), color: 'text-green-700' },
               { label: 'Total Expenses', value: fmtPKR(s.total_expenses), color: 'text-red-600' },
-              { label: 'Net Balance', value: fmtPKR(s.net_cash), color: 'text-green-700' },
+              { label: 'Net Balance', value: fmtPKR(s.net_cash), color: 'text-green-700', onClick: () => setPage?.('bank') },
               { label: 'Total Sales', value: fmtPKR(s.total_sales), color: 'text-navy' },
               { label: 'Profit', value: fmtPKR(s.profit), color: s.profit >= 0 ? 'text-green-700' : 'text-red-600' },
             ].map((c) => (
-              <div key={c.label} className="bg-white rounded-2xl border border-gray-100 shadow-card px-4 py-3">
+              <div
+                key={c.label}
+                onClick={c.onClick}
+                className={`bg-white rounded-2xl border border-gray-100 shadow-card px-4 py-3 ${c.onClick ? 'cursor-pointer hover:border-navy/40 hover:shadow-md transition-shadow' : ''}`}
+              >
                 <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">{c.label}</p>
                 <p className={`text-base font-bold mt-0.5 ${c.color}`}>{c.value}</p>
+                {c.onClick && <p className="text-[10px] text-navy/50 mt-0.5">View Bank →</p>}
               </div>
             ))}
           </div>
@@ -418,42 +427,44 @@ export default function DailyReport() {
 
           {/* ── Recovery ── */}
           <Section title={`Recovery — ${reportDate}`}>
-            {data.recovery.length === 0 ? <NoData msg="No recovery for this date." /> : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-semibold">
-                      {['SNo', 'Date', 'Salesman', 'Customer', 'Type', 'Notes', 'Amount'].map(h => (
-                        <th key={h} className="px-4 py-2.5 text-left">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.recovery.map((r) => (
-                      <tr key={r.sno} className="border-b border-gray-50 hover:bg-gray-50/60">
-                        <td className="px-4 py-2.5 text-gray-400">{r.sno}</td>
-                        <td className="px-4 py-2.5">{r.date}</td>
-                        <td className="px-4 py-2.5 font-medium text-navy">{r.salesman}</td>
-                        <td className="px-4 py-2.5">{r.customer}</td>
-                        <td className="px-4 py-2.5">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${r.payment_type === 'cash' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
-                            {r.payment_type}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 text-gray-500 text-xs">{r.notes}</td>
-                        <td className="px-4 py-2.5 text-right font-semibold text-green-700">{fmtPKR(r.amount)}</td>
+            {data.recovery.length === 0 ? <NoData msg="No recovery for this date." /> : (() => {
+              const byS = {};
+              data.recovery.forEach((r) => {
+                if (!byS[r.salesman]) byS[r.salesman] = { salesman: r.salesman, customers: 0, amount: 0 };
+                byS[r.salesman].customers += 1;
+                byS[r.salesman].amount += Number(r.amount);
+              });
+              const rows = Object.values(byS).sort((a, b) => b.amount - a.amount);
+              return (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-semibold">
+                        {['SNo', 'Salesman', 'Customers', 'Total Recovery'].map(h => (
+                          <th key={h} className={`px-4 py-2.5 text-left ${h === 'Total Recovery' ? 'text-right' : ''}`}>{h}</th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-navy">
-                      <td colSpan={6} className="px-4 py-2.5 text-white font-bold text-xs">GRAND TOTAL</td>
-                      <td className="px-4 py-2.5 text-right text-orange font-bold">{fmtPKR(s.total_recovery)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            )}
+                    </thead>
+                    <tbody>
+                      {rows.map((r, i) => (
+                        <tr key={r.salesman} className="border-b border-gray-50 hover:bg-gray-50/60">
+                          <td className="px-4 py-2.5 text-gray-400">{i + 1}</td>
+                          <td className="px-4 py-2.5 font-medium text-navy">{r.salesman}</td>
+                          <td className="px-4 py-2.5 text-gray-500">{r.customers} {r.customers === 1 ? 'customer' : 'customers'}</td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-green-700">{fmtPKR(r.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-navy">
+                        <td colSpan={3} className="px-4 py-2.5 text-white font-bold text-xs">GRAND TOTAL</td>
+                        <td className="px-4 py-2.5 text-right text-orange font-bold">{fmtPKR(s.total_recovery)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              );
+            })()}
           </Section>
 
           {/* ── Sales ── */}

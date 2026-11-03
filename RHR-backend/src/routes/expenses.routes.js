@@ -4,9 +4,12 @@ const ctrl    = require('../controllers/expenses.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin }      = require('../middleware/role.middleware');
 
-router.get('/accounts',        authenticate, isAdmin, ctrl.getAccounts);
-router.post('/accounts',       authenticate, isAdmin, ctrl.createAccount);
-router.delete('/accounts/:id', authenticate, isAdmin, ctrl.deleteAccount);
+router.get('/accounts',                        authenticate, isAdmin, ctrl.getAccounts);
+router.post('/accounts',                       authenticate, isAdmin, ctrl.createAccount);
+router.delete('/accounts/:id',                 authenticate, isAdmin, ctrl.deleteAccount);
+router.get('/accounts/:id/payments',           authenticate, isAdmin, ctrl.getAccountPayments);
+router.post('/accounts/:id/payments',          authenticate, isAdmin, ctrl.createAccountPayment);
+router.delete('/accounts/:id/payments/:pid',   authenticate, isAdmin, ctrl.deleteAccountPayment);
 router.get('/',     authenticate, isAdmin, ctrl.getExpenses);
 router.post('/',    authenticate, isAdmin, ctrl.createExpense);
 router.delete('/:id', authenticate, isAdmin, ctrl.deleteExpense);
