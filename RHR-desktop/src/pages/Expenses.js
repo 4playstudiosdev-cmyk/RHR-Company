@@ -742,12 +742,15 @@ export default function Expenses() {
                         <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
                           <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Date</th>
                           <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Description</th>
-                          {!isAccountView && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>}
-                          {!selectedPerson && !personFilter && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Person</th>}
-                          {!isAccountView && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Paid From</th>}
-                          {isAccountView && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Debit</th>}
-                          {isAccountView && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Credit</th>}
-                          {!isAccountView && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>}
+                          {/* All-expenses view: show Person column */}
+                          {!personFilter && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Person</th>}
+                          {/* All-expenses view: Category + Paid From + Amount */}
+                          {!personFilter && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Category</th>}
+                          {!personFilter && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Paid From</th>}
+                          {!personFilter && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>}
+                          {/* Person-selected view: Debit / Credit */}
+                          {personFilter && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Debit</th>}
+                          {personFilter && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Credit</th>}
                           <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Balance</th>
                         </tr>
                       </thead>
@@ -755,7 +758,7 @@ export default function Expenses() {
                         {(() => {
                           let run = selectedAccountOpeningBalance;
                           const rows = [];
-                          // Opening balance row (accounts only)
+                          // Opening balance row (expense accounts only)
                           if (isAccountView && selectedAccountOpeningBalance > 0) {
                             rows.push(
                               <tr key="opening" className="bg-gray-50/80 border-b border-gray-100">
@@ -767,10 +770,12 @@ export default function Expenses() {
                             );
                           }
                           mergedLedgerEntries.forEach((entry, i) => {
+                            const stripe = i % 2 === 1 ? 'bg-gray-50/40' : '';
                             if (entry._type === 'payment') {
+                              // Payment row (credit) — only for account view
                               run -= Number(entry.amount);
                               rows.push(
-                                <tr key={`pmt-${entry.id}`} className={`border-b border-gray-50 last:border-0 hover:bg-green-50/40 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                                <tr key={`pmt-${entry.id}`} className={`border-b border-gray-50 last:border-0 hover:bg-green-50/40 transition-colors ${stripe}`}>
                                   <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(entry.payment_date).toLocaleDateString('en-GB')}</td>
                                   <td className="px-6 py-3.5 text-green-700 font-medium">{entry.notes || 'Payment'}</td>
                                   <td className="px-6 py-3.5 text-right text-gray-300">—</td>
@@ -779,40 +784,42 @@ export default function Expenses() {
                                 </tr>
                               );
                             } else {
-                              // expense entry
-                              if (isAccountView) run += Number(entry.amount);
-                              else run += Number(entry.amount);
-                              const runDisplay = isAccountView ? run : run;
-                              rows.push(
-                                <tr key={`exp-${entry.id}`} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                                  <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(entry.expense_date).toLocaleDateString('en-GB')}</td>
-                                  <td className="px-6 py-3.5 text-navy font-medium">{entry.description}</td>
-                                  {!isAccountView && (
+                              // Expense row
+                              run += Number(entry.amount);
+                              if (personFilter) {
+                                // Debit / Credit / Balance layout (quaideazam style)
+                                rows.push(
+                                  <tr key={`exp-${entry.id}`} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${stripe}`}>
+                                    <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(entry.expense_date).toLocaleDateString('en-GB')}</td>
+                                    <td className="px-6 py-3.5 text-navy font-medium">
+                                      {entry.description}
+                                      {entry.method === 'pending' && <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange/15 text-orange align-middle">PENDING</span>}
+                                    </td>
+                                    <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(entry.amount).toLocaleString()}</td>
+                                    <td className="px-6 py-3.5 text-right text-gray-300">—</td>
+                                    <td className="px-6 py-3.5 text-right font-semibold text-navy">PKR {run.toLocaleString()}</td>
+                                  </tr>
+                                );
+                              } else {
+                                // All-expenses layout: Category + Paid From + Amount
+                                rows.push(
+                                  <tr key={`exp-${entry.id}`} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${stripe}`}>
+                                    <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(entry.expense_date).toLocaleDateString('en-GB')}</td>
+                                    <td className="px-6 py-3.5 text-navy font-medium">{entry.description}</td>
+                                    <td className="px-6 py-3.5 text-gray-600 text-xs">{personOf(entry)?.name || '—'}</td>
                                     <td className="px-6 py-3.5">
                                       <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wide bg-navy-chip text-navy">{entry.category}</span>
                                     </td>
-                                  )}
-                                  {!selectedPerson && !personFilter && <td className="px-6 py-3.5 text-gray-600 text-xs">{personOf(entry)?.name || '—'}</td>}
-                                  {isAccountView ? (
-                                    <>
-                                      <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(entry.amount).toLocaleString()}</td>
-                                      <td className="px-6 py-3.5 text-right text-gray-300">—</td>
-                                    </>
-                                  ) : (
-                                    <>
-                                      {!isAccountView && (
-                                        <td className="px-6 py-3.5 text-gray-500 text-xs">
-                                          {entry.method === 'pending'
-                                            ? <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange/15 text-orange">PENDING</span>
-                                            : getPaidFromLabel(entry)}
-                                        </td>
-                                      )}
-                                      <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(entry.amount).toLocaleString()}</td>
-                                    </>
-                                  )}
-                                  <td className="px-6 py-3.5 text-right font-semibold text-navy">PKR {runDisplay.toLocaleString()}</td>
-                                </tr>
-                              );
+                                    <td className="px-6 py-3.5 text-gray-500 text-xs">
+                                      {entry.method === 'pending'
+                                        ? <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange/15 text-orange">PENDING</span>
+                                        : getPaidFromLabel(entry)}
+                                    </td>
+                                    <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(entry.amount).toLocaleString()}</td>
+                                    <td className="px-6 py-3.5 text-right font-semibold text-navy">PKR {run.toLocaleString()}</td>
+                                  </tr>
+                                );
+                              }
                             }
                           });
                           return rows;
@@ -820,10 +827,10 @@ export default function Expenses() {
                       </tbody>
                       <tfoot>
                         <tr className="bg-navy">
-                          <td colSpan={isAccountView ? 3 : (!selectedPerson && !personFilter ? 5 : 4)} className="px-6 py-3.5 text-white font-bold text-xs">TOTAL EXPENSES</td>
-                          {isAccountView && <td className="px-6 py-3.5 text-orange font-bold text-right">PKR {personEntries.reduce((s, e) => s + Number(e.amount), 0).toLocaleString()}</td>}
-                          {isAccountView && <td className="px-6 py-3.5 text-green-300 font-bold text-right">PKR {accountPayments.reduce((s, p) => s + Number(p.amount), 0).toLocaleString()}</td>}
-                          {!isAccountView && <td className="px-6 py-3.5 text-orange font-bold text-right">PKR {personEntries.reduce((s, e) => s + Number(e.amount), 0).toLocaleString()}</td>}
+                          <td colSpan={personFilter ? 2 : 5} className="px-6 py-3.5 text-white font-bold text-xs">TOTAL</td>
+                          {personFilter && <td className="px-6 py-3.5 text-orange font-bold text-right">PKR {personEntries.reduce((s, e) => s + Number(e.amount), 0).toLocaleString()}</td>}
+                          {personFilter && <td className="px-6 py-3.5 text-green-300 font-bold text-right">PKR {accountPayments.reduce((s, p) => s + Number(p.amount), 0).toLocaleString()}</td>}
+                          {!personFilter && <td className="px-6 py-3.5 text-orange font-bold text-right">PKR {personEntries.reduce((s, e) => s + Number(e.amount), 0).toLocaleString()}</td>}
                           <td></td>
                         </tr>
                       </tfoot>
