@@ -338,7 +338,7 @@ export default function DailyReport({ setPage }) {
               <input
                 type="date"
                 value={reportDate}
-                onChange={(e) => setReportDate(e.target.value)}
+                onChange={(e) => { if (e.target.value) setReportDate(e.target.value); }}
                 className="text-sm text-navy bg-transparent outline-none"
               />
             </div>

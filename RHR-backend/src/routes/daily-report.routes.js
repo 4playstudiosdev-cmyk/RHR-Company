@@ -12,7 +12,8 @@ const { success, error } = require('../utils/response');
 router.get('/', authenticate, isAdmin, async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
-    const { date = today, company_id } = req.query;
+    const date = req.query.date || today;
+    const { company_id } = req.query;
     const companyId = req.user.role === 'branch_admin'
       ? req.user.company_id
       : (company_id && company_id !== 'all' ? company_id : req.user.company_id);
