@@ -9,7 +9,7 @@ import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
 
-const EMPTY_ACCOUNT_FORM = { account_name: '', account_number: '', bank_name: '', branch_name: '' };
+const EMPTY_ACCOUNT_FORM = { account_name: '', account_number: '', bank_name: '', branch_name: '', opening_balance: '', opening_balance_date: '' };
 const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
 
 export default function Bank() {
@@ -25,6 +25,7 @@ export default function Bank() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [form, setForm] = useState(EMPTY_ACCOUNT_FORM);
   const [saving, setSaving] = useState(false);
+  const [savingOpeningBal, setSavingOpeningBal] = useState(null);
 
   useEffect(() => {
     loadAll();
@@ -55,6 +56,22 @@ export default function Bank() {
     }
   };
 
+  const handleUpdateOpeningBalance = async (account, newVal) => {
+    const parsed = parseFloat(newVal);
+    if (isNaN(parsed)) return;
+    if (parsed === Number(account.opening_balance || 0)) return;
+    setSavingOpeningBal(account.id);
+    try {
+      await api.patch(`/bank/accounts/${account.id}/opening-balance`, { opening_balance: parsed });
+      setAccounts((prev) => prev.map((a) => a.id === account.id ? { ...a, opening_balance: parsed } : a));
+      toast.success(`Opening balance updated for ${account.account_name}.`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update opening balance.');
+    } finally {
+      setSavingOpeningBal(null);
+    }
+  };
+
   const handleAddAccount = async (e) => {
     e.preventDefault();
     if (!form.account_name || !form.account_number || !form.bank_name) {
@@ -64,7 +81,12 @@ export default function Bank() {
     setSaving(true);
     try {
       const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
-      await api.post('/bank/accounts', { ...form, company_id: targetCompanyId });
+      await api.post('/bank/accounts', {
+        ...form,
+        company_id: targetCompanyId,
+        opening_balance: Number(form.opening_balance) || 0,
+        opening_balance_date: form.opening_balance_date || null,
+      });
       toast.success('Bank account added.');
       setShowAddModal(false);
       setForm(EMPTY_ACCOUNT_FORM);
@@ -141,6 +163,7 @@ export default function Bank() {
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Account Number</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Bank</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Branch</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Opening Bal.</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Balance</th>
                   </tr>
                 </thead>
@@ -149,7 +172,8 @@ export default function Bank() {
                     const acctTxns = transactions.filter((t) => t.bank_accounts?.account_name === a.account_name);
                     const totalIn  = acctTxns.filter((t) => t.type !== 'expense').reduce((s, t) => s + Number(t.amount || 0), 0);
                     const totalOut = acctTxns.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount || 0), 0);
-                    const bal = totalIn - totalOut;
+                    const openingBal = Number(a.opening_balance || 0);
+                    const bal = openingBal + totalIn - totalOut;
                     return (
                       <tr key={a.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                         <td className="px-6 py-3.5 font-medium text-navy">{a.account_name}</td>
@@ -157,12 +181,20 @@ export default function Bank() {
                         <td className="px-6 py-3.5 text-gray-600">{a.bank_name}</td>
                         <td className="px-6 py-3.5 text-gray-500">{a.branch_name || '—'}</td>
                         <td className="px-6 py-3.5 text-right">
+                          <input
+                            type="number"
+                            defaultValue={openingBal}
+                            onBlur={(e) => handleUpdateOpeningBalance(a, e.target.value)}
+                            disabled={savingOpeningBal === a.id}
+                            title="Click to set opening balance"
+                            className="w-28 text-right border border-gray-200 rounded-md px-2 py-1 text-xs text-gray-600 focus:outline-none focus:ring-1 focus:ring-navy focus:border-navy bg-transparent hover:border-navy/40 cursor-pointer disabled:opacity-50"
+                          />
+                        </td>
+                        <td className="px-6 py-3.5 text-right">
                           <p className={`font-bold text-sm ${bal >= 0 ? 'text-green-700' : 'text-red-600'}`}>PKR {Math.abs(bal).toLocaleString()}</p>
-                          {acctTxns.length > 0 && (
-                            <p className="text-[10px] text-gray-400 mt-0.5">
-                              +{totalIn.toLocaleString()} in &nbsp;·&nbsp; −{totalOut.toLocaleString()} out
-                            </p>
-                          )}
+                          <p className="text-[10px] text-gray-400 mt-0.5">
+                            {openingBal > 0 ? `${openingBal.toLocaleString()} opening` : ''}{openingBal > 0 && acctTxns.length > 0 ? ' · ' : ''}{acctTxns.length > 0 ? `+${totalIn.toLocaleString()} in · −${totalOut.toLocaleString()} out` : ''}
+                          </p>
                         </td>
                       </tr>
                     );
@@ -262,6 +294,28 @@ export default function Bank() {
                 onChange={(e) => setForm({ ...form, branch_name: e.target.value })}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
               />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Opening Balance</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={form.opening_balance}
+                  onChange={(e) => setForm({ ...form, opening_balance: e.target.value })}
+                  placeholder="0"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">As of Date</label>
+                <input
+                  type="date"
+                  value={form.opening_balance_date}
+                  onChange={(e) => setForm({ ...form, opening_balance_date: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+              </div>
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={() => setShowAddModal(false)}>Cancel</Button>

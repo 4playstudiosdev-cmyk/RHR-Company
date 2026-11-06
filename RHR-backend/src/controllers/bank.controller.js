@@ -1,13 +1,13 @@
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
-const { pgrestGet, pgrestGetRaw, pgrestPost } = require('../utils/directQuery');
+const { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 
 // GET /api/v1/bank/accounts?company_id=
 const getBankAccounts = async (req, res) => {
   try {
     const companyId = resolveCompanyId(req);
     const params = {
-      select: 'id,company_id,account_name,account_number,bank_name,branch_name,is_active,created_at',
+      select: 'id,company_id,account_name,account_number,bank_name,branch_name,is_active,opening_balance,opening_balance_date,created_at',
       is_active: 'eq.true',
       order: 'account_name.asc',
     };
@@ -33,13 +33,17 @@ const createBankAccount = async (req, res) => {
       ? req.user.company_id
       : (company_id || req.user.company_id);
 
+    const { opening_balance, opening_balance_date } = req.body;
+
     const [data] = await pgrestPost('bank_accounts', {
-      company_id:     targetCompanyId,
+      company_id:            targetCompanyId,
       account_name,
       account_number,
       bank_name,
-      branch_name:    branch_name || null,
-      is_active:      true,
+      branch_name:           branch_name || null,
+      is_active:             true,
+      opening_balance:       Number(opening_balance) || 0,
+      opening_balance_date:  opening_balance_date || null,
     });
 
     return success(res, data, 'Bank account added', 201);
@@ -227,4 +231,23 @@ const getBankTransactions = async (req, res) => {
   }
 };
 
-module.exports = { getBankAccounts, createBankAccount, getBankTransactions };
+// PATCH /api/v1/bank/accounts/:id/opening-balance
+const updateOpeningBalance = async (req, res) => {
+  try {
+    const { opening_balance, opening_balance_date } = req.body;
+    if (opening_balance === undefined || isNaN(Number(opening_balance)))
+      return error(res, 'opening_balance must be a number', 400);
+
+    const filter = { id: `eq.${req.params.id}` };
+    if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
+
+    const patch = { opening_balance: Number(opening_balance) };
+    if (opening_balance_date) patch.opening_balance_date = opening_balance_date;
+
+    const rows = await pgrestPatch('bank_accounts', filter, patch);
+    if (!rows?.[0]) return error(res, 'Account not found or access denied', 404);
+    return success(res, rows[0], 'Opening balance updated');
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { getBankAccounts, createBankAccount, getBankTransactions, updateOpeningBalance };
