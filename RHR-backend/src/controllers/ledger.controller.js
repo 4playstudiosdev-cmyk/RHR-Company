@@ -25,7 +25,7 @@ const canAccessLedger = async (user, customerId) => {
 // Admin manually adds a debit or credit entry — opening balance, adjustment, discount, etc.
 const adjustLedger = async (req, res) => {
   try {
-    const { customer_id, entry_type, amount, description } = req.body;
+    const { customer_id, entry_type, amount, description, reference_type, reference_id } = req.body;
 
     if (!customer_id || !entry_type || !amount || !description)
       return error(res, 'customer_id, entry_type, amount, description are required', 400);
@@ -71,7 +71,8 @@ const adjustLedger = async (req, res) => {
         amount:          Number(amount),
         running_balance: newBalance,
         description,
-        reference_type:  'adjustment',
+        reference_type:  reference_type || 'adjustment',
+        reference_id:    reference_id   || null,
         created_by:      req.user.id
       })
       .select()

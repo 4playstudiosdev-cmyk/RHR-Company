@@ -120,6 +120,10 @@ export default function VehicleManagement() {
   const [driverForm, setDriverForm] = useState(EMPTY_DRIVER_FORM);
   const [savingDriver, setSavingDriver] = useState(false);
   const [deletingDriverId, setDeletingDriverId] = useState(null);
+  const [editingVehicle, setEditingVehicle] = useState(null);
+  const [savingEditVehicle, setSavingEditVehicle] = useState(false);
+  const [editingDriver, setEditingDriver] = useState(null);
+  const [savingEditDriver, setSavingEditDriver] = useState(false);
   const [driverSubTab, setDriverSubTab] = useState('pending');
   const [pendingDrivers, setPendingDrivers] = useState([]);
   const [pendingDriversLoading, setPendingDriversLoading] = useState(true);
@@ -346,6 +350,61 @@ export default function VehicleManagement() {
       loadVehicles();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update.');
+    }
+  };
+
+  const handleUpdateVehicle = async (e) => {
+    e.preventDefault();
+    if (!editingVehicle.name?.trim() || !editingVehicle.plate_number?.trim()) {
+      toast.error('Name and plate number are required.'); return;
+    }
+    setSavingEditVehicle(true);
+    try {
+      await api.patch(`/vehicles/${editingVehicle.id}`, {
+        name: editingVehicle.name.trim(),
+        plate_number: editingVehicle.plate_number.trim().toUpperCase(),
+        type: editingVehicle.type,
+      });
+      toast.success('Vehicle updated.');
+      setEditingVehicle(null);
+      loadVehicles();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update vehicle.');
+    } finally {
+      setSavingEditVehicle(false);
+    }
+  };
+
+  const handleDeleteVehicle = async (vehicle) => {
+    if (!window.confirm(`Remove vehicle "${vehicle.name}" (${vehicle.plate_number})? It will be deactivated.`)) return;
+    try {
+      await api.patch(`/vehicles/${vehicle.id}`, { is_active: false });
+      toast.success('Vehicle removed.');
+      setVehicles((prev) => prev.filter((v) => v.id !== vehicle.id));
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete vehicle.');
+    }
+  };
+
+  const handleUpdateDriver = async (e) => {
+    e.preventDefault();
+    if (!editingDriver.full_name?.trim() || !editingDriver.phone?.trim()) {
+      toast.error('Name and phone are required.'); return;
+    }
+    setSavingEditDriver(true);
+    try {
+      await api.patch(`/drivers/${editingDriver.id}`, {
+        full_name: editingDriver.full_name.trim(),
+        phone: editingDriver.phone.trim(),
+        car_number: editingDriver.car_number || null,
+      });
+      toast.success('Driver updated.');
+      setDrivers((prev) => prev.map((d) => d.id === editingDriver.id ? { ...d, ...editingDriver } : d));
+      setEditingDriver(null);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update driver.');
+    } finally {
+      setSavingEditDriver(false);
     }
   };
 
@@ -582,6 +641,7 @@ export default function VehicleManagement() {
                       <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Last Odometer</th>
                       <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
                       <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Maintenance</th>
+                      <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -636,6 +696,12 @@ export default function VehicleManagement() {
                             ) : (
                               <span className="text-xs text-gray-400">—</span>
                             )}
+                          </td>
+                          <td className="px-6 py-3.5">
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => setEditingVehicle({ ...v })} className="text-xs text-navy hover:underline font-medium">Edit</button>
+                              <button onClick={() => handleDeleteVehicle(v)} className="text-xs text-red-600 hover:underline font-medium">Delete</button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -698,6 +764,61 @@ export default function VehicleManagement() {
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={() => setShowVehicleModal(false)}>Cancel</Button>
               <Button type="submit" variant="accent" disabled={savingVehicle}>{savingVehicle ? 'Saving...' : 'Add Vehicle'}</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {editingVehicle && (
+        <Modal title="Edit Vehicle" onClose={() => setEditingVehicle(null)}>
+          <form onSubmit={handleUpdateVehicle} className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Vehicle Name *</label>
+              <input type="text" value={editingVehicle.name || ''} onChange={(e) => setEditingVehicle({ ...editingVehicle, name: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Plate Number *</label>
+              <input type="text" value={editingVehicle.plate_number || ''} onChange={(e) => setEditingVehicle({ ...editingVehicle, plate_number: e.target.value.toUpperCase() })}
+                className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
+              <select value={editingVehicle.type || 'delivery'} onChange={(e) => setEditingVehicle({ ...editingVehicle, type: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white">
+                {VEHICLE_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setEditingVehicle(null)}>Cancel</Button>
+              <Button type="submit" variant="accent" disabled={savingEditVehicle}>{savingEditVehicle ? 'Saving...' : 'Save Changes'}</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {editingDriver && (
+        <Modal title="Edit Driver" onClose={() => setEditingDriver(null)}>
+          <form onSubmit={handleUpdateDriver} className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Full Name *</label>
+              <input type="text" value={editingDriver.full_name || ''} onChange={(e) => setEditingDriver({ ...editingDriver, full_name: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Phone *</label>
+              <input type="text" value={editingDriver.phone || ''} onChange={(e) => setEditingDriver({ ...editingDriver, phone: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Car Number / Plate</label>
+              <input type="text" value={editingDriver.car_number || ''} onChange={(e) => setEditingDriver({ ...editingDriver, car_number: e.target.value })}
+                placeholder="Optional"
+                className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy" />
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setEditingDriver(null)}>Cancel</Button>
+              <Button type="submit" variant="accent" disabled={savingEditDriver}>{savingEditDriver ? 'Saving...' : 'Save Changes'}</Button>
             </div>
           </form>
         </Modal>
@@ -1181,13 +1302,16 @@ export default function VehicleManagement() {
                           </span>
                         </td>
                         <td className="px-6 py-3.5">
-                          <button
-                            onClick={() => handleDeleteDriver(d)}
-                            disabled={deletingDriverId === d.id}
-                            className="inline-flex items-center gap-1.5 text-xs text-red-600 hover:underline font-medium disabled:opacity-50"
-                          >
-                            <Trash2 size={13} /> Delete
-                          </button>
+                          <div className="flex items-center gap-3">
+                            <button onClick={() => setEditingDriver({ ...d })} className="text-xs text-navy hover:underline font-medium">Edit</button>
+                            <button
+                              onClick={() => handleDeleteDriver(d)}
+                              disabled={deletingDriverId === d.id}
+                              className="inline-flex items-center gap-1.5 text-xs text-red-600 hover:underline font-medium disabled:opacity-50"
+                            >
+                              <Trash2 size={13} /> Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

@@ -384,6 +384,17 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
     }
   };
 
+  const handleChangeOrderDate = async (order, newDate) => {
+    if (!newDate || newDate === (order.order_date || order.created_at?.split('T')[0])) return;
+    try {
+      await api.patch(`/orders/${order.id}/date`, { order_date: newDate });
+      setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, order_date: newDate } : o)));
+      toast.success(`Order #${order.order_number} date updated.`);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update order date.');
+    }
+  };
+
   const handleStatusChange = async (order, newStatus) => {
     if (newStatus === order.status) return;
     // Dispatching needs a driver assigned first — hand off to the
@@ -492,13 +503,14 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
     setPdfLoadingId(order.id);
     try {
       const res = await api.get(`/orders/${order.id}`);
-      setInvoiceOrder(res.data.data);
+      const od = res.data.data;
+      setInvoiceOrder(od);
       setInvoiceStep(0);
       setTaxChoice(null);
       setWantsConveyance(false);
       setConveyanceAmount('');
       setConveyanceError('');
-      setInvoiceDate('');
+      setInvoiceDate(od.order_date || '');
       setWithRate(true);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load order details.');
@@ -680,7 +692,9 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
           customer_id: detail.customer_id,
           entry_type: 'debit',
           amount: charge.amount,
-          description: charge.description
+          description: charge.description,
+          reference_type: 'order',
+          reference_id: detail.id,
         });
       }
       if (charges.length > 0) {
@@ -1078,8 +1092,14 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
                       <td className="px-6 py-3.5 text-gray-600 font-medium">
                         PKR {Number(order.total_amount).toLocaleString()}
                       </td>
-                      <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">
-                        {new Date(order.created_at).toLocaleDateString('en-GB')}
+                      <td className="px-6 py-3.5 whitespace-nowrap">
+                        <input
+                          type="date"
+                          defaultValue={order.order_date || order.created_at?.split('T')[0]}
+                          onBlur={(e) => handleChangeOrderDate(order, e.target.value)}
+                          title="Click to change order date"
+                          className="border border-gray-200 rounded-md px-2 py-1 text-xs text-gray-600 focus:outline-none focus:ring-1 focus:ring-navy focus:border-navy bg-transparent hover:border-navy/40 cursor-pointer"
+                        />
                       </td>
                       <td className="px-6 py-3.5">
                         <StatusBadge status={order.status} />

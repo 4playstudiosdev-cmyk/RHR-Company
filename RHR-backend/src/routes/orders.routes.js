@@ -15,6 +15,7 @@ router.patch('/:id/driver-status', authenticate, isDriver, ctrl.driverUpdateOrde
 router.patch('/:id/items',  authenticate, isAdmin, ctrl.updateOrderItems);
 router.patch('/:id/customer-items', authenticate, isCustomer, ctrl.customerUpdateOrderItems);
 router.patch('/:id/mark-invoiced', authenticate, isAdmin, ctrl.markInvoiceGenerated);
+router.patch('/:id/date',         authenticate, isAdmin, ctrl.updateOrderDate);
 router.delete('/:id/invoice', authenticate, isAdmin, ctrl.deleteInvoice);
 
 module.exports = router;

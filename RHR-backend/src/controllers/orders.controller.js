@@ -378,7 +378,23 @@ const setOrderPriority = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+// PATCH /api/v1/orders/:id/date — allows back-dating an order
+const updateOrderDate = async (req, res) => {
+  try {
+    const { order_date } = req.body;
+    if (!order_date || !/^\d{4}-\d{2}-\d{2}$/.test(order_date))
+      return error(res, 'order_date must be YYYY-MM-DD', 400);
+
+    const filter = { id: `eq.${req.params.id}` };
+    if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
+
+    const rows = await pgrestPatch('orders', filter, { order_date });
+    if (!rows?.[0]) return error(res, 'Order not found or access denied', 404);
+    return success(res, rows[0], 'Order date updated');
+  } catch (err) { return error(res, err.message); }
+};
+
 module.exports = {
   createOrder, getOrders, getOrderById, updateOrderStatus, driverUpdateOrderStatus, updateOrderItems, customerUpdateOrderItems, markInvoiceGenerated,
-  deleteInvoice, getDeletedInvoices, setOrderPriority,
+  deleteInvoice, getDeletedInvoices, setOrderPriority, updateOrderDate,
 };

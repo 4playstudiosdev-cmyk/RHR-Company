@@ -61,7 +61,11 @@ export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, 
   leftY = field(colLeftX, leftY, 'Delivery Addr:', order.delivery_address || customer.shop_address);
   leftY = field(colLeftX, leftY, 'Contact:', customer.phone);
 
-  const dateObj = invoiceDate ? new Date(invoiceDate + 'T00:00:00') : new Date();
+  const dateObj = invoiceDate
+    ? new Date(invoiceDate + 'T00:00:00')
+    : order.order_date
+      ? new Date(order.order_date + 'T00:00:00')
+      : new Date();
   rightY = field(colRightX, rightY, 'Date:', dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
   rightY = field(colRightX, rightY, 'Sales Officer:', salesman.full_name);
   rightY = field(colRightX, rightY, 'Vehicle:', driver.car_number);
