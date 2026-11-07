@@ -346,7 +346,10 @@ export default function VendorLedger({ initialSupplierId }) {
                             </span>
                           </td>
                           <td className="px-5 py-3 text-right font-medium text-red-600">
-                            {e.entry_type === 'debit' ? (
+                            {e.entry_type === 'debit' ? fmtPKR(e.amount) : '—'}
+                          </td>
+                          <td className="px-5 py-3 text-right font-medium text-emerald-600">
+                            {e.entry_type === 'credit' ? (
                               editingEntryId === e.id ? (
                                 <div className="flex items-center gap-1 justify-end">
                                   <input
@@ -363,16 +366,13 @@ export default function VendorLedger({ initialSupplierId }) {
                               ) : (
                                 <button
                                   onClick={() => { setEditingEntryId(e.id); setEditAmount(String(e.amount)); }}
-                                  className="font-medium text-red-600 hover:text-red-800 flex items-center gap-1 ml-auto group"
+                                  className="font-medium text-emerald-600 hover:text-emerald-800 flex items-center gap-1 ml-auto group"
                                 >
                                   {fmtPKR(e.amount)}
                                   <Pencil size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
                                 </button>
                               )
                             ) : '—'}
-                          </td>
-                          <td className="px-5 py-3 text-right font-medium text-emerald-600">
-                            {e.entry_type === 'credit' ? fmtPKR(e.amount) : '—'}
                           </td>
                           <td className="px-5 py-3 text-right font-bold text-navy">
                             {fmtPKR(e.running_balance)}
