@@ -34,6 +34,13 @@ const EMPTY_FORM = {
 
 const EMPTY_CLOSING_FORM = { salesman_id: '', amount: '', deposit_to: 'bank', bank_account: '', notes: '' };
 
+// Extract bank label from notes field: "Bank: Jazz Cash" → "Jazz Cash"
+const bankLabel = (notes) => {
+  if (!notes) return null;
+  const m = String(notes).match(/Bank:\s*([^·]+)/i);
+  return m ? m[1].trim() : null;
+};
+
 // When the payment was recorded, in Pakistan time (the app's own clock isn't used).
 const recordedTime = (iso) => (iso
   ? new Date(iso).toLocaleTimeString('en-US', { timeZone: 'Asia/Karachi', hour: '2-digit', minute: '2-digit', hour12: true })
@@ -885,7 +892,11 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                         )}
                       </td>
                           <td className="px-6 py-3.5">
-                            <span className="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-navy-chip text-navy capitalize">{p.payment_method}</span>
+                            <span className="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-navy-chip text-navy capitalize">
+                              {p.payment_method === 'bank_transfer' && bankLabel(p.notes)
+                                ? `bank_transfer (${bankLabel(p.notes)})`
+                                : p.payment_method}
+                            </span>
                           </td>
                           <td className="px-6 py-3.5 text-gray-400 text-xs">{p.payment_method === 'bank_transfer' ? (p.notes || '—') : (p.reference_number || '—')}</td>
                           <td className="px-6 py-3.5"><PhotoButton url={p.photo_url} onOpen={setPhotoUrl} /></td>
@@ -1279,7 +1290,13 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                           {t.payment_type === 'cash' ? 'Cash' : t.payment_type === 'cheque' ? 'Cheque' : t.payment_type === 'vendor_transfer' ? 'Direct Transfer' : 'Online'}
                         </span>
                       </td>
-                      <td className="px-6 py-3.5 text-gray-500 text-xs capitalize">{t.payment_type === 'vendor_transfer' ? 'Vendor Transfer' : t.payment_method}</td>
+                      <td className="px-6 py-3.5 text-gray-500 text-xs capitalize">
+                        {t.payment_type === 'vendor_transfer'
+                          ? 'Vendor Transfer'
+                          : t.payment_method === 'bank_transfer' && bankLabel(t.notes)
+                            ? `bank_transfer (${bankLabel(t.notes)})`
+                            : t.payment_method}
+                      </td>
                       <td className="px-6 py-3.5 text-right font-semibold text-navy">PKR {Number(t.amount).toLocaleString()}</td>
                       <td className="px-6 py-3.5"><PhotoButton url={t.photo_url} onOpen={setPhotoUrl} /></td>
                       <td className="px-6 py-3.5 text-center">

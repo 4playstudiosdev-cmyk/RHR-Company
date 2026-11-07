@@ -20,7 +20,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
     const cf = companyId ? `&company_id=eq.${companyId}` : '';
     const cfObj = companyId ? { company_id: `eq.${companyId}` } : {};
 
-    const [expenses, recoveries, orders, productions, bankAccounts, prevCashRec, prevCashClose, bankExpenses, bankPayments] = await Promise.all([
+    const [expenses, recoveries, orders, productions, bankAccounts, prevCashRec, prevCashClose, bankExpenses, bankPayments, bankTransfers] = await Promise.all([
 
       // Expenses for the date — try with full joins, degrade gracefully
       pgrestGetRaw(
@@ -96,11 +96,20 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         ...cfObj,
       }).catch(() => []),
 
-      // Bank inflows for this date: cheques cleared to bank + bank transfers approved
+      // Bank inflows for this date: cheques cleared to bank
       pgrestGetRaw(
         `salesman_recoveries?select=amount,cleared_bank_account_id&cheque_status=eq.cleared&cleared_at=gte.${date}T00:00:00${cf}`
       ).then(rows => (rows || []).filter(r => r.cleared_at <= `${date}T23:59:59` && r.cleared_bank_account_id))
         .catch(() => []),
+
+      // Approved bank transfers for this date (reference_number = bank_account_id)
+      pgrestGet('salesman_recoveries', {
+        select: 'amount,reference_number',
+        payment_method: 'eq.bank_transfer',
+        status: 'eq.approved',
+        recovery_date: `eq.${date}`,
+        ...cfObj,
+      }).catch(() => []),
     ]);
 
     // ── Cost-per-unit map: latest production cost for each sold product
@@ -235,6 +244,10 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
     const bankInMap = {};
     (bankPayments || []).forEach(r => {
       const id = r.cleared_bank_account_id;
+      if (id) bankInMap[id] = (bankInMap[id] || 0) + Number(r.amount || 0);
+    });
+    (bankTransfers || []).forEach(r => {
+      const id = r.reference_number;
       if (id) bankInMap[id] = (bankInMap[id] || 0) + Number(r.amount || 0);
     });
     const bankDetail = (bankAccounts || []).map(b => ({
