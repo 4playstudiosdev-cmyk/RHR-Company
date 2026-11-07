@@ -160,7 +160,7 @@ function groupForPage(page) {
   return GROUPS.find((g) => g.children.includes(page));
 }
 
-export default function Sidebar({ page, setPage, user, onLogout, open, onClose, collapsed, onToggleCollapse, refreshKey }) {
+export default function Sidebar({ page, setPage, user, onLogout, open, onClose, collapsed, onToggleCollapse, refreshKey, companyFilter }) {
   // Multiple groups can be open at once — matches the original single
   // "Production" accordion's behavior, just generalized to all 7.
   const [openGroups, setOpenGroups] = useState(() => {
@@ -177,13 +177,14 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
   // header refresh button is pressed.
   useEffect(() => {
     let alive = true;
-    const load = () => api.get('/pending-counts')
+    const params = companyFilter ? { company_id: companyFilter } : {};
+    const load = () => api.get('/pending-counts', { params })
       .then((r) => { if (alive && r.data.success) setPendingCounts(r.data.data || {}); })
       .catch(() => {});
     load();
     const interval = setInterval(load, 20000);
     return () => { alive = false; clearInterval(interval); };
-  }, [page, refreshKey]);
+  }, [page, refreshKey, companyFilter]);
 
   const countFor = (key) => (key === 'stock-transfers' ? pendingTransfers : (pendingCounts[key] || 0));
 

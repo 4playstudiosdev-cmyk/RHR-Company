@@ -192,6 +192,9 @@ function AppShell() {
     setSidebarOpen(false);
   };
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Tracks whichever city is active in the current page's CityFilter so the
+  // sidebar badge counts stay scoped to the same branch the admin is looking at.
+  const [globalCompanyId, setGlobalCompanyId] = useState(user?.company_id || '');
   const [searchOpen, setSearchOpen] = useState(false);
   // { page, token } — token changes on every trigger so a page's
   // useEffect([autoOpenCreate]) fires again even if re-triggered for
@@ -326,6 +329,7 @@ function AppShell() {
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
         refreshKey={refreshKey}
+        companyFilter={globalCompanyId}
       />
       {/* md:pl-10 when collapsed clears the floating toggle arrow, which
           otherwise sits right where a page's title/heading starts once
@@ -380,6 +384,7 @@ function AppShell() {
                 autoOpenCreate={quickActionTarget?.page === page ? quickActionTarget.token : null}
                 onGoToRecovery={goToRecovery}
                 initialRecoveryFilter={recoveryDeepLink?.token && page === 'recovery' ? recoveryDeepLink : null}
+                onGlobalCompanyChange={setGlobalCompanyId}
               />
             </ProtectedRoute>
           </ErrorBoundary>

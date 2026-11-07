@@ -71,7 +71,7 @@ function SourceBadge({ role }) {
 // custom price or a discount/premium tier set.
 const RATE_TIER_ADJUSTMENT = { manual: 0, discount: -10, premium: 10 };
 
-export default function Orders({ initialOrderNumber, autoOpenCreate }) {
+export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCompanyChange }) {
   const toast = useToast();
   const user = getCurrentUser();
   // Deleting an order/invoice is an admin action — available to both
@@ -150,6 +150,11 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
   useEffect(() => {
     loadOrders();
     loadSalesmen();
+    if (onGlobalCompanyChange && selectedCity && selectedCity !== 'all') {
+      onGlobalCompanyChange(selectedCity);
+    } else if (onGlobalCompanyChange && selectedCity === 'all') {
+      onGlobalCompanyChange('');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
 
