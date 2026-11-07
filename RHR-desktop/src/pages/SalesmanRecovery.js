@@ -64,7 +64,7 @@ function PhotoButton({ url, onOpen }) {
   );
 }
 
-export default function SalesmanRecovery({ initialTab, initialTabToken, initialRecoveryFilter }) {
+export default function SalesmanRecovery({ initialTab, initialTabToken, initialRecoveryFilter, onGlobalCompanyChange }) {
   const toast = useToast();
   const user = getCurrentUser();
   const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId;
@@ -120,6 +120,9 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
     loadBanks();
     loadRemoved();
     loadSuppliers();
+    if (onGlobalCompanyChange) {
+      onGlobalCompanyChange(selectedCity === 'all' ? '' : (selectedCity || ''));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
 

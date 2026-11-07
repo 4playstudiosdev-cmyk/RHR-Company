@@ -1090,7 +1090,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Status</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Source</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Driver / Vehicle</th>
-                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Update</th>
+                    {tab !== 'delivered' && <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Update</th>}
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Invoice</th>
                   </tr>
                 </thead>
@@ -1156,7 +1156,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                           <span className="text-gray-300">—</span>
                         )}
                       </td>
-                      <td className="px-6 py-3.5">
+                      {tab !== 'delivered' && <td className="px-6 py-3.5">
                         {(() => {
                           const nextOptions = availableNextStatuses(order.status);
                           return nextOptions.length === 0 ? (
@@ -1175,7 +1175,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                             </select>
                           );
                         })()}
-                      </td>
+                      </td>}
                       <td className="px-6 py-3.5">
                         {order.invoice_deleted_at ? (
                           <span

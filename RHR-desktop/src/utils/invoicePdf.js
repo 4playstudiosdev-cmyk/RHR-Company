@@ -44,8 +44,12 @@ export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, 
     doc.text(label, x, y);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(20, 20, 30);
-    doc.text(String(value), x + LABEL_W, y, { maxWidth: colLeftX === x ? 80 : 68 });
-    return y + 6.5;
+    // Left column: cap at ~55mm so long addresses don't bleed into the right column.
+    // Right column: 68mm as before.
+    const maxWidth = colLeftX === x ? 55 : 68;
+    const lines = doc.splitTextToSize(String(value), maxWidth);
+    doc.text(lines, x + LABEL_W, y);
+    return y + lines.length * 6.5;
   };
 
   doc.setFont('helvetica', 'bold');
