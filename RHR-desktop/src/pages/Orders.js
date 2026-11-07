@@ -632,7 +632,14 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
     setPdfLoadingId(order.id);
     try {
       const res = await api.get(`/orders/${order.id}`);
-      await buildInvoicePdf(res.data.data, { preview: true });
+      const detail = res.data.data;
+      let previousBalance = 0;
+      try {
+        const ledgerRes = await api.get(`/ledger/${detail.customer_id}`);
+        const currentBalance = ledgerRes.data?.data?.currentBalance ?? 0;
+        previousBalance = Math.max(0, currentBalance - Number(detail.total_amount));
+      } catch (e) { /* ledger unavailable — skip previous balance */ }
+      await buildInvoicePdf(detail, { preview: true, previousBalance });
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load invoice preview.');
     } finally {
@@ -1188,15 +1195,17 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                               <Printer size={14} />
                               {pdfLoadingId === order.id ? 'Generating...' : 'Print'}
                             </button>
-                            <button
-                              onClick={() => openEditInvoice(order)}
-                              disabled={editInvoiceLoadingId === order.id}
-                              title="Record a return and download an updated invoice"
-                              className="flex items-center gap-1.5 bg-orange hover:bg-orange/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
-                            >
-                              <FileDown size={14} />
-                              {editInvoiceLoadingId === order.id ? 'Loading...' : 'Edit Invoice'}
-                            </button>
+                            {order.status !== 'delivered' && (
+                              <button
+                                onClick={() => openEditInvoice(order)}
+                                disabled={editInvoiceLoadingId === order.id}
+                                title="Record a return and download an updated invoice"
+                                className="flex items-center gap-1.5 bg-orange hover:bg-orange/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                              >
+                                <FileDown size={14} />
+                                {editInvoiceLoadingId === order.id ? 'Loading...' : 'Edit Invoice'}
+                              </button>
+                            )}
                             {canDeleteInvoices && (
                               <button
                                 onClick={() => handleDeleteInvoice(order)}
@@ -1220,14 +1229,16 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                                 {pdfLoadingId === order.id ? '...' : 'Print'}
                               </button>
                             )}
-                            <button
-                              onClick={() => handleInvoice(order)}
-                              disabled={pdfLoadingId === order.id}
-                              className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
-                            >
-                              <FileDown size={14} />
-                              {pdfLoadingId === order.id ? 'Generating...' : 'Create Invoice'}
-                            </button>
+                            {order.status === 'dispatched' && (
+                              <button
+                                onClick={() => handleInvoice(order)}
+                                disabled={pdfLoadingId === order.id}
+                                className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                              >
+                                <FileDown size={14} />
+                                {pdfLoadingId === order.id ? 'Generating...' : 'Create Invoice'}
+                              </button>
+                            )}
                             {canDeleteInvoices && (
                               <button
                                 onClick={() => handleDeleteInvoice(order)}
