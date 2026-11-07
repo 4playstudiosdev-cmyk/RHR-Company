@@ -368,15 +368,13 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
         </div>
       ) : !data ? null : (
         <>
-          {/* ── Summary cards ── */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+          {/* ── Summary cards — row 1 (4 cards) ── */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
             {[
               { label: 'Previous Balance', value: fmtPKR(s.previous_cash_balance), color: 'text-navy' },
               { label: 'Total Recovery', value: fmtPKR(s.total_recovery), color: 'text-green-700' },
               { label: 'Total Expenses', value: fmtPKR(s.total_expenses), color: 'text-red-600' },
               { label: 'Net Balance', value: fmtPKR(s.net_cash), color: 'text-green-700', onClick: () => setPage?.('bank') },
-              { label: 'Total Sales', value: fmtPKR(s.total_sales), color: 'text-navy' },
-              { label: 'Profit', value: fmtPKR(s.profit), color: s.profit >= 0 ? 'text-green-700' : 'text-red-600' },
             ].map((c) => (
               <div
                 key={c.label}
@@ -386,6 +384,19 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                 <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">{c.label}</p>
                 <p className={`text-base font-bold mt-0.5 ${c.color}`}>{c.value}</p>
                 {c.onClick && <p className="text-[10px] text-navy/50 mt-0.5">View Bank →</p>}
+              </div>
+            ))}
+          </div>
+          {/* ── Summary cards — row 2 (3 cards centered) ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5 sm:w-3/4 mx-auto">
+            {[
+              { label: 'Total Sales', value: fmtPKR(s.total_sales), color: 'text-navy' },
+              { label: 'Total Prod. Cost', value: fmtPKR(s.total_cogs ?? 0), color: 'text-red-600' },
+              { label: 'Profit', value: fmtPKR(s.profit), color: s.profit >= 0 ? 'text-green-700' : 'text-red-600' },
+            ].map((c) => (
+              <div key={c.label} className="bg-white rounded-2xl border border-gray-100 shadow-card px-4 py-3">
+                <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">{c.label}</p>
+                <p className={`text-base font-bold mt-0.5 ${c.color}`}>{c.value}</p>
               </div>
             ))}
           </div>
