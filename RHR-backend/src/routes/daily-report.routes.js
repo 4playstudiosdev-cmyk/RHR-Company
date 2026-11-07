@@ -271,4 +271,40 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
   } catch (err) { return error(res, err.message); }
 });
 
+// GET /api/v1/daily-report/quick-stats
+// Lightweight endpoint for the sidebar widget — today's recovery vs sales only.
+router.get('/quick-stats', authenticate, isAdmin, async (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const companyId = req.user.role === 'branch_admin'
+      ? req.user.company_id
+      : req.user.company_id;
+    const cf = companyId ? `&company_id=eq.${companyId}` : '';
+    const cfObj = companyId ? { company_id: `eq.${companyId}` } : {};
+
+    const [recoveries, orders] = await Promise.all([
+      pgrestGet('salesman_recoveries', {
+        select: 'amount',
+        status: 'eq.approved',
+        recovery_date: `eq.${today}`,
+        ...cfObj,
+      }).catch(() => []),
+      pgrestGetRaw(
+        `orders?select=total_amount&status=eq.delivered&invoice_deleted_at=is.null${cf}` +
+        `&or=(order_date.eq.${today},and(order_date.is.null,updated_at.gte.${today}T00:00:00,updated_at.lte.${today}T23:59:59))`
+      ).catch(() => []),
+    ]);
+
+    const totalRecovery = (recoveries || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+    const totalSales = (orders || []).reduce((s, o) => s + Number(o.total_amount || 0), 0);
+
+    return success(res, {
+      date: today,
+      total_recovery: totalRecovery,
+      total_sales: totalSales,
+      market_difference: totalRecovery - totalSales,
+    });
+  } catch (err) { return error(res, err.message); }
+});
+
 module.exports = router;

@@ -168,6 +168,7 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
   });
   const [pendingTransfers, setPendingTransfers] = useState(0);
   const [loginAlerts, setLoginAlerts] = useState(0);
+  const [marketStats, setMarketStats] = useState(null);
   // { [page key]: how many items are waiting on an admin } — see GET /pending-counts.
   const [pendingCounts, setPendingCounts] = useState({});
 
@@ -204,6 +205,16 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
       .then((r) => { if (r.data.success) setPendingTransfers((r.data.data || []).length); })
       .catch(() => {});
   }, [page, refreshKey]);
+
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.get('/daily-report/quick-stats')
+      .then((r) => { if (alive && r.data.success) setMarketStats(r.data.data); })
+      .catch(() => {});
+    load();
+    const interval = setInterval(load, 60000);
+    return () => { alive = false; clearInterval(interval); };
+  }, [refreshKey]);
 
   // Alerts super_admin to branch_admin (HYD/SUK) logins — a red badge on
   // the Notifications nav item, same as the pending-transfers badge above.
@@ -362,6 +373,28 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
                     {isOpen && (
                       <div className="mt-1 ml-4 pl-3 border-l border-white/10 space-y-1">
                         {visibleChildren.map((item) => renderChildButton(item, group.key))}
+                        {group.key === 'dash' && marketStats && (
+                          <button
+                            onClick={() => setPage('daily-report')}
+                            className="w-full mt-2 rounded-xl bg-white/8 hover:bg-white/15 border border-white/10 px-3 py-2.5 text-left transition-colors"
+                          >
+                            <p className="text-[10px] font-bold text-blue-200/60 uppercase tracking-wider mb-1.5">Today's Market</p>
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="text-xs text-blue-200/70">Orders</span>
+                              <span className="text-xs font-bold text-white">Rs {marketStats.total_sales.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-xs text-blue-200/70">Recovery</span>
+                              <span className="text-xs font-bold text-green-400">Rs {marketStats.total_recovery.toLocaleString()}</span>
+                            </div>
+                            <div className="border-t border-white/10 pt-1.5 flex justify-between items-center">
+                              <span className="text-xs font-semibold text-blue-200/80">Difference</span>
+                              <span className={`text-xs font-bold ${marketStats.market_difference >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {marketStats.market_difference >= 0 ? '+' : '-'}Rs {Math.abs(marketStats.market_difference).toLocaleString()}
+                              </span>
+                            </div>
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
