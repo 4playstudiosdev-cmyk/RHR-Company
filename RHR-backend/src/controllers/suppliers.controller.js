@@ -1,6 +1,6 @@
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
-const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
 
 // ─── Supplier Ledger ─────────────────────────────────────────────────────────
 
@@ -85,6 +85,65 @@ const adjustSupplierLedger = async (req, res) => {
       });
     }
     return success(res, data, 'Ledger entry added', 201);
+  } catch (err) { return error(res, err.message); }
+};
+
+// Helper: recalculate running_balance for all entries (sorted asc by created_at)
+async function recalcRunningBalances(entries) {
+  let bal = 0;
+  for (const e of entries) {
+    bal = e.entry_type === 'debit' ? bal + Number(e.amount) : bal - Number(e.amount);
+    if (Number(e.running_balance) !== bal) {
+      await pgrestPatch('supplier_ledger_entries', { id: `eq.${e.id}` }, { running_balance: bal });
+    }
+  }
+}
+
+// DELETE /api/v1/suppliers/:id/ledger/:entryId
+const deleteSupplierLedgerEntry = async (req, res) => {
+  try {
+    const { id: supplierId, entryId } = req.params;
+    const suppliers = await pgrestGet('suppliers', { select: 'id,company_id', id: `eq.${supplierId}` });
+    const supplier = suppliers?.[0];
+    if (!supplier) return error(res, 'Supplier not found', 404);
+    if (req.user.role !== 'super_admin' && supplier.company_id !== req.user.company_id)
+      return error(res, 'Access denied', 403);
+
+    const allEntries = await pgrestGet('supplier_ledger_entries', {
+      select: 'id,entry_type,amount,running_balance',
+      supplier_id: `eq.${supplierId}`,
+      order: 'created_at.asc',
+    });
+    await pgrestDelete('supplier_ledger_entries', { id: `eq.${entryId}` });
+    const remaining = (allEntries || []).filter((e) => e.id !== entryId);
+    await recalcRunningBalances(remaining);
+    return success(res, { deleted: true }, 'Ledger entry deleted');
+  } catch (err) { return error(res, err.message); }
+};
+
+// PATCH /api/v1/suppliers/:id/ledger/:entryId
+const updateSupplierLedgerEntry = async (req, res) => {
+  try {
+    const { id: supplierId, entryId } = req.params;
+    const { amount } = req.body;
+    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0)
+      return error(res, 'amount must be a positive number', 400);
+
+    const suppliers = await pgrestGet('suppliers', { select: 'id,company_id', id: `eq.${supplierId}` });
+    const supplier = suppliers?.[0];
+    if (!supplier) return error(res, 'Supplier not found', 404);
+    if (req.user.role !== 'super_admin' && supplier.company_id !== req.user.company_id)
+      return error(res, 'Access denied', 403);
+
+    const allEntries = await pgrestGet('supplier_ledger_entries', {
+      select: 'id,entry_type,amount,running_balance',
+      supplier_id: `eq.${supplierId}`,
+      order: 'created_at.asc',
+    });
+    await pgrestPatch('supplier_ledger_entries', { id: `eq.${entryId}` }, { amount: Number(amount) });
+    const updated = (allEntries || []).map((e) => e.id === entryId ? { ...e, amount: Number(amount) } : e);
+    await recalcRunningBalances(updated);
+    return success(res, { updated: true }, 'Ledger entry updated');
   } catch (err) { return error(res, err.message); }
 };
 
@@ -216,4 +275,4 @@ async function findOrCreateSupplier(companyId, name) {
   return created;
 }
 
-module.exports = { getSuppliers, createSupplier, updateSupplier, deleteSupplier, findOrCreateSupplier, getSupplierLedger, adjustSupplierLedger };
+module.exports = { getSuppliers, createSupplier, updateSupplier, deleteSupplier, findOrCreateSupplier, getSupplierLedger, adjustSupplierLedger, deleteSupplierLedgerEntry, updateSupplierLedgerEntry };

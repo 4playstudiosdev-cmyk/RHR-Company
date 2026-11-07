@@ -11,11 +11,13 @@ const isAdminOrField = (req, res, next) => {
   return error(res, 'Access denied', 403);
 };
 
-router.get('/',                        authenticate, isAdminOrField, ctrl.getSuppliers);
-router.post('/',                       authenticate, isAdmin, ctrl.createSupplier);
-router.get('/:id/ledger',              authenticate, isAdmin, ctrl.getSupplierLedger);
-router.post('/:id/ledger/adjustment',  authenticate, isAdmin, ctrl.adjustSupplierLedger);
-router.patch('/:id',                   authenticate, isAdmin, ctrl.updateSupplier);
-router.delete('/:id',                  authenticate, isAdmin, ctrl.deleteSupplier);
+router.get('/',                            authenticate, isAdminOrField, ctrl.getSuppliers);
+router.post('/',                           authenticate, isAdmin, ctrl.createSupplier);
+router.get('/:id/ledger',                  authenticate, isAdmin, ctrl.getSupplierLedger);
+router.post('/:id/ledger/adjustment',      authenticate, isAdmin, ctrl.adjustSupplierLedger);
+router.patch('/:id/ledger/:entryId',       authenticate, isAdmin, ctrl.updateSupplierLedgerEntry);
+router.delete('/:id/ledger/:entryId',      authenticate, isAdmin, ctrl.deleteSupplierLedgerEntry);
+router.patch('/:id',                       authenticate, isAdmin, ctrl.updateSupplier);
+router.delete('/:id',                      authenticate, isAdmin, ctrl.deleteSupplier);
 
 module.exports = router;

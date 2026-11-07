@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { BookOpen, TrendingDown, TrendingUp, Wallet, X, Banknote, Building2, FileText, ImagePlus } from 'lucide-react';
+import { BookOpen, TrendingDown, TrendingUp, Wallet, X, Banknote, Building2, FileText, ImagePlus, Trash2, Pencil, Check } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
@@ -63,6 +63,9 @@ export default function VendorLedger({ initialSupplierId }) {
   const [bankAccounts, setBankAccounts] = useState([]);
   const [receiptFile, setReceiptFile] = useState(null);
   const receiptInputRef = useRef(null);
+  const [editingEntryId, setEditingEntryId] = useState(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     loadSuppliers();
@@ -107,6 +110,32 @@ export default function VendorLedger({ initialSupplierId }) {
   }, [supplierId]);
 
   useEffect(() => { loadLedger(); }, [loadLedger]);
+
+  const handleDeleteEntry = async (entryId) => {
+    if (!window.confirm('Delete this ledger entry? This cannot be undone.')) return;
+    try {
+      await api.delete(`/suppliers/${supplierId}/ledger/${entryId}`);
+      toast.success('Entry deleted.');
+      loadLedger();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete entry.');
+    }
+  };
+
+  const handleEditSave = async (entryId) => {
+    if (!editAmount || Number(editAmount) <= 0) { toast.error('Enter a valid amount.'); return; }
+    setSavingEdit(true);
+    try {
+      await api.patch(`/suppliers/${supplierId}/ledger/${entryId}`, { amount: Number(editAmount) });
+      toast.success('Amount updated.');
+      setEditingEntryId(null);
+      loadLedger();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update amount.');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   const selectedSupplier = suppliers.find((s) => s.id === supplierId);
 
@@ -161,7 +190,7 @@ export default function VendorLedger({ initialSupplierId }) {
     setSavingPayment(true);
     try {
       const method = paymentForm.payment_method;
-      let desc = `Payment via ${method}`;
+      let desc = `${paymentForm.payment_date} — Payment via ${method}`;
       if (method === 'bank' && paymentForm.bank_name) desc += ` — ${paymentForm.bank_name}`;
       if (method === 'bank' && paymentForm.reference_number) desc += ` Ref: ${paymentForm.reference_number}`;
       if (method === 'cheque') {
@@ -299,6 +328,7 @@ export default function VendorLedger({ initialSupplierId }) {
                         <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide text-right">Debit (owe)</th>
                         <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide text-right">Credit (paid)</th>
                         <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide text-right">Balance</th>
+                        <th className="px-3 py-3 w-10"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -316,13 +346,45 @@ export default function VendorLedger({ initialSupplierId }) {
                             </span>
                           </td>
                           <td className="px-5 py-3 text-right font-medium text-red-600">
-                            {e.entry_type === 'debit' ? fmtPKR(e.amount) : '—'}
+                            {e.entry_type === 'debit' ? (
+                              editingEntryId === e.id ? (
+                                <div className="flex items-center gap-1 justify-end">
+                                  <input
+                                    type="number" min="0.01" step="0.01"
+                                    value={editAmount}
+                                    onChange={(ev) => setEditAmount(ev.target.value)}
+                                    className="w-24 border border-gray-300 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-navy"
+                                    autoFocus
+                                    onKeyDown={(ev) => { if (ev.key === 'Enter') handleEditSave(e.id); if (ev.key === 'Escape') setEditingEntryId(null); }}
+                                  />
+                                  <button onClick={() => handleEditSave(e.id)} disabled={savingEdit} className="text-emerald-600 hover:text-emerald-800"><Check size={13} /></button>
+                                  <button onClick={() => setEditingEntryId(null)} className="text-gray-400 hover:text-gray-600"><X size={13} /></button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => { setEditingEntryId(e.id); setEditAmount(String(e.amount)); }}
+                                  className="font-medium text-red-600 hover:text-red-800 flex items-center gap-1 ml-auto group"
+                                >
+                                  {fmtPKR(e.amount)}
+                                  <Pencil size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
+                                </button>
+                              )
+                            ) : '—'}
                           </td>
                           <td className="px-5 py-3 text-right font-medium text-emerald-600">
                             {e.entry_type === 'credit' ? fmtPKR(e.amount) : '—'}
                           </td>
                           <td className="px-5 py-3 text-right font-bold text-navy">
                             {fmtPKR(e.running_balance)}
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            <button
+                              onClick={() => handleDeleteEntry(e.id)}
+                              className="text-gray-300 hover:text-red-500 transition-colors p-1 rounded hover:bg-red-50"
+                              title="Delete entry"
+                            >
+                              <Trash2 size={13} />
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -364,6 +426,15 @@ export default function VendorLedger({ initialSupplierId }) {
               <button onClick={() => setShowPaymentModal(false)} className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"><X size={18} /></button>
             </div>
             <form onSubmit={handlePaymentSubmit} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Payment Date</label>
+                <input
+                  type="date"
+                  value={paymentForm.payment_date}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, payment_date: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy"
+                />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Amount (PKR)</label>
                 <input
