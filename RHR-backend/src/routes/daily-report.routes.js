@@ -31,7 +31,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 
       // Approved recoveries for the date
       pgrestGet('salesman_recoveries', {
-        select: 'id,amount,payment_type,recovery_date,notes,salesmen(full_name),users!customer_id(full_name,shop_name)',
+        select: 'id,salesman_id,amount,payment_type,recovery_date,notes,salesmen(full_name),users!customer_id(full_name,shop_name)',
         status: 'eq.approved',
         recovery_date: `eq.${date}`,
         ...cfObj,
@@ -126,6 +126,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
     const recoveryList = (recoveries || []).map((r, i) => ({
       sno: i + 1,
       date: r.recovery_date,
+      salesman_id: r.salesman_id || null,
       salesman: r.salesmen?.full_name || '',
       customer: r.users?.shop_name || r.users?.full_name || '',
       payment_type: r.payment_type,

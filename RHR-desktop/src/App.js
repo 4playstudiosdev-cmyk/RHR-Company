@@ -267,6 +267,13 @@ function AppShell() {
     setPage('orders');
   };
 
+  const [recoveryDeepLink, setRecoveryDeepLink] = useState(null);
+  const goToRecovery = (salesmanId, date) => {
+    setRecoveryDeepLink({ salesman_id: salesmanId, from: date, to: date, token: Date.now() });
+    setPage('recovery');
+    setSidebarOpen(false);
+  };
+
   const triggerQuickAction = (pageKey, autoOpen) => {
     setPage(pageKey);
     setSidebarOpen(false);
@@ -368,6 +375,8 @@ function AppShell() {
                 initialTabToken={targetTab?.page === page ? targetTab.token : null}
                 onNavigate={goToTab}
                 autoOpenCreate={quickActionTarget?.page === page ? quickActionTarget.token : null}
+                onGoToRecovery={goToRecovery}
+                initialRecoveryFilter={recoveryDeepLink?.token && page === 'recovery' ? recoveryDeepLink : null}
               />
             </ProtectedRoute>
           </ErrorBoundary>

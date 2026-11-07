@@ -64,21 +64,32 @@ function PhotoButton({ url, onOpen }) {
   );
 }
 
-export default function SalesmanRecovery({ initialTab, initialTabToken }) {
+export default function SalesmanRecovery({ initialTab, initialTabToken, initialRecoveryFilter }) {
   const toast = useToast();
   const user = getCurrentUser();
   const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId;
   const [selectedCity, setSelectedCity] = useState(defaultCity);
-  const [tab, setTab] = useState(initialTab || 'add');
+  const [tab, setTab] = useState(initialRecoveryFilter ? 'history' : (initialTab || 'add'));
   // opened from a notification: jump to the tab it is about
   useEffect(() => { if (initialTab) setTab(initialTab); }, [initialTab, initialTabToken]);
+  // deep-linked from Daily Report: pre-filter by salesman + date
+  useEffect(() => {
+    if (!initialRecoveryFilter?.token) return;
+    setTab('history');
+    setHistorySalesman(initialRecoveryFilter.salesman_id || '');
+    if (initialRecoveryFilter.from) setHistoryRange({ from: initialRecoveryFilter.from, to: initialRecoveryFilter.to || initialRecoveryFilter.from });
+  }, [initialRecoveryFilter?.token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [salesmenList, setSalesmenList] = useState([]);
   const [customersList, setCustomersList] = useState([]);
   const [transactions, setTransactions] = useState([]);
-  const [historySalesman, setHistorySalesman] = useState(''); // '' = every salesman
+  const [historySalesman, setHistorySalesman] = useState(initialRecoveryFilter?.salesman_id || '');
   const todayStr = new Date().toISOString().split('T')[0];
-  const [historyRange, setHistoryRange] = useState({ from: todayStr, to: todayStr });
+  const [historyRange, setHistoryRange] = useState(
+    initialRecoveryFilter?.from
+      ? { from: initialRecoveryFilter.from, to: initialRecoveryFilter.to || initialRecoveryFilter.from }
+      : { from: todayStr, to: todayStr }
+  );
   const [transactionsLoading, setTransactionsLoading] = useState(true);
   const [pendingData, setPendingData] = useState({ online_payments: [], cash_closings: [] });
   const [cashInHand, setCashInHand] = useState({});

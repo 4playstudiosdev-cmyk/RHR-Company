@@ -282,7 +282,7 @@ function NoData({ msg }) {
   return <p className="text-xs text-gray-400 italic px-5 py-4">{msg}</p>;
 }
 
-export default function DailyReport({ setPage }) {
+export default function DailyReport({ setPage, onGoToRecovery }) {
   const user = getCurrentUser();
   const defaultCity = user?.role === 'super_admin' ? '1e5962c6-33a7-460b-913e-9e08db46973a' : user?.companyId;
 
@@ -430,7 +430,7 @@ export default function DailyReport({ setPage }) {
             {data.recovery.length === 0 ? <NoData msg="No recovery for this date." /> : (() => {
               const byS = {};
               data.recovery.forEach((r) => {
-                if (!byS[r.salesman]) byS[r.salesman] = { salesman: r.salesman, customers: 0, amount: 0 };
+                if (!byS[r.salesman]) byS[r.salesman] = { salesman: r.salesman, salesman_id: r.salesman_id, customers: 0, amount: 0 };
                 byS[r.salesman].customers += 1;
                 byS[r.salesman].amount += Number(r.amount);
               });
@@ -449,7 +449,19 @@ export default function DailyReport({ setPage }) {
                       {rows.map((r, i) => (
                         <tr key={r.salesman} className="border-b border-gray-50 hover:bg-gray-50/60">
                           <td className="px-4 py-2.5 text-gray-400">{i + 1}</td>
-                          <td className="px-4 py-2.5 font-medium text-navy">{r.salesman}</td>
+                          <td className="px-4 py-2.5">
+                            {onGoToRecovery && r.salesman_id ? (
+                              <button
+                                onClick={() => onGoToRecovery(r.salesman_id, reportDate)}
+                                className="font-medium text-navy hover:text-orange hover:underline transition-colors cursor-pointer"
+                                title={`View ${r.salesman}'s recovery for ${reportDate}`}
+                              >
+                                {r.salesman}
+                              </button>
+                            ) : (
+                              <span className="font-medium text-navy">{r.salesman}</span>
+                            )}
+                          </td>
                           <td className="px-4 py-2.5 text-gray-500">{r.customers} {r.customers === 1 ? 'customer' : 'customers'}</td>
                           <td className="px-4 py-2.5 text-right font-semibold text-green-700">{fmtPKR(r.amount)}</td>
                         </tr>
