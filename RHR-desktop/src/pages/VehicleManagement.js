@@ -129,7 +129,7 @@ export default function VehicleManagement() {
   const [pendingDriversLoading, setPendingDriversLoading] = useState(true);
   const [approvingDriverId, setApprovingDriverId] = useState(null);
 
-  const [reportFrom, setReportFrom] = useState(monthStartISO());
+  const [reportFrom, setReportFrom] = useState(todayISO());
   const [reportTo, setReportTo] = useState(todayISO());
   const [report, setReport] = useState([]);
   const [reportLoading, setReportLoading] = useState(false);
@@ -282,6 +282,7 @@ export default function VehicleManagement() {
       setVehicles(data);
       loadVehicleExtras(data);
       loadFuelCostMonth();
+      loadReport(todayISO(), todayISO());
     } catch (err) {
       toast.error('Failed to load vehicles.');
     } finally {

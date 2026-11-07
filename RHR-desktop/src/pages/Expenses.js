@@ -43,7 +43,7 @@ const monthStartISO = () => { const d = new Date(); return `${d.getFullYear()}-$
 const EMPTY_FORM = {
   category: EXPENSE_CATEGORIES[0], amount: '', description: '', expense_date: todayISO(),
   method: 'cash', bank_account_id: '', person: '',
-  supplier_id: '', splitPayment: false, cashAmount: '', onlineAmount: '',
+  supplier_id: '', vehicle_id: '', splitPayment: false, cashAmount: '', onlineAmount: '',
   payLater: false,
 };
 
@@ -62,6 +62,7 @@ export default function Expenses() {
   const [workersList, setWorkersList] = useState([]);
   const [employeesList, setEmployeesList] = useState([]);
   const [suppliersList, setSuppliersList] = useState([]);
+  const [vehiclesList, setVehiclesList] = useState([]);
   const [accountsList, setAccountsList] = useState([]);
   const [tab, setTab] = useState('all');           // 'all' | 'person'
   const [personFilter, setPersonFilter] = useState('');   // person key shown in "By Person"
@@ -179,6 +180,21 @@ export default function Expenses() {
       }
     };
     loadEmployees();
+  }, [selectedCity]);
+
+  useEffect(() => {
+    const loadVehicles = async () => {
+      try {
+        const companyFilter = selectedCity === 'all' ? null : selectedCity;
+        const data = companyFilter
+          ? (await api.get('/vehicles', { params: { company_id: companyFilter } })).data.data || []
+          : await fetchAllCities('/vehicles');
+        setVehiclesList(data.filter((v) => v.is_active !== false));
+      } catch (err) {
+        setVehiclesList([]);
+      }
+    };
+    loadVehicles();
   }, [selectedCity]);
 
   // Powers the "Vendor" picker shown when Category = Raw Material Purchase.
@@ -468,6 +484,11 @@ export default function Expenses() {
   // a Salaries expense may instead carry a salesman or Manufacturing
   // Worker, see the Employee picker above.
   const getEmployeeLabel = (e) => {
+    if (e.vehicles) return `${e.vehicles.name} (${e.vehicles.plate_number})`;
+    if (e.vehicle_id) {
+      const v = vehiclesList.find((x) => x.id === e.vehicle_id);
+      if (v) return `${v.name} (${v.plate_number})`;
+    }
     if (e.drivers) return `${e.drivers.full_name}${e.drivers.car_number ? ` — ${e.drivers.car_number}` : ''}`;
     if (e.salesmen) return e.salesmen.full_name;
     if (e.employees) return `${e.employees.full_name}${e.employees.city ? ` — ${e.employees.city}` : ''}`;
@@ -934,6 +955,21 @@ export default function Expenses() {
                 {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
+            {(form.category === 'Vehicle Maintenance' || form.category === 'Fuel') && (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Vehicle</label>
+                <select
+                  value={form.vehicle_id}
+                  onChange={(e) => setForm({ ...form, vehicle_id: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                >
+                  <option value="">— Select Vehicle —</option>
+                  {vehiclesList.map((v) => (
+                    <option key={v.id} value={v.id}>{v.name} ({v.plate_number})</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {form.category === 'Raw Material Purchase' && (
               <>
                 <div>
