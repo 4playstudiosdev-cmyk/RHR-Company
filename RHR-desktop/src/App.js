@@ -392,7 +392,7 @@ function AppShell() {
       </div>
       <SessionWarning />
       <LocationGate user={user} />
-      {hasPermission('notifications', user) && <NotificationBell key={refreshKey} setPage={setPage} onViewOrderNumber={goToOrder} onNavigate={goToTab} />}
+      {hasPermission('notifications', user) && <NotificationBell key={refreshKey} setPage={setPage} onViewOrderNumber={goToOrder} onNavigate={goToTab} companyFilter={globalCompanyId} />}
       <GlobalSearch
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
