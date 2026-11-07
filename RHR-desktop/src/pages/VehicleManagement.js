@@ -44,7 +44,7 @@ const EMPTY_FUEL_FORM = { vehicle_id: '', expense_date: todayISO(), amount: '', 
 const EMPTY_DRIVER_FORM = { full_name: '', phone: '', car_number: '', vehicle_id: '' };
 const EMPTY_TRIP_FORM = {
   vehicle_id: '', driver_id: '', trip_date: todayISO(), opening_km: '',
-  closing_km: '', route: '', fuel_liters: '', fuel_cost: '', notes: ''
+  closing_km: '', route: '', fuel_cost: '', fuel_price_per_liter: '', fuel_liters: '', fuel_date: '', notes: ''
 };
 
 // > 5000 km since last service: red "Oil Change Due". > 3500: yellow
@@ -497,8 +497,11 @@ export default function VehicleManagement() {
   const tripDistance = tripPrevReading != null && tripForm.closing_km
     ? Number(tripForm.closing_km) - Number(tripPrevReading)
     : null;
-  const tripEfficiency = tripDistance != null && tripDistance > 0 && tripForm.fuel_liters
-    ? Number((tripDistance / Number(tripForm.fuel_liters)).toFixed(2))
+  const resolvedFuelLiters = (tripForm.fuel_cost && tripForm.fuel_price_per_liter)
+    ? (Number(tripForm.fuel_cost) / Number(tripForm.fuel_price_per_liter)).toFixed(2)
+    : (tripForm.fuel_liters || null);
+  const tripEfficiency = tripDistance != null && tripDistance > 0 && resolvedFuelLiters
+    ? Number((tripDistance / Number(resolvedFuelLiters)).toFixed(2))
     : null;
 
   const handleSaveTrip = async (e) => {
@@ -524,19 +527,22 @@ export default function VehicleManagement() {
       if (tripForm.fuel_cost && Number(tripForm.fuel_cost) > 0) {
         const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
         const vehicle = vehicles.find((v) => v.id === tripForm.vehicle_id);
-        const pricePerLiter = tripForm.fuel_liters
-          ? (Number(tripForm.fuel_cost) / Number(tripForm.fuel_liters)).toFixed(2)
-          : null;
+        const fuelLiters = (tripForm.fuel_cost && tripForm.fuel_price_per_liter)
+          ? (Number(tripForm.fuel_cost) / Number(tripForm.fuel_price_per_liter)).toFixed(2)
+          : (tripForm.fuel_liters || null);
+        const pricePerLiter = tripForm.fuel_price_per_liter
+          ? tripForm.fuel_price_per_liter
+          : (fuelLiters ? (Number(tripForm.fuel_cost) / Number(fuelLiters)).toFixed(2) : null);
         await api.post('/expenses', {
           company_id: targetCompanyId,
           category: 'Fuel',
           amount: Number(tripForm.fuel_cost),
-          description: `Fuel — ${vehicle?.name || 'vehicle'}${tripForm.fuel_liters ? ` (${tripForm.fuel_liters} L)` : ''}`,
-          expense_date: tripForm.trip_date,
+          description: `Fuel — ${vehicle?.name || 'vehicle'}${fuelLiters ? ` (${fuelLiters} L)` : ''}${tripForm.fuel_price_per_liter ? ` @ PKR ${tripForm.fuel_price_per_liter}/L` : ''}`,
+          expense_date: tripForm.fuel_date || tripForm.trip_date,
           method: 'cash',
           vehicle_id: tripForm.vehicle_id,
           fuel_price_per_liter: pricePerLiter,
-          fuel_liters: tripForm.fuel_liters || null,
+          fuel_liters: fuelLiters,
         });
       }
 
@@ -906,29 +912,72 @@ export default function VehicleManagement() {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          {/* Fuel Expense Section */}
+          <div className="border border-orange/30 rounded-xl p-4 space-y-3 bg-orange/5">
+            <div className="flex items-center gap-2">
+              <span className="text-sm">⛽</span>
+              <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Fuel Expense</span>
+              <span className="text-xs text-gray-400 ml-auto">Optional — saves to Expenses</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Fuel Date</label>
+                <input
+                  type="date"
+                  value={tripForm.fuel_date || tripForm.trip_date}
+                  onChange={(e) => setTripForm({ ...tripForm, fuel_date: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Amount (PKR)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={tripForm.fuel_cost}
+                  onChange={(e) => setTripForm({ ...tripForm, fuel_cost: e.target.value })}
+                  placeholder="Total fuel amount"
+                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+              </div>
+            </div>
+
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Fuel Added (Liters)</label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Price per Liter (PKR)</label>
               <input
                 type="number"
                 min="0"
                 step="0.01"
-                value={tripForm.fuel_liters}
-                onChange={(e) => setTripForm({ ...tripForm, fuel_liters: e.target.value })}
+                value={tripForm.fuel_price_per_liter}
+                onChange={(e) => setTripForm({ ...tripForm, fuel_price_per_liter: e.target.value })}
+                placeholder="e.g. 280"
                 className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
               />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Fuel Cost (PKR)</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={tripForm.fuel_cost}
-                onChange={(e) => setTripForm({ ...tripForm, fuel_cost: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-              />
-            </div>
+
+            {tripForm.fuel_cost && tripForm.fuel_price_per_liter ? (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3.5 py-2.5 flex items-center justify-between">
+                <span className="text-xs text-blue-700 font-medium">Fuel Liters (auto-calculated):</span>
+                <span className="font-bold text-blue-700 text-base">
+                  {(Number(tripForm.fuel_cost) / Number(tripForm.fuel_price_per_liter)).toFixed(2)} L
+                </span>
+              </div>
+            ) : tripForm.fuel_cost ? (
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Fuel Liters (manual)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={tripForm.fuel_liters}
+                  onChange={(e) => setTripForm({ ...tripForm, fuel_liters: e.target.value })}
+                  placeholder="Enter liters if no price per liter"
+                  className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+              </div>
+            ) : null}
           </div>
 
           {tripEfficiency != null && (
