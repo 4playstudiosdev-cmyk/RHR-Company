@@ -1204,6 +1204,17 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5">
+                            {(order.status === 'dispatched' || order.status === 'delivered') && (
+                              <button
+                                onClick={() => handleViewInvoice(order)}
+                                disabled={pdfLoadingId === order.id}
+                                title="Preview invoice PDF"
+                                className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 disabled:opacity-60 text-gray-700 text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                              >
+                                <Eye size={14} />
+                                {pdfLoadingId === order.id ? '...' : 'Print'}
+                              </button>
+                            )}
                             <button
                               onClick={() => handleInvoice(order)}
                               disabled={pdfLoadingId === order.id}
