@@ -41,13 +41,13 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       // Delivered orders with items — use order_date if set, else fall back
       // to updated_at so back-dated orders appear on their back-dated day.
       pgrestGetRaw(
-        `orders?select=id,order_number,total_amount,updated_at,created_at,order_date,users!customer_id(full_name,shop_name),order_items(id,product_name,quantity,unit_price,subtotal,products(unit))` +
+        `orders?select=id,order_number,total_amount,updated_at,created_at,order_date,users!customer_id(full_name,shop_name),order_items(id,product_id,product_name,quantity,unit_price,subtotal,products(unit))` +
         `&status=eq.delivered&invoice_deleted_at=is.null${cf}` +
         `&or=(order_date.eq.${date},and(order_date.is.null,updated_at.gte.${date}T00:00:00,updated_at.lte.${date}T23:59:59))` +
         `&order=updated_at.asc`
       ).catch(() =>
         pgrestGet('orders', {
-          select: 'id,order_number,total_amount,updated_at,created_at,users!customer_id(full_name,shop_name),order_items(id,product_name,quantity,unit_price,subtotal,products(unit))',
+          select: 'id,order_number,total_amount,updated_at,created_at,users!customer_id(full_name,shop_name),order_items(id,product_id,product_name,quantity,unit_price,subtotal,products(unit))',
           status: 'eq.delivered',
           invoice_deleted_at: 'is.null',
           ...cfObj,
@@ -103,6 +103,25 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         .catch(() => []),
     ]);
 
+    // ── Cost-per-unit map: latest production cost for each sold product
+    // Used to compute true COGS (cost of goods sold) for the profit figure.
+    const allProductIds = [...new Set(
+      (orders || []).flatMap(o => (o.order_items || []).map(it => it.product_id).filter(Boolean))
+    )];
+    let costMap = {};
+    if (allProductIds.length > 0) {
+      try {
+        const prodCosts = await pgrestGetRaw(
+          `productions?select=finished_item_id,total_cost,qty_produced&finished_item_id=in.(${allProductIds.join(',')})${cf}&order=date.desc`
+        );
+        for (const p of prodCosts || []) {
+          if (!costMap[p.finished_item_id] && Number(p.qty_produced) > 0) {
+            costMap[p.finished_item_id] = Number(p.total_cost) / Number(p.qty_produced);
+          }
+        }
+      } catch (e) { /* no production records — cost defaults to 0 */ }
+    }
+
     // ── Expenses with running balance
     let runBalance = 0;
     const expenseList = (expenses || []).map((e, i) => {
@@ -151,6 +170,10 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         const kgM = unit.match(/(\d+)\s*kg/);
         return kgM ? s + Number(it.quantity || 0) * Number(kgM[1]) : s;
       }, 0);
+      const orderCOGS = items.reduce((s, it) => {
+        const cpUnit = costMap[it.product_id] || 0;
+        return s + Number(it.quantity || 0) * cpUnit;
+      }, 0);
       return {
         sno: i + 1,
         order_id: o.id,
@@ -161,6 +184,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         bags: totalBags,
         kg: totalKg > 0 ? totalKg : null,
         total_amount: Number(o.total_amount || 0),
+        cogs: orderCOGS,
         items: items.map(it => ({
           product_name: it.product_name,
           unit: it.products?.unit || '',
@@ -171,6 +195,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       };
     });
     const totalSales = salesList.reduce((s, o) => s + o.total_amount, 0);
+    const totalCOGS = salesList.reduce((s, o) => s + o.cogs, 0);
     const totalSaleBags = salesList.reduce((s, o) => s + o.bags, 0);
     const totalSaleKg = salesList.reduce((s, o) => s + (o.kg || 0), 0);
 
@@ -239,7 +264,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         total_sale_bags: totalSaleBags,
         total_sale_kg: totalSaleKg,
         total_sales: totalSales,
-        profit: totalSales - totalProdCost,
+        profit: totalSales - totalCOGS,
       },
     });
   } catch (err) { return error(res, err.message); }
