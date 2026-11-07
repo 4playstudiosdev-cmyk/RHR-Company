@@ -4,6 +4,7 @@ const ctrl    = require('../controllers/bank.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin, requireRole } = require('../middleware/role.middleware');
 
+router.get('/summary',                           authenticate, isAdmin, ctrl.getBankSummary);
 router.get('/accounts',                          authenticate, isAdmin, ctrl.getBankAccounts);
 router.post('/accounts',                         authenticate, isAdmin, ctrl.createBankAccount);
 router.patch('/accounts/:id/opening-balance',    authenticate, isAdmin, ctrl.updateOpeningBalance);

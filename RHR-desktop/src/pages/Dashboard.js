@@ -11,7 +11,7 @@ import { SkeletonStatCards, SkeletonTable } from '../components/Skeleton';
 import CityFilter from '../components/CityFilter';
 import DateRangeFilter from '../components/DateRangeFilter';
 import {
-  TodayKpis, MostSellingProducts, TopClients, OrdersVsStock, WeekCalendar, Reminders, RecentRecoveries
+  TodayKpis, MostSellingProducts, TopClients, OrdersVsStock, WeekCalendar, Reminders, RecentRecoveries, BankBalanceSummary
 } from '../components/dashboard/DashboardWidgets';
 
 const todayISO = () => new Date().toISOString().split('T')[0];
@@ -223,6 +223,8 @@ export default function Dashboard({ user, setPage, onViewLedger, onQuickAction }
       </div>
 
       <TodayKpis companyId={companyId} />
+
+      <BankBalanceSummary companyId={companyId} setPage={setPage} />
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">

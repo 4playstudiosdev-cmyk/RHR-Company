@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ShoppingCart, HandCoins, ReceiptText, Landmark, TrendingUp, TrendingDown, UserPlus,
   Flame, Trophy, Package, Calendar as CalendarIcon, Clock, Truck, Check, Trash2,
-  ChevronLeft, ChevronRight, ArrowRight, AlertTriangle, Layers, Repeat
+  ChevronLeft, ChevronRight, ArrowRight, AlertTriangle, Layers, Repeat, Banknote, Wallet
 } from 'lucide-react';
 import api from '../../services/api';
 import EmptyState from '../EmptyState';
@@ -495,5 +495,79 @@ export function RecentRecoveries({ companyId, setPage }) {
         </ul>
       )}
     </Card>
+  );
+}
+
+// ── Cash & Bank Balance Summary ───────────────────────────────────────────
+// Shows Cash in Hand (all-time net) + each bank account's current balance.
+export function BankBalanceSummary({ companyId, setPage }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    const params = companyId ? { company_id: companyId } : {};
+    api.get('/bank/summary', { params })
+      .then(res => { if (alive) { setData(res.data.data); setLoading(false); } })
+      .catch(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [companyId]);
+
+  const fmtPKR = (n) => `Rs ${Number(n || 0).toLocaleString()}`;
+
+  if (loading) return (
+    <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-5 animate-pulse">
+      <div className="h-4 w-40 bg-gray-200 rounded mb-4" />
+      <div className="flex gap-3 pb-1">
+        {[1, 2, 3, 4].map(i => <div key={i} className="h-24 w-36 bg-gray-100 rounded-xl flex-shrink-0" />)}
+      </div>
+    </div>
+  );
+  if (!data) return null;
+
+  const cards = [
+    { key: 'cash', label: 'Cash in Hand', sub: 'All cash collected', value: data.cash_in_hand, icon: Banknote, isCash: true },
+    ...(data.accounts || []).map(a => ({ key: a.id, label: a.account_name, sub: a.bank_name, value: a.current_balance, icon: Landmark, isCash: false })),
+  ];
+
+  const grandTotal = data.grand_total ?? 0;
+
+  return (
+    <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+        <div className="flex items-center gap-2.5">
+          <span className="w-8 h-8 rounded-lg bg-navy-chip text-navy flex items-center justify-center"><Wallet size={16} /></span>
+          <div>
+            <h3 className="font-semibold text-navy text-sm">Cash &amp; Bank Balances</h3>
+            <p className="text-xs text-gray-400 mt-0.5">All-time running totals</p>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Grand Total</p>
+          <p className={`text-base font-bold ${grandTotal >= 0 ? 'text-navy' : 'text-red-600'}`}>{fmtPKR(grandTotal)}</p>
+        </div>
+      </div>
+      <div className="p-4 overflow-x-auto">
+        <div className="flex gap-3">
+          {cards.map(c => (
+            <div
+              key={c.key}
+              onClick={() => setPage?.('bank')}
+              className="flex-shrink-0 w-40 bg-gray-50 hover:bg-navy-chip/40 border border-gray-100 hover:border-navy/20 rounded-xl p-3.5 cursor-pointer transition-colors"
+            >
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2.5 ${c.isCash ? 'bg-emerald-100 text-emerald-700' : 'bg-navy-chip text-navy'}`}>
+                <c.icon size={15} />
+              </div>
+              <p className="text-xs text-gray-500 font-medium truncate">{c.label}</p>
+              <p className="text-[10px] text-gray-400 truncate mb-1.5">{c.sub}</p>
+              <p className={`text-sm font-bold leading-tight ${c.value >= 0 ? (c.isCash ? 'text-emerald-700' : 'text-navy') : 'text-red-600'}`}>
+                {fmtPKR(c.value)}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

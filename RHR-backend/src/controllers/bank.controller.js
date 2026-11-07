@@ -392,4 +392,101 @@ const getBankLedger = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getBankAccounts, createBankAccount, getBankTransactions, updateOpeningBalance, getBankLedger };
+// GET /api/v1/bank/summary
+// Lightweight all-time balance snapshot for the Dashboard widget:
+// Cash in Hand (all cash in minus all deposits/closings/cash-expenses) +
+// per-bank current balance (opening + all-time transfers in + cheques cleared in − expenses out).
+const getBankSummary = async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const cf = companyId ? `&company_id=eq.${companyId}` : '';
+    const cfObj = companyId ? { company_id: `eq.${companyId}` } : {};
+
+    const [accounts, cashRec, cashClose, cashExp, allTransfers, allCheques, allBankExp] = await Promise.all([
+      pgrestGet('bank_accounts', {
+        select: 'id,account_name,bank_name,account_number,opening_balance',
+        is_active: 'eq.true',
+        ...cfObj,
+        order: 'account_name.asc',
+      }).catch(() => []),
+
+      pgrestGet('salesman_recoveries', {
+        select: 'amount',
+        payment_type: 'eq.cash',
+        status: 'eq.approved',
+        ...cfObj,
+      }).catch(() => []),
+
+      pgrestGet('salesman_cash_closings', {
+        select: 'amount',
+        status: 'eq.approved',
+        ...cfObj,
+      }).catch(() => []),
+
+      pgrestGet('expenses', {
+        select: 'amount',
+        method: 'eq.cash',
+        bank_account_id: 'is.null',
+        ...cfObj,
+      }).catch(() => []),
+
+      pgrestGet('salesman_recoveries', {
+        select: 'amount,reference_number',
+        payment_method: 'eq.bank_transfer',
+        status: 'eq.approved',
+        reference_number: 'not.is.null',
+        ...cfObj,
+      }).catch(() => []),
+
+      pgrestGetRaw(
+        `salesman_recoveries?select=amount,cleared_bank_account_id&cleared_bank_account_id=not.is.null&status=eq.approved${cf}`
+      ).catch(() => []),
+
+      pgrestGet('expenses', {
+        select: 'amount,bank_account_id,method,bank_amount',
+        bank_account_id: 'not.is.null',
+        ...cfObj,
+      }).catch(() => []),
+    ]);
+
+    const cashIn  = (cashRec   || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+    const cashOut = (cashClose || []).reduce((s, c) => s + Number(c.amount || 0), 0)
+                  + (cashExp   || []).reduce((s, e) => s + Number(e.amount || 0), 0);
+    const cashInHand = cashIn - cashOut;
+
+    const inMap = {};
+    (allTransfers || []).forEach(r => {
+      const id = r.reference_number;
+      if (id) inMap[id] = (inMap[id] || 0) + Number(r.amount || 0);
+    });
+    (allCheques || []).forEach(r => {
+      const id = r.cleared_bank_account_id;
+      if (id) inMap[id] = (inMap[id] || 0) + Number(r.amount || 0);
+    });
+    const outMap = {};
+    (allBankExp || []).forEach(e => {
+      const id = e.bank_account_id;
+      const amt = e.method === 'split' ? Number(e.bank_amount || 0) : Number(e.amount || 0);
+      if (id) outMap[id] = (outMap[id] || 0) + amt;
+    });
+
+    const accountsWithBalance = (accounts || []).map(a => ({
+      id: a.id,
+      account_name: a.account_name,
+      bank_name: a.bank_name,
+      account_number: a.account_number,
+      current_balance: Number(a.opening_balance || 0) + (inMap[a.id] || 0) - (outMap[a.id] || 0),
+    }));
+
+    const totalBank = accountsWithBalance.reduce((s, a) => s + a.current_balance, 0);
+
+    return success(res, {
+      cash_in_hand: cashInHand,
+      accounts: accountsWithBalance,
+      total_bank: totalBank,
+      grand_total: cashInHand + totalBank,
+    });
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { getBankAccounts, createBankAccount, getBankTransactions, updateOpeningBalance, getBankLedger, getBankSummary };
