@@ -38,15 +38,23 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         order: 'created_at.asc',
       }),
 
-      // Delivered orders with items (updated on the date = dispatch date)
-      pgrestGet('orders', {
-        select: 'id,order_number,total_amount,updated_at,created_at,users!customer_id(full_name,shop_name),order_items(id,product_name,quantity,unit_price,subtotal,products(unit))',
-        status: 'eq.delivered',
-        invoice_deleted_at: 'is.null',
-        ...cfObj,
-        updated_at: `gte.${date}T00:00:00`,
-        order: 'updated_at.asc',
-      }).then(rows => (rows || []).filter(o => (o.updated_at || '') <= `${date}T23:59:59`)),
+      // Delivered orders with items — use order_date if set, else fall back
+      // to updated_at so back-dated orders appear on their back-dated day.
+      pgrestGetRaw(
+        `orders?select=id,order_number,total_amount,updated_at,created_at,order_date,users!customer_id(full_name,shop_name),order_items(id,product_name,quantity,unit_price,subtotal,products(unit))` +
+        `&status=eq.delivered&invoice_deleted_at=is.null${cf}` +
+        `&or=(order_date.eq.${date},and(order_date.is.null,updated_at.gte.${date}T00:00:00,updated_at.lte.${date}T23:59:59))` +
+        `&order=updated_at.asc`
+      ).catch(() =>
+        pgrestGet('orders', {
+          select: 'id,order_number,total_amount,updated_at,created_at,users!customer_id(full_name,shop_name),order_items(id,product_name,quantity,unit_price,subtotal,products(unit))',
+          status: 'eq.delivered',
+          invoice_deleted_at: 'is.null',
+          ...cfObj,
+          updated_at: `gte.${date}T00:00:00`,
+          order: 'updated_at.asc',
+        }).then(rows => (rows || []).filter(o => (o.updated_at || '') <= `${date}T23:59:59`))
+      ),
 
       // Productions for the date
       pgrestGetRaw(
@@ -137,7 +145,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       }, 0);
       return {
         sno: i + 1,
-        date: (o.updated_at || o.created_at || '').split('T')[0],
+        date: o.order_date || (o.updated_at || o.created_at || '').split('T')[0],
         order_number: o.order_number,
         customer: o.users?.shop_name || o.users?.full_name || '',
         products: items.map(it => it.product_name).join(', '),
