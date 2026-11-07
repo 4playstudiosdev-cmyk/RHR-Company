@@ -1,7 +1,7 @@
 import { PENDING_BADGE } from '../utils/pending';
 import CustomerSelect from '../components/CustomerSelect';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ShoppingCart, FileDown, Search, Plus, Minus, Trash2, Eye, Truck, Printer } from 'lucide-react';
+import { ShoppingCart, FileDown, Search, Plus, Minus, Trash2, Eye, Truck, Printer, X } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
@@ -85,6 +85,8 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
   const [error, setError] = useState('');
   const [updatingId, setUpdatingId] = useState(null);
   const [pdfLoadingId, setPdfLoadingId] = useState(null);
+  const [previewOrder, setPreviewOrder] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [tab, setTab] = useState('pending');
   const [deliveredDateFilter, setDeliveredDateFilter] = useState('all');
   const [deliveredDateFrom, setDeliveredDateFrom] = useState('');
@@ -601,6 +603,22 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
     }
   };
 
+  // Order detail preview popup — shows all items in-page without generating PDF
+  const handlePreviewOrder = async (order) => {
+    if (previewOrder?.id === order.id) { setPreviewOrder(null); return; }
+    setPreviewLoading(true);
+    setPreviewOrder({ id: order.id, order_number: order.order_number, loading: true });
+    try {
+      const res = await api.get(`/orders/${order.id}`);
+      setPreviewOrder(res.data.data);
+    } catch (err) {
+      toast.error('Failed to load order details.');
+      setPreviewOrder(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
   // View — opens a read-only preview of the invoice in a new tab, for an
   // order that hasn't had its invoice generated yet. No tax/conveyance
   // charge posted, no invoice_generated_at set — just a look at what the
@@ -1080,7 +1098,13 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
                           {order.priority === 'urgent' && (
                             <span title="Urgent" className="text-red-600">🔥</span>
                           )}
-                          {order.order_number}
+                          <button
+                            onClick={() => handlePreviewOrder(order)}
+                            className="font-medium text-navy hover:text-orange hover:underline transition-colors whitespace-nowrap"
+                            title="Click to preview order items"
+                          >
+                            {order.order_number}
+                          </button>
                         </div>
                       </td>
                       <td className="px-6 py-3.5 text-[15px]">
@@ -1180,14 +1204,6 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5">
-                            <button
-                              onClick={() => handleViewInvoice(order)}
-                              disabled={pdfLoadingId === order.id}
-                              title="Preview the invoice without generating it"
-                              className="flex items-center gap-1 border border-gray-200 hover:bg-gray-50 disabled:opacity-60 text-gray-600 text-xs font-medium px-2.5 py-2 rounded-lg transition-colors"
-                            >
-                              <Eye size={14} />
-                            </button>
                             <button
                               onClick={() => handleInvoice(order)}
                               disabled={pdfLoadingId === order.id}
@@ -1887,6 +1903,98 @@ export default function Orders({ initialOrderNumber, autoOpenCreate }) {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* ── Order Preview Popup ── */}
+      {previewOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setPreviewOrder(null)}>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <div
+            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 bg-navy text-white flex-shrink-0">
+              <div>
+                <p className="text-xs text-white/60 uppercase tracking-wide font-semibold">Order Preview</p>
+                <p className="text-lg font-bold">{previewOrder.order_number}</p>
+              </div>
+              <button onClick={() => setPreviewOrder(null)} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+
+            {previewOrder.loading ? (
+              <div className="flex items-center justify-center py-12 text-gray-400 text-sm">Loading…</div>
+            ) : (
+              <>
+                <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 flex flex-wrap gap-5 flex-shrink-0">
+                  <div>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Customer</p>
+                    <p className="text-sm font-semibold text-navy">{previewOrder.users?.shop_name || previewOrder.users?.full_name || '—'}</p>
+                    {previewOrder.users?.shop_name && previewOrder.users?.full_name && (
+                      <p className="text-xs text-gray-400">{previewOrder.users.full_name}</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Date</p>
+                    <p className="text-sm font-semibold text-navy">{previewOrder.order_date || (previewOrder.created_at || '').split('T')[0]}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Status</p>
+                    <p className="text-sm font-semibold text-navy capitalize">{previewOrder.status}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">Total</p>
+                    <p className="text-sm font-bold text-green-700">PKR {Number(previewOrder.total_amount || 0).toLocaleString()}</p>
+                  </div>
+                  {previewOrder.delivery_address && (
+                    <div>
+                      <p className="text-[10px] text-gray-400 uppercase tracking-wide">Delivery Address</p>
+                      <p className="text-sm text-navy">{previewOrder.delivery_address}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="overflow-y-auto flex-1">
+                  {(previewOrder.order_items || []).length > 0 ? (
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-gray-50 border-b border-gray-100">
+                        <tr className="text-xs text-gray-500 font-semibold uppercase tracking-wide">
+                          <th className="px-5 py-3 text-left">#</th>
+                          <th className="px-5 py-3 text-left">Product</th>
+                          <th className="px-5 py-3 text-left">Unit</th>
+                          <th className="px-5 py-3 text-right">Qty</th>
+                          <th className="px-5 py-3 text-right">Rate</th>
+                          <th className="px-5 py-3 text-right">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(previewOrder.order_items || []).map((it, i) => (
+                          <tr key={it.id || i} className={`border-b border-gray-50 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                            <td className="px-5 py-3 text-gray-400">{i + 1}</td>
+                            <td className="px-5 py-3 font-medium text-navy">{it.product_name}</td>
+                            <td className="px-5 py-3 text-gray-500">{it.products?.unit || '—'}</td>
+                            <td className="px-5 py-3 text-right font-semibold">{Number(it.quantity).toLocaleString()}</td>
+                            <td className="px-5 py-3 text-right text-gray-600">PKR {Number(it.unit_price).toLocaleString()}</td>
+                            <td className="px-5 py-3 text-right font-bold text-green-700">PKR {Number(it.subtotal).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-navy">
+                          <td colSpan={5} className="px-5 py-3 text-white font-bold text-xs">TOTAL</td>
+                          <td className="px-5 py-3 text-right text-white font-bold">PKR {Number(previewOrder.total_amount || 0).toLocaleString()}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  ) : (
+                    <p className="text-sm text-gray-400 text-center py-8">No item details available.</p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

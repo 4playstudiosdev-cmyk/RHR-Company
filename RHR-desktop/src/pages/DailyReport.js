@@ -417,7 +417,7 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                   <tfoot>
                     <tr className="bg-navy">
                       <td colSpan={4} className="px-4 py-2.5 text-white font-bold text-xs">GRAND TOTAL</td>
-                      <td className="px-4 py-2.5 text-right text-orange font-bold">{fmtPKR(s.total_expenses)}</td>
+                      <td className="px-4 py-2.5 text-right text-white font-bold">{fmtPKR(s.total_expenses)}</td>
                       <td></td>
                     </tr>
                   </tfoot>
@@ -471,7 +471,7 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                     <tfoot>
                       <tr className="bg-navy">
                         <td colSpan={3} className="px-4 py-2.5 text-white font-bold text-xs">GRAND TOTAL</td>
-                        <td className="px-4 py-2.5 text-right text-orange font-bold">{fmtPKR(s.total_recovery)}</td>
+                        <td className="px-4 py-2.5 text-right text-white font-bold">{fmtPKR(s.total_recovery)}</td>
                       </tr>
                     </tfoot>
                   </table>
@@ -517,9 +517,9 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                   <tfoot>
                     <tr className="bg-navy">
                       <td colSpan={5} className="px-4 py-2.5 text-white font-bold text-xs">GRAND TOTAL</td>
-                      <td className="px-4 py-2.5 text-right text-orange font-bold">{fmtN(s.total_sale_bags)}</td>
-                      <td className="px-4 py-2.5 text-right text-orange font-bold">{s.total_sale_kg ? fmtN(s.total_sale_kg) : '—'}</td>
-                      <td className="px-4 py-2.5 text-right text-orange font-bold">{fmtPKR(s.total_sales)}</td>
+                      <td className="px-4 py-2.5 text-right text-white font-bold">{fmtN(s.total_sale_bags)}</td>
+                      <td className="px-4 py-2.5 text-right text-white font-bold">{s.total_sale_kg ? fmtN(s.total_sale_kg) : '—'}</td>
+                      <td className="px-4 py-2.5 text-right text-white font-bold">{fmtPKR(s.total_sales)}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -554,8 +554,8 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                   <tfoot>
                     <tr className="bg-navy">
                       <td colSpan={3} className="px-4 py-2.5 text-white font-bold text-xs">GRAND TOTAL</td>
-                      <td className="px-4 py-2.5 text-right text-orange font-bold">{fmtN(s.total_production_bags)}</td>
-                      <td className="px-4 py-2.5 text-right text-orange font-bold">{s.total_production_kg ? fmtN(s.total_production_kg) : '—'}</td>
+                      <td className="px-4 py-2.5 text-right text-white font-bold">{fmtN(s.total_production_bags)}</td>
+                      <td className="px-4 py-2.5 text-right text-white font-bold">{s.total_production_kg ? fmtN(s.total_production_kg) : '—'}</td>
                       <td></td>
                     </tr>
                   </tfoot>
@@ -706,7 +706,7 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                   <tfoot>
                     <tr className="bg-navy">
                       <td colSpan={5} className="px-5 py-3 text-white font-bold text-xs">TOTAL</td>
-                      <td className="px-5 py-3 text-right text-orange font-bold">{fmtPKR(previewOrder.total_amount)}</td>
+                      <td className="px-5 py-3 text-right text-white font-bold">{fmtPKR(previewOrder.total_amount)}</td>
                     </tr>
                   </tfoot>
                 </table>
