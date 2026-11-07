@@ -103,9 +103,11 @@ const getBankTransactions = async (req, res) => {
       }));
     } catch (e) { /* ignore */ }
 
-    // ── Salesman / driver cash recoveries — the PRIMARY source of Cash in Hand ──
-    // Every approved cash collection by a salesman or driver that has NOT been
-    // deposited yet is physically held as cash. Tagged as Cash in Hand (IN).
+    // ── Cash recoveries by salesmen — shown in transactions but NOT tagged as Cash in Hand ──
+    // This cash is still with the salesman (not in the office). It enters Cash in Hand only
+    // after a cash closing with deposit_to='petty_cash' is approved.
+    // We still include them so they appear in the transactions list (useful reference),
+    // but tagged with account_name='In Transit' so they don't inflate Cash in Hand balance.
     const recoveryParts = [
       'select=id,amount,recovery_date,created_at,customer:users!customer_id(full_name),salesman:salesmen!salesman_id(full_name)',
       'payment_type=eq.cash',
@@ -123,14 +125,14 @@ const getBankTransactions = async (req, res) => {
         ...r,
         method: 'cash',
         created_at: r.recovery_date || r.created_at,
-        bank_accounts: { account_name: 'Cash in Hand', bank_name: 'Cash', account_number: '' },
+        bank_accounts: { account_name: 'In Transit', bank_name: 'Cash Recovery', account_number: '' },
       }));
     } catch (e) { /* ignore */ }
 
-    // ── Cash closings (approved deposits) — Cash in Hand OUT ──
-    // When a salesman deposits their cash (to bank or petty cash) and an admin
-    // approves it, that money physically leaves Cash in Hand. Tag as expense so
-    // the balance calculation subtracts it from the Cash in Hand total.
+    // ── Cash closings (approved petty cash deposits) — Cash in Hand IN ──
+    // When a salesman comes to the office and deposits cash to the petty cash counter,
+    // that is when it physically enters Cash in Hand. deposit_to='bank' goes directly
+    // to the specific bank and is NOT tagged as Cash in Hand.
     const closingParts = [
       'select=id,amount,deposit_to,bank_account,closing_date,created_at,salesmen(full_name)',
       'status=eq.approved',
@@ -145,11 +147,13 @@ const getBankTransactions = async (req, res) => {
       const raw = await pgrestGetRaw(`salesman_cash_closings?${closingParts.join('&')}`);
       cashClosings = (raw || []).map((c) => ({
         ...c,
-        type: 'cash_deposit',
+        // petty_cash closings come INTO Cash in Hand (payment/IN)
+        // bank closings go into the bank directly — also shown here as reference
+        type: c.deposit_to === 'petty_cash' ? 'payment' : 'cash_deposit',
         method: 'cash',
         created_at: c.closing_date || c.created_at,
         category: 'Cash Deposit',
-        description: `${c.salesmen?.full_name || 'Salesman'} deposited to ${c.deposit_to === 'bank' ? `bank${c.bank_account ? ` (${c.bank_account})` : ''}` : 'petty cash'}`,
+        description: `${c.salesmen?.full_name || 'Salesman'} deposited to ${c.deposit_to === 'bank' ? `bank${c.bank_account ? ` (${c.bank_account})` : ''}` : 'petty cash (office)'}`,
         bank_accounts: { account_name: 'Cash in Hand', bank_name: 'Cash', account_number: '' },
       }));
     } catch (e) { /* ignore */ }
@@ -291,12 +295,18 @@ const updateOpeningBalance = async (req, res) => {
 };
 
 // GET /api/v1/bank/accounts/:id/ledger
-// Full chronological ledger for one bank account: opening balance, then all
-// inflows (bank transfers + cleared cheques) and outflows (expenses) with
-// a running balance — mirrors the customer ledger pattern.
-// For the special "Cash in Hand" account (bank_name='Cash') extra flows are
-// included: cash recoveries collected by salesmen (IN), approved cash
-// closings/deposits (OUT), and cash expenses paid in cash (OUT).
+// Full chronological ledger for one bank account.
+//
+// Cash in Hand account (bank_name='Cash'):
+//   DEBIT  (IN) : salesman_cash_closings where deposit_to='petty_cash' — salesman
+//                 physically brings cash to office and hands it to the cashier
+//   CREDIT (OUT): expenses paid in cash (method=cash, no bank_account_id)
+//   NOTE: cash collections/recoveries are NOT included — that cash is still
+//   with the salesman and hasn't reached the office yet.
+//
+// Regular bank accounts:
+//   DEBIT  (IN) : bank-transfer recoveries + cleared cheques
+//   CREDIT (OUT): expenses paid from that account
 const getBankLedger = async (req, res) => {
   try {
     const { id } = req.params;
@@ -330,21 +340,15 @@ const getBankLedger = async (req, res) => {
       ).catch(() => []),
     ]);
 
-    // Extra flows for Cash in Hand account
-    let cashRecoveries = [], cashClosings = [], cashExpenses = [];
+    // Cash in Hand: petty cash closings (IN) + cash expenses (OUT)
+    // Cash recoveries are NOT included — they are still with the salesman.
+    let pettyCashClosings = [], cashExpenses = [];
     if (isCashInHand) {
-      [cashRecoveries, cashClosings, cashExpenses] = await Promise.all([
-        // Cash collected by salesmen/drivers — primary Cash in Hand inflow
+      [pettyCashClosings, cashExpenses] = await Promise.all([
         pgrestGetRaw(
-          `salesman_recoveries?select=id,amount,recovery_date,customer:users!customer_id(full_name,shop_name),salesman:salesmen!salesman_id(full_name)&payment_type=eq.cash&status=eq.approved&company_id=eq.${cid}&order=recovery_date.asc`
+          `salesman_cash_closings?select=id,amount,closing_date,notes,salesmen(full_name)&deposit_to=eq.petty_cash&status=eq.approved&company_id=eq.${cid}&order=closing_date.asc`
         ).catch(() => []),
 
-        // Cash closings (petty cash + bank deposits) — Cash in Hand outflow
-        pgrestGetRaw(
-          `salesman_cash_closings?select=id,amount,closing_date,deposit_to,bank_account,notes,salesmen(full_name)&status=eq.approved&company_id=eq.${cid}&order=closing_date.asc`
-        ).catch(() => []),
-
-        // Cash expenses paid in cash (no bank account) — Cash in Hand outflow
         pgrestGetRaw(
           `expenses?select=id,amount,expense_date,category,description&method=eq.cash&bank_account_id=is.null&company_id=eq.${cid}&order=expense_date.asc`
         ).catch(() => []),
@@ -401,33 +405,19 @@ const getBankLedger = async (req, res) => {
       });
     }
 
-    // Cash in Hand extra flows
-    for (const r of (cashRecoveries || [])) {
-      const name = r.customer?.shop_name || r.customer?.full_name || '—';
+    // Cash in Hand only: petty cash closings (salesman gave cash to office) → DEBIT IN
+    for (const c of (pettyCashClosings || [])) {
       entries.push({
-        id: r.id,
-        date: r.recovery_date,
-        type: 'cash_in',
-        description: `Cash Collection — ${name}${r.salesman?.full_name ? ` via ${r.salesman.full_name}` : ''}`,
-        debit: Number(r.amount || 0),
+        id: c.id,
+        date: c.closing_date,
+        type: 'petty_cash_in',
+        description: `Petty Cash — ${c.salesmen?.full_name || 'Salesman'} deposited to office${c.notes ? ` · ${c.notes}` : ''}`,
+        debit: Number(c.amount || 0),
         credit: 0,
       });
     }
 
-    for (const c of (cashClosings || [])) {
-      const dest = c.deposit_to === 'bank'
-        ? `bank${c.bank_account ? ` (${c.bank_account})` : ''}`
-        : 'petty cash';
-      entries.push({
-        id: c.id,
-        date: c.closing_date,
-        type: 'cash_out',
-        description: `Cash Deposit — ${c.salesmen?.full_name || 'Salesman'} deposited to ${dest}${c.notes ? ` · ${c.notes}` : ''}`,
-        debit: 0,
-        credit: Number(c.amount || 0),
-      });
-    }
-
+    // Cash in Hand only: cash expenses (paid from office cash) → CREDIT OUT
     for (const e of (cashExpenses || [])) {
       entries.push({
         id: `cexp-${e.id}`,
@@ -459,15 +449,16 @@ const getBankLedger = async (req, res) => {
 
 // GET /api/v1/bank/summary
 // Lightweight all-time balance snapshot for the Dashboard widget:
-// Cash in Hand (all cash in minus all deposits/closings/cash-expenses) +
-// per-bank current balance (opening + all-time transfers in + cheques cleared in − expenses out).
+// Cash in Hand = opening_balance of Cash account + petty cash closings (IN) − cash expenses (OUT).
+// Cash recoveries are NOT counted — that cash is still with the salesman, not in the office.
+// Per-bank balance = opening + bank transfers in + cheques cleared in − bank expenses out.
 const getBankSummary = async (req, res) => {
   try {
     const companyId = resolveCompanyId(req);
     const cf = companyId ? `&company_id=eq.${companyId}` : '';
     const cfObj = companyId ? { company_id: `eq.${companyId}` } : {};
 
-    const [accounts, cashRec, cashClose, cashExp, allTransfers, allCheques, allBankExp] = await Promise.all([
+    const [accounts, pettyCashClose, cashExp, allTransfers, allCheques, allBankExp] = await Promise.all([
       pgrestGet('bank_accounts', {
         select: 'id,account_name,bank_name,account_number,opening_balance',
         is_active: 'eq.true',
@@ -475,19 +466,15 @@ const getBankSummary = async (req, res) => {
         order: 'account_name.asc',
       }).catch(() => []),
 
-      pgrestGet('salesman_recoveries', {
-        select: 'amount',
-        payment_type: 'eq.cash',
-        status: 'eq.approved',
-        ...cfObj,
-      }).catch(() => []),
-
+      // Petty cash closings only (salesman delivered cash to office) — Cash in Hand IN
       pgrestGet('salesman_cash_closings', {
         select: 'amount',
+        deposit_to: 'eq.petty_cash',
         status: 'eq.approved',
         ...cfObj,
       }).catch(() => []),
 
+      // Cash expenses (paid in cash, not from a bank account) — Cash in Hand OUT
       pgrestGet('expenses', {
         select: 'amount',
         method: 'eq.cash',
@@ -514,10 +501,11 @@ const getBankSummary = async (req, res) => {
       }).catch(() => []),
     ]);
 
-    const cashIn  = (cashRec   || []).reduce((s, r) => s + Number(r.amount || 0), 0);
-    const cashOut = (cashClose || []).reduce((s, c) => s + Number(c.amount || 0), 0)
-                  + (cashExp   || []).reduce((s, e) => s + Number(e.amount || 0), 0);
-    const cashInHand = cashIn - cashOut;
+    const cashAccount = (accounts || []).find(a => a.bank_name === 'Cash');
+    const cashOpening = Number(cashAccount?.opening_balance || 0);
+    const cashIn  = (pettyCashClose || []).reduce((s, c) => s + Number(c.amount || 0), 0);
+    const cashOut = (cashExp        || []).reduce((s, e) => s + Number(e.amount || 0), 0);
+    const cashInHand = cashOpening + cashIn - cashOut;
 
     const inMap = {};
     (allTransfers || []).forEach(r => {
