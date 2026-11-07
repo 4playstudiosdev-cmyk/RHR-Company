@@ -210,11 +210,51 @@ const getBankTransactions = async (req, res) => {
       } catch (e2) { /* bank_account_id is a phase24 addition */ }
     }
 
+    // ── Bank-account ID→info map (for bank transfers below) ──
+    let accountMap = {};
+    try {
+      const accts = await pgrestGetRaw(
+        `bank_accounts?select=id,account_name,bank_name,account_number${companyId ? `&company_id=eq.${companyId}` : ''}`
+      );
+      (accts || []).forEach(a => {
+        accountMap[a.id] = { account_name: a.account_name, bank_name: a.bank_name, account_number: a.account_number };
+      });
+    } catch (e) { /* ignore */ }
+
+    // ── Bank-transfer recoveries routed to a specific account (reference_number = account UUID) ──
+    // These are the primary way salesmen record payments received via bank transfer.
+    // They were missing from the transactions list, causing wrong balances in the accounts table.
+    const btParts = [
+      'select=id,amount,recovery_date,created_at,notes,reference_number,customer:users!customer_id(full_name),salesman:salesmen!salesman_id(full_name)',
+      'payment_method=eq.bank_transfer',
+      'status=eq.approved',
+      'reference_number=not.is.null',
+      'order=recovery_date.desc',
+    ];
+    if (companyId) btParts.push(`company_id=eq.${companyId}`);
+    if (from) btParts.push(`recovery_date=gte.${from}`);
+    if (to)   btParts.push(`recovery_date=lte.${to}`);
+
+    let bankTransferRecoveries = [];
+    try {
+      const raw = await pgrestGetRaw(`salesman_recoveries?${btParts.join('&')}`);
+      bankTransferRecoveries = (raw || [])
+        .filter(r => accountMap[r.reference_number])
+        .map(r => ({
+          ...r,
+          type: 'payment',
+          method: 'bank_transfer',
+          created_at: r.recovery_date || r.created_at,
+          bank_accounts: accountMap[r.reference_number],
+        }));
+    } catch (e) { /* ignore */ }
+
     const merged = [
       ...(payments    || []).map((p) => ({ ...p, type: 'payment' })),
       ...(cashPayments || []).map((p) => ({ ...p, type: 'payment' })),
       ...(cashRecoveries || []).map((r) => ({ ...r, type: 'payment' })),
       ...(chequeIn   || []).map((c) => ({ ...c, type: 'payment', method: 'cheque', created_at: c.cleared_at })),
+      ...bankTransferRecoveries,
       ...(expenses   || []).map((e) => ({
         ...e,
         type: 'expense',

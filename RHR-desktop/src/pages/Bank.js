@@ -32,12 +32,15 @@ export default function Bank() {
   const [ledgerData, setLedgerData] = useState(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [txnDateFilter, setTxnDateFilter] = useState('all');
+  const [txnTypeFilter, setTxnTypeFilter] = useState('all');
+  const [ledgerDateFilter, setLedgerDateFilter] = useState('all');
 
   const openLedger = async (account) => {
     setLedgerAccount(account);
     setLedgerData(null);
     setLedgerLoading(true);
     setTab('ledger');
+    setLedgerDateFilter('all');
     try {
       const res = await api.get(`/bank/accounts/${account.id}/ledger`);
       setLedgerData(res.data.data);
@@ -137,9 +140,21 @@ export default function Bank() {
 
   const filteredTransactions = (() => {
     const range = getDateRange(txnDateFilter);
-    if (!range) return transactions;
     return transactions.filter(t => {
       const d = (t.created_at || '').split('T')[0];
+      const dateOk = !range || (d >= range.from && d <= range.to);
+      const typeOk = txnTypeFilter === 'all' || t.type === txnTypeFilter;
+      return dateOk && typeOk;
+    });
+  })();
+
+  const filteredLedgerEntries = (() => {
+    if (!ledgerData?.entries) return [];
+    const range = getDateRange(ledgerDateFilter);
+    if (!range) return ledgerData.entries;
+    return ledgerData.entries.filter(e => {
+      if (e.type === 'opening') return true;
+      const d = (e.date || '').split('T')[0];
       return d >= range.from && d <= range.to;
     });
   })();
@@ -284,6 +299,32 @@ export default function Bank() {
             </div>
           ) : !ledgerData ? null : (
             <>
+              {/* Ledger date filter */}
+              <div className="px-6 py-3 border-b border-gray-100 flex gap-1.5 flex-wrap bg-gray-50/30">
+                {[
+                  { label: 'All', value: 'all' },
+                  { label: 'Today', value: 'today' },
+                  { label: 'Yesterday', value: 'yesterday' },
+                  { label: 'Last 7 Days', value: 'week' },
+                  { label: 'This Month', value: 'month' },
+                ].map(f => (
+                  <button
+                    key={f.value}
+                    onClick={() => setLedgerDateFilter(f.value)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      ledgerDateFilter === f.value ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+                {ledgerDateFilter !== 'all' && (
+                  <span className="text-xs text-gray-400 self-center ml-1">
+                    {filteredLedgerEntries.filter(e => e.type !== 'opening').length} of {(ledgerData?.entries?.length ?? 1) - 1} entries
+                  </span>
+                )}
+              </div>
+
               {/* Summary cards */}
               <div className="flex gap-4 px-6 py-4 border-b border-gray-100 flex-wrap bg-gray-50/30">
                 {[
@@ -308,7 +349,7 @@ export default function Bank() {
                     </tr>
                   </thead>
                   <tbody>
-                    {ledgerData.entries.map((e, i) => (
+                    {filteredLedgerEntries.map((e, i) => (
                       <tr key={e.id} className={`border-b border-gray-50 last:border-0 ${e.type === 'opening' ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                         <td className="px-5 py-3 text-gray-400 text-xs">{i + 1}</td>
                         <td className="px-5 py-3 text-gray-500 whitespace-nowrap text-xs">
@@ -340,27 +381,49 @@ export default function Bank() {
             <h3 className="font-semibold text-navy text-sm">Bank Transactions</h3>
             <span className="text-sm font-semibold text-navy">Total: PKR {totalTransactions.toLocaleString()}</span>
           </div>
-          {/* Date filter shortcuts */}
-          <div className="px-6 py-3 border-b border-gray-100 flex gap-2 flex-wrap bg-gray-50/30">
-            {[
-              { label: 'All', value: 'all' },
-              { label: 'Today', value: 'today' },
-              { label: 'Yesterday', value: 'yesterday' },
-              { label: 'Last 7 Days', value: 'week' },
-              { label: 'This Month', value: 'month' },
-            ].map(f => (
-              <button
-                key={f.value}
-                onClick={() => setTxnDateFilter(f.value)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  txnDateFilter === f.value ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-            {txnDateFilter !== 'all' && (
-              <span className="text-xs text-gray-400 self-center ml-1">
+          {/* Filters row */}
+          <div className="px-6 py-3 border-b border-gray-100 flex gap-3 flex-wrap items-center bg-gray-50/30">
+            <div className="flex gap-1.5 flex-wrap">
+              {[
+                { label: 'All Dates', value: 'all' },
+                { label: 'Today', value: 'today' },
+                { label: 'Yesterday', value: 'yesterday' },
+                { label: 'Last 7 Days', value: 'week' },
+                { label: 'This Month', value: 'month' },
+              ].map(f => (
+                <button
+                  key={f.value}
+                  onClick={() => setTxnDateFilter(f.value)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    txnDateFilter === f.value ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <div className="w-px h-5 bg-gray-200 hidden sm:block" />
+            <div className="flex gap-1.5">
+              {[
+                { label: 'All Types', value: 'all' },
+                { label: 'Payments', value: 'payment' },
+                { label: 'Expenses', value: 'expense' },
+              ].map(f => (
+                <button
+                  key={f.value}
+                  onClick={() => setTxnTypeFilter(f.value)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    txnTypeFilter === f.value
+                      ? f.value === 'expense' ? 'bg-red-600 text-white' : f.value === 'payment' ? 'bg-green-700 text-white' : 'bg-navy text-white'
+                      : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            {(txnDateFilter !== 'all' || txnTypeFilter !== 'all') && (
+              <span className="text-xs text-gray-400 self-center">
                 {filteredTransactions.length} of {transactions.length} shown
               </span>
             )}
