@@ -132,9 +132,9 @@ export default function Bank() {
     }
   };
 
-  // Net movement — payments add to the bank balance, expenses subtract.
+  // Net movement — payments add to the bank balance, expenses and cash_deposits subtract.
   const totalTransactions = transactions.reduce(
-    (s, t) => s + (t.type === 'expense' ? -Number(t.amount) : Number(t.amount)),
+    (s, t) => s + (t.type === 'expense' || t.type === 'cash_deposit' ? -Number(t.amount) : Number(t.amount)),
     0
   );
 
@@ -239,8 +239,8 @@ export default function Bank() {
                 <tbody>
                   {accounts.map((a, i) => {
                     const acctTxns = transactions.filter((t) => t.bank_accounts?.account_name === a.account_name);
-                    const totalIn  = acctTxns.filter((t) => t.type !== 'expense').reduce((s, t) => s + Number(t.amount || 0), 0);
-                    const totalOut = acctTxns.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount || 0), 0);
+                    const totalIn  = acctTxns.filter((t) => t.type !== 'expense' && t.type !== 'cash_deposit').reduce((s, t) => s + Number(t.amount || 0), 0);
+                    const totalOut = acctTxns.filter((t) => t.type === 'expense' || t.type === 'cash_deposit').reduce((s, t) => s + Number(t.amount || 0), 0);
                     const openingBal = Number(a.opening_balance || 0);
                     const bal = openingBal + totalIn - totalOut;
                     return (
@@ -408,13 +408,14 @@ export default function Bank() {
                 { label: 'All Types', value: 'all' },
                 { label: 'Payments', value: 'payment' },
                 { label: 'Expenses', value: 'expense' },
+                { label: 'Cash Deposits', value: 'cash_deposit' },
               ].map(f => (
                 <button
                   key={f.value}
                   onClick={() => setTxnTypeFilter(f.value)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                     txnTypeFilter === f.value
-                      ? f.value === 'expense' ? 'bg-red-600 text-white' : f.value === 'payment' ? 'bg-green-700 text-white' : 'bg-navy text-white'
+                      ? f.value === 'expense' ? 'bg-red-600 text-white' : f.value === 'payment' ? 'bg-green-700 text-white' : f.value === 'cash_deposit' ? 'bg-orange-600 text-white' : 'bg-navy text-white'
                       : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
                   }`}
                 >
@@ -447,20 +448,20 @@ export default function Bank() {
                     <tr key={`${t.type}-${t.id}`} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                       <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(t.created_at).toLocaleDateString('en-GB')}</td>
                       <td className="px-6 py-3.5">
-                        <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-semibold ${t.type === 'expense' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                          {t.type === 'expense' ? 'Expense' : 'Payment'}
+                        <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-semibold ${t.type === 'expense' ? 'bg-red-100 text-red-700' : t.type === 'cash_deposit' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                          {t.type === 'expense' ? 'Expense' : t.type === 'cash_deposit' ? 'Cash Deposit' : 'Payment'}
                         </span>
                       </td>
                       <td className="px-6 py-3.5 text-gray-700">
-                        {t.type === 'expense'
+                        {t.type === 'expense' || t.type === 'cash_deposit'
                           ? `${t.category}${t.description ? ` — ${t.description}` : ''}`
                           : (t.salesman?.full_name || t.customer?.full_name || '—')}
                       </td>
                       <td className="px-6 py-3.5 text-gray-600">
                         {t.bank_accounts ? `${t.bank_accounts.account_name} — ${t.bank_accounts.bank_name}` : '—'}
                       </td>
-                      <td className={`px-6 py-3.5 text-right font-semibold ${t.type === 'expense' ? 'text-red-600' : 'text-green-700'}`}>
-                        {t.type === 'expense' ? '−' : '+'}PKR {Number(t.amount).toLocaleString()}
+                      <td className={`px-6 py-3.5 text-right font-semibold ${t.type === 'expense' ? 'text-red-600' : t.type === 'cash_deposit' ? 'text-orange-600' : 'text-green-700'}`}>
+                        {t.type === 'expense' || t.type === 'cash_deposit' ? '−' : '+'}PKR {Number(t.amount).toLocaleString()}
                       </td>
                     </tr>
                   ))}

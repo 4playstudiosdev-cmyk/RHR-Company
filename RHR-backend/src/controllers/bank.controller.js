@@ -145,7 +145,7 @@ const getBankTransactions = async (req, res) => {
       const raw = await pgrestGetRaw(`salesman_cash_closings?${closingParts.join('&')}`);
       cashClosings = (raw || []).map((c) => ({
         ...c,
-        type: 'expense',
+        type: 'cash_deposit',
         method: 'cash',
         created_at: c.closing_date || c.created_at,
         category: 'Cash Deposit',
@@ -294,6 +294,9 @@ const updateOpeningBalance = async (req, res) => {
 // Full chronological ledger for one bank account: opening balance, then all
 // inflows (bank transfers + cleared cheques) and outflows (expenses) with
 // a running balance — mirrors the customer ledger pattern.
+// For the special "Cash in Hand" account (bank_name='Cash') extra flows are
+// included: cash recoveries collected by salesmen (IN), approved cash
+// closings/deposits (OUT), and cash expenses paid in cash (OUT).
 const getBankLedger = async (req, res) => {
   try {
     const { id } = req.params;
@@ -306,6 +309,9 @@ const getBankLedger = async (req, res) => {
     if (!account) return error(res, 'Bank account not found', 404);
     if (req.user.role !== 'super_admin' && account.company_id !== req.user.company_id)
       return error(res, 'Access denied', 403);
+
+    const isCashInHand = account.bank_name === 'Cash';
+    const cid = account.company_id;
 
     const [transfers, cheques, expenses] = await Promise.all([
       // Bank-transfer recoveries routed to this account (reference_number = account UUID)
@@ -323,6 +329,27 @@ const getBankLedger = async (req, res) => {
         `expenses?select=id,amount,expense_date,category,description,method,bank_amount&bank_account_id=eq.${id}`
       ).catch(() => []),
     ]);
+
+    // Extra flows for Cash in Hand account
+    let cashRecoveries = [], cashClosings = [], cashExpenses = [];
+    if (isCashInHand) {
+      [cashRecoveries, cashClosings, cashExpenses] = await Promise.all([
+        // Cash collected by salesmen/drivers — primary Cash in Hand inflow
+        pgrestGetRaw(
+          `salesman_recoveries?select=id,amount,recovery_date,customer:users!customer_id(full_name,shop_name),salesman:salesmen!salesman_id(full_name)&payment_type=eq.cash&status=eq.approved&company_id=eq.${cid}&order=recovery_date.asc`
+        ).catch(() => []),
+
+        // Cash closings (petty cash + bank deposits) — Cash in Hand outflow
+        pgrestGetRaw(
+          `salesman_cash_closings?select=id,amount,closing_date,deposit_to,bank_account,notes,salesmen(full_name)&status=eq.approved&company_id=eq.${cid}&order=closing_date.asc`
+        ).catch(() => []),
+
+        // Cash expenses paid in cash (no bank account) — Cash in Hand outflow
+        pgrestGetRaw(
+          `expenses?select=id,amount,expense_date,category,description&method=eq.cash&bank_account_id=is.null&company_id=eq.${cid}&order=expense_date.asc`
+        ).catch(() => []),
+      ]);
+    }
 
     const entries = [];
 
@@ -371,6 +398,44 @@ const getBankLedger = async (req, res) => {
         description: `${e.category || 'Expense'}${e.description ? ` — ${e.description}` : ''}`,
         debit: 0,
         credit: amt,
+      });
+    }
+
+    // Cash in Hand extra flows
+    for (const r of (cashRecoveries || [])) {
+      const name = r.customer?.shop_name || r.customer?.full_name || '—';
+      entries.push({
+        id: r.id,
+        date: r.recovery_date,
+        type: 'cash_in',
+        description: `Cash Collection — ${name}${r.salesman?.full_name ? ` via ${r.salesman.full_name}` : ''}`,
+        debit: Number(r.amount || 0),
+        credit: 0,
+      });
+    }
+
+    for (const c of (cashClosings || [])) {
+      const dest = c.deposit_to === 'bank'
+        ? `bank${c.bank_account ? ` (${c.bank_account})` : ''}`
+        : 'petty cash';
+      entries.push({
+        id: c.id,
+        date: c.closing_date,
+        type: 'cash_out',
+        description: `Cash Deposit — ${c.salesmen?.full_name || 'Salesman'} deposited to ${dest}${c.notes ? ` · ${c.notes}` : ''}`,
+        debit: 0,
+        credit: Number(c.amount || 0),
+      });
+    }
+
+    for (const e of (cashExpenses || [])) {
+      entries.push({
+        id: `cexp-${e.id}`,
+        date: e.expense_date,
+        type: 'expense',
+        description: `${e.category || 'Expense'}${e.description ? ` — ${e.description}` : ''}`,
+        debit: 0,
+        credit: Number(e.amount || 0),
       });
     }
 
