@@ -579,7 +579,6 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                   { label: '+ Total Recovery', value: fmtPKR(s.total_recovery), color: 'text-green-700' },
                   { label: '- Total Expenses', value: fmtPKR(s.total_expenses), color: 'text-red-600' },
                   { label: 'Net Balance', value: fmtPKR(s.net_cash), bold: true },
-                  { label: 'Cash In Hand', value: fmtPKR(s.cash_in_hand), bold: true, color: 'text-navy' },
                 ].map((row) => (
                   <div key={row.label} className={`flex justify-between items-center py-1 ${row.bold ? 'border-t border-gray-200 pt-2 mt-1' : ''}`}>
                     <span className={`text-sm ${row.bold ? 'font-bold text-navy' : 'text-gray-600'}`}>{row.label}</span>
@@ -601,6 +600,7 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                   { label: 'Total Sale KG', value: s.total_sale_kg ? fmtN(s.total_sale_kg) : '—' },
                   { label: 'Total Sales', value: fmtPKR(s.total_sales), bold: true, color: 'text-green-700' },
                   { label: 'Profit', value: fmtPKR(s.profit), bold: true, color: s.profit >= 0 ? 'text-green-700' : 'text-red-600' },
+                  (() => { const md = s.total_recovery - s.total_sales; return { label: 'Market Difference', value: fmtPKR(Math.abs(md)), bold: true, color: md >= 0 ? 'text-green-700' : 'text-red-600' }; })(),
                 ].map((row) => (
                   <div key={row.label} className={`flex justify-between items-center py-1 ${row.bold ? 'border-t border-gray-200 pt-2 mt-1' : ''}`}>
                     <span className={`text-sm ${row.bold ? 'font-bold text-navy' : 'text-gray-600'}`}>{row.label}</span>
