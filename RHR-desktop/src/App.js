@@ -31,6 +31,7 @@ import VendorLedger from './pages/VendorLedger';
 import CashClosing from './pages/CashClosing';
 import CashReport from './pages/CashReport';
 import DailyReport from './pages/DailyReport';
+import MarketDifference from './pages/MarketDifference';
 import Reports from './pages/Reports';
 import GPS from './pages/GPS';
 import Notifications from './pages/Notifications';
@@ -74,6 +75,7 @@ const PAGES = {
   'cash-closing': CashClosing,
   'cash-report': CashReport,
   'daily-report': DailyReport,
+  'market-difference': MarketDifference,
   reports: Reports,
   gps: GPS,
   notifications: Notifications,
@@ -111,6 +113,7 @@ const PAGE_ACCESS = {
   'cash-closing': { requiredPermission: 'can_view_payments' },
   'cash-report':  { requiredPermission: 'can_view_payments' },
   'daily-report': { requiredPermission: 'can_export_reports' },
+  'market-difference': { requiredPermission: 'can_export_reports' },
   reports: { requiredPermission: 'can_export_reports' },
   'stock-reports': { requiredPermission: 'can_export_reports' },
   gps: { requiredPermission: 'can_view_gps' },
