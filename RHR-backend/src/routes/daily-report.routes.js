@@ -20,7 +20,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
     const cf = companyId ? `&company_id=eq.${companyId}` : '';
     const cfObj = companyId ? { company_id: `eq.${companyId}` } : {};
 
-    const [expenses, recoveries, orders, productions, bankAccounts, prevCashRec, prevCashClose, bankExpenses, bankPayments, bankTransfers] = await Promise.all([
+    const [expenses, recoveries, orders, productions, bankAccounts, prevCashRec, prevCashClose, bankExpenses, bankPayments, bankTransfers, allTimeBankTransfers, allTimeCheques, allTimeBankExp] = await Promise.all([
 
       // Expenses for the date — try with full joins, degrade gracefully
       pgrestGetRaw(
@@ -65,7 +65,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 
       // Active bank accounts
       pgrestGet('bank_accounts', {
-        select: 'id,account_name,account_number,bank_name',
+        select: 'id,account_name,account_number,bank_name,opening_balance',
         is_active: 'eq.true',
         ...cfObj,
         order: 'account_name.asc',
@@ -108,6 +108,27 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         payment_method: 'eq.bank_transfer',
         status: 'eq.approved',
         recovery_date: `eq.${date}`,
+        ...cfObj,
+      }).catch(() => []),
+
+      // All-time approved bank transfers (for current balance)
+      pgrestGet('salesman_recoveries', {
+        select: 'amount,reference_number',
+        payment_method: 'eq.bank_transfer',
+        status: 'eq.approved',
+        ...cfObj,
+      }).catch(() => []),
+
+      // All-time cleared cheques into bank (for current balance)
+      pgrestGetRaw(
+        `salesman_recoveries?select=amount,cleared_bank_account_id&cheque_status=eq.cleared${cf}`
+      ).then(rows => (rows || []).filter(r => r.cleared_bank_account_id))
+        .catch(() => []),
+
+      // All-time bank expenses (for current balance)
+      pgrestGet('expenses', {
+        select: 'amount,bank_account_id',
+        bank_account_id: 'not.is.null',
         ...cfObj,
       }).catch(() => []),
     ]);
@@ -235,6 +256,22 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 
     const netCash = previousCashBalance + totalRecovery - totalExpenses;
 
+    // ── All-time balance maps (for current balance per account)
+    const allTimeInMap = {};
+    (allTimeBankTransfers || []).forEach(r => {
+      const id = r.reference_number;
+      if (id) allTimeInMap[id] = (allTimeInMap[id] || 0) + Number(r.amount || 0);
+    });
+    (allTimeCheques || []).forEach(r => {
+      const id = r.cleared_bank_account_id;
+      if (id) allTimeInMap[id] = (allTimeInMap[id] || 0) + Number(r.amount || 0);
+    });
+    const allTimeOutMap = {};
+    (allTimeBankExp || []).forEach(e => {
+      const id = e.bank_account_id;
+      if (id) allTimeOutMap[id] = (allTimeOutMap[id] || 0) + Number(e.amount || 0);
+    });
+
     // ── Bank detail: debit (in) and credit (out) per account for this date
     const bankExpMap = {};
     (bankExpenses || []).forEach(e => {
@@ -250,14 +287,18 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       const id = r.reference_number;
       if (id) bankInMap[id] = (bankInMap[id] || 0) + Number(r.amount || 0);
     });
-    const bankDetail = (bankAccounts || []).map(b => ({
-      id: b.id,
-      account_name: b.account_name,
-      bank_name: b.bank_name,
-      account_number: b.account_number,
-      day_debit: bankInMap[b.id] || 0,
-      day_credit: bankExpMap[b.id] || 0,
-    }));
+    const bankDetail = (bankAccounts || []).map(b => {
+      const currentBalance = Number(b.opening_balance || 0) + (allTimeInMap[b.id] || 0) - (allTimeOutMap[b.id] || 0);
+      return {
+        id: b.id,
+        account_name: b.account_name,
+        bank_name: b.bank_name,
+        account_number: b.account_number,
+        day_debit: bankInMap[b.id] || 0,
+        day_credit: bankExpMap[b.id] || 0,
+        current_balance: currentBalance,
+      };
+    });
 
     return success(res, {
       date,

@@ -238,16 +238,25 @@ async function buildDailyReportPdf(reportDate, data) {
 
     autoTable(doc, {
       startY: y,
-      head: [['Account Name', 'Bank', 'Account #', 'Debit (In)', 'Credit (Out)']],
-      body: data.bank_detail.map(b => [
-        b.account_name, b.bank_name, b.account_number || '—',
-        b.day_debit ? fmtPKR(b.day_debit) : '—',
-        b.day_credit ? fmtPKR(b.day_credit) : '—',
-      ]),
+      head: [['Account Name', 'Bank', 'Account #', 'Debit (In)', 'Credit (Out)', 'Balance']],
+      body: [
+        ...data.bank_detail.map(b => [
+          b.account_name, b.bank_name, b.account_number || '—',
+          b.day_debit ? fmtPKR(b.day_debit) : '—',
+          b.day_credit ? fmtPKR(b.day_credit) : '—',
+          fmtPKR(b.current_balance ?? 0),
+        ]),
+        [
+          { content: 'Total', colSpan: 3, styles: { fontStyle: 'bold' } },
+          { content: fmtPKR(data.bank_detail.reduce((s, b) => s + (b.day_debit || 0), 0)), styles: { fontStyle: 'bold', halign: 'right' } },
+          { content: fmtPKR(data.bank_detail.reduce((s, b) => s + (b.day_credit || 0), 0)), styles: { fontStyle: 'bold', halign: 'right' } },
+          { content: fmtPKR(data.bank_detail.reduce((s, b) => s + (b.current_balance ?? 0), 0)), styles: { fontStyle: 'bold', halign: 'right' } },
+        ],
+      ],
       margin: { left: M, right: M },
       headStyles: { fillColor: NAVY, textColor: WHITE, fontSize: 8, fontStyle: 'bold' },
       bodyStyles: { fontSize: 8, textColor: [30, 30, 30] },
-      columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' } },
+      columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
       styles: { cellPadding: { top: 3, bottom: 3, left: 3, right: 3 } },
     });
     y = doc.lastAutoTable.finalY + 6;
@@ -629,15 +638,15 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-semibold">
-                      {['Account Name', 'Bank', 'Account #', 'Debit (In)', 'Credit (Out)'].map(h => (
-                        <th key={h} className="px-4 py-2.5 text-left">{h}</th>
+                      {['Account Name', 'Bank', 'Account #', 'Debit (In)', 'Credit (Out)', 'Balance'].map(h => (
+                        <th key={h} className={`px-4 py-2.5 ${['Debit (In)', 'Credit (Out)', 'Balance'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {data.bank_detail.map((b) => (
                       <tr key={b.id} className="border-b border-gray-50 hover:bg-gray-50/60">
-                        <td className="px-4 py-2.5 font-medium text-navy">{b.account_name}</td>
+                        <td className="px-4 py-2.5 font-medium text-navy cursor-pointer hover:underline" onClick={() => setPage && setPage('bank')}>{b.account_name}</td>
                         <td className="px-4 py-2.5">{b.bank_name}</td>
                         <td className="px-4 py-2.5 text-gray-500">{b.account_number || '—'}</td>
                         <td className="px-4 py-2.5 text-right font-semibold text-green-700">
@@ -646,8 +655,23 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                         <td className="px-4 py-2.5 text-right font-semibold text-red-600">
                           {b.day_credit ? fmtPKR(b.day_credit) : '—'}
                         </td>
+                        <td className={`px-4 py-2.5 text-right font-bold ${(b.current_balance ?? 0) >= 0 ? 'text-navy' : 'text-red-600'}`}>
+                          {fmtPKR(b.current_balance ?? 0)}
+                        </td>
                       </tr>
                     ))}
+                    <tr className="bg-navy/5 border-t-2 border-navy/20 font-bold text-sm">
+                      <td className="px-4 py-2.5 text-navy font-bold" colSpan={3}>Total</td>
+                      <td className="px-4 py-2.5 text-right text-green-700">
+                        {fmtPKR(data.bank_detail.reduce((s, b) => s + (b.day_debit || 0), 0))}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-red-600">
+                        {fmtPKR(data.bank_detail.reduce((s, b) => s + (b.day_credit || 0), 0))}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-navy">
+                        {fmtPKR(data.bank_detail.reduce((s, b) => s + (b.current_balance ?? 0), 0))}
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>

@@ -28,14 +28,16 @@ export default function Bank() {
   const [form, setForm] = useState(EMPTY_ACCOUNT_FORM);
   const [saving, setSaving] = useState(false);
   const [savingOpeningBal, setSavingOpeningBal] = useState(null);
-  const [ledgerAccount, setLedgerAccount] = useState(null); // account whose ledger is open
+  const [ledgerAccount, setLedgerAccount] = useState(null);
   const [ledgerData, setLedgerData] = useState(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [txnDateFilter, setTxnDateFilter] = useState('all');
 
   const openLedger = async (account) => {
     setLedgerAccount(account);
     setLedgerData(null);
     setLedgerLoading(true);
+    setTab('ledger');
     try {
       const res = await api.get(`/bank/accounts/${account.id}/ledger`);
       setLedgerData(res.data.data);
@@ -44,6 +46,16 @@ export default function Bank() {
     } finally {
       setLedgerLoading(false);
     }
+  };
+
+  const getDateRange = (f) => {
+    const t = new Date();
+    const ts = t.toISOString().split('T')[0];
+    if (f === 'today') return { from: ts, to: ts };
+    if (f === 'yesterday') { const y = new Date(t); y.setDate(y.getDate() - 1); const ys = y.toISOString().split('T')[0]; return { from: ys, to: ys }; }
+    if (f === 'week') { const w = new Date(t); w.setDate(w.getDate() - 6); return { from: w.toISOString().split('T')[0], to: ts }; }
+    if (f === 'month') { return { from: ts.slice(0, 7) + '-01', to: ts }; }
+    return null;
   };
 
   useEffect(() => {
@@ -123,6 +135,15 @@ export default function Bank() {
     0
   );
 
+  const filteredTransactions = (() => {
+    const range = getDateRange(txnDateFilter);
+    if (!range) return transactions;
+    return transactions.filter(t => {
+      const d = (t.created_at || '').split('T')[0];
+      return d >= range.from && d <= range.to;
+    });
+  })();
+
   return (
     <div className="p-6">
       <div className="flex justify-between items-start flex-wrap gap-3 mb-6">
@@ -144,7 +165,7 @@ export default function Bank() {
         </div>
       </div>
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-2 mb-6 flex-wrap">
         <button
           onClick={() => setTab('accounts')}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -161,6 +182,19 @@ export default function Bank() {
         >
           Transactions ({transactions.length})
         </button>
+        {ledgerAccount && (
+          <div className={`flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            tab === 'ledger' ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+          }`}>
+            <button onClick={() => setTab('ledger')} className="flex items-center gap-1.5">
+              <BookOpen size={14} /> {ledgerAccount.account_name}
+            </button>
+            <button
+              onClick={() => { setLedgerAccount(null); setLedgerData(null); if (tab === 'ledger') setTab('accounts'); }}
+              className="ml-1 opacity-60 hover:opacity-100 text-lg leading-none"
+            >×</button>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -196,7 +230,7 @@ export default function Bank() {
                     const bal = openingBal + totalIn - totalOut;
                     return (
                       <tr key={a.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                        <td className="px-6 py-3.5 font-medium text-navy">{a.account_name}</td>
+                        <td className="px-6 py-3.5 font-medium text-navy cursor-pointer hover:underline" onClick={() => openLedger(a)}>{a.account_name}</td>
                         <td className="px-6 py-3.5 text-gray-600">{a.account_number}</td>
                         <td className="px-6 py-3.5 text-gray-600">{a.bank_name}</td>
                         <td className="px-6 py-3.5 text-gray-500">{a.branch_name || '—'}</td>
@@ -232,14 +266,107 @@ export default function Bank() {
             </div>
           )}
         </div>
+      ) : tab === 'ledger' ? (
+        <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+          {/* Ledger header */}
+          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-navy text-base">{ledgerAccount?.account_name}</h3>
+              <p className="text-xs text-gray-400 mt-0.5">{ledgerAccount?.bank_name}{ledgerAccount?.account_number ? ` · #${ledgerAccount.account_number}` : ''}</p>
+            </div>
+            <button onClick={() => setTab('accounts')} className="text-xs text-gray-500 hover:text-navy border border-gray-200 hover:border-navy px-3 py-1.5 rounded-lg transition-colors">
+              ← Back to Accounts
+            </button>
+          </div>
+          {ledgerLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <RefreshCw size={22} className="animate-spin text-navy" />
+            </div>
+          ) : !ledgerData ? null : (
+            <>
+              {/* Summary cards */}
+              <div className="flex gap-4 px-6 py-4 border-b border-gray-100 flex-wrap bg-gray-50/30">
+                {[
+                  { label: 'Account #', value: ledgerAccount?.account_number || '—' },
+                  { label: 'Opening Balance', value: fmtPKR(ledgerData.account.opening_balance) },
+                  { label: 'Current Balance', value: fmtPKR(ledgerData.entries.length ? ledgerData.entries[ledgerData.entries.length - 1].balance : 0), bold: true, color: 'text-navy' },
+                ].map(({ label, value, bold, color }) => (
+                  <div key={label} className="bg-white rounded-xl border border-gray-100 px-5 py-3 flex-1 min-w-[140px]">
+                    <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">{label}</p>
+                    <p className={`text-sm mt-0.5 ${bold ? `font-bold ${color || ''}` : 'text-gray-700'}`}>{value}</p>
+                  </div>
+                ))}
+              </div>
+              {/* Ledger table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-navy text-white text-xs font-semibold uppercase tracking-wide">
+                      {['#', 'Date', 'Description', 'Debit (In)', 'Credit (Out)', 'Balance'].map((h) => (
+                        <th key={h} className={`px-5 py-3 ${['Debit (In)', 'Credit (Out)', 'Balance'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ledgerData.entries.map((e, i) => (
+                      <tr key={e.id} className={`border-b border-gray-50 last:border-0 ${e.type === 'opening' ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                        <td className="px-5 py-3 text-gray-400 text-xs">{i + 1}</td>
+                        <td className="px-5 py-3 text-gray-500 whitespace-nowrap text-xs">
+                          {e.date ? new Date(e.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                        </td>
+                        <td className="px-5 py-3 text-gray-700 text-xs">
+                          {e.type === 'opening' ? <span className="font-semibold text-navy">Opening Balance</span> : e.description}
+                        </td>
+                        <td className="px-5 py-3 text-right font-semibold text-green-700 text-xs">
+                          {e.debit > 0 ? fmtPKR(e.debit) : '—'}
+                        </td>
+                        <td className="px-5 py-3 text-right font-semibold text-red-600 text-xs">
+                          {e.credit > 0 ? fmtPKR(e.credit) : '—'}
+                        </td>
+                        <td className={`px-5 py-3 text-right font-bold text-xs ${e.balance >= 0 ? 'text-navy' : 'text-red-600'}`}>
+                          {fmtPKR(e.balance)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
       ) : (
         <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
             <h3 className="font-semibold text-navy text-sm">Bank Transactions</h3>
             <span className="text-sm font-semibold text-navy">Total: PKR {totalTransactions.toLocaleString()}</span>
           </div>
-          {transactions.length === 0 ? (
-            <EmptyState icon={ArrowLeftRight} title="No bank transactions yet" subtitle="Payments/recoveries and expenses recorded via a bank account will show up here" />
+          {/* Date filter shortcuts */}
+          <div className="px-6 py-3 border-b border-gray-100 flex gap-2 flex-wrap bg-gray-50/30">
+            {[
+              { label: 'All', value: 'all' },
+              { label: 'Today', value: 'today' },
+              { label: 'Yesterday', value: 'yesterday' },
+              { label: 'Last 7 Days', value: 'week' },
+              { label: 'This Month', value: 'month' },
+            ].map(f => (
+              <button
+                key={f.value}
+                onClick={() => setTxnDateFilter(f.value)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  txnDateFilter === f.value ? 'bg-navy text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+            {txnDateFilter !== 'all' && (
+              <span className="text-xs text-gray-400 self-center ml-1">
+                {filteredTransactions.length} of {transactions.length} shown
+              </span>
+            )}
+          </div>
+          {filteredTransactions.length === 0 ? (
+            <EmptyState icon={ArrowLeftRight} title="No transactions for this period" subtitle="Try a different date filter or switch to All" />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -253,7 +380,7 @@ export default function Bank() {
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map((t, i) => (
+                  {filteredTransactions.map((t, i) => (
                     <tr key={`${t.type}-${t.id}`} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                       <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(t.created_at).toLocaleDateString('en-GB')}</td>
                       <td className="px-6 py-3.5">
@@ -353,72 +480,6 @@ export default function Bank() {
         </Modal>
       )}
 
-      {/* ── Bank Account Ledger Modal ── */}
-      {ledgerAccount && (
-        <Modal
-          title={`Ledger — ${ledgerAccount.account_name} (${ledgerAccount.bank_name})`}
-          onClose={() => { setLedgerAccount(null); setLedgerData(null); }}
-        >
-          <div style={{ minWidth: '680px', maxWidth: '100%' }}>
-            {ledgerLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <RefreshCw size={22} className="animate-spin text-navy" />
-              </div>
-            ) : !ledgerData ? null : (
-              <>
-                {/* Summary row */}
-                <div className="flex gap-4 mb-4 flex-wrap">
-                  {[
-                    { label: 'Account #', value: ledgerAccount.account_number },
-                    { label: 'Opening Balance', value: fmtPKR(ledgerData.account.opening_balance) },
-                    { label: 'Current Balance', value: fmtPKR(ledgerData.entries.length ? ledgerData.entries[ledgerData.entries.length - 1].balance : 0), bold: true },
-                  ].map(({ label, value, bold }) => (
-                    <div key={label} className="bg-gray-50 rounded-xl px-4 py-2.5 flex-1 min-w-[140px]">
-                      <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">{label}</p>
-                      <p className={`text-sm mt-0.5 ${bold ? 'font-bold text-navy' : 'text-gray-700'}`}>{value}</p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Ledger table */}
-                <div className="overflow-x-auto rounded-xl border border-gray-100">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-navy text-white text-xs font-semibold uppercase tracking-wide">
-                        {['#', 'Date', 'Description', 'Debit (In)', 'Credit (Out)', 'Balance'].map((h) => (
-                          <th key={h} className={`px-4 py-2.5 ${['Debit (In)', 'Credit (Out)', 'Balance'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ledgerData.entries.map((e, i) => (
-                        <tr key={e.id} className={`border-b border-gray-50 last:border-0 ${e.type === 'opening' ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                          <td className="px-4 py-2.5 text-gray-400 text-xs">{i + 1}</td>
-                          <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap text-xs">
-                            {e.date ? new Date(e.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
-                          </td>
-                          <td className="px-4 py-2.5 text-gray-700 text-xs">
-                            {e.type === 'opening' ? <span className="font-semibold text-navy">Opening Balance</span> : e.description}
-                          </td>
-                          <td className="px-4 py-2.5 text-right font-semibold text-green-700 text-xs">
-                            {e.debit > 0 ? fmtPKR(e.debit) : '—'}
-                          </td>
-                          <td className="px-4 py-2.5 text-right font-semibold text-red-600 text-xs">
-                            {e.credit > 0 ? fmtPKR(e.credit) : '—'}
-                          </td>
-                          <td className={`px-4 py-2.5 text-right font-bold text-xs ${e.balance >= 0 ? 'text-navy' : 'text-red-600'}`}>
-                            {fmtPKR(e.balance)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }
