@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { FileText, RefreshCw, Download, Calendar } from 'lucide-react';
+import { FileText, RefreshCw, Download, Calendar, X } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import api, { getCurrentUser } from '../services/api';
@@ -292,6 +292,7 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [previewOrder, setPreviewOrder] = useState(null);
 
   const loadReport = useCallback(async () => {
     setLoading(true);
@@ -495,11 +496,19 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                     {data.sales.map((s) => (
                       <tr key={s.sno} className="border-b border-gray-50 hover:bg-gray-50/60">
                         <td className="px-4 py-2.5 text-gray-400">{s.sno}</td>
-                        <td className="px-4 py-2.5">{s.date}</td>
-                        <td className="px-4 py-2.5 font-medium text-navy">{s.order_number}</td>
+                        <td className="px-4 py-2.5 whitespace-nowrap">{s.date}</td>
+                        <td className="px-4 py-2.5">
+                          <button
+                            onClick={() => setPreviewOrder(s)}
+                            className="font-medium text-navy hover:text-orange hover:underline transition-colors cursor-pointer whitespace-nowrap"
+                            title="Click to preview order"
+                          >
+                            {s.order_number}
+                          </button>
+                        </td>
                         <td className="px-4 py-2.5">{s.customer}</td>
                         <td className="px-4 py-2.5 text-gray-600 text-xs">{s.products}</td>
-                        <td className="px-4 py-2.5 text-right font-semibold">{fmtN(s.bags)}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold">{s.bags > 0 ? fmtN(s.bags) : '—'}</td>
                         <td className="px-4 py-2.5 text-right">{s.kg ? fmtN(s.kg) : '—'}</td>
                         <td className="px-4 py-2.5 text-right font-semibold text-green-700">{fmtPKR(s.total_amount)}</td>
                       </tr>
@@ -631,6 +640,82 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
             </Section>
           )}
         </>
+      )}
+
+      {/* ── Order Preview Modal ── */}
+      {previewOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setPreviewOrder(null)}>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <div
+            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 bg-navy text-white flex-shrink-0">
+              <div>
+                <p className="text-xs text-white/60 uppercase tracking-wide font-semibold">Order Preview</p>
+                <p className="text-lg font-bold">{previewOrder.order_number}</p>
+              </div>
+              <button onClick={() => setPreviewOrder(null)} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Meta */}
+            <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 flex gap-6 flex-shrink-0">
+              <div>
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide">Customer</p>
+                <p className="text-sm font-semibold text-navy">{previewOrder.customer}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide">Date</p>
+                <p className="text-sm font-semibold text-navy">{previewOrder.date}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide">Total</p>
+                <p className="text-sm font-bold text-green-700">{fmtPKR(previewOrder.total_amount)}</p>
+              </div>
+            </div>
+
+            {/* Items */}
+            <div className="overflow-y-auto flex-1">
+              {previewOrder.items && previewOrder.items.length > 0 ? (
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-gray-50 border-b border-gray-100">
+                    <tr className="text-xs text-gray-500 font-semibold uppercase tracking-wide">
+                      <th className="px-5 py-3 text-left">#</th>
+                      <th className="px-5 py-3 text-left">Product</th>
+                      <th className="px-5 py-3 text-left">Unit</th>
+                      <th className="px-5 py-3 text-right">Qty</th>
+                      <th className="px-5 py-3 text-right">Rate</th>
+                      <th className="px-5 py-3 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewOrder.items.map((it, i) => (
+                      <tr key={i} className={`border-b border-gray-50 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                        <td className="px-5 py-3 text-gray-400">{i + 1}</td>
+                        <td className="px-5 py-3 font-medium text-navy">{it.product_name}</td>
+                        <td className="px-5 py-3 text-gray-500">{it.unit || '—'}</td>
+                        <td className="px-5 py-3 text-right font-semibold">{fmtN(it.quantity)}</td>
+                        <td className="px-5 py-3 text-right text-gray-600">{fmtPKR(it.unit_price)}</td>
+                        <td className="px-5 py-3 text-right font-bold text-green-700">{fmtPKR(it.subtotal)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-navy">
+                      <td colSpan={5} className="px-5 py-3 text-white font-bold text-xs">TOTAL</td>
+                      <td className="px-5 py-3 text-right text-orange font-bold">{fmtPKR(previewOrder.total_amount)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              ) : (
+                <p className="text-sm text-gray-400 text-center py-8">No item details available.</p>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

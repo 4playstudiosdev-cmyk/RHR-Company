@@ -138,14 +138,22 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
     // ── Sales list (delivered orders)
     const salesList = (orders || []).map((o, i) => {
       const items = o.order_items || [];
-      const totalBags = items.reduce((s, it) => s + Number(it.quantity || 0), 0);
+      // BAG: items whose unit is NOT a pure-weight unit (KG/G/GRAM)
+      // KG: items with pure KG unit (qty = kg directly) + bag items multiplied by kg/bag
+      const PURE_WEIGHT = /^(kg|g|gram|grams|ltr|liter|litre|ml)$/i;
+      const totalBags = items.reduce((s, it) => {
+        const unit = (it.products?.unit || '').trim();
+        return PURE_WEIGHT.test(unit) ? s : s + Number(it.quantity || 0);
+      }, 0);
       const totalKg = items.reduce((s, it) => {
-        const unit = (it.products?.unit || '').toLowerCase();
+        const unit = (it.products?.unit || '').trim().toLowerCase();
+        if (PURE_WEIGHT.test(unit)) return s + Number(it.quantity || 0);
         const kgM = unit.match(/(\d+)\s*kg/);
         return kgM ? s + Number(it.quantity || 0) * Number(kgM[1]) : s;
       }, 0);
       return {
         sno: i + 1,
+        order_id: o.id,
         date: o.order_date || (o.updated_at || o.created_at || '').split('T')[0],
         order_number: o.order_number,
         customer: o.users?.shop_name || o.users?.full_name || '',
@@ -153,6 +161,13 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         bags: totalBags,
         kg: totalKg > 0 ? totalKg : null,
         total_amount: Number(o.total_amount || 0),
+        items: items.map(it => ({
+          product_name: it.product_name,
+          unit: it.products?.unit || '',
+          quantity: Number(it.quantity || 0),
+          unit_price: Number(it.unit_price || 0),
+          subtotal: Number(it.subtotal || 0),
+        })),
       };
     });
     const totalSales = salesList.reduce((s, o) => s + o.total_amount, 0);
