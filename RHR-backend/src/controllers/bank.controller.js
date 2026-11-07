@@ -250,4 +250,106 @@ const updateOpeningBalance = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getBankAccounts, createBankAccount, getBankTransactions, updateOpeningBalance };
+// GET /api/v1/bank/accounts/:id/ledger
+// Full chronological ledger for one bank account: opening balance, then all
+// inflows (bank transfers + cleared cheques) and outflows (expenses) with
+// a running balance — mirrors the customer ledger pattern.
+const getBankLedger = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const rows = await pgrestGet('bank_accounts', {
+      select: 'id,account_name,bank_name,account_number,opening_balance,opening_balance_date,company_id,created_at',
+      id: `eq.${id}`,
+    });
+    const account = rows?.[0];
+    if (!account) return error(res, 'Bank account not found', 404);
+    if (req.user.role !== 'super_admin' && account.company_id !== req.user.company_id)
+      return error(res, 'Access denied', 403);
+
+    const [transfers, cheques, expenses] = await Promise.all([
+      // Bank-transfer recoveries routed to this account (reference_number = account UUID)
+      pgrestGetRaw(
+        `salesman_recoveries?select=id,amount,recovery_date,created_at,notes,customer:users!customer_id(full_name,shop_name),salesman:salesmen!salesman_id(full_name)&payment_method=eq.bank_transfer&status=eq.approved&reference_number=eq.${id}`
+      ).catch(() => []),
+
+      // Cheques cleared into this account
+      pgrestGetRaw(
+        `salesman_recoveries?select=id,amount,cleared_at,cheque_number,cheque_bank,customer:users!customer_id(full_name,shop_name),salesman:salesmen!salesman_id(full_name)&cleared_bank_account_id=eq.${id}&status=eq.approved`
+      ).catch(() => []),
+
+      // Expenses paid from this account
+      pgrestGetRaw(
+        `expenses?select=id,amount,expense_date,category,description,method,bank_amount&bank_account_id=eq.${id}`
+      ).catch(() => []),
+    ]);
+
+    const entries = [];
+
+    // Opening balance (always shown as first entry)
+    const openingBal = Number(account.opening_balance || 0);
+    entries.push({
+      id: 'opening',
+      date: account.opening_balance_date || account.created_at,
+      type: 'opening',
+      description: 'Opening Balance',
+      debit: openingBal,
+      credit: 0,
+    });
+
+    for (const r of (transfers || [])) {
+      const name = r.customer?.shop_name || r.customer?.full_name || '—';
+      const note = r.notes ? r.notes.replace(/Bank:\s*[^·]+·?\s*/i, '').trim() : '';
+      entries.push({
+        id: r.id,
+        date: r.recovery_date || r.created_at,
+        type: 'transfer_in',
+        description: `Bank Transfer — ${name}${note ? ` (${note})` : ''}${r.salesman?.full_name ? ` via ${r.salesman.full_name}` : ''}`,
+        debit: Number(r.amount || 0),
+        credit: 0,
+      });
+    }
+
+    for (const c of (cheques || [])) {
+      const name = c.customer?.shop_name || c.customer?.full_name || '—';
+      entries.push({
+        id: c.id,
+        date: c.cleared_at,
+        type: 'cheque_in',
+        description: `Cheque Cleared — ${name}${c.cheque_number ? ` #${c.cheque_number}` : ''}${c.cheque_bank ? ` (${c.cheque_bank})` : ''}`,
+        debit: Number(c.amount || 0),
+        credit: 0,
+      });
+    }
+
+    for (const e of (expenses || [])) {
+      const amt = e.method === 'split' ? Number(e.bank_amount || 0) : Number(e.amount || 0);
+      entries.push({
+        id: e.id,
+        date: e.expense_date,
+        type: 'expense',
+        description: `${e.category || 'Expense'}${e.description ? ` — ${e.description}` : ''}`,
+        debit: 0,
+        credit: amt,
+      });
+    }
+
+    // Sort ascending by date, opening always first
+    entries.sort((a, b) => {
+      if (a.type === 'opening') return -1;
+      if (b.type === 'opening') return 1;
+      return new Date(a.date) - new Date(b.date);
+    });
+
+    // Compute running balance
+    let running = 0;
+    for (const e of entries) {
+      running += e.debit - e.credit;
+      e.balance = running;
+    }
+
+    return success(res, { account, entries });
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { getBankAccounts, createBankAccount, getBankTransactions, updateOpeningBalance, getBankLedger };

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Landmark, Plus, ArrowLeftRight } from 'lucide-react';
+import { Landmark, Plus, ArrowLeftRight, BookOpen, RefreshCw } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
 import Button from '../components/Button';
@@ -8,6 +8,8 @@ import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
+
+const fmtPKR = (n) => `Rs ${Number(n || 0).toLocaleString()}`;
 
 const EMPTY_ACCOUNT_FORM = { account_name: '', account_number: '', bank_name: '', branch_name: '', opening_balance: '', opening_balance_date: '' };
 const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
@@ -26,6 +28,23 @@ export default function Bank() {
   const [form, setForm] = useState(EMPTY_ACCOUNT_FORM);
   const [saving, setSaving] = useState(false);
   const [savingOpeningBal, setSavingOpeningBal] = useState(null);
+  const [ledgerAccount, setLedgerAccount] = useState(null); // account whose ledger is open
+  const [ledgerData, setLedgerData] = useState(null);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+
+  const openLedger = async (account) => {
+    setLedgerAccount(account);
+    setLedgerData(null);
+    setLedgerLoading(true);
+    try {
+      const res = await api.get(`/bank/accounts/${account.id}/ledger`);
+      setLedgerData(res.data.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load ledger.');
+    } finally {
+      setLedgerLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadAll();
@@ -165,6 +184,7 @@ export default function Bank() {
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Branch</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Opening Bal.</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Balance</th>
+                    <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -195,6 +215,14 @@ export default function Bank() {
                           <p className="text-[10px] text-gray-400 mt-0.5">
                             {openingBal > 0 ? `${openingBal.toLocaleString()} opening` : ''}{openingBal > 0 && acctTxns.length > 0 ? ' · ' : ''}{acctTxns.length > 0 ? `+${totalIn.toLocaleString()} in · −${totalOut.toLocaleString()} out` : ''}
                           </p>
+                        </td>
+                        <td className="px-6 py-3.5">
+                          <button
+                            onClick={() => openLedger(a)}
+                            className="flex items-center gap-1.5 text-xs font-medium text-navy border border-navy/30 hover:bg-navy hover:text-white px-3 py-1.5 rounded-lg transition-colors"
+                          >
+                            <BookOpen size={13} /> Ledger
+                          </button>
                         </td>
                       </tr>
                     );
@@ -322,6 +350,73 @@ export default function Bank() {
               <Button type="submit" variant="accent" disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {/* ── Bank Account Ledger Modal ── */}
+      {ledgerAccount && (
+        <Modal
+          title={`Ledger — ${ledgerAccount.account_name} (${ledgerAccount.bank_name})`}
+          onClose={() => { setLedgerAccount(null); setLedgerData(null); }}
+        >
+          <div style={{ minWidth: '680px', maxWidth: '100%' }}>
+            {ledgerLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw size={22} className="animate-spin text-navy" />
+              </div>
+            ) : !ledgerData ? null : (
+              <>
+                {/* Summary row */}
+                <div className="flex gap-4 mb-4 flex-wrap">
+                  {[
+                    { label: 'Account #', value: ledgerAccount.account_number },
+                    { label: 'Opening Balance', value: fmtPKR(ledgerData.account.opening_balance) },
+                    { label: 'Current Balance', value: fmtPKR(ledgerData.entries.length ? ledgerData.entries[ledgerData.entries.length - 1].balance : 0), bold: true },
+                  ].map(({ label, value, bold }) => (
+                    <div key={label} className="bg-gray-50 rounded-xl px-4 py-2.5 flex-1 min-w-[140px]">
+                      <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">{label}</p>
+                      <p className={`text-sm mt-0.5 ${bold ? 'font-bold text-navy' : 'text-gray-700'}`}>{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Ledger table */}
+                <div className="overflow-x-auto rounded-xl border border-gray-100">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-navy text-white text-xs font-semibold uppercase tracking-wide">
+                        {['#', 'Date', 'Description', 'Debit (In)', 'Credit (Out)', 'Balance'].map((h) => (
+                          <th key={h} className={`px-4 py-2.5 ${['Debit (In)', 'Credit (Out)', 'Balance'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ledgerData.entries.map((e, i) => (
+                        <tr key={e.id} className={`border-b border-gray-50 last:border-0 ${e.type === 'opening' ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                          <td className="px-4 py-2.5 text-gray-400 text-xs">{i + 1}</td>
+                          <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap text-xs">
+                            {e.date ? new Date(e.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                          </td>
+                          <td className="px-4 py-2.5 text-gray-700 text-xs">
+                            {e.type === 'opening' ? <span className="font-semibold text-navy">Opening Balance</span> : e.description}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-green-700 text-xs">
+                            {e.debit > 0 ? fmtPKR(e.debit) : '—'}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-red-600 text-xs">
+                            {e.credit > 0 ? fmtPKR(e.credit) : '—'}
+                          </td>
+                          <td className={`px-4 py-2.5 text-right font-bold text-xs ${e.balance >= 0 ? 'text-navy' : 'text-red-600'}`}>
+                            {fmtPKR(e.balance)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
         </Modal>
       )}
     </div>
