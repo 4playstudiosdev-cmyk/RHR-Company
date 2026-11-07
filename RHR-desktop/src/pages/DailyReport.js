@@ -534,8 +534,11 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-semibold">
-                      {['SNo', 'Date', 'Product', 'BAG', 'KG', 'Total Cost'].map(h => (
+                      {['SNo', 'Date', 'Product'].map(h => (
                         <th key={h} className="px-4 py-2.5 text-left">{h}</th>
+                      ))}
+                      {['BAG', 'KG', 'Total Cost'].map(h => (
+                        <th key={h} className="px-4 py-2.5 text-right">{h}</th>
                       ))}
                     </tr>
                   </thead>

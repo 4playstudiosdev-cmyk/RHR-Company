@@ -56,9 +56,9 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         }).then(rows => (rows || []).filter(o => (o.updated_at || '') <= `${date}T23:59:59`))
       ),
 
-      // Productions for the date
+      // Productions for the date — join products via finished_item_id FK
       pgrestGetRaw(
-        `productions?select=id,qty_produced,total_cost,date,finished_goods(name,unit_weight_kg)&date=eq.${date}${cf}&order=created_at.asc`
+        `productions?select=id,qty_produced,total_cost,date,products!finished_item_id(name,unit)&date=eq.${date}${cf}&order=created_at.asc`
       ).catch(() =>
         pgrestGet('productions', { select: 'id,qty_produced,total_cost,date', date: `eq.${date}`, ...cfObj, order: 'created_at.asc' })
       ),
@@ -177,11 +177,13 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
     // ── Production list
     const productionList = (productions || []).map((p, i) => {
       const bags = Number(p.qty_produced || 0);
-      const kgPerBag = p.finished_goods?.unit_weight_kg || null;
+      const unitStr = (p.products?.unit || '').trim();
+      const kgM = unitStr.match(/(\d+(?:\.\d+)?)\s*kg/i);
+      const kgPerBag = kgM ? Number(kgM[1]) : null;
       return {
         sno: i + 1,
         date: p.date,
-        product: p.finished_goods?.name || 'Product',
+        product: p.products?.name || 'Product',
         bags,
         kg_per_bag: kgPerBag,
         total_kg: kgPerBag ? bags * kgPerBag : null,
