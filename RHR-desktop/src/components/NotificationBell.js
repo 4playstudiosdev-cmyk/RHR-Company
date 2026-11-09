@@ -4,13 +4,13 @@ import api from '../services/api';
 import { routeForNotification } from '../utils/notificationRoute';
 
 const PENDING_LABELS = {
-  recovery:  { label: 'Pending Recoveries',    icon: HandCoins,  page: 'recovery'  },
+  recovery:  { label: 'Pending Recoveries',    icon: HandCoins,  page: 'recovery',   tab: 'pending' },
   orders:    { label: 'Pending Orders',         icon: ShoppingCart, page: 'orders' },
-  payments:  { label: 'Pending Payments',       icon: Wallet,     page: 'payments'  },
+  payments:  { label: 'Pending Payments',       icon: Wallet,     page: 'payments' },
   customers: { label: 'Customer Approvals',     icon: Users,      page: 'customers' },
-  salesmen:  { label: 'Salesman Approvals',     icon: UserCog,    page: 'salesmen'  },
-  vehicles:  { label: 'Driver Approvals',       icon: Car,        page: 'vehicles'  },
-  hrm:       { label: 'Leave Requests',         icon: FileCheck,  page: 'hrm'       },
+  salesmen:  { label: 'Salesman Approvals',     icon: UserCog,    page: 'salesmen' },
+  vehicles:  { label: 'Driver Approvals',       icon: Car,        page: 'vehicles' },
+  hrm:       { label: 'Leave Requests',         icon: FileCheck,  page: 'hrm' },
 };
 
 const TYPE_ICON = {
@@ -39,7 +39,7 @@ function getTimeAgo(dateStr) {
 // update + the real mark-read call), same as opening the Notifications
 // page already did — the whole point of a bell preview is to let the
 // admin dismiss it at a glance without a second trip to that page.
-export default function NotificationBell({ setPage, onViewOrderNumber, onNavigate, companyFilter }) {
+export default function NotificationBell({ setPage, onViewOrderNumber, onNavigate, companyFilter, refreshKey }) {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [pendingCounts, setPendingCounts] = useState({});
@@ -58,13 +58,19 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
       .catch(() => {});
   };
 
+  // Initial load + periodic refresh
   useEffect(() => {
     fetchNotifications();
     fetchPending();
     const i1 = setInterval(fetchNotifications, 30000);
     const i2 = setInterval(fetchPending, 20000);
     return () => { clearInterval(i1); clearInterval(i2); };
-  }, [companyFilter]);
+  }, [companyFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fetch (without destroying state/badge) when parent triggers a refresh
+  useEffect(() => {
+    if (refreshKey) { fetchNotifications(); fetchPending(); }
+  }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -111,9 +117,10 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
     });
   };
 
-  const goToPending = (page) => {
+  const goToPending = (page, tab) => {
     setOpen(false);
-    setPage(page);
+    if (tab && onNavigate) onNavigate(page, tab);
+    else setPage(page);
   };
 
   return (
@@ -150,13 +157,16 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
                   return (
                     <div
                       key={key}
-                      onClick={() => goToPending(meta.page)}
+                      onClick={() => goToPending(meta.page, meta.tab)}
                       className="px-4 py-2.5 hover:bg-orange-100 cursor-pointer flex items-center gap-3 transition-colors"
                     >
                       <span className="w-7 h-7 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center flex-shrink-0">
                         <Icon size={14} />
                       </span>
-                      <span className="flex-1 text-sm text-gray-800 font-medium">{meta.label}</span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm text-gray-800 font-medium">{meta.label}</span>
+                        {meta.tab && <span className="block text-xs text-orange-600">→ {meta.tab === 'pending' ? 'Pending Approvals' : meta.tab}</span>}
+                      </div>
                       <span className="bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">
                         {count}
                       </span>
