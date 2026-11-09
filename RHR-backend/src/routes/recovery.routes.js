@@ -1157,9 +1157,14 @@ async function hasVendorColumn() {
 // null because they FK to users(id) and a salesman's id is in salesmen, not users.
 router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) => {
   try {
-    const { customer_id, supplier_id, amount, recovery_date, reference_number, notes } = req.body;
+    const { customer_id, supplier_id, amount, recovery_date, reference_number, notes, vendor_payment_method, bank_account_id } = req.body;
     if (!customer_id || !supplier_id || !amount || Number(amount) <= 0)
       return error(res, 'customer_id, supplier_id and a positive amount are required', 400);
+    if (vendor_payment_method === 'bank_transfer' && !bank_account_id)
+      return error(res, 'bank_account_id is required for bank transfer vendor payment', 400);
+
+    const expenseDate = recovery_date || new Date().toISOString().split('T')[0];
+    const payMethod = vendor_payment_method === 'bank_transfer' ? 'bank_transfer' : 'vendor_transfer';
 
     const rowData = {
       company_id:       req.user.company_id,
@@ -1167,19 +1172,20 @@ router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) =>
       customer_id,
       amount:           Number(amount),
       payment_type:     'vendor_transfer',
-      payment_method:   'vendor_transfer',
+      payment_method:   payMethod,
       reference_number: reference_number || null,
       notes:            notes || null,
       status:           'approved',
       approved_by:      null,
       approved_at:      new Date().toISOString(),
-      recovery_date:    recovery_date || new Date().toISOString().split('T')[0],
+      recovery_date:    expenseDate,
       created_by:       null,
     };
     if (await hasVendorColumn()) rowData.vendor_id = supplier_id;
 
     const [recovery] = await pgrestPost('salesman_recoveries', rowData);
 
+    // Credit customer ledger immediately
     await creditLedger({
       companyId:   req.user.company_id,
       customerId:  customer_id,
@@ -1188,6 +1194,55 @@ router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) =>
       userId:      null,
       date:        recovery_date,
     });
+
+    // For cash or bank_transfer: also create an expense and credit supplier ledger
+    if (vendor_payment_method === 'cash' || vendor_payment_method === 'bank_transfer') {
+      // Look up supplier name for the description
+      let supplierName = 'vendor';
+      try {
+        const suppliers = await pgrestGet('suppliers', { select: 'name', id: `eq.${supplier_id}` });
+        supplierName = suppliers?.[0]?.name || 'vendor';
+      } catch (_) {}
+
+      // Create expense (tries with salesman_id+supplier_id first, falls back without)
+      const expenseBase = {
+        company_id:   req.user.company_id,
+        category:     'Vendor Payment',
+        amount:       Number(amount),
+        description:  `Vendor payment to ${supplierName}${reference_number ? ` — Ref: ${reference_number}` : ''}`,
+        expense_date: expenseDate,
+        method:       vendor_payment_method === 'bank_transfer' ? 'bank' : 'cash',
+        ...(vendor_payment_method === 'bank_transfer' && bank_account_id ? { bank_account_id } : {}),
+      };
+      try {
+        await pgrestPost('expenses', { ...expenseBase, salesman_id: req.user.id, supplier_id });
+      } catch (_) {
+        try { await pgrestPost('expenses', { ...expenseBase, supplier_id }); } catch (_2) {
+          try { await pgrestPost('expenses', expenseBase); } catch (_3) { /* skip — recovery already recorded */ }
+        }
+      }
+
+      // Credit supplier ledger (reduces what RHR owes the supplier)
+      try {
+        const last = await pgrestGet('supplier_ledger_entries', {
+          select: 'running_balance', supplier_id: `eq.${supplier_id}`,
+          order: 'created_at.desc', limit: '1',
+        });
+        const prevBal = Number(last?.[0]?.running_balance) || 0;
+        const ledgerRow = {
+          supplier_id,
+          entry_type:      'credit',
+          amount:          Number(amount),
+          running_balance: prevBal - Number(amount),
+          description:     `Salesman vendor transfer — via ${vendor_payment_method === 'bank_transfer' ? 'bank' : 'cash'}`,
+          reference_type:  'vendor_transfer',
+          created_by:      null,
+        };
+        try {
+          await pgrestPost('supplier_ledger_entries', { ...ledgerRow, company_id: req.user.company_id });
+        } catch (_) { await pgrestPost('supplier_ledger_entries', ledgerRow); }
+      } catch (_) { /* supplier_ledger_entries may not exist — skip */ }
+    }
 
     return success(res, recovery, 'Direct vendor transfer recorded', 201);
   } catch (err) { return error(res, err.message, err.status || 500); }

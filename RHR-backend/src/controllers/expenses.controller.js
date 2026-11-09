@@ -4,7 +4,7 @@ const { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch, pgrestDelete } = requi
 
 const EXPENSE_CATEGORIES = [
   'Fuel', 'Vehicle Maintenance', 'Office Supplies', 'Utilities', 'Rent',
-  'Salaries', 'Transport', 'Raw Material Purchase', 'Equipment', 'Other'
+  'Salaries', 'Transport', 'Raw Material Purchase', 'Equipment', 'Vendor Payment', 'Other'
 ];
 
 // GET /api/v1/expenses?from=&to=&company_id= — a gte/lte range on the
