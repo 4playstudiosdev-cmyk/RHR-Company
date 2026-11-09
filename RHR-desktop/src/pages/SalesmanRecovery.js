@@ -2,8 +2,8 @@ import { PENDING_RING, PENDING_BADGE } from '../utils/pending';
 import { customerLabel } from '../utils/customerLabel';
 import CustomerSelect from '../components/CustomerSelect';
 import DateRangeFilter from '../components/DateRangeFilter';
-import React, { useEffect, useState } from 'react';
-import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2, FileText, ArrowLeftRight } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2, FileText, ArrowLeftRight, Camera, X } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import PageHeader from '../components/PageHeader';
 import Button from '../components/Button';
@@ -29,7 +29,7 @@ const EMPTY_FORM = {
   reference_number: '', notes: '',
   cheque_bank: '', cheque_number: '', cheque_date: '',
   recovery_date: new Date().toISOString().split('T')[0],
-  vendor_id: '',
+  vendor_id: '', vendor_payment_method: 'cash', bank_account_id: '',
 };
 
 const EMPTY_CLOSING_FORM = { salesman_id: '', amount: '', deposit_to: 'bank', bank_account: '', notes: '' };
@@ -117,6 +117,10 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
   const [chequeBusy, setChequeBusy] = useState(false);
   const [removed, setRemoved] = useState([]);   // rejected + deleted payments, kept for the record
   const [suppliersList, setSuppliersList] = useState([]);
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState('');
+  const photoInputRef = useRef(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   useEffect(() => {
     loadSalesmen();
@@ -215,6 +219,42 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
     }
   };
 
+  const pickPhoto = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      toast.error('Please choose a JPG, PNG or WebP photo.');
+      e.target.value = '';
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) { toast.error('Photo is too large — max 10 MB.'); e.target.value = ''; return; }
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+  };
+
+  const clearPhoto = () => {
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoFile(null);
+    setPhotoPreview('');
+    if (photoInputRef.current) photoInputRef.current.value = '';
+  };
+
+  const uploadPhoto = async (file) => {
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const res = await api.post('/storage/upload', {
+      bucket: 'recovery-photos',
+      fileName: file.name,
+      fileBase64: base64,
+      mimeType: file.type,
+    });
+    return res.data.data.url;
+  };
+
   const handleClearCheque = async () => {
     if (!clearDest) { toast.error('Select where the cheque amount was deposited.'); return; }
     setChequeBusy(true);
@@ -300,6 +340,9 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
       }
       setSaving(true);
       try {
+        setUploadingPhoto(true);
+        const uploadedUrl = photoFile ? await uploadPhoto(photoFile) : null;
+        setUploadingPhoto(false);
         await api.post('/recovery/vendor-transfer', {
           customer_id: form.customer_id,
           supplier_id: form.vendor_id,
@@ -308,11 +351,16 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
           recovery_date: form.recovery_date,
           reference_number: form.reference_number || null,
           notes: form.notes || null,
+          vendor_payment_method: form.vendor_payment_method || 'cash',
+          bank_account_id: form.vendor_payment_method === 'bank_transfer' ? (form.bank_account_id || null) : null,
+          photo_url: uploadedUrl || null,
         });
         toast.success('Direct vendor transfer recorded — customer balance updated.');
         setForm({ ...EMPTY_FORM, salesman_id: form.salesman_id });
+        clearPhoto();
         loadTransactions();
       } catch (err) {
+        setUploadingPhoto(false);
         toast.error(err.response?.data?.message || 'Failed to record vendor transfer.');
       } finally {
         setSaving(false);
@@ -330,7 +378,17 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
     }
     setSaving(true);
     try {
-      await api.post('/recovery/transactions', { ...form, amount: Number(form.amount) });
+      setUploadingPhoto(true);
+      const uploadedUrl = photoFile ? await uploadPhoto(photoFile) : null;
+      setUploadingPhoto(false);
+
+      const payload = { ...form, amount: Number(form.amount), photo_url: uploadedUrl || null };
+      // For online bank_transfer, pass the selected bank account id
+      if (form.payment_type === 'online' && form.payment_method === 'bank_transfer') {
+        const selectedBank = banksList.find((b) => b.id === form.bank_account_id);
+        if (selectedBank) payload.bank_account_label = selectedBank.account_name || selectedBank.bank_name || '';
+      }
+      await api.post('/recovery/transactions', payload);
       toast.success(
         form.payment_type === 'cash'
           ? 'Cash payment recorded — auto-approved.'
@@ -340,10 +398,12 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
       );
       if (form.payment_type === 'cheque') loadCheques();
       setForm({ ...EMPTY_FORM, salesman_id: form.salesman_id });
+      clearPhoto();
       loadCashInHand(form.salesman_id);
       loadTransactions();
       loadPending();
     } catch (err) {
+      setUploadingPhoto(false);
       toast.error(err.response?.data?.message || 'Failed to record recovery.');
     } finally {
       setSaving(false);
@@ -539,7 +599,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                     <button
                       type="button"
                       key={pt.v}
-                      onClick={() => setForm({ ...form, payment_type: pt.v, payment_method: pt.v === 'cash' ? 'cash' : pt.v === 'cheque' ? 'cheque' : pt.v === 'vendor_transfer' ? 'vendor_transfer' : 'easypaisa' })}
+                      onClick={() => { clearPhoto(); setForm({ ...form, payment_type: pt.v, payment_method: pt.v === 'cash' ? 'cash' : pt.v === 'cheque' ? 'cheque' : pt.v === 'vendor_transfer' ? 'vendor_transfer' : 'easypaisa', bank_account_id: '', vendor_payment_method: 'cash' }); }}
                       className={`flex flex-col items-center gap-1 rounded-xl border-2 px-3 py-3 text-center transition-colors ${
                         active ? 'border-navy bg-navy-chip/30' : 'border-gray-200 hover:border-navy/40'
                       }`}
@@ -559,7 +619,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                   <label className="block text-xs font-medium text-gray-700 mb-1.5">Payment Method</label>
                   <select
                     value={form.payment_method}
-                    onChange={(e) => setForm({ ...form, payment_method: e.target.value })}
+                    onChange={(e) => setForm({ ...form, payment_method: e.target.value, bank_account_id: '' })}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
                   >
                     <option value="easypaisa">Easypaisa</option>
@@ -567,6 +627,21 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                     <option value="bank_transfer">Bank Transfer</option>
                   </select>
                 </div>
+                {form.payment_method === 'bank_transfer' && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1.5">Bank Account (RHR)</label>
+                    <select
+                      value={form.bank_account_id}
+                      onChange={(e) => setForm({ ...form, bank_account_id: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                    >
+                      <option value="">— Select Bank Account —</option>
+                      {banksList.map((b) => (
+                        <option key={b.id} value={b.id}>{b.account_name || b.bank_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1.5">Reference / Transaction Number</label>
                   <input
@@ -577,38 +652,68 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                     className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
                   />
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Payment Photo (optional)</label>
+                  <input ref={photoInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={pickPhoto} className="hidden" />
+                  {photoPreview ? (
+                    <div className="relative inline-block">
+                      <img src={photoPreview} alt="Preview" className="h-24 rounded-lg border border-gray-200 object-cover" />
+                      <button type="button" onClick={clearPhoto} className="absolute -top-2 -right-2 bg-white border border-gray-300 rounded-full p-1 text-gray-500 hover:text-red-600 shadow"><X size={13} /></button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => photoInputRef.current?.click()} className="w-full flex items-center justify-center gap-2 border border-dashed border-gray-300 rounded-lg py-2.5 text-sm text-gray-500 hover:border-navy hover:text-navy transition-colors">
+                      <Camera size={15} /> Add Photo
+                    </button>
+                  )}
+                </div>
               </>
             )}
 
             {form.payment_type === 'cheque' && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-gray-50 border border-gray-200 rounded-xl p-3.5">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Bank Name *</label>
-                  <input
-                    type="text"
-                    value={form.cheque_bank}
-                    onChange={(e) => setForm({ ...form, cheque_bank: e.target.value })}
-                    placeholder="e.g. HBL"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
-                  />
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3.5 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1.5">Bank Name *</label>
+                    <input
+                      type="text"
+                      value={form.cheque_bank}
+                      onChange={(e) => setForm({ ...form, cheque_bank: e.target.value })}
+                      placeholder="e.g. HBL"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1.5">Cheque Number *</label>
+                    <input
+                      type="text"
+                      value={form.cheque_number}
+                      onChange={(e) => setForm({ ...form, cheque_number: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1.5">Cheque Date *</label>
+                    <input
+                      type="date"
+                      value={form.cheque_date}
+                      onChange={(e) => setForm({ ...form, cheque_date: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+                    />
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Cheque Number *</label>
-                  <input
-                    type="text"
-                    value={form.cheque_number}
-                    onChange={(e) => setForm({ ...form, cheque_number: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Cheque Date *</label>
-                  <input
-                    type="date"
-                    value={form.cheque_date}
-                    onChange={(e) => setForm({ ...form, cheque_date: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
-                  />
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Cheque Photo (optional)</label>
+                  <input ref={photoInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={pickPhoto} className="hidden" />
+                  {photoPreview ? (
+                    <div className="relative inline-block">
+                      <img src={photoPreview} alt="Preview" className="h-24 rounded-lg border border-gray-200 object-cover" />
+                      <button type="button" onClick={clearPhoto} className="absolute -top-2 -right-2 bg-white border border-gray-300 rounded-full p-1 text-gray-500 hover:text-red-600 shadow"><X size={13} /></button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => photoInputRef.current?.click()} className="w-full flex items-center justify-center gap-2 border border-dashed border-gray-300 rounded-lg py-2.5 text-sm text-gray-500 hover:border-navy hover:text-navy transition-colors">
+                      <Camera size={15} /> Add Photo
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -616,7 +721,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
             {form.payment_type === 'vendor_transfer' && (
               <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3.5 space-y-3">
                 <p className="text-xs text-indigo-700 font-medium">
-                  Customer's outstanding balance reduces immediately. Vendor payable is also cleared. No cash or bank movement.
+                  Customer's outstanding balance reduces immediately. Vendor payable is also cleared.
                 </p>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1.5">Vendor / Supplier *</label>
@@ -632,6 +737,38 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                   </select>
                 </div>
                 <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Payment Method</label>
+                  <div className="flex gap-2">
+                    {['cash', 'bank_transfer'].map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setForm({ ...form, vendor_payment_method: m, bank_account_id: '' })}
+                        className={`flex-1 py-2 rounded-lg text-xs font-semibold border-2 transition-colors ${
+                          form.vendor_payment_method === m ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-gray-300 text-gray-600 hover:border-indigo-400'
+                        }`}
+                      >
+                        {m === 'cash' ? 'Cash' : 'Bank Transfer'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {form.vendor_payment_method === 'bank_transfer' && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1.5">Bank Account (RHR) *</label>
+                    <select
+                      value={form.bank_account_id}
+                      onChange={(e) => setForm({ ...form, bank_account_id: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                    >
+                      <option value="">— Select Bank Account —</option>
+                      {banksList.map((b) => (
+                        <option key={b.id} value={b.id}>{b.account_name || b.bank_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1.5">Reference / Transaction Number</label>
                   <input
                     type="text"
@@ -640,6 +777,20 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                     placeholder="e.g. TXN-123456"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
                   />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Payment Photo (optional)</label>
+                  <input ref={photoInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={pickPhoto} className="hidden" />
+                  {photoPreview ? (
+                    <div className="relative inline-block">
+                      <img src={photoPreview} alt="Preview" className="h-24 rounded-lg border border-gray-200 object-cover" />
+                      <button type="button" onClick={clearPhoto} className="absolute -top-2 -right-2 bg-white border border-gray-300 rounded-full p-1 text-gray-500 hover:text-red-600 shadow"><X size={13} /></button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => photoInputRef.current?.click()} className="w-full flex items-center justify-center gap-2 border border-dashed border-gray-300 rounded-lg py-2.5 text-sm text-gray-500 hover:border-indigo-400 hover:text-indigo-600 transition-colors">
+                      <Camera size={15} /> Add Photo
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -712,7 +863,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
             </div>
 
             <Button type="submit" variant="accent" disabled={saving} className="w-full">
-              {saving ? 'Saving...' : form.payment_type === 'cash' ? 'Record Cash Payment' : form.payment_type === 'cheque' ? 'Record Cheque' : form.payment_type === 'vendor_transfer' ? 'Record Vendor Transfer' : 'Submit Online Payment'}
+              {saving ? (uploadingPhoto ? 'Uploading photo...' : 'Saving...') : form.payment_type === 'cash' ? 'Record Cash Payment' : form.payment_type === 'cheque' ? 'Record Cheque' : form.payment_type === 'vendor_transfer' ? 'Record Vendor Transfer' : 'Submit Online Payment'}
             </Button>
           </form>
 
