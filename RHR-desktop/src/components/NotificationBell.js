@@ -132,7 +132,7 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
               <BellRing size={18} className="text-white" />
               <span className="text-white font-semibold text-sm">Notifications</span>
               {combinedCount > 0 && (
-                <span className={`text-white text-xs font-bold px-2 py-0.5 rounded-full ${totalPending > 0 ? 'bg-orange-500' : 'bg-red-500'}`}>
+                <span className="text-white text-xs font-bold px-2 py-0.5 rounded-full bg-red-500">
                   {combinedCount} pending
                 </span>
               )}
@@ -247,7 +247,7 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
         {combinedCount > 0 ? <BellRing size={24} className="text-white" /> : <Bell size={24} className="text-white" />}
 
         {combinedCount > 0 && (
-          <span className={`absolute -top-1 -right-1 min-w-[20px] h-5 text-white text-xs font-bold rounded-full flex items-center justify-center px-1 shadow-lg ${totalPending > 0 ? 'bg-orange-500' : 'bg-red-500'}`}>
+          <span className="absolute -top-1 -right-1 min-w-[20px] h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center px-1 shadow-lg">
             {combinedCount > 99 ? '99+' : combinedCount}
           </span>
         )}
