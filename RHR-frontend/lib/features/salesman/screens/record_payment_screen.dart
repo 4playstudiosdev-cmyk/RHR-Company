@@ -35,16 +35,18 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
   bool    _isLoading        = false;
   String? _uploadedPhotoUrl;
   DateTime? _chequeDate;
+  DateTime _paymentDate = DateTime.now();
 
   final List<String> _methods = ['Cash', 'Bank Transfer', 'Cheque', 'Vendor Transfer'];
 
   List<Map<String, dynamic>> _bankAccounts = [];
   bool _loadingBankAccounts = false;
   String? _selectedBankAccountId;
-  DateTime _transferDate = DateTime.now();
+  String? _selectedChequeBankId;
 
   List<Map<String, dynamic>> _suppliers = [];
   String? _selectedSupplierId;
+  String _vendorSubMethod = 'Cash';
   final _referenceController = TextEditingController();
 
   String? _selectedCustomerId;
@@ -136,14 +138,14 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
     }
   }
 
-  Future<void> _pickTransferDate() async {
+  Future<void> _pickPaymentDate() async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: _transferDate,
-      firstDate: DateTime.now().subtract(const Duration(days: 30)),
+      initialDate: _paymentDate,
+      firstDate: DateTime.now().subtract(const Duration(days: 90)),
       lastDate: DateTime.now(),
     );
-    if (picked != null) setState(() => _transferDate = picked);
+    if (picked != null) setState(() => _paymentDate = picked);
   }
 
   Future<void> _pickChequeDate() async {
@@ -265,9 +267,9 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter an amount.')));
       return;
     }
-    // Photo is required for cash/bank/cheque but NOT for vendor transfer
     final hasPhoto = _uploadedPhotoUrl != null || _offlinePhotoBase64 != null;
-    if (_selectedMethod != 'Vendor Transfer' && !hasPhoto) {
+    final photoRequired = _selectedMethod != 'Vendor Transfer' || _vendorSubMethod == 'Cash';
+    if (photoRequired && !hasPhoto) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please upload a payment photo.')));
       return;
     }
@@ -275,15 +277,19 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select a vendor / supplier.')));
       return;
     }
+    if (_selectedMethod == 'Vendor Transfer' && _vendorSubMethod == 'Online Transfer' && _referenceController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter the vendor bank name for the online transfer.')));
+      return;
+    }
     if (_selectedMethod == 'Bank Transfer' && _selectedBankAccountId == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select which bank account it went to.')));
       return;
     }
     if (_selectedMethod == 'Cheque' &&
-        (_chequeBankController.text.trim().isEmpty ||
+        (_selectedChequeBankId == null ||
          _chequeNumberController.text.trim().isEmpty ||
          _chequeDate == null)) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter the cheque's bank name, cheque number and cheque date.")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Select a bank, enter cheque number and cheque date.")));
       return;
     }
     setState(() => _isLoading = true);
@@ -304,6 +310,8 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           if (_offlinePhotoBase64 != null) 'photo_base64': _offlinePhotoBase64,
           if (_uploadedPhotoUrl != null)   'photo_url':    _uploadedPhotoUrl,
         };
+        final dateStr = '${_paymentDate.year}-${_paymentDate.month.toString().padLeft(2, '0')}-${_paymentDate.day.toString().padLeft(2, '0')}';
+        payload['recovery_date'] = dateStr;
         if (_selectedMethod == 'Bank Transfer') {
           payload['bank_account_id'] = _selectedBankAccountId;
           final bankLabel = _bankAccounts.firstWhere(
@@ -311,9 +319,15 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           if (bankLabel != null) payload['bank_account_label'] = bankLabel;
         } else if (_selectedMethod == 'Vendor Transfer') {
           payload['supplier_id'] = _selectedSupplierId;
+          payload['vendor_sub_method'] = _vendorSubMethod;
+          if (_vendorSubMethod == 'Online Transfer') {
+            payload['vendor_bank_name'] = _referenceController.text.trim();
+          }
         } else if (_selectedMethod == 'Cheque') {
           final d = _chequeDate!;
-          payload['cheque_bank']   = _chequeBankController.text.trim();
+          final chequeBankName = _bankAccounts.firstWhere(
+              (a) => a['id'] == _selectedChequeBankId, orElse: () => {'bank_name': ''})['bank_name']?.toString() ?? '';
+          payload['cheque_bank']   = chequeBankName;
           payload['cheque_number'] = _chequeNumberController.text.trim();
           payload['cheque_date']   = '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
         }
@@ -325,12 +339,14 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
         return;
       }
 
+      final dateStr = '${_paymentDate.year}-${_paymentDate.month.toString().padLeft(2, '0')}-${_paymentDate.day.toString().padLeft(2, '0')}';
       late Response response;
       if (_selectedMethod == 'Cash') {
         response = await DioClient.instance.post(ApiEndpoints.recoveryTransactionsMe, data: {
           'customer_id': _selectedCustomerId,
           'amount': amount,
           'photo_url': _uploadedPhotoUrl,
+          'recovery_date': dateStr,
           if (notes != null) 'notes': notes,
         });
       } else if (_selectedMethod == 'Bank Transfer') {
@@ -342,26 +358,33 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           'bank_account_id': _selectedBankAccountId,
           if (bankLabel != null) 'bank_account_label': bankLabel,
           'photo_url': _uploadedPhotoUrl,
+          'recovery_date': dateStr,
           if (notes != null) 'notes': notes,
         });
       } else if (_selectedMethod == 'Vendor Transfer') {
+        final vendorNotes = _vendorSubMethod == 'Online Transfer'
+            ? 'Online Transfer — Bank: ${_referenceController.text.trim()}${notes != null ? " | $notes" : ""}'
+            : notes;
         response = await DioClient.instance.post(ApiEndpoints.recoveryVendorTransferMe, data: {
           'customer_id': _selectedCustomerId,
           'supplier_id': _selectedSupplierId,
           'amount': amount,
           if (_uploadedPhotoUrl != null) 'photo_url': _uploadedPhotoUrl,
-          if (reference != null) 'reference_number': reference,
-          if (notes != null) 'notes': notes,
+          'recovery_date': dateStr,
+          if (vendorNotes != null) 'notes': vendorNotes,
         });
       } else {
         final d = _chequeDate!;
+        final chequeBankName = _bankAccounts.firstWhere(
+            (a) => a['id'] == _selectedChequeBankId, orElse: () => {'bank_name': ''})['bank_name']?.toString() ?? '';
         response = await DioClient.instance.post(ApiEndpoints.recoveryChequeMe, data: {
           'customer_id': _selectedCustomerId,
           'amount': amount,
-          'cheque_bank': _chequeBankController.text.trim(),
+          'cheque_bank': chequeBankName,
           'cheque_number': _chequeNumberController.text.trim(),
           'cheque_date': '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}',
           'photo_url': _uploadedPhotoUrl,
+          'recovery_date': dateStr,
           if (notes != null) 'notes': notes,
         });
       }
@@ -523,6 +546,15 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           _amountField(),
           const SizedBox(height: 20),
 
+          // ── Payment Date ─────────────────────────────────────────────────
+          _fieldLabel('Payment Date'),
+          const SizedBox(height: 8),
+          _datePicker(
+            label: '${_paymentDate.day.toString().padLeft(2, '0')}-${_paymentDate.month.toString().padLeft(2, '0')}-${_paymentDate.year}',
+            onTap: _pickPaymentDate,
+          ),
+          const SizedBox(height: 20),
+
           // ── Payment method ───────────────────────────────────────────────
           _fieldLabel('Payment Method'),
           const SizedBox(height: 10),
@@ -545,7 +577,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
               return TapScale(
                 onTap: () {
                   setState(() => _selectedMethod = method);
-                  if (method == 'Bank Transfer') _loadBankAccounts();
+                  if (method == 'Bank Transfer' || method == 'Cheque') _loadBankAccounts();
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
@@ -591,19 +623,26 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                     )).toList(),
                     onChanged: (v) => setState(() => _selectedBankAccountId = v),
                   ),
-            const SizedBox(height: 16),
-            _fieldLabel('Transfer Date'),
-            const SizedBox(height: 8),
-            _datePicker(
-              label: '${_transferDate.year}-${_transferDate.month.toString().padLeft(2, '0')}-${_transferDate.day.toString().padLeft(2, '0')}',
-              onTap: _pickTransferDate,
-            ),
           ],
 
           // ── Cheque fields ────────────────────────────────────────────────
           if (_selectedMethod == 'Cheque') ...[
             const SizedBox(height: 20),
-            PremiumInput(label: 'Bank Name', hint: 'e.g. HBL, MCB', controller: _chequeBankController, prefixIcon: Icons.account_balance_rounded),
+            _fieldLabel('Bank'),
+            const SizedBox(height: 8),
+            _loadingBankAccounts
+                ? const Center(child: Padding(
+                    padding: EdgeInsets.all(8),
+                    child: CircularProgressIndicator(strokeWidth: 2, color: kNavy)))
+                : _dropdownField(
+                    hint: _bankAccounts.isEmpty ? 'No bank accounts set up' : 'Select bank',
+                    value: _selectedChequeBankId,
+                    items: _bankAccounts.map((a) => DropdownMenuItem(
+                      value: a['id'] as String,
+                      child: Text(a['bank_name']?.toString() ?? '', overflow: TextOverflow.ellipsis),
+                    )).toList(),
+                    onChanged: (v) => setState(() => _selectedChequeBankId = v),
+                  ),
             const SizedBox(height: 14),
             PremiumInput(label: 'Cheque Number', hint: 'e.g. 001234', controller: _chequeNumberController, prefixIcon: Icons.tag_rounded),
             const SizedBox(height: 14),
@@ -650,6 +689,48 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
               ]),
             ),
             const SizedBox(height: 14),
+            _fieldLabel('Transfer Type'),
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(
+                child: TapScale(
+                  onTap: () => setState(() => _vendorSubMethod = 'Cash'),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    decoration: BoxDecoration(
+                      color: _vendorSubMethod == 'Cash' ? kNavy : Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _vendorSubMethod == 'Cash' ? kNavy : const Color(0xFFE0E5EF)),
+                    ),
+                    child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Icon(Icons.payments_rounded, size: 16, color: _vendorSubMethod == 'Cash' ? Colors.white : kNavy),
+                      const SizedBox(width: 6),
+                      Text('Cash', style: TextStyle(color: _vendorSubMethod == 'Cash' ? Colors.white : kNavy, fontWeight: FontWeight.w700, fontSize: 13)),
+                    ]),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TapScale(
+                  onTap: () => setState(() => _vendorSubMethod = 'Online Transfer'),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    decoration: BoxDecoration(
+                      color: _vendorSubMethod == 'Online Transfer' ? kNavy : Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _vendorSubMethod == 'Online Transfer' ? kNavy : const Color(0xFFE0E5EF)),
+                    ),
+                    child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Icon(Icons.account_balance_wallet_rounded, size: 16, color: _vendorSubMethod == 'Online Transfer' ? Colors.white : kNavy),
+                      const SizedBox(width: 6),
+                      Text('Online', style: TextStyle(color: _vendorSubMethod == 'Online Transfer' ? Colors.white : kNavy, fontWeight: FontWeight.w700, fontSize: 13)),
+                    ]),
+                  ),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 14),
             _fieldLabel('Vendor / Supplier *'),
             const SizedBox(height: 8),
             _suppliers.isEmpty
@@ -672,13 +753,15 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                     )).toList(),
                     onChanged: (v) => setState(() => _selectedSupplierId = v),
                   ),
-            const SizedBox(height: 14),
-            PremiumInput(
-              label: 'Reference / Transaction Number (optional)',
-              hint: 'e.g. TXN-001',
-              controller: _referenceController,
-              prefixIcon: Icons.tag_rounded,
-            ),
+            if (_vendorSubMethod == 'Online Transfer') ...[
+              const SizedBox(height: 14),
+              PremiumInput(
+                label: 'Vendor Bank Name *',
+                hint: 'e.g. HBL, MCB, UBL, Meezan',
+                controller: _referenceController,
+                prefixIcon: Icons.account_balance_rounded,
+              ),
+            ],
           ],
 
           const SizedBox(height: 20),
@@ -693,10 +776,10 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           const SizedBox(height: 20),
 
           // ── Photo upload ─────────────────────────────────────────────────
-          _fieldLabel(_selectedMethod == 'Vendor Transfer' ? 'Photo / Proof (optional)' : 'Payment Photo Proof'),
+          _fieldLabel((_selectedMethod == 'Vendor Transfer' && _vendorSubMethod == 'Online Transfer') ? 'Photo / Proof (optional)' : 'Payment Photo Proof'),
           const SizedBox(height: 4),
           Text(
-            _selectedMethod == 'Vendor Transfer'
+            (_selectedMethod == 'Vendor Transfer' && _vendorSubMethod == 'Online Transfer')
                 ? 'Optional — attach a screenshot or receipt'
                 : 'Required — take a photo of the cash / receipt',
             style: const TextStyle(color: kTextMuted, fontSize: 12),
