@@ -47,12 +47,18 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
 
   String? _selectedCustomerId;
   List<Map<String, dynamic>> _customers = [];
+  double? _customerBalance;
+  bool _loadingBalance = false;
 
   @override
   void initState() {
     super.initState();
     _selectedCustomerId = widget.customerId;
-    if (widget.customerId == null) _loadCustomers();
+    if (widget.customerId == null) {
+      _loadCustomers();
+    } else {
+      _loadCustomerBalance(widget.customerId!);
+    }
     _loadSuppliers();
     _customerSearchFocus.addListener(() => setState(() {}));
   }
@@ -74,6 +80,20 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
       }
     } catch (e) {
       debugPrint('Customers load error: $e');
+    }
+  }
+
+  Future<void> _loadCustomerBalance(String customerId) async {
+    setState(() { _customerBalance = null; _loadingBalance = true; });
+    try {
+      final res = await DioClient.instance.get('${ApiEndpoints.ledger}$customerId');
+      if (res.data['success'] == true && mounted) {
+        setState(() => _customerBalance = double.tryParse(res.data['data']['currentBalance']?.toString() ?? '0') ?? 0);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _customerBalance = null);
+    } finally {
+      if (mounted) setState(() => _loadingBalance = false);
     }
   }
 
@@ -277,6 +297,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           'customer_id': _selectedCustomerId,
           'supplier_id': _selectedSupplierId,
           'amount': amount,
+          if (_uploadedPhotoUrl != null) 'photo_url': _uploadedPhotoUrl,
           if (reference != null) 'reference_number': reference,
           if (notes != null) 'notes': notes,
         });
@@ -345,11 +366,28 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(customerTitle(_selectedCustomer, fallback: ''),
-                        style: const TextStyle(fontWeight: FontWeight.w700, color: kNavy, fontSize: 14)),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(customerTitle(_selectedCustomer, fallback: ''),
+                          style: const TextStyle(fontWeight: FontWeight.w700, color: kNavy, fontSize: 14)),
+                      const SizedBox(height: 2),
+                      if (_loadingBalance)
+                        const Text('Loading balance...', style: TextStyle(fontSize: 11, color: kTextMuted))
+                      else if (_customerBalance != null)
+                        Row(children: [
+                          const Text('Outstanding: ', style: TextStyle(fontSize: 11, color: kTextMuted)),
+                          Text(
+                            'PKR ${_customerBalance!.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: _customerBalance! > 0 ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+                            ),
+                          ),
+                        ]),
+                    ]),
                   ),
                   GestureDetector(
-                    onTap: () => setState(() { _selectedCustomerId = null; _customerSearchController.clear(); }),
+                    onTap: () => setState(() { _selectedCustomerId = null; _customerSearchController.clear(); _customerBalance = null; }),
                     child: const Icon(Icons.close_rounded, color: kTextMuted, size: 18),
                   ),
                 ]),
@@ -412,10 +450,12 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                               subtitle: Text(c['phone'] ?? '', style: const TextStyle(fontSize: 11)),
                               onTap: () {
                                 _customerSearchFocus.unfocus();
+                                final id = c['id'] as String;
                                 setState(() {
-                                  _selectedCustomerId = c['id'] as String;
+                                  _selectedCustomerId = id;
                                   _customerSearchController.text = customerTitle(c, fallback: '');
                                 });
+                                _loadCustomerBalance(id);
                               },
                             );
                           },
@@ -601,11 +641,14 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           const SizedBox(height: 20),
 
           // ── Photo upload ─────────────────────────────────────────────────
-          if (_selectedMethod != 'Vendor Transfer') ...[
-          _fieldLabel('Payment Photo Proof'),
+          _fieldLabel(_selectedMethod == 'Vendor Transfer' ? 'Photo / Proof (optional)' : 'Payment Photo Proof'),
           const SizedBox(height: 4),
-          const Text('Required — take a photo of the cash / receipt',
-              style: TextStyle(color: kTextMuted, fontSize: 12)),
+          Text(
+            _selectedMethod == 'Vendor Transfer'
+                ? 'Optional — attach a screenshot or receipt'
+                : 'Required — take a photo of the cash / receipt',
+            style: const TextStyle(color: kTextMuted, fontSize: 12),
+          ),
           const SizedBox(height: 10),
           TapScale(
             onTap: _isLoading ? null : _pickAndUploadPhoto,
@@ -650,9 +693,6 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           ),
 
           const SizedBox(height: 28),
-          ], // end if (_selectedMethod != 'Vendor Transfer')
-
-          if (_selectedMethod == 'Vendor Transfer') const SizedBox(height: 8),
 
           // ── Submit ───────────────────────────────────────────────────────
           PremiumButton(
