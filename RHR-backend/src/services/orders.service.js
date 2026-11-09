@@ -97,9 +97,6 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
     if (!(Number(item.quantity) > 0)) {
       throw new Error(`Enter a quantity for ${product.name}`);
     }
-    if (product.stock_quantity < qtyByProduct[item.product_id]) {
-      throw new Error(`Insufficient stock for ${product.name}`);
-    }
     // Grout colour: one of the 24 colours, one line per colour. A colourless Grout line is
     // still accepted (older app versions), it just carries no colour.
     let lineName = product.name;
@@ -190,11 +187,6 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
     .insert(orderItems.map(item => ({ ...item, order_id: order.id })));
 
   if (iErr) throw new Error(iErr.message);
-
-  // Stock is no longer deducted here — it leaves inventory when the
-  // order is actually marked delivered (see deductDeliveredStock below),
-  // not the moment it's placed. The stock_quantity check above still
-  // guards against ordering more than what's currently on hand.
 
   // Best-effort — a notification failure should never block the order
   // itself. recipient_role: 'branch_admin' + company_id scopes this to
