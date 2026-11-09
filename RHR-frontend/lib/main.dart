@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'core/constants/app_colors.dart';
 import 'core/storage/hive_service.dart';
+import 'core/storage/connectivity_service.dart';
 import 'core/storage/secure_storage.dart';
 import 'services/gps_service.dart';
 import 'services/push_service.dart';
@@ -27,6 +28,7 @@ void main() async {
   // Lets the background GPS task and the UI talk to each other.
   FlutterForegroundTask.initCommunicationPort();
   await HiveService.init();
+  ConnectivityService.startListening();
   await GPSService().initialize();
   await AppFeatures.restore();
   // Push notifications (Firebase). Never blocks or breaks startup if Firebase is unavailable.

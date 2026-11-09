@@ -64,6 +64,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           ApiEndpoints.products, queryParameters: {'limit': 50});
       final cRes = await DioClient.instance.get(ApiEndpoints.customers);
       final catRes = await DioClient.instance.get(ApiEndpoints.categories);
+      final List<Map<String, dynamic>> loadedProducts = [];
+      final List<Map<String, dynamic>> loadedCustomers = [];
       setState(() {
         _isOnline = true;
         if (pRes.data['success'] == true) {
@@ -71,16 +73,32 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           _products = (d is List ? d : (d['products'] ?? []))
               .map<Map<String, dynamic>>((e) => {...Map<String, dynamic>.from(e), 'qty': 0, 'base_price': e['price']})
               .toList();
+          loadedProducts.addAll(_products.map((p) => Map<String, dynamic>.from(p)));
         }
         if (cRes.data['success'] == true) {
           _customers = List<Map<String, dynamic>>.from(cRes.data['data'] ?? []);
+          loadedCustomers.addAll(_customers);
         }
         if (catRes.data['success'] == true) {
           _categories = List<Map<String, dynamic>>.from(catRes.data['data'] ?? []);
         }
       });
+      if (loadedProducts.isNotEmpty) HiveService.cacheProducts(loadedProducts);
+      if (loadedCustomers.isNotEmpty) HiveService.cacheCustomers(loadedCustomers);
     } catch (e) {
       setState(() => _isOnline = false);
+      // Load from cache when offline
+      final cachedProducts = HiveService.getCachedProducts();
+      final cachedCustomers = HiveService.getCachedCustomers();
+      if (cachedProducts.isNotEmpty || cachedCustomers.isNotEmpty) {
+        setState(() {
+          if (cachedProducts.isNotEmpty) {
+            _products = cachedProducts.map<Map<String, dynamic>>(
+                (p) => {...p, 'qty': 0, 'base_price': p['price']}).toList();
+          }
+          if (cachedCustomers.isNotEmpty) _customers = cachedCustomers;
+        });
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

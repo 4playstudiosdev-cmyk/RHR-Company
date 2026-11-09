@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
+import '../../../core/storage/hive_service.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/widgets/shimmer_box.dart';
 import '../../../shared/widgets/premium_ui.dart';
@@ -18,6 +19,7 @@ class CustomersListScreen extends StatefulWidget {
 class _CustomersListScreenState extends State<CustomersListScreen> {
   List<Map<String, dynamic>> _customers = [];
   bool _isLoading = true;
+  bool _isOffline = false;
   String _search = '';
   bool _isDriver = false;
 
@@ -42,10 +44,13 @@ class _CustomersListScreenState extends State<CustomersListScreen> {
             customers = customers.where((c) => c['salesman_id'] == myId).toList();
           }
         }
-        setState(() => _customers = customers);
+        await HiveService.cacheCustomers(customers);
+        if (mounted) setState(() { _customers = customers; _isOffline = false; });
       }
     } catch (e) {
       debugPrint('Customers error: $e');
+      final cached = HiveService.getCachedCustomers();
+      if (mounted) setState(() { _customers = cached; _isOffline = true; });
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -83,6 +88,18 @@ class _CustomersListScreenState extends State<CustomersListScreen> {
       ),
       body: Column(
         children: [
+          if (_isOffline)
+            Container(
+              width: double.infinity,
+              color: Colors.orange.shade100,
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+              child: const Row(children: [
+                Icon(Icons.wifi_off_rounded, size: 14, color: Colors.orange),
+                SizedBox(width: 8),
+                Text('Offline — showing cached data',
+                    style: TextStyle(fontSize: 11, color: Colors.orange)),
+              ]),
+            ),
           PremiumSearchBar(
             hint: 'Search by name, shop or phone...',
             onChanged: (v) => setState(() => _search = v),

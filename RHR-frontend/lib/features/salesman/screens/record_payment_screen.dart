@@ -6,6 +6,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:dio/dio.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/storage/hive_service.dart';
+import '../../../core/storage/connectivity_service.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/widgets/tap_scale.dart';
 import '../../../shared/widgets/premium_ui.dart';
@@ -49,6 +51,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
   List<Map<String, dynamic>> _customers = [];
   double? _customerBalance;
   bool _loadingBalance = false;
+  String? _offlinePhotoBase64;
 
   @override
   void initState() {
@@ -76,10 +79,14 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
     try {
       final res = await DioClient.instance.get(ApiEndpoints.customers);
       if (res.data['success'] == true && mounted) {
-        setState(() => _customers = List<Map<String, dynamic>>.from(res.data['data'] ?? []));
+        final list = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
+        HiveService.cacheCustomers(list);
+        setState(() => _customers = list);
       }
     } catch (e) {
       debugPrint('Customers load error: $e');
+      final cached = HiveService.getCachedCustomers();
+      if (cached.isNotEmpty && mounted) setState(() => _customers = cached);
     }
   }
 
@@ -211,6 +218,17 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
     try {
       final bytes = await File(image.path).readAsBytes();
       final b64   = base64Encode(bytes);
+      final online = await ConnectivityService.isOnline();
+      if (!online) {
+        // Store base64 locally; will upload during sync
+        setState(() {
+          _offlinePhotoBase64 = b64;
+          _photoUploaded      = true;
+        });
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Offline — photo saved, will upload on sync.')));
+        return;
+      }
       final response = await DioClient.instance.post(
         ApiEndpoints.storageUpload,
         data: {
@@ -248,7 +266,8 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
       return;
     }
     // Photo is required for cash/bank/cheque but NOT for vendor transfer
-    if (_selectedMethod != 'Vendor Transfer' && _uploadedPhotoUrl == null) {
+    final hasPhoto = _uploadedPhotoUrl != null || _offlinePhotoBase64 != null;
+    if (_selectedMethod != 'Vendor Transfer' && !hasPhoto) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please upload a payment photo.')));
       return;
     }
@@ -272,6 +291,39 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
       final amount    = double.parse(_amountController.text);
       final notes     = _notesController.text.trim().isNotEmpty ? _notesController.text.trim() : null;
       final reference = _referenceController.text.trim().isNotEmpty ? _referenceController.text.trim() : null;
+
+      // Offline: queue the payment for later sync
+      final online = await ConnectivityService.isOnline();
+      if (!online) {
+        final payload = <String, dynamic>{
+          '_method':     _selectedMethod,
+          'customer_id': _selectedCustomerId,
+          'amount':      amount,
+          if (notes != null)     'notes':     notes,
+          if (reference != null) 'reference_number': reference,
+          if (_offlinePhotoBase64 != null) 'photo_base64': _offlinePhotoBase64,
+          if (_uploadedPhotoUrl != null)   'photo_url':    _uploadedPhotoUrl,
+        };
+        if (_selectedMethod == 'Bank Transfer') {
+          payload['bank_account_id'] = _selectedBankAccountId;
+          final bankLabel = _bankAccounts.firstWhere(
+              (a) => a['id'] == _selectedBankAccountId, orElse: () => {})['bank_name'];
+          if (bankLabel != null) payload['bank_account_label'] = bankLabel;
+        } else if (_selectedMethod == 'Vendor Transfer') {
+          payload['supplier_id'] = _selectedSupplierId;
+        } else if (_selectedMethod == 'Cheque') {
+          final d = _chequeDate!;
+          payload['cheque_bank']   = _chequeBankController.text.trim();
+          payload['cheque_number'] = _chequeNumberController.text.trim();
+          payload['cheque_date']   = '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+        }
+        await HiveService.queuePayment(payload);
+        if (mounted) {
+          await showSuccessCheck(context, message: 'Saved offline — will sync when connected');
+          if (mounted) context.go('/salesman-dashboard');
+        }
+        return;
+      }
 
       late Response response;
       if (_selectedMethod == 'Cash') {

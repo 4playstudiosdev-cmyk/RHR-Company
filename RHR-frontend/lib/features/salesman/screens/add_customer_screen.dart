@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../core/storage/secure_storage.dart';
+import '../../../core/storage/hive_service.dart';
+import '../../../core/storage/connectivity_service.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
@@ -218,7 +220,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     }).toList();
   }
 
-  bool _validateStep1() {
+  bool _validateStep1({bool requirePhoto = true}) {
     final checks = <String, bool>{
       'Full Name': _nameController.text.trim().isNotEmpty,
       'Phone Number': _phoneController.text.trim().isNotEmpty,
@@ -226,7 +228,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
       'Shop Address': _addressController.text.trim().isNotEmpty,
       'City': _cityController.text.trim().isNotEmpty,
       'Area': _areaController.text.trim().isNotEmpty,
-      'Shop Photo': _shopImageFile != null,
+      if (requirePhoto) 'Shop Photo': _shopImageFile != null,
       'Credit Limit': double.tryParse(_creditLimitController.text.trim()) != null,
       'Opening Balance': double.tryParse(_openingBalanceController.text.trim()) != null,
     };
@@ -241,9 +243,40 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   }
 
   Future<void> _save() async {
-    if (!_validateStep1()) return;
+    final online = await ConnectivityService.isOnline();
+    if (!_validateStep1(requirePhoto: online)) return;
     setState(() => _saving = true);
     try {
+      // ── Offline path ──────────────────────────────────────────────────────
+      if (!online) {
+        final payload = <String, dynamic>{
+          'full_name':    _nameController.text.trim(),
+          'phone':        _phoneController.text.trim(),
+          'shop_name':    _shopNameController.text.trim(),
+          'shop_address': _addressController.text.trim(),
+          'city':         _cityController.text.trim(),
+          'area':         _areaController.text.trim(),
+          'shop_latitude':  _shopLatitude,
+          'shop_longitude': _shopLongitude,
+          'nic_number':   _nicNumberController.text.trim(),
+          if (double.tryParse(_creditLimitController.text.trim()) != null)
+            'credit_limit': double.tryParse(_creditLimitController.text.trim()),
+          if (_isDriver && _salesmanId != null) 'salesman_id': _salesmanId,
+        };
+        if (_shopImageFile != null) {
+          payload['shop_image_base64'] = base64Encode(await _shopImageFile!.readAsBytes());
+        }
+        await HiveService.queueNewCustomer(payload);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Saved offline — will sync when connected')));
+          await showSuccessCheck(context, message: 'Customer queued!');
+          if (mounted) context.pop(true);
+        }
+        return;
+      }
+
+      // ── Online path ───────────────────────────────────────────────────────
       String? shopImageUrl;
       String? nicFrontUrl;
       String? nicBackUrl;
