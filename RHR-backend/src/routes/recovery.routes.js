@@ -24,7 +24,7 @@ const paymentMessages = require('../services/paymentMessages.service');
 // POST /ledger/adjustment and the order-return flow. ledger_entries has
 // no reference_id column (only reference_type), so that's all that's
 // recorded here to tie the entry back to "recovery".
-async function creditLedger({ companyId, customerId, amount, description, userId }) {
+async function creditLedger({ companyId, customerId, amount, description, userId, date }) {
   const lastEntries = await pgrestGet('ledger_entries', {
     select: 'running_balance',
     customer_id: `eq.${customerId}`,
@@ -34,7 +34,7 @@ async function creditLedger({ companyId, customerId, amount, description, userId
   const prevBalance = lastEntries?.[0]?.running_balance || 0;
   const newBalance = prevBalance - Number(amount);
 
-  await pgrestPost('ledger_entries', {
+  const entryRow = {
     company_id: companyId,
     customer_id: customerId,
     entry_type: 'credit',
@@ -43,7 +43,9 @@ async function creditLedger({ companyId, customerId, amount, description, userId
     description,
     reference_type: 'recovery',
     created_by: userId,
-  });
+  };
+  if (date) entryRow.created_at = new Date(date).toISOString();
+  await pgrestPost('ledger_entries', entryRow);
 }
 
 // GET /api/v1/recovery/transactions
@@ -103,7 +105,7 @@ router.get('/transactions', authenticate, isAdmin, async (req, res) => {
     const companyId = resolveCompanyId(req);
     const { salesman_id, status } = req.query;
 
-    const params = { select: await withPhoto(RECOVERY_SELECT), order: 'created_at.desc' };
+    const params = { select: await withPhoto(RECOVERY_SELECT), order: 'recovery_date.desc,created_at.desc' };
     if (companyId)   params.company_id  = `eq.${companyId}`;
     if (salesman_id) params.salesman_id = `eq.${salesman_id}`;
     params.status = status ? `eq.${status}` : 'neq.deleted';
@@ -165,6 +167,7 @@ router.post('/transactions', authenticate, isAdmin, async (req, res) => {
         amount: Number(amount),
         description: 'Cash payment received by salesman',
         userId: req.user.id,
+        date: recovery_date,
       });
     }
 
@@ -213,6 +216,7 @@ router.patch('/transactions/:id/approve', authenticate, isAdmin, async (req, res
       amount: Number(recovery.amount),
       description: recovery.payment_method === 'bank_transfer' ? 'Bank transfer approved' : `Online payment approved — ${recovery.payment_method}`,
       userId: req.user.id,
+      date: recovery.recovery_date,
     });
 
     paymentMessages.paymentReceived({
@@ -805,6 +809,7 @@ router.post('/transactions/me', authenticate, isSalesman, async (req, res) => {
       amount: Number(amount),
       description: 'Cash payment received by salesman',
       userId: null,
+      date: recovery_date,
     });
 
     paymentMessages.paymentReceived({ customerId: customer_id, amount, method: 'cash' });
@@ -896,7 +901,7 @@ router.get('/bank-transfers/me', authenticate, isSalesman, async (req, res) => {
       salesman_id: `eq.${req.user.id}`,
       payment_type: 'eq.bank',
       status: 'neq.deleted',
-      order: 'created_at.desc',
+      order: 'recovery_date.desc,created_at.desc',
     });
     return success(res, data);
   } catch (err) { return error(res, err.message); }
@@ -910,7 +915,7 @@ router.get('/transactions/me', authenticate, isSalesman, async (req, res) => {
       select: RECOVERY_SELECT,
       salesman_id: `eq.${req.user.id}`,
       status: 'neq.deleted',
-      order: 'created_at.desc',
+      order: 'recovery_date.desc,created_at.desc',
     });
     return success(res, data);
   } catch (err) { return error(res, err.message); }
@@ -1052,6 +1057,7 @@ router.post('/driver-transactions/me', authenticate, isDriver, async (req, res) 
       amount: Number(amount),
       description: 'Cash payment received by driver',
       userId: null,
+      date: recovery_date,
     });
 
     return success(res, recovery, 'Cash collection recorded', 201);
@@ -1064,7 +1070,7 @@ router.get('/driver-transactions/me', authenticate, isDriver, async (req, res) =
       select: RECOVERY_SELECT,
       driver_id: `eq.${req.user.id}`,
       status: 'neq.deleted',
-      order: 'created_at.desc',
+      order: 'recovery_date.desc,created_at.desc',
     });
     return success(res, data);
   } catch (err) { return error(res, err.message); }
@@ -1180,6 +1186,7 @@ router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) =>
       amount:      Number(amount),
       description: 'Direct vendor transfer — customer balance settled via supplier',
       userId:      null,
+      date:        recovery_date,
     });
 
     return success(res, recovery, 'Direct vendor transfer recorded', 201);
@@ -1220,6 +1227,7 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
       customerId:  customer_id,
       amount:      Number(amount),
       description: 'Direct vendor transfer — customer balance settled via supplier',
+      date:        recovery_date,
       userId:      req.user.id,
     });
 
@@ -1236,7 +1244,7 @@ router.get('/vendor-transfers', authenticate, isAdmin, async (req, res) => {
     const params = {
       select: baseSelect,
       payment_type: 'eq.vendor_transfer',
-      order: 'created_at.desc',
+      order: 'recovery_date.desc,created_at.desc',
     };
     if (companyId) params.company_id = `eq.${companyId}`;
 
