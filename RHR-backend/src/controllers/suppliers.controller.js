@@ -36,7 +36,7 @@ const adjustSupplierLedger = async (req, res) => {
     if (isNaN(Number(amount)) || Number(amount) <= 0)
       return error(res, 'amount must be a positive number', 400);
 
-    const suppliers = await pgrestGet('suppliers', { select: 'id,company_id', id: `eq.${id}` });
+    const suppliers = await pgrestGet('suppliers', { select: 'id,company_id,name', id: `eq.${id}` });
     const supplier = suppliers?.[0];
     if (!supplier) return error(res, 'Supplier not found', 404);
     if (req.user.role !== 'super_admin' && supplier.company_id !== req.user.company_id)
@@ -84,6 +84,26 @@ const adjustSupplierLedger = async (req, res) => {
         created_by:      req.user.id,
       });
     }
+
+    // Create expense when admin records a payment to supplier
+    if (entry_type === 'credit' && (refType || 'adjustment') === 'payment') {
+      const { payment_method, payment_date } = req.body;
+      const expDate = payment_date || new Date().toISOString().split('T')[0];
+      const expMethod = payment_method === 'bank' ? 'bank' : 'cash';
+      try {
+        await pgrestPost('expenses', {
+          company_id:   supplier.company_id,
+          category:     'Vendor Payment',
+          amount:       Number(amount),
+          description:  `Vendor payment to ${supplier.name || 'vendor'} — ${description}`,
+          expense_date: expDate,
+          method:       expMethod,
+          supplier_id:  id,
+          created_by:   req.user.id,
+        });
+      } catch (_) { /* non-fatal — expense columns may vary */ }
+    }
+
     return success(res, data, 'Ledger entry added', 201);
   } catch (err) { return error(res, err.message); }
 };
@@ -110,13 +130,33 @@ const deleteSupplierLedgerEntry = async (req, res) => {
       return error(res, 'Access denied', 403);
 
     const allEntries = await pgrestGet('supplier_ledger_entries', {
-      select: 'id,entry_type,amount,running_balance',
+      select: 'id,entry_type,amount,running_balance,reference_type,created_at',
       supplier_id: `eq.${supplierId}`,
       order: 'created_at.asc',
     });
+    const entryToDelete = (allEntries || []).find(e => e.id === entryId);
     await pgrestDelete('supplier_ledger_entries', { id: `eq.${entryId}` });
     const remaining = (allEntries || []).filter((e) => e.id !== entryId);
     await recalcRunningBalances(remaining);
+
+    // Delete linked expense if this was a payment credit
+    if (entryToDelete?.entry_type === 'credit' && entryToDelete?.reference_type === 'payment') {
+      try {
+        const entryDate = (entryToDelete.created_at || '').split('T')[0];
+        const linked = await pgrestGet('expenses', {
+          supplier_id: `eq.${supplierId}`,
+          amount: `eq.${Number(entryToDelete.amount)}`,
+          category: `eq.Vendor Payment`,
+          expense_date: `eq.${entryDate}`,
+          order: 'created_at.desc',
+          limit: '1',
+        });
+        if (linked?.[0]?.id) {
+          await pgrestDelete('expenses', { id: `eq.${linked[0].id}` });
+        }
+      } catch (_) { /* non-fatal */ }
+    }
+
     return success(res, { deleted: true }, 'Ledger entry deleted');
   } catch (err) { return error(res, err.message); }
 };

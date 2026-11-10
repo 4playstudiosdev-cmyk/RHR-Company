@@ -25,9 +25,14 @@ const paymentMessages = require('../services/paymentMessages.service');
 // no reference_id column (only reference_type), so that's all that's
 // recorded here to tie the entry back to "recovery".
 async function creditLedger({ companyId, customerId, amount, description, userId, date }) {
+  // When inserting a backdated entry (date < now), look for the most recent
+  // existing entry that is <= the target date so the stored snapshot is
+  // correct even if later entries already exist.
+  const targetDate = date ? new Date(date).toISOString() : new Date().toISOString();
   const lastEntries = await pgrestGet('ledger_entries', {
     select: 'running_balance',
     customer_id: `eq.${customerId}`,
+    created_at: `lte.${targetDate}`,
     order: 'created_at.desc',
     limit: '1',
   });

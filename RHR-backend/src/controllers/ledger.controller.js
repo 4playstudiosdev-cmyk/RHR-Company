@@ -141,20 +141,28 @@ const getLedger = async (req, res) => {
     if (!(await canAccessLedger(user, customerId)))
       return error(res, 'Access denied', 403);
 
-    let query = supabaseAdmin
+    // Fetch ALL entries sorted ASC to recompute running_balance correctly.
+    // created_at is set to recovery_date for backdated entries, so the stored
+    // running_balance snapshot can be wrong; recomputing fixes the display.
+    const { data: allData, error: dbError } = await supabaseAdmin
       .from('ledger_entries')
       .select('*')
       .eq('customer_id', customerId)
-      .order('created_at', { ascending: false });
-
-    if (from_date) query = query.gte('created_at', from_date);
-    if (to_date)   query = query.lte('created_at', to_date);
-
-    const { data, error: dbError } = await query;
+      .order('created_at', { ascending: true });
     if (dbError) throw new Error(dbError.message);
 
-    // Current balance is the running_balance on the most recent entry
-    const currentBalance = data.length > 0 ? data[0].running_balance : 0;
+    let bal = 0;
+    const recalculated = (allData || []).map(entry => {
+      bal = entry.entry_type === 'debit' ? bal + Number(entry.amount) : bal - Number(entry.amount);
+      return { ...entry, running_balance: bal };
+    });
+    const currentBalance = bal;
+
+    // Apply date filter and return newest-first
+    let data = recalculated;
+    if (from_date) data = data.filter(e => e.created_at >= from_date);
+    if (to_date)   data = data.filter(e => e.created_at <= to_date + 'T23:59:59.999Z');
+    data = [...data].reverse();
 
     return success(res, { entries: data, currentBalance });
   } catch (err) { return error(res, err.message); }
@@ -185,17 +193,24 @@ const downloadStatement = async (req, res) => {
       .eq('id', customer.company_id)
       .single();
 
-    let query = supabaseAdmin
+    const { data: allRaw, error: dbError } = await supabaseAdmin
       .from('ledger_entries')
       .select('*')
       .eq('customer_id', customerId)
       .order('created_at', { ascending: true });
-
-    if (from_date) query = query.gte('created_at', from_date);
-    if (to_date)   query = query.lte('created_at', to_date);
-
-    const { data: entries, error: dbError } = await query;
     if (dbError) throw new Error(dbError.message);
+
+    // Recompute running_balance sequentially (same as getLedger)
+    let bal = 0;
+    const recalculated = (allRaw || []).map(entry => {
+      bal = entry.entry_type === 'debit' ? bal + Number(entry.amount) : bal - Number(entry.amount);
+      return { ...entry, running_balance: bal };
+    });
+
+    // Apply date filter
+    let entries = recalculated;
+    if (from_date) entries = entries.filter(e => e.created_at >= from_date);
+    if (to_date)   entries = entries.filter(e => e.created_at <= to_date + 'T23:59:59.999Z');
 
     const currentBalance = entries.length > 0 ? entries[entries.length - 1].running_balance : 0;
 

@@ -208,6 +208,8 @@ export default function VendorLedger({ initialSupplierId }) {
         description:    desc,
         reference_type: 'payment',
         receipt_url,
+        payment_method: method,
+        payment_date:   paymentForm.payment_date,
       });
       toast.success('Payment recorded.');
       setShowPaymentModal(false);
