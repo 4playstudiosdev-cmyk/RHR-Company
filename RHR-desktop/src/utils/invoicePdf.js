@@ -23,9 +23,11 @@ export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, 
   const PAGE_W = 210;
 
   const logoDataUrl = await loadLogoDataUrl();
+  const city = order.companies?.city || order.users?.companies?.city || (order.order_number?.startsWith('SUK') ? 'Sukkur' : 'Karachi');
   drawPdfHeader(doc, logoDataUrl, {
     title: returnAmount > 0 ? 'UPDATED INVOICE' : 'SALE INVOICE',
-    subtitle: 'Sales Tax Invoice & Delivery Challan',
+    subtitle: 'Sale Invoice & Delivery Challan',
+    city,
   });
 
   // ── Order detail block — two columns, labels left-aligned to a fixed

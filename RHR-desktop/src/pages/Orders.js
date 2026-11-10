@@ -1,7 +1,7 @@
 import { PENDING_BADGE } from '../utils/pending';
 import CustomerSelect from '../components/CustomerSelect';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ShoppingCart, FileDown, Search, Plus, Minus, Trash2, Eye, Truck, Printer, X } from 'lucide-react';
+import { ShoppingCart, FileDown, Search, Plus, Minus, Trash2, Eye, Truck, Printer, X, Pencil } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
@@ -136,6 +136,8 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
   const [savingOrderEdit, setSavingOrderEdit] = useState(false);
   const [addProductId, setAddProductId] = useState('');
   const [addProductQty, setAddProductQty] = useState(1);
+  // true when edit order modal was opened directly from confirmed/preparing row (not via invoice flow)
+  const [editOrderDirect, setEditOrderDirect] = useState(false);
 
   // "Edit Invoice" — shown once an order already has an invoice
   // (order.invoice_generated_at set). Lets the admin record bags
@@ -542,6 +544,31 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
     if (invoiceOrder.customer_id) loadCustomerPricing(invoiceOrder.customer_id);
   };
 
+  const handleEditOrderDirect = async (order) => {
+    setPdfLoadingId(order.id);
+    try {
+      const res = await api.get(`/orders/${order.id}`);
+      const od = res.data.data;
+      setInvoiceOrder(od);
+      setEditOrderItems((od.order_items || []).map((it) => ({ ...it })));
+      setAddProductId('');
+      setAddProductQty(1);
+      setEditOrderDirect(true);
+      setInvoiceStep('edit');
+      if (products.length === 0) {
+        try {
+          const r2 = await api.get('/products', { params: { limit: 500 } });
+          setProducts(r2.data.data?.products || []);
+        } catch (_) {}
+      }
+      if (od.customer_id) loadCustomerPricing(od.customer_id);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to load order details.');
+    } finally {
+      setPdfLoadingId(null);
+    }
+  };
+
   const updateEditItemQty = (itemId, qty) => {
     setEditOrderItems((prev) => prev.map((it) => (it.id === itemId ? { ...it, quantity: qty } : it)));
   };
@@ -597,10 +624,15 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
         added_items: editOrderItems.filter((it) => it.isNew).map((it) => ({ product_id: it.product_id, quantity: Number(it.quantity) })),
       });
       const res = await api.get(`/orders/${invoiceOrder.id}`);
-      setInvoiceOrder(res.data.data);
       setOrders((prev) => prev.map((o) => (o.id === invoiceOrder.id ? { ...o, total_amount: res.data.data.total_amount } : o)));
       toast.success('Order updated.');
-      setInvoiceStep(0);
+      if (editOrderDirect) {
+        setInvoiceOrder(null);
+        setEditOrderDirect(false);
+      } else {
+        setInvoiceOrder(res.data.data);
+        setInvoiceStep(0);
+      }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update order.');
     } finally {
@@ -1239,6 +1271,17 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                                 {pdfLoadingId === order.id ? 'Generating...' : 'Create Invoice'}
                               </button>
                             )}
+                            {(order.status === 'confirmed' || order.status === 'preparing') && (
+                              <button
+                                onClick={() => handleEditOrderDirect(order)}
+                                disabled={pdfLoadingId === order.id}
+                                title="Edit order items"
+                                className="flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-60 text-indigo-700 text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                              >
+                                <Pencil size={14} />
+                                {pdfLoadingId === order.id ? 'Loading...' : 'Edit Order'}
+                              </button>
+                            )}
                             {canDeleteInvoices && (
                               <button
                                 onClick={() => handleDeleteInvoice(order)}
@@ -1673,7 +1716,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
       )}
 
       {invoiceOrder && invoiceStep === 'edit' && (
-        <Modal title={`Edit Order — ${invoiceOrder.order_number}`} onClose={() => setInvoiceStep(0)}>
+        <Modal title={`Edit Order — ${invoiceOrder.order_number}`} onClose={() => { if (editOrderDirect) { setInvoiceOrder(null); setEditOrderDirect(false); } else { setInvoiceStep(0); } }}>
           <div className="space-y-4">
             <p className="text-sm text-gray-500">Adjust quantities or remove items the customer changed at the last minute.</p>
 
@@ -1743,7 +1786,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
-              <Button type="button" variant="secondary" onClick={() => setInvoiceStep(0)}>Cancel</Button>
+              <Button type="button" variant="secondary" onClick={() => { if (editOrderDirect) { setInvoiceOrder(null); setEditOrderDirect(false); } else { setInvoiceStep(0); } }}>Cancel</Button>
               <Button type="button" variant="accent" onClick={saveOrderEdit} disabled={savingOrderEdit}>
                 {savingOrderEdit ? 'Saving...' : 'Save Changes'}
               </Button>
