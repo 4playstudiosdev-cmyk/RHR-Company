@@ -1195,7 +1195,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                               <Printer size={14} />
                               {pdfLoadingId === order.id ? 'Generating...' : 'Print'}
                             </button>
-                            {order.status !== 'delivered' && (
+                            {order.status === 'delivered' && (
                               <button
                                 onClick={() => openEditInvoice(order)}
                                 disabled={editInvoiceLoadingId === order.id}

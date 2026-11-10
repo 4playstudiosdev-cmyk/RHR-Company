@@ -247,7 +247,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
       reader.readAsDataURL(file);
     });
     const res = await api.post('/storage/upload', {
-      bucket: 'recovery-photos',
+      bucket: 'payment-proofs',
       fileName: file.name,
       fileBase64: base64,
       mimeType: file.type,
