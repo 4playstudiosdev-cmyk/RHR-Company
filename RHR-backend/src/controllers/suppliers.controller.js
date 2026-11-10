@@ -28,7 +28,7 @@ const getSupplierLedger = async (req, res) => {
 const adjustSupplierLedger = async (req, res) => {
   try {
     const { id } = req.params;
-    const { entry_type, amount, description, reference_type: refType, receipt_url } = req.body;
+    const { entry_type, amount, description, reference_type: refType, receipt_url, payment_method, payment_date } = req.body;
     if (!entry_type || !amount || !description)
       return error(res, 'entry_type, amount, description are required', 400);
     if (!['debit', 'credit'].includes(entry_type))
@@ -58,36 +58,28 @@ const adjustSupplierLedger = async (req, res) => {
       ? prevBalance + Number(amount)
       : prevBalance - Number(amount);
 
+    const entryCreatedAt = payment_date ? new Date(payment_date).toISOString() : undefined;
+    const baseEntry = {
+      company_id:      supplier.company_id,
+      supplier_id:     id,
+      entry_type,
+      amount:          Number(amount),
+      running_balance: newBalance,
+      description,
+      reference_type:  refType || 'adjustment',
+      created_by:      req.user.id,
+      ...(entryCreatedAt ? { created_at: entryCreatedAt } : {}),
+    };
     let data;
     try {
-      [data] = await pgrestPost('supplier_ledger_entries', {
-        company_id:      supplier.company_id,
-        supplier_id:     id,
-        entry_type,
-        amount:          Number(amount),
-        running_balance: newBalance,
-        description,
-        reference_type:  refType || 'adjustment',
-        receipt_url:     receipt_url || null,
-        created_by:      req.user.id,
-      });
+      [data] = await pgrestPost('supplier_ledger_entries', { ...baseEntry, receipt_url: receipt_url || null });
     } catch (e) {
       // receipt_url column may not exist yet — retry without it
-      [data] = await pgrestPost('supplier_ledger_entries', {
-        company_id:      supplier.company_id,
-        supplier_id:     id,
-        entry_type,
-        amount:          Number(amount),
-        running_balance: newBalance,
-        description,
-        reference_type:  refType || 'adjustment',
-        created_by:      req.user.id,
-      });
+      [data] = await pgrestPost('supplier_ledger_entries', baseEntry);
     }
 
     // Create expense when admin records a payment to supplier
     if (entry_type === 'credit' && (refType || 'adjustment') === 'payment') {
-      const { payment_method, payment_date } = req.body;
       const expDate = payment_date || new Date().toISOString().split('T')[0];
       const expMethod = payment_method === 'bank' ? 'bank' : 'cash';
       try {

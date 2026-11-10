@@ -1254,6 +1254,7 @@ router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) =>
           description:     `Salesman vendor transfer — via ${vendor_payment_method === 'bank_transfer' ? 'bank' : 'cash'}`,
           reference_type:  'vendor_transfer',
           created_by:      null,
+          created_at:      new Date(expenseDate).toISOString(),
         };
         try {
           await pgrestPost('supplier_ledger_entries', { ...ledgerRow, company_id: req.user.company_id });
@@ -1352,6 +1353,7 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
           description:     `Admin vendor transfer — via ${vendor_payment_method === 'bank_transfer' ? 'bank' : 'cash'}`,
           reference_type:  'vendor_transfer',
           created_by:      req.user.id,
+          created_at:      new Date(expenseDate).toISOString(),
         };
         try {
           await pgrestPost('supplier_ledger_entries', { ...ledgerRow, company_id: companyId });
