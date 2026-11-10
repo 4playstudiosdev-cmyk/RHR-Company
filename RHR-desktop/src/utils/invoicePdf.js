@@ -23,7 +23,10 @@ export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, 
   const PAGE_W = 210;
 
   const logoDataUrl = await loadLogoDataUrl();
-  const city = order.companies?.city || order.users?.companies?.city || (order.order_number?.startsWith('SUK') ? 'Sukkur' : 'Karachi');
+  const city = order.companies?.city || order.users?.companies?.city
+    || (order.order_number?.startsWith('SUK') ? 'Sukkur'
+      : order.order_number?.startsWith('HYD') ? 'Hyderabad'
+      : 'Karachi');
   drawPdfHeader(doc, logoDataUrl, {
     title: returnAmount > 0 ? 'UPDATED INVOICE' : 'SALE INVOICE',
     subtitle: 'Sale Invoice & Delivery Challan',

@@ -59,12 +59,14 @@ export function drawPdfHeader(doc, logoDataUrl, { title, subtitle, city } = {}) 
   doc.setFontSize(6.5);
   doc.setTextColor(110, 110, 110);
   doc.text('Manufacturer of: Tile Bond, Tile Grout, Waterproofing, Cement Mortars, Plaster of Paris, Readymix Plaster, Dry Wall Putty & Water Proofing Patlo', textX, 29);
-  const isSukkur = city && city.toLowerCase().includes('sukkur');
-  const addrLine = isSukkur
+  const cityLower = (city || '').toLowerCase();
+  const addrLine = cityLower.includes('sukkur')
     ? 'Plot No. A-81, A-82, New Sindh Small Industries, Site Area Sukkur, Sindh, Pakistan | Contact No: +92 3052602138'
-    : city
-      ? 'Shop# 185-6, St 10/11 Sector G-6, Mehran Town, K.I.A Karachi | Contact No: +92 3111747999'
-      : 'Shop# 185-6, St 10/11 Sector G-6, Mehran Town, K.I.A Karachi | Plot Nos. A-81-82, In SIE (Extension), Sukkur';
+    : cityLower.includes('hyderabad') || cityLower.includes('hyd')
+      ? 'Plot No 22, Qadir Avenue, Near Hala Naka, Hyderabad, Sindh | Contact No: +92 3473431220'
+      : city
+        ? 'Shop# 185-6, St 10/11 Sector G-6, Mehran Town, K.I.A Karachi | Contact No: +92 3111747999'
+        : 'Shop# 185-6, St 10/11 Sector G-6, Mehran Town, K.I.A Karachi | Plot Nos. A-81-82, In SIE (Extension), Sukkur';
   doc.text(addrLine, textX, 32.5);
 
   if (title) {
