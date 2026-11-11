@@ -3,7 +3,7 @@ const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { MIN_TOTAL_QTY } = require('../utils/orderQtyRules');
-const { reverseOrderDebit } = require('../services/orderLedger.service');
+const { deleteOrderLedgerEntries } = require('../services/orderLedger.service');
 const { notifyUser } = require('../services/notify.service');
 
 const createOrder = async (req, res) => {
@@ -277,12 +277,12 @@ const deleteInvoice = async (req, res) => {
       }
     }
 
-    // A deleted order is no longer owed: reverse its debit in the customer's ledger (a credit
-    // entry, so the history stays visible) and tell the customer's salesman. Skipped
-    // automatically when the order was never debited (still pending) or was already cancelled.
+    // A deleted order is no longer owed: hard-delete its ledger entries and recalculate
+    // the customer's running balances so no trace of the order remains in the ledger.
+    // Skipped automatically when the order was never debited (still pending).
     try {
       const reason = String(req.body?.reason || '').trim().slice(0, 200);
-      const reversed = await reverseOrderDebit(order, { reason, adminName: req.user.full_name, userId: req.user.id });
+      const reversed = await deleteOrderLedgerEntries(order);
       if (reversed > 0 && order.salesman_id) {
         const who = order.users?.shop_name || order.users?.full_name || 'your customer';
         notifyUser({

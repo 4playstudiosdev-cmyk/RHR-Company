@@ -1,6 +1,7 @@
 const { supabaseAdmin }    = require('../config/supabase');
 const { generateInvoice }  = require('./invoice.service');
-const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
+const { orderLedgerNet, deleteOrderLedgerEntries } = require('./orderLedger.service');
 const { MIN_TOTAL_QTY } = require('../utils/orderQtyRules');
 const orderMessages = require('./orderMessages.service');
 const { NAME_SEPARATOR, canonicalColor, isGroutCategory } = require('../utils/groutColors');
@@ -492,26 +493,9 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
   // debited in the first place, so cancelling it needs no reversal).
   if (status === 'cancelled' && STATUS_PROGRESSION.indexOf(existingRows[0].status) >= STATUS_PROGRESSION.indexOf('confirmed')) {
     try {
-      const lastEntries = await pgrestGet('ledger_entries', {
-        select: 'running_balance',
-        customer_id: `eq.${updated.customer_id}`,
-        order: 'created_at.desc',
-        limit: '1',
-      });
-      const prevBalance = lastEntries?.[0]?.running_balance || 0;
-      await pgrestPost('ledger_entries', {
-        company_id: updated.company_id,
-        customer_id: updated.customer_id,
-        entry_type: 'credit',
-        amount: Number(updated.total_amount),
-        running_balance: prevBalance - Number(updated.total_amount),
-        description: `Order ${updated.order_number} cancelled — debit reversed`,
-        reference_type: 'order',
-        reference_id: updated.id,
-        created_by: null,
-      });
+      await deleteOrderLedgerEntries({ id: updated.id, customer_id: updated.customer_id });
     } catch (err) {
-      console.error(`Ledger reversal for cancelled order ${id} failed:`, err.message);
+      console.error(`Ledger delete for cancelled order ${id} failed:`, err.message);
     }
   }
 
