@@ -14,7 +14,7 @@ const { notifyUser } = require('./notify.service');
 // heavily-discounted, cheap item can't price negative.
 const RATE_TIER_ADJUSTMENT = { manual: 0, discount: -10, premium: 10 };
 
-async function createOrder({ customerId, salesmanId, companyId, items, notes, deliveryAddress, createdByRole, createdById }) {
+async function createOrder({ customerId, salesmanId, companyId, items, notes, deliveryAddress, createdByRole, createdById, orderDate }) {
   // Step 1: Validate all products exist and have enough stock. Routed
   // through the pgrestGet raw-https bypass (see utils/directQuery.js) —
   // these three reads were still on plain supabase-js, the exact pattern
@@ -154,7 +154,8 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
     order_number:     orderNumber,
     total_amount:     totalAmount,
     notes,
-    delivery_address: deliveryAddress
+    delivery_address: deliveryAddress,
+    ...(orderDate ? { order_date: orderDate } : {}),
   };
 
   // created_by_role/created_by_id are a phase61 addition — who actually

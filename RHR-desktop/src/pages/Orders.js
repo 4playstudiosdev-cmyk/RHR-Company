@@ -40,7 +40,8 @@ function availableNextStatuses(currentStatus) {
 }
 const PAGE_SIZE = 10;
 const TAX_RATE = 0.18; // 18% sales tax
-const EMPTY_ORDER_FORM = { customer_id: '', items: [{ product_id: '', quantity: QTY_STEP }], delivery_address: '', notes: '' };
+const todayStr = () => new Date().toISOString().split('T')[0];
+const EMPTY_ORDER_FORM = { customer_id: '', items: [{ product_id: '', quantity: QTY_STEP }], delivery_address: '', notes: '', order_date: todayStr() };
 
 // created_by_role (phase61) — who actually clicked "create", independent
 // of salesman_id (always the customer's assigned salesman, not
@@ -331,6 +332,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
         delivery_address: orderForm.delivery_address,
         notes: orderForm.notes,
         company_id: orderCompanyId,
+        order_date: orderForm.order_date || todayStr(),
       });
       toast.success('Order created.');
       setShowCreateOrder(false);
@@ -1456,6 +1458,17 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                   <span className="text-base font-bold text-navy">PKR {orderFormTotal.toLocaleString()}</span>
                 </div>
               )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Order Date</label>
+              <input
+                type="date"
+                value={orderForm.order_date}
+                max={todayStr()}
+                onChange={(e) => setOrderForm({ ...orderForm, order_date: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+              />
             </div>
 
             <div>

@@ -8,7 +8,7 @@ const { notifyUser } = require('../services/notify.service');
 
 const createOrder = async (req, res) => {
   try {
-    const { items, notes, delivery_address, customer_id, company_id } = req.body;
+    const { items, notes, delivery_address, customer_id, company_id, order_date } = req.body;
     const user = req.user;
 
     if (!items || items.length === 0)
@@ -38,7 +38,8 @@ const createOrder = async (req, res) => {
       notes,
       deliveryAddress: delivery_address,
       createdByRole:   user.role,
-      createdById:     user.id
+      createdById:     user.id,
+      orderDate:       order_date || null,
     });
     return success(res, data, 'Order placed successfully', 201);
   } catch (err) {
