@@ -151,8 +151,16 @@ const getLedger = async (req, res) => {
       .order('created_at', { ascending: true });
     if (dbError) throw new Error(dbError.message);
 
+    // Opening balance always leads, then chronological
+    const sorted = [...(allData || [])].sort((a, b) => {
+      const aOp = a.reference_type === 'opening_balance' ? 0 : 1;
+      const bOp = b.reference_type === 'opening_balance' ? 0 : 1;
+      if (aOp !== bOp) return aOp - bOp;
+      return new Date(a.created_at) - new Date(b.created_at);
+    });
+
     let bal = 0;
-    const recalculated = (allData || []).map(entry => {
+    const recalculated = sorted.map(entry => {
       bal = entry.entry_type === 'debit' ? bal + Number(entry.amount) : bal - Number(entry.amount);
       return { ...entry, running_balance: bal };
     });

@@ -19,11 +19,18 @@ async function orderLedgerNet(orderId) {
 // read the last stored running_balance to compute the next one).
 async function recalcCustomerLedger(customerId) {
   const entries = await pgrestGet('ledger_entries', {
-    select: 'id,entry_type,amount,running_balance',
+    select: 'id,entry_type,amount,running_balance,reference_type',
     customer_id: `eq.${customerId}`,
     order: 'created_at.asc',
   });
   if (!entries?.length) return;
+  // Opening balance always leads
+  entries.sort((a, b) => {
+    const aOp = a.reference_type === 'opening_balance' ? 0 : 1;
+    const bOp = b.reference_type === 'opening_balance' ? 0 : 1;
+    if (aOp !== bOp) return aOp - bOp;
+    return 0;
+  });
   let bal = 0;
   for (const e of entries) {
     bal = e.entry_type === 'debit' ? bal + Number(e.amount) : bal - Number(e.amount);
