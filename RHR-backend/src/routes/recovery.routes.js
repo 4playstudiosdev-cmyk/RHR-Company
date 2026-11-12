@@ -22,10 +22,8 @@ const paymentMessages = require('../services/paymentMessages.service');
 // endpoint added since that was found uses this bypass instead.
 
 // Ledger credit helper — same running-balance computation used by
-// POST /ledger/adjustment and the order-return flow. ledger_entries has
-// no reference_id column (only reference_type), so that's all that's
-// recorded here to tie the entry back to "recovery".
-async function creditLedger({ companyId, customerId, amount, description, userId, date }) {
+// POST /ledger/adjustment and the order-return flow.
+async function creditLedger({ companyId, customerId, amount, description, userId, date, referenceId }) {
   // When inserting a backdated entry (date < now), look for the most recent
   // existing entry that is <= the target date so the stored snapshot is
   // correct even if later entries already exist.
@@ -48,6 +46,7 @@ async function creditLedger({ companyId, customerId, amount, description, userId
     running_balance: newBalance,
     description,
     reference_type: 'recovery',
+    ...(referenceId ? { reference_id: referenceId } : {}),
     created_by: userId,
   };
   if (date) entryRow.created_at = new Date(date).toISOString();
@@ -187,6 +186,7 @@ router.post('/transactions', authenticate, isAdmin, async (req, res) => {
         description: 'Cash payment received by salesman',
         userId: req.user.id,
         date: recovery_date,
+        referenceId: recovery.id,
       });
     }
 
@@ -236,6 +236,7 @@ router.patch('/transactions/:id/approve', authenticate, isAdmin, async (req, res
       description: recovery.payment_method === 'bank_transfer' ? 'Bank transfer approved' : `Online payment approved — ${recovery.payment_method}`,
       userId: req.user.id,
       date: recovery.recovery_date,
+      referenceId: recovery.id,
     });
 
     paymentMessages.paymentReceived({
@@ -413,15 +414,34 @@ async function deleteEntry(req, res, table, label) {
     if (row.status === 'approved') {
       if (!isPayment) return error(res, `An approved ${label.toLowerCase()} can't be deleted — it has already been counted in the books.`, 400);
       const who = row.users?.shop_name || row.users?.full_name || 'customer';
-      // reverse the ledger credit first; if that fails the payment stays, nothing is half-done
+      // Hard-delete the original credit entry so no reversal line appears in the ledger
       if (row.customer_id) {
-        await debitLedger({
-          companyId: row.company_id,
-          customerId: row.customer_id,
-          amount: row.amount,
-          description: `Payment of PKR ${Number(row.amount).toLocaleString('en-US')} removed by ${adminName} — reason: ${reason} — balance restored`,
-          userId: req.user.id,
+        // Try by reference_id first (set on new entries), then fall back to amount+date match
+        let entryId = null;
+        const byRef = await pgrestGet('ledger_entries', {
+          select: 'id',
+          customer_id: `eq.${row.customer_id}`,
+          reference_type: `eq.recovery`,
+          reference_id: `eq.${row.id}`,
+          limit: '1',
         });
+        if (byRef?.length) {
+          entryId = byRef[0].id;
+        } else if (row.recovery_date) {
+          const byDate = await pgrestGet('ledger_entries', {
+            select: 'id',
+            customer_id: `eq.${row.customer_id}`,
+            reference_type: `eq.recovery`,
+            entry_type: `eq.credit`,
+            amount: `eq.${Number(row.amount)}`,
+            created_at: `gte.${row.recovery_date}T00:00:00.000Z`,
+            order: 'created_at.desc',
+            limit: '1',
+          });
+          if (byDate?.length) entryId = byDate[0].id;
+        }
+        if (entryId) await pgrestDelete('ledger_entries', { id: `eq.${entryId}` });
+        await recalcCustomerLedger(row.customer_id);
       }
       await removeRow(table, row, reason, req.user.id);
       if (row.salesman_id) {
@@ -829,6 +849,7 @@ router.post('/transactions/me', authenticate, isSalesman, async (req, res) => {
       description: 'Cash payment received by salesman',
       userId: null,
       date: recovery_date,
+      referenceId: recovery.id,
     });
 
     paymentMessages.paymentReceived({ customerId: customer_id, amount, method: 'cash' });
@@ -1077,6 +1098,7 @@ router.post('/driver-transactions/me', authenticate, isDriver, async (req, res) 
       description: 'Cash payment received by driver',
       userId: null,
       date: recovery_date,
+      referenceId: recovery.id,
     });
 
     return success(res, recovery, 'Cash collection recorded', 201);
@@ -1212,6 +1234,7 @@ router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) =>
       description: 'Direct vendor transfer — customer balance settled via supplier',
       userId:      null,
       date:        recovery_date,
+      referenceId: recovery.id,
     });
 
     // For cash or bank_transfer: also create an expense and credit supplier ledger
@@ -1315,6 +1338,7 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
       description: 'Direct vendor transfer — customer balance settled via supplier',
       date:        recovery_date,
       userId:      req.user.id,
+      referenceId: recovery.id,
     });
 
     // For cash or bank_transfer: create an expense and credit supplier ledger
