@@ -206,6 +206,75 @@ router.patch('/customer/:entityId', authenticate, isAdmin, async (req, res) => {
   } catch (err) { return error(res, err.message); }
 });
 
+// PATCH /api/v1/opening-balances/vendor/:entityId
+// Updates the opening_balances reference row AND the matching supplier_ledger_entries
+// row so the vendor's running balance reflects the corrected opening amount.
+router.patch('/vendor/:entityId', authenticate, isAdmin, async (req, res) => {
+  try {
+    const { entityId } = req.params;
+    const { amount, entity_name } = req.body;
+    if (amount === undefined || isNaN(Number(amount)) || Number(amount) < 0)
+      return error(res, 'A non-negative amount is required', 400);
+
+    const existing = await pgrestGet('opening_balances', {
+      select: 'id',
+      entity_type: 'eq.vendor',
+      entity_id:   `eq.${entityId}`,
+      order:       'created_at.desc',
+      limit:       '1',
+    });
+
+    if (existing?.[0]) {
+      await pgrestPatch('opening_balances', { id: `eq.${existing[0].id}` }, { amount: Number(amount) });
+    } else {
+      await pgrestPost('opening_balances', {
+        company_id:   req.user.company_id,
+        entity_type:  'vendor',
+        entity_id:    entityId,
+        entity_name:  entity_name || '',
+        balance_type: 'debit',
+        amount:       Number(amount),
+        notes:        'Opening balance (reference)',
+        created_by:   req.user.id,
+      });
+    }
+
+    // Update the matching supplier ledger entry and recalculate running balances
+    try {
+      const ledgerEntry = await pgrestGet('supplier_ledger_entries', {
+        select: 'id',
+        supplier_id:    `eq.${entityId}`,
+        reference_type: `eq.opening_balance`,
+        order:          'created_at.asc',
+        limit:          '1',
+      });
+      if (ledgerEntry?.length) {
+        await pgrestPatch('supplier_ledger_entries', { id: `eq.${ledgerEntry[0].id}` }, { amount: Number(amount) });
+        const allEntries = await pgrestGet('supplier_ledger_entries', {
+          select: 'id,entry_type,amount,running_balance,reference_type',
+          supplier_id: `eq.${entityId}`,
+          order:       'created_at.asc',
+        });
+        if (allEntries?.length) {
+          allEntries.sort((a, b) => {
+            const aOp = a.reference_type === 'opening_balance' ? 0 : 1;
+            const bOp = b.reference_type === 'opening_balance' ? 0 : 1;
+            return aOp !== bOp ? aOp - bOp : 0;
+          });
+          let bal = 0;
+          for (const e of allEntries) {
+            bal = e.entry_type === 'debit' ? bal + Number(e.amount) : bal - Number(e.amount);
+            if (Number(e.running_balance) !== bal)
+              await pgrestPatch('supplier_ledger_entries', { id: `eq.${e.id}` }, { running_balance: bal });
+          }
+        }
+      }
+    } catch (_) { /* supplier_ledger_entries may not exist yet — not fatal */ }
+
+    return success(res, null, 'Opening balance updated');
+  } catch (err) { return error(res, err.message); }
+});
+
 // DELETE /api/v1/opening-balances/:id — removes the record row only;
 // deliberately does not reverse the ledger entry / stock it caused, since
 // by the time someone wants to delete a stale opening-balance record,

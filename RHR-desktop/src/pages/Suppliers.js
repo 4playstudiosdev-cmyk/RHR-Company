@@ -70,6 +70,12 @@ export default function Suppliers({ onViewVendorLedger }) {
       categories: s.categories || [],
       opening_balance_amount: '',
     });
+    api.get('/opening-balances', { params: { entity_type: 'vendor', entity_id: s.id } })
+      .then((r) => {
+        const latest = (r.data?.data || [])[0];
+        setForm((prev) => ({ ...prev, opening_balance_amount: latest?.amount != null ? String(latest.amount) : '' }));
+      })
+      .catch(() => {});
     setShowModal(true);
   };
 
@@ -94,6 +100,16 @@ export default function Suppliers({ onViewVendorLedger }) {
           contact_number: form.contact_number,
           categories: form.categories,
         });
+        if (form.opening_balance_amount !== '' && Number.isFinite(Number(form.opening_balance_amount)) && Number(form.opening_balance_amount) >= 0) {
+          try {
+            await api.patch(`/opening-balances/vendor/${editing.id}`, {
+              amount: Number(form.opening_balance_amount),
+              entity_name: form.name.trim(),
+            });
+          } catch (balErr) {
+            toast.error('Supplier saved but opening balance update failed: ' + (balErr.response?.data?.message || balErr.message));
+          }
+        }
         toast.success('Supplier updated.');
       } else {
         const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
@@ -314,24 +330,24 @@ export default function Suppliers({ onViewVendorLedger }) {
                 ))}
               </div>
             </div>
-            {!editing && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Opening Balance — Amount Owed (optional)</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">PKR</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.opening_balance_amount}
-                    onChange={(e) => setForm({ ...form, opening_balance_amount: e.target.value })}
-                    placeholder="0"
-                    className="w-full border border-gray-300 rounded-lg pl-12 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-                  />
-                </div>
-                <p className="text-xs text-gray-400 mt-1">Enter the amount you owe this supplier from before today. Leave blank if starting fresh.</p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Opening Balance — Amount Owed (PKR)</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">PKR</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.opening_balance_amount}
+                  onChange={(e) => setForm({ ...form, opening_balance_amount: e.target.value })}
+                  placeholder="0"
+                  className="w-full border border-gray-300 rounded-lg pl-12 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
               </div>
-            )}
+              <p className="text-xs text-gray-400 mt-1">
+                {editing ? 'Update the recorded opening balance for this supplier.' : 'Enter the amount you owe this supplier from before today. Leave blank if starting fresh.'}
+              </p>
+            </div>
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={() => setShowModal(false)}>Cancel</Button>
               <Button type="submit" variant="accent" disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
