@@ -704,7 +704,7 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
       if (salesman_id !== (editingCustomer.salesman_id || '')) {
         await api.patch(`/customers/${editingCustomer.id}/assign-salesman`, { salesman_id: salesman_id || null });
       }
-      // Update historical opening balance record (reference only — does NOT touch the ledger)
+      // Update opening balance — also updates the ledger entry and recalculates running balances
       if (editBalanceValue !== '' && Number.isFinite(Number(editBalanceValue)) && Number(editBalanceValue) >= 0) {
         try {
           await api.patch(`/opening-balances/customer/${editingCustomer.id}`, {

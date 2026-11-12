@@ -4,6 +4,7 @@ const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin, requireRole } = require('../middleware/role.middleware');
 const { success, error } = require('../utils/response');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { recalcCustomerLedger } = require('../services/orderLedger.service');
 const { resolveCompanyId } = require('../utils/companyScope');
 
 // GET /api/v1/opening-balances?entity_type=customer
@@ -156,10 +157,8 @@ router.post('/', authenticate, requireRole('super_admin', 'branch_admin', 'sales
 });
 
 // PATCH /api/v1/opening-balances/customer/:entityId
-// Updates only the opening_balances table row (reference record).
-// Deliberately does NOT touch ledger_entries so the running outstanding
-// balance is unaffected — this is for correcting the historical opening
-// balance record only, not for adjusting a customer's current balance.
+// Updates the opening_balances reference row AND the matching ledger entry
+// so the customer's running balance reflects the corrected opening amount.
 router.patch('/customer/:entityId', authenticate, isAdmin, async (req, res) => {
   try {
     const { entityId } = req.params;
@@ -178,7 +177,6 @@ router.patch('/customer/:entityId', authenticate, isAdmin, async (req, res) => {
     if (existing?.[0]) {
       await pgrestPatch('opening_balances', { id: `eq.${existing[0].id}` }, { amount: Number(amount) });
     } else {
-      // No existing record — create one (reference only, no ledger write)
       await pgrestPost('opening_balances', {
         company_id:   req.user.company_id,
         entity_type:  'customer',
@@ -190,6 +188,20 @@ router.patch('/customer/:entityId', authenticate, isAdmin, async (req, res) => {
         created_by:   req.user.id,
       });
     }
+
+    // Update the matching ledger entry and recalculate all subsequent balances
+    const ledgerEntry = await pgrestGet('ledger_entries', {
+      select: 'id',
+      customer_id:    `eq.${entityId}`,
+      reference_type: `eq.opening_balance`,
+      order:          'created_at.asc',
+      limit:          '1',
+    });
+    if (ledgerEntry?.length) {
+      await pgrestPatch('ledger_entries', { id: `eq.${ledgerEntry[0].id}` }, { amount: Number(amount) });
+      await recalcCustomerLedger(entityId);
+    }
+
     return success(res, null, 'Opening balance updated');
   } catch (err) { return error(res, err.message); }
 });
