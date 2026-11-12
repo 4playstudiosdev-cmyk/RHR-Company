@@ -1,6 +1,7 @@
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
+const { recalcSupplierLedger } = require('../services/orderLedger.service');
 
 // ─── Supplier Ledger ─────────────────────────────────────────────────────────
 
@@ -13,14 +14,29 @@ const getSupplierLedger = async (req, res) => {
       data = await pgrestGet('supplier_ledger_entries', {
         select: '*',
         supplier_id: `eq.${id}`,
-        order: 'created_at.desc',
+        order: 'created_at.asc',
       });
     } catch (e) {
-      // Table doesn't exist yet — run phase77_supplier_ledger.sql
       return success(res, { entries: [], currentBalance: 0 });
     }
-    const currentBalance = data?.length > 0 ? Number(data[0].running_balance) : 0;
-    return success(res, { entries: data || [], currentBalance });
+    if (!data?.length) return success(res, { entries: [], currentBalance: 0 });
+
+    // Recalculate on the fly — opening_balance always leads
+    const sorted = [...data].sort((a, b) => {
+      const aOp = a.reference_type === 'opening_balance' ? 0 : 1;
+      const bOp = b.reference_type === 'opening_balance' ? 0 : 1;
+      if (aOp !== bOp) return aOp - bOp;
+      return new Date(a.created_at) - new Date(b.created_at);
+    });
+    let bal = 0;
+    const recalculated = sorted.map(entry => {
+      bal = entry.entry_type === 'debit' ? bal + Number(entry.amount) : bal - Number(entry.amount);
+      return { ...entry, running_balance: bal };
+    });
+
+    const currentBalance = bal;
+    // Return in reverse-chronological order for display
+    return success(res, { entries: recalculated.reverse(), currentBalance });
   } catch (err) { return error(res, err.message); }
 };
 
@@ -78,6 +94,9 @@ const adjustSupplierLedger = async (req, res) => {
       [data] = await pgrestPost('supplier_ledger_entries', baseEntry);
     }
 
+    // Recalculate all stored running_balance values so the next insert reads a correct base
+    try { await recalcSupplierLedger(id); } catch (_) {}
+
     // Create expense when admin records a payment to supplier
     if (entry_type === 'credit' && (refType || 'adjustment') === 'payment') {
       const expDate = payment_date || new Date().toISOString().split('T')[0];
@@ -100,10 +119,16 @@ const adjustSupplierLedger = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-// Helper: recalculate running_balance for all entries (sorted asc by created_at)
+// Helper: recalculate running_balance for all entries (opening_balance first, then created_at asc)
 async function recalcRunningBalances(entries) {
+  const sorted = [...entries].sort((a, b) => {
+    const aOp = a.reference_type === 'opening_balance' ? 0 : 1;
+    const bOp = b.reference_type === 'opening_balance' ? 0 : 1;
+    if (aOp !== bOp) return aOp - bOp;
+    return new Date(a.created_at) - new Date(b.created_at);
+  });
   let bal = 0;
-  for (const e of entries) {
+  for (const e of sorted) {
     bal = e.entry_type === 'debit' ? bal + Number(e.amount) : bal - Number(e.amount);
     if (Number(e.running_balance) !== bal) {
       await pgrestPatch('supplier_ledger_entries', { id: `eq.${e.id}` }, { running_balance: bal });

@@ -54,4 +54,27 @@ async function deleteOrderLedgerEntries(order) {
   return net;
 }
 
-module.exports = { orderLedgerNet, deleteOrderLedgerEntries, recalcCustomerLedger };
+// Recalculate and patch running_balance for all of a supplier's ledger entries.
+async function recalcSupplierLedger(supplierId) {
+  const entries = await pgrestGet('supplier_ledger_entries', {
+    select: 'id,entry_type,amount,running_balance,reference_type',
+    supplier_id: `eq.${supplierId}`,
+    order: 'created_at.asc',
+  });
+  if (!entries?.length) return;
+  entries.sort((a, b) => {
+    const aOp = a.reference_type === 'opening_balance' ? 0 : 1;
+    const bOp = b.reference_type === 'opening_balance' ? 0 : 1;
+    if (aOp !== bOp) return aOp - bOp;
+    return 0;
+  });
+  let bal = 0;
+  for (const e of entries) {
+    bal = e.entry_type === 'debit' ? bal + Number(e.amount) : bal - Number(e.amount);
+    if (Number(e.running_balance) !== bal) {
+      await pgrestPatch('supplier_ledger_entries', { id: `eq.${e.id}` }, { running_balance: bal });
+    }
+  }
+}
+
+module.exports = { orderLedgerNet, deleteOrderLedgerEntries, recalcCustomerLedger, recalcSupplierLedger };
