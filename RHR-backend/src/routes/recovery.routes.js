@@ -860,7 +860,7 @@ router.post('/cheque/me', authenticate, isSalesman, async (req, res) => {
 // filter already excludes, so it never counts as cash the salesman holds.
 router.post('/bank-transfer/me', authenticate, isSalesman, async (req, res) => {
   try {
-    const { customer_id, amount, bank_account_id, bank_account_label, notes, photo_url } = req.body;
+    const { customer_id, amount, bank_account_id, bank_account_label, notes, photo_url, recovery_date } = req.body;
     if (!customer_id || !amount || Number(amount) <= 0)
       return error(res, 'customer_id and a positive amount are required', 400);
 
@@ -876,7 +876,7 @@ router.post('/bank-transfer/me', authenticate, isSalesman, async (req, res) => {
       status:           'pending',
       approved_by:      null,
       approved_at:      null,
-      recovery_date:    new Date().toISOString().split('T')[0],
+      recovery_date:    recovery_date || new Date().toISOString().split('T')[0],
       created_by:       null,
     };
     let recovery;

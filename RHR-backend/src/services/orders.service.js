@@ -477,6 +477,7 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
           reference_type: 'order',
           reference_id: updated.id,
           created_by: null,
+          ...(updated.order_date ? { created_at: new Date(updated.order_date + 'T00:00:00').toISOString() } : {}),
         });
       }
     } catch (err) {
