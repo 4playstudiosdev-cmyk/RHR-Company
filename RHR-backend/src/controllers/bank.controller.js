@@ -505,7 +505,9 @@ const getBankSummary = async (req, res) => {
     const cashOpening = Number(cashAccount?.opening_balance || 0);
     const cashIn  = (pettyCashClose || []).reduce((s, c) => s + Number(c.amount || 0), 0);
     const cashOut = (cashExp        || []).reduce((s, e) => s + Number(e.amount || 0), 0);
-    const cashInHand = cashOpening + cashIn - cashOut;
+    const cashInHand = cashOpening + cashIn - cashOut
+      + (cashAccount ? (inMap[cashAccount.id] || 0) : 0)
+      - (cashAccount ? (outMap[cashAccount.id] || 0) : 0);
 
     const inMap = {};
     (allTransfers || []).forEach(r => {
