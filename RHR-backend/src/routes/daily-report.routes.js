@@ -272,14 +272,6 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 
     const netCash = previousCashBalance + totalRecovery - totalExpenses;
 
-    // ── Physical Cash in Hand: opening + all petty_cash_closings − all cash_expenses
-    const cashAccount = (bankAccounts || []).find(a => a.bank_name === 'Cash');
-    const physicalCashInHand = Number(cashAccount?.opening_balance || 0)
-      + (allTimePettyCashClosings || []).reduce((s, c) => s + Number(c.amount || 0), 0)
-      - (allTimeCashExpenses      || []).reduce((s, e) => s + Number(e.amount || 0), 0)
-      + (cashAccount ? (allTimeInMap[cashAccount.id] || 0) : 0)
-      - (cashAccount ? (allTimeOutMap[cashAccount.id] || 0) : 0);
-
     // ── All-time balance maps (for current balance per account)
     const allTimeInMap = {};
     (allTimeBankTransfers || []).forEach(r => {
@@ -295,6 +287,14 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       const id = e.bank_account_id;
       if (id) allTimeOutMap[id] = (allTimeOutMap[id] || 0) + Number(e.amount || 0);
     });
+
+    // ── Physical Cash in Hand: opening + all petty_cash_closings − all cash_expenses
+    const cashAccount = (bankAccounts || []).find(a => a.bank_name === 'Cash');
+    const physicalCashInHand = Number(cashAccount?.opening_balance || 0)
+      + (allTimePettyCashClosings || []).reduce((s, c) => s + Number(c.amount || 0), 0)
+      - (allTimeCashExpenses      || []).reduce((s, e) => s + Number(e.amount || 0), 0)
+      + (cashAccount ? (allTimeInMap[cashAccount.id] || 0) : 0)
+      - (cashAccount ? (allTimeOutMap[cashAccount.id] || 0) : 0);
 
     // ── Bank detail: debit (in) and credit (out) per account for this date
     const bankExpMap = {};
