@@ -183,7 +183,7 @@ export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, 
   doc.setFontSize(9);
   doc.setTextColor(90, 90, 90);
   doc.text('Authorized Signature: _________________________', M, signY + 6);
-  doc.text('Thank you for your business!', PAGE_W - M, signY + 6, { align: 'right' });
+  doc.text('Customer Receiving Signature: _________________________', PAGE_W - M, signY + 6, { align: 'right' });
 
   // Preview opens the PDF in a new tab (read-only look, no download
   // prompt, no invoice_generated_at side effects) — for a quick check
