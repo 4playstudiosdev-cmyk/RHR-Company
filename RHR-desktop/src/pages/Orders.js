@@ -1263,6 +1263,17 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                                 {pdfLoadingId === order.id ? '...' : 'Print'}
                               </button>
                             )}
+                            {order.status === 'delivered' && (
+                              <button
+                                onClick={() => openEditInvoice(order)}
+                                disabled={editInvoiceLoadingId === order.id}
+                                title="Record a return and download an updated invoice"
+                                className="flex items-center gap-1.5 bg-orange hover:bg-orange/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                              >
+                                <FileDown size={14} />
+                                {editInvoiceLoadingId === order.id ? 'Loading...' : 'Edit Invoice'}
+                              </button>
+                            )}
                             {order.status === 'dispatched' && (
                               <button
                                 onClick={() => handleInvoice(order)}
