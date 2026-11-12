@@ -1,7 +1,7 @@
 const { supabaseAdmin }    = require('../config/supabase');
 const { generateInvoice }  = require('./invoice.service');
 const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
-const { orderLedgerNet, deleteOrderLedgerEntries } = require('./orderLedger.service');
+const { orderLedgerNet, deleteOrderLedgerEntries, recalcCustomerLedger } = require('./orderLedger.service');
 const { MIN_TOTAL_QTY } = require('../utils/orderQtyRules');
 const orderMessages = require('./orderMessages.service');
 const { NAME_SEPARATOR, canonicalColor, isGroutCategory } = require('../utils/groutColors');
@@ -480,6 +480,7 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
           created_by: null,
           ...(updated.order_date ? { created_at: new Date(updated.order_date + 'T00:00:00').toISOString() } : {}),
         });
+        if (updated.order_date) await recalcCustomerLedger(updated.customer_id);
       }
     } catch (err) {
       console.error(`Ledger debit for confirmed order ${id} failed:`, err.message);

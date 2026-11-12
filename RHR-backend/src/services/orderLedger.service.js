@@ -47,4 +47,4 @@ async function deleteOrderLedgerEntries(order) {
   return net;
 }
 
-module.exports = { orderLedgerNet, deleteOrderLedgerEntries };
+module.exports = { orderLedgerNet, deleteOrderLedgerEntries, recalcCustomerLedger };

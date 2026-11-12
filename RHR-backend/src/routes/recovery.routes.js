@@ -3,6 +3,7 @@ const router  = express.Router();
 const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin, isSalesman, isDriver } = require('../middleware/role.middleware');
 const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
+const { recalcCustomerLedger } = require('../services/orderLedger.service');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { success, error } = require('../utils/response');
 const { notifyUser } = require('../services/notify.service');
@@ -51,6 +52,7 @@ async function creditLedger({ companyId, customerId, amount, description, userId
   };
   if (date) entryRow.created_at = new Date(date).toISOString();
   await pgrestPost('ledger_entries', entryRow);
+  if (date) await recalcCustomerLedger(customerId);
 }
 
 // GET /api/v1/recovery/transactions
