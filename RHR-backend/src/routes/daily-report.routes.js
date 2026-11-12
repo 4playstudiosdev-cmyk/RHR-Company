@@ -20,7 +20,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
     const cf = companyId ? `&company_id=eq.${companyId}` : '';
     const cfObj = companyId ? { company_id: `eq.${companyId}` } : {};
 
-    const [expenses, recoveries, orders, productions, bankAccounts, prevCashRec, prevCashClose, bankExpenses, bankPayments, bankTransfers, allTimeBankTransfers, allTimeCheques, allTimeBankExp] = await Promise.all([
+    const [expenses, recoveries, orders, productions, bankAccounts, prevCashRec, prevCashClose, bankExpenses, bankPayments, bankTransfers, allTimeBankTransfers, allTimeCheques, allTimeBankExp, allTimePettyCashClosings, allTimeCashExpenses] = await Promise.all([
 
       // Expenses for the date — try with full joins, degrade gracefully
       pgrestGetRaw(
@@ -129,6 +129,22 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       pgrestGet('expenses', {
         select: 'amount,bank_account_id',
         bank_account_id: 'not.is.null',
+        ...cfObj,
+      }).catch(() => []),
+
+      // All-time petty_cash closings — for physical Cash in Hand balance
+      pgrestGet('salesman_cash_closings', {
+        select: 'amount',
+        deposit_to: 'eq.petty_cash',
+        status: 'eq.approved',
+        ...cfObj,
+      }).catch(() => []),
+
+      // All-time cash expenses — for physical Cash in Hand balance
+      pgrestGet('expenses', {
+        select: 'amount',
+        method: 'eq.cash',
+        bank_account_id: 'is.null',
         ...cfObj,
       }).catch(() => []),
     ]);
@@ -256,6 +272,12 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 
     const netCash = previousCashBalance + totalRecovery - totalExpenses;
 
+    // ── Physical Cash in Hand: opening + all petty_cash_closings − all cash_expenses
+    const cashAccount = (bankAccounts || []).find(a => a.bank_name === 'Cash');
+    const physicalCashInHand = Number(cashAccount?.opening_balance || 0)
+      + (allTimePettyCashClosings || []).reduce((s, c) => s + Number(c.amount || 0), 0)
+      - (allTimeCashExpenses      || []).reduce((s, e) => s + Number(e.amount || 0), 0);
+
     // ── All-time balance maps (for current balance per account)
     const allTimeInMap = {};
     (allTimeBankTransfers || []).forEach(r => {
@@ -288,7 +310,9 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       if (id) bankInMap[id] = (bankInMap[id] || 0) + Number(r.amount || 0);
     });
     const bankDetail = (bankAccounts || []).map(b => {
-      const currentBalance = Number(b.opening_balance || 0) + (allTimeInMap[b.id] || 0) - (allTimeOutMap[b.id] || 0);
+      const currentBalance = b.bank_name === 'Cash'
+        ? physicalCashInHand
+        : Number(b.opening_balance || 0) + (allTimeInMap[b.id] || 0) - (allTimeOutMap[b.id] || 0);
       return {
         id: b.id,
         account_name: b.account_name,
@@ -312,7 +336,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         total_recovery: totalRecovery,
         total_expenses: totalExpenses,
         net_cash: netCash,
-        cash_in_hand: netCash,
+        cash_in_hand: physicalCashInHand,
         total_production_bags: totalProdBags,
         total_production_kg: totalProdKg,
         total_sale_bags: totalSaleBags,

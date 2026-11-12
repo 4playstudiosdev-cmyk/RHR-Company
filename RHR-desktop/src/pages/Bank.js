@@ -34,6 +34,7 @@ export default function Bank() {
   const [txnDateFilter, setTxnDateFilter] = useState('all');
   const [txnTypeFilter, setTxnTypeFilter] = useState('all');
   const [ledgerDateFilter, setLedgerDateFilter] = useState('all');
+  const [bankSummary, setBankSummary] = useState(null);
 
   const openLedger = async (account) => {
     setLedgerAccount(account);
@@ -83,6 +84,10 @@ export default function Bank() {
           ]);
       setAccounts(accountsData);
       setTransactions(transactionsData);
+      try {
+        const sumResp = await api.get('/bank/summary', { params: companyFilter ? params : {} });
+        setBankSummary(sumResp.data?.data || null);
+      } catch (_) { setBankSummary(null); }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load bank data.');
     } finally {
@@ -238,11 +243,12 @@ export default function Bank() {
                 </thead>
                 <tbody>
                   {accounts.map((a, i) => {
-                    const acctTxns = transactions.filter((t) => t.bank_accounts?.account_name === a.account_name);
-                    const totalIn  = acctTxns.filter((t) => t.type !== 'expense' && t.type !== 'cash_deposit').reduce((s, t) => s + Number(t.amount || 0), 0);
-                    const totalOut = acctTxns.filter((t) => t.type === 'expense' || t.type === 'cash_deposit').reduce((s, t) => s + Number(t.amount || 0), 0);
                     const openingBal = Number(a.opening_balance || 0);
-                    const bal = openingBal + totalIn - totalOut;
+                    // Use summary (server-computed) balance — it uses the same formula as the ledger:
+                    // Cash in Hand = opening + petty_cash_closings − cash_expenses
+                    // Bank accounts = opening + bank_transfers_in + cheques_in − bank_expenses
+                    const summaryAcct = (bankSummary?.accounts || []).find(acc => acc.id === a.id);
+                    const bal = summaryAcct != null ? summaryAcct.current_balance : openingBal;
                     return (
                       <tr key={a.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                         <td className="px-6 py-3.5 font-medium text-navy cursor-pointer hover:underline" onClick={() => openLedger(a)}>{a.account_name}</td>
@@ -262,7 +268,7 @@ export default function Bank() {
                         <td className="px-6 py-3.5 text-right">
                           <p className={`font-bold text-sm ${bal >= 0 ? 'text-green-700' : 'text-red-600'}`}>PKR {Math.abs(bal).toLocaleString()}</p>
                           <p className="text-[10px] text-gray-400 mt-0.5">
-                            {openingBal > 0 ? `${openingBal.toLocaleString()} opening` : ''}{openingBal > 0 && acctTxns.length > 0 ? ' · ' : ''}{acctTxns.length > 0 ? `+${totalIn.toLocaleString()} in · −${totalOut.toLocaleString()} out` : ''}
+                            {openingBal > 0 ? `${openingBal.toLocaleString()} opening` : ''}
                           </p>
                         </td>
                         <td className="px-6 py-3.5">

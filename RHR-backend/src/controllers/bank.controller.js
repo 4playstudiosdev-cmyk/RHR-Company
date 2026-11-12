@@ -528,7 +528,9 @@ const getBankSummary = async (req, res) => {
       account_name: a.account_name,
       bank_name: a.bank_name,
       account_number: a.account_number,
-      current_balance: Number(a.opening_balance || 0) + (inMap[a.id] || 0) - (outMap[a.id] || 0),
+      current_balance: a.bank_name === 'Cash'
+        ? cashInHand
+        : Number(a.opening_balance || 0) + (inMap[a.id] || 0) - (outMap[a.id] || 0),
     }));
 
     const totalBank = accountsWithBalance.reduce((s, a) => s + a.current_balance, 0);
