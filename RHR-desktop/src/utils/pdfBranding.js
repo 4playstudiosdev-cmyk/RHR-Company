@@ -58,7 +58,7 @@ export function drawPdfHeader(doc, logoDataUrl, { title, subtitle, city } = {}) 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.5);
   doc.setTextColor(110, 110, 110);
-  doc.text('Manufacturer of: Tile Bond, Tile Grout, Waterproofing, Cement Mortars, Plaster of Paris, Readymix Plaster, Dry Wall Putty & Water Proofing Patlo', textX, 29);
+  doc.text('Manufacturer of: Tile Bond, Tile Grout, Waterproofing, Cement Mortars, Plaster of Paris', textX, 29);
   const cityLower = (city || '').toLowerCase();
   const addrLine = cityLower.includes('sukkur')
     ? 'Plot No. A-81, A-82, New Sindh Small Industries, Site Area Sukkur, Sindh, Pakistan | Contact No: +92 3052602138'
