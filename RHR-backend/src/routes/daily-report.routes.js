@@ -121,9 +121,8 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 
       // All-time cleared cheques into bank (for current balance)
       pgrestGetRaw(
-        `salesman_recoveries?select=amount,cleared_bank_account_id&cheque_status=eq.cleared${cf}`
-      ).then(rows => (rows || []).filter(r => r.cleared_bank_account_id))
-        .catch(() => []),
+        `salesman_recoveries?select=amount,cleared_bank_account_id&cleared_bank_account_id=not.is.null&status=eq.approved${cf}`
+      ).catch(() => []),
 
       // All-time bank expenses (for current balance)
       pgrestGet('expenses', {

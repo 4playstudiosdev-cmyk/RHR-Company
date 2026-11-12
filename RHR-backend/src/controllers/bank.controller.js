@@ -501,14 +501,6 @@ const getBankSummary = async (req, res) => {
       }).catch(() => []),
     ]);
 
-    const cashAccount = (accounts || []).find(a => a.bank_name === 'Cash');
-    const cashOpening = Number(cashAccount?.opening_balance || 0);
-    const cashIn  = (pettyCashClose || []).reduce((s, c) => s + Number(c.amount || 0), 0);
-    const cashOut = (cashExp        || []).reduce((s, e) => s + Number(e.amount || 0), 0);
-    const cashInHand = cashOpening + cashIn - cashOut
-      + (cashAccount ? (inMap[cashAccount.id] || 0) : 0)
-      - (cashAccount ? (outMap[cashAccount.id] || 0) : 0);
-
     const inMap = {};
     (allTransfers || []).forEach(r => {
       const id = r.reference_number;
@@ -524,6 +516,14 @@ const getBankSummary = async (req, res) => {
       const amt = e.method === 'split' ? Number(e.bank_amount || 0) : Number(e.amount || 0);
       if (id) outMap[id] = (outMap[id] || 0) + amt;
     });
+
+    const cashAccount = (accounts || []).find(a => a.bank_name === 'Cash');
+    const cashOpening = Number(cashAccount?.opening_balance || 0);
+    const cashIn  = (pettyCashClose || []).reduce((s, c) => s + Number(c.amount || 0), 0);
+    const cashOut = (cashExp        || []).reduce((s, e) => s + Number(e.amount || 0), 0);
+    const cashInHand = cashOpening + cashIn - cashOut
+      + (cashAccount ? (inMap[cashAccount.id] || 0) : 0)
+      - (cashAccount ? (outMap[cashAccount.id] || 0) : 0);
 
     const accountsWithBalance = (accounts || []).map(a => ({
       id: a.id,
