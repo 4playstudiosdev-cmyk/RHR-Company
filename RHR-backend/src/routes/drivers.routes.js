@@ -247,15 +247,44 @@ router.patch('/:id', authenticate, isAdmin, async (req, res) => {
     const { full_name, phone, car_number, is_active, vehicle_id } = req.body;
     const filter = { id: `eq.${req.params.id}` };
     if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
-    const normalizedPhone = phone != null ? normalizePhone(phone) : phone;
+
+    const update = {};
+    if (full_name  != null) update.full_name  = full_name;
+    if (car_number != null) update.car_number = car_number;
+    if (is_active  != null) update.is_active  = is_active;
+    if (vehicle_id != null) update.vehicle_id = vehicle_id;
+
+    // Only update phone when the new value differs from what is already
+    // stored — sending the same number in a different format (+92 vs 92)
+    // triggers a spurious unique-constraint violation because PostgreSQL
+    // sees two distinct strings even though they represent the same number.
+    if (phone != null) {
+      const canonical = normalizePhone(phone);
+      const current = await pgrestGet('drivers', { select: 'phone', id: `eq.${req.params.id}` });
+      const storedPhone = current?.[0]?.phone || '';
+      if (normalizePhone(storedPhone) !== canonical) {
+        // Different number — check it isn't taken by another driver
+        const conflict = await pgrestGet('drivers', {
+          select: 'id',
+          phone: `eq.${canonical}`,
+          id: `neq.${req.params.id}`,
+        }).catch(() => []);
+        if (conflict?.length) return error(res, 'A driver with this phone number already exists', 400);
+        update.phone = canonical;
+      }
+      // Same number (different format) — skip phone in the PATCH
+    }
+
+    if (Object.keys(update).length === 0) return error(res, 'No fields to update', 400);
 
     // vehicle_id is a phase32 addition — fall back to patching without it
     // if that migration hasn't run yet.
     let data;
     try {
-      data = await pgrestPatch('drivers', filter, { full_name, phone: normalizedPhone, car_number, is_active, vehicle_id });
+      data = await pgrestPatch('drivers', filter, update);
     } catch (e) {
-      data = await pgrestPatch('drivers', filter, { full_name, phone: normalizedPhone, car_number, is_active });
+      const { vehicle_id: _v, ...updateWithout } = update;
+      data = await pgrestPatch('drivers', filter, updateWithout);
     }
     if (!data?.[0]) return error(res, 'Driver not found', 404);
     return success(res, data[0], 'Driver updated');
