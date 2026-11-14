@@ -441,50 +441,6 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
     generateInvoice(id).catch(err =>
       console.error('Background invoice generation failed:', err.message)
     );
-
-    // Debits the customer's ledger for the order total — this was
-    // missing entirely before (confirmed orders never appeared in the
-    // ledger anywhere, admin/salesman/customer alike, since nothing
-    // else in the order lifecycle wrote a ledger_entries row for the
-    // order amount itself, only for cash collected after the fact).
-    // Same running-balance pattern as creditLedger in recovery.routes.js.
-    try {
-      // Idempotency guard: a double-click/retry of the confirm action can
-      // race past isValidTransition (both requests read 'pending' before
-      // either PATCH lands), each posting its own debit and doubling the
-      // customer's balance for one order. Checking for an existing debit
-      // keyed to this order closes that window.
-      const existingDebit = await pgrestGet('ledger_entries', {
-        select: 'id',
-        reference_type: 'eq.order',
-        reference_id: `eq.${updated.id}`,
-        entry_type: 'eq.debit',
-      });
-      if (!existingDebit?.length) {
-        const lastEntries = await pgrestGet('ledger_entries', {
-          select: 'running_balance',
-          customer_id: `eq.${updated.customer_id}`,
-          order: 'created_at.desc',
-          limit: '1',
-        });
-        const prevBalance = lastEntries?.[0]?.running_balance || 0;
-        await pgrestPost('ledger_entries', {
-          company_id: updated.company_id,
-          customer_id: updated.customer_id,
-          entry_type: 'debit',
-          amount: Number(updated.total_amount),
-          running_balance: prevBalance + Number(updated.total_amount),
-          description: `Order ${updated.order_number} confirmed`,
-          reference_type: 'order',
-          reference_id: updated.id,
-          created_by: null,
-          ...(updated.order_date ? { created_at: new Date(updated.order_date + 'T00:00:00').toISOString() } : {}),
-        });
-        if (updated.order_date) await recalcCustomerLedger(updated.customer_id);
-      }
-    } catch (err) {
-      console.error(`Ledger debit for confirmed order ${id} failed:`, err.message);
-    }
   }
 
   // Cancelling an order that had already been confirmed (and therefore
@@ -514,6 +470,39 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
       await deductDeliveredStock(id);
     } catch (err) {
       console.error(`Stock deduction for delivered order ${id} failed:`, err.message);
+    }
+
+    // Debit the customer's ledger when the order is delivered (not on
+    // confirm) — the receivable only exists once goods are handed over.
+    try {
+      const existingDebit = await pgrestGet('ledger_entries', {
+        select: 'id',
+        reference_type: 'eq.order',
+        reference_id: `eq.${updated.id}`,
+        entry_type: 'eq.debit',
+      });
+      if (!existingDebit?.length) {
+        const lastEntries = await pgrestGet('ledger_entries', {
+          select: 'running_balance',
+          customer_id: `eq.${updated.customer_id}`,
+          order: 'created_at.desc',
+          limit: '1',
+        });
+        const prevBalance = lastEntries?.[0]?.running_balance || 0;
+        await pgrestPost('ledger_entries', {
+          company_id: updated.company_id,
+          customer_id: updated.customer_id,
+          entry_type: 'debit',
+          amount: Number(updated.total_amount),
+          running_balance: prevBalance + Number(updated.total_amount),
+          description: `Order ${updated.order_number} delivered`,
+          reference_type: 'order',
+          reference_id: updated.id,
+          created_by: null,
+        });
+      }
+    } catch (err) {
+      console.error(`Ledger debit for delivered order ${id} failed:`, err.message);
     }
 
     // Cash-on-delivery collected at the door — credits the customer's
