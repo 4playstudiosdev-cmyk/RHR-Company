@@ -905,12 +905,13 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
 
   const filtered = useMemo(() => {
     let list = tab === 'all' ? preFiltered : preFiltered.filter((o) => o.status === tab);
-    if (tab === 'delivered' && deliveredDateFilter !== 'all') {
+    if (deliveredDateFilter !== 'all') {
       const today = new Date(); today.setHours(0, 0, 0, 0);
       const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
       const weekAgo = new Date(today); weekAgo.setDate(today.getDate() - 6);
       list = list.filter((o) => {
-        const d = new Date(o.updated_at || o.created_at);
+        const dateStr = o.order_date || (o.created_at || '').split('T')[0];
+        const d = new Date(dateStr + 'T00:00:00');
         if (deliveredDateFilter === 'today')     return d >= today;
         if (deliveredDateFilter === 'yesterday') return d >= yesterday && d < today;
         if (deliveredDateFilter === 'week')      return d >= weekAgo;
@@ -995,7 +996,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
           {TABS.map((t) => (
             <button
               key={t}
-              onClick={() => { setTab(t); setPage(1); }}
+              onClick={() => { setTab(t); setPage(1); setDeliveredDateFilter('all'); }}
               className={`pb-3 pt-2 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors flex items-center gap-1.5 ${
                 tab === t
                   ? 'text-navy border-navy'
@@ -1029,47 +1030,45 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
           )}
         </div>
 
-        {/* Delivered date filter — only visible on the Delivered tab */}
-        {tab === 'delivered' && (
-          <div className="px-6 py-3 border-b border-gray-100 flex flex-wrap items-center gap-2">
-            {[
-              { value: 'all',       label: 'All' },
-              { value: 'today',     label: 'Today' },
-              { value: 'yesterday', label: 'Yesterday' },
-              { value: 'week',      label: 'Last 7 Days' },
-              { value: 'custom',    label: 'Custom Range' },
-            ].map(({ value, label }) => (
-              <button
-                key={value}
-                onClick={() => { setDeliveredDateFilter(value); setPage(1); }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
-                  deliveredDateFilter === value
-                    ? 'bg-navy text-white border-navy'
-                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-            {deliveredDateFilter === 'custom' && (
-              <div className="flex items-center gap-2 ml-2">
-                <input
-                  type="date"
-                  value={deliveredDateFrom}
-                  onChange={(e) => { setDeliveredDateFrom(e.target.value); setPage(1); }}
-                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-navy"
-                />
-                <span className="text-gray-400 text-xs">to</span>
-                <input
-                  type="date"
-                  value={deliveredDateTo}
-                  onChange={(e) => { setDeliveredDateTo(e.target.value); setPage(1); }}
-                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-navy"
-                />
-              </div>
-            )}
-          </div>
-        )}
+        {/* Date filter — visible on all tabs */}
+        <div className="px-6 py-3 border-b border-gray-100 flex flex-wrap items-center gap-2">
+          {[
+            { value: 'all',       label: 'All' },
+            { value: 'today',     label: 'Today' },
+            { value: 'yesterday', label: 'Yesterday' },
+            { value: 'week',      label: 'Last 7 Days' },
+            { value: 'custom',    label: 'Custom Range' },
+          ].map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => { setDeliveredDateFilter(value); setPage(1); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+                deliveredDateFilter === value
+                  ? 'bg-navy text-white border-navy'
+                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          {deliveredDateFilter === 'custom' && (
+            <div className="flex items-center gap-2 ml-2">
+              <input
+                type="date"
+                value={deliveredDateFrom}
+                onChange={(e) => { setDeliveredDateFrom(e.target.value); setPage(1); }}
+                className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-navy"
+              />
+              <span className="text-gray-400 text-xs">to</span>
+              <input
+                type="date"
+                value={deliveredDateTo}
+                onChange={(e) => { setDeliveredDateTo(e.target.value); setPage(1); }}
+                className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-navy"
+              />
+            </div>
+          )}
+        </div>
 
         {tab === 'deleted-invoices' ? (
           loadingDeleted ? (
