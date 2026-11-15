@@ -1,6 +1,7 @@
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
-const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
+const { recalcCustomerLedger } = require('../services/orderLedger.service');
 
 // GET /api/v1/returns/materials?type=packaging|raw_material&company_id=
 const getMaterialReturns = async (req, res) => {
@@ -178,28 +179,21 @@ const createOrderReturn = async (req, res) => {
       total_amount: Number(order.total_amount) - Number(amount_returned),
     });
 
-    // Ledger credit — same running-balance computation as POST
-    // /ledger/adjustment, done directly here rather than an internal
-    // HTTP call.
-    const lastEntries = await pgrestGet('ledger_entries', {
-      select: 'running_balance',
-      customer_id: `eq.${order.customer_id}`,
-      order: 'created_at.desc',
+    // Update the existing order debit entry to the new (reduced) total
+    // instead of adding a separate Return credit line — the order itself
+    // already reflects the returned quantity, so the ledger should too.
+    const newTotal = Number(order.total_amount) - Number(amount_returned);
+    const existing = await pgrestGet('ledger_entries', {
+      select: 'id',
+      reference_type: 'eq.order',
+      reference_id: `eq.${order.id}`,
+      entry_type: 'eq.debit',
       limit: '1',
     });
-    const prevBalance = lastEntries?.[0]?.running_balance || 0;
-    const newBalance = prevBalance - Number(amount_returned);
-
-    await pgrestPost('ledger_entries', {
-      company_id: order.company_id,
-      customer_id: order.customer_id,
-      entry_type: 'credit',
-      amount: Number(amount_returned),
-      running_balance: newBalance,
-      description: `Return — Order #${order.order_number}`,
-      reference_type: 'return',
-      created_by: req.user.id,
-    });
+    if (existing?.length) {
+      await pgrestPatch('ledger_entries', { id: `eq.${existing[0].id}` }, { amount: newTotal });
+      await recalcCustomerLedger(order.customer_id);
+    }
 
     return success(res, { ...data, order_number: order.order_number }, 'Return recorded — order and customer ledger updated', 201);
   } catch (err) { return error(res, err.message); }
