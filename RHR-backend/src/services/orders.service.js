@@ -704,6 +704,23 @@ async function updateOrderItems(orderId, companyId, { items = [], removedIds = [
   const newTotal = (remaining || []).reduce((sum, it) => sum + Number(it.subtotal), 0);
   await pgrestPatch('orders', { id: `eq.${orderId}` }, { total_amount: newTotal });
 
+  // Keep the ledger debit in sync — if a debit entry already exists for this
+  // order (posted at delivery or confirmation), update its amount to the new
+  // total and recalc running balances so the whole chain stays correct.
+  try {
+    const existing = await pgrestGet('ledger_entries', {
+      select: 'id',
+      reference_type: 'eq.order',
+      reference_id: `eq.${orderId}`,
+      entry_type: 'eq.debit',
+      limit: '1',
+    });
+    if (existing?.length) {
+      await pgrestPatch('ledger_entries', { id: `eq.${existing[0].id}` }, { amount: newTotal });
+      await recalcCustomerLedger(order.customer_id);
+    }
+  } catch (_) {}
+
   return getOrderById(orderId, { role: 'super_admin', id: null, company_id: null });
 }
 
