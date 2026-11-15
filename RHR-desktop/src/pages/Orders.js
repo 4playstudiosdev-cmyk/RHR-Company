@@ -149,6 +149,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
   const [bagsReturnedError, setBagsReturnedError] = useState('');
   const [editInvoiceLoadingId, setEditInvoiceLoadingId] = useState(null);
   const [savingReturn, setSavingReturn] = useState(false);
+  const [printRateOrder, setPrintRateOrder] = useState(null); // order waiting for with/without rate choice
 
   useEffect(() => {
     loadOrders();
@@ -662,7 +663,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
   // order that hasn't had its invoice generated yet. No tax/conveyance
   // charge posted, no invoice_generated_at set — just a look at what the
   // invoice would be, same underlying PDF builder as the real thing.
-  const handleViewInvoice = async (order) => {
+  const handleViewInvoice = async (order, withRate = true) => {
     setPdfLoadingId(order.id);
     try {
       const res = await api.get(`/orders/${order.id}`);
@@ -673,7 +674,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
         const currentBalance = ledgerRes.data?.data?.currentBalance ?? 0;
         previousBalance = Math.max(0, currentBalance - Number(detail.total_amount));
       } catch (e) { /* ledger unavailable — skip previous balance */ }
-      await buildInvoicePdf(detail, { preview: true, previousBalance });
+      await buildInvoicePdf(detail, { preview: true, previousBalance, withRate });
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load invoice preview.');
     } finally {
@@ -688,7 +689,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
   // Any returns recorded since already shrank the order/item quantity
   // and total directly (see confirmGenerateUpdatedInvoice), so this just
   // needs the current order data — no separate return line to re-subtract.
-  const handlePrintInvoice = async (order) => {
+  const handlePrintInvoice = async (order, withRate = true) => {
     setPdfLoadingId(order.id);
     try {
       const res = await api.get(`/orders/${order.id}`);
@@ -701,7 +702,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
         const currentBalance = ledgerRes.data?.data?.currentBalance ?? 0;
         previousBalance = Math.max(0, currentBalance - Number(detail.total_amount) - printConveyance - printTax);
       } catch (e) { /* ledger unavailable — skip previous balance */ }
-      await buildInvoicePdf(detail, { withTax: !!detail.invoice_with_tax, conveyance: printConveyance, previousBalance });
+      await buildInvoicePdf(detail, { withTax: !!detail.invoice_with_tax, conveyance: printConveyance, previousBalance, withRate });
       toast.success(`Invoice for ${order.order_number} downloaded.`);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to download invoice.');
@@ -1220,7 +1221,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                         ) : order.invoice_generated_at ? (
                           <div className="flex items-center gap-1.5">
                             <button
-                              onClick={() => handlePrintInvoice(order)}
+                              onClick={() => setPrintRateOrder(order)}
                               disabled={pdfLoadingId === order.id}
                               title="Print / re-generate this invoice"
                               className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
@@ -1253,7 +1254,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                           <div className="flex items-center gap-1.5">
                             {(order.status === 'dispatched' || order.status === 'delivered') && (
                               <button
-                                onClick={() => handleViewInvoice(order)}
+                                onClick={() => setPrintRateOrder(order)}
                                 disabled={pdfLoadingId === order.id}
                                 title="Preview invoice PDF"
                                 className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 disabled:opacity-60 text-gray-700 text-xs font-medium px-3 py-2 rounded-lg transition-colors"
@@ -1926,6 +1927,30 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
               <Button type="button" variant="accent" onClick={confirmGenerateInvoice} disabled={generatingInvoice} className="flex items-center gap-2">
                 <FileDown size={15} /> {generatingInvoice ? 'Generating...' : 'Generate Invoice'}
               </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {printRateOrder && (
+        <Modal title={`Print Invoice — ${printRateOrder.order_number}`} onClose={() => setPrintRateOrder(null)}>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-500">Choose how to print this invoice:</p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => { const o = printRateOrder; setPrintRateOrder(null); o.invoice_generated_at ? handlePrintInvoice(o, false) : handleViewInvoice(o, false); }}
+                className="flex flex-col items-center gap-1 py-4 rounded-xl border-2 border-gray-200 hover:border-navy hover:bg-navy/5 transition-colors text-sm font-semibold text-gray-700"
+              >
+                <span>Without Rate</span>
+                <span className="text-xs font-normal text-gray-400">Delivery challan style</span>
+              </button>
+              <button
+                onClick={() => { const o = printRateOrder; setPrintRateOrder(null); o.invoice_generated_at ? handlePrintInvoice(o, true) : handleViewInvoice(o, true); }}
+                className="flex flex-col items-center gap-1 py-4 rounded-xl border-2 border-navy bg-navy text-white hover:bg-navy/90 transition-colors text-sm font-semibold"
+              >
+                <span>With Rate</span>
+                <span className="text-xs font-normal text-white/70">Shows pricing details</span>
+              </button>
             </div>
           </div>
         </Modal>
