@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Landmark, Plus, ArrowLeftRight, BookOpen, RefreshCw } from 'lucide-react';
+import { Landmark, Plus, ArrowLeftRight, BookOpen, RefreshCw, Pencil } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
 import Button from '../components/Button';
@@ -35,6 +35,9 @@ export default function Bank() {
   const [txnTypeFilter, setTxnTypeFilter] = useState('all');
   const [ledgerDateFilter, setLedgerDateFilter] = useState('all');
   const [bankSummary, setBankSummary] = useState(null);
+  const [editAccount, setEditAccount] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [editSaving, setEditSaving] = useState(false);
 
   const openLedger = async (account) => {
     setLedgerAccount(account);
@@ -92,6 +95,30 @@ export default function Bank() {
       setError(err.response?.data?.message || 'Failed to load bank data.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openEditAccount = (account) => {
+    setEditAccount(account);
+    setEditForm({ account_name: account.account_name, account_number: account.account_number, bank_name: account.bank_name, branch_name: account.branch_name || '' });
+  };
+
+  const handleEditAccount = async (e) => {
+    e.preventDefault();
+    if (!editForm.account_name || !editForm.account_number || !editForm.bank_name) {
+      toast.error('Account name, account number and bank name are required.');
+      return;
+    }
+    setEditSaving(true);
+    try {
+      await api.patch(`/bank/accounts/${editAccount.id}`, editForm);
+      setAccounts((prev) => prev.map((a) => a.id === editAccount.id ? { ...a, ...editForm } : a));
+      toast.success('Account updated.');
+      setEditAccount(null);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update account.');
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -272,12 +299,21 @@ export default function Bank() {
                           </p>
                         </td>
                         <td className="px-6 py-3.5">
-                          <button
-                            onClick={() => openLedger(a)}
-                            className="flex items-center gap-1.5 text-xs font-medium text-navy border border-navy/30 hover:bg-navy hover:text-white px-3 py-1.5 rounded-lg transition-colors"
-                          >
-                            <BookOpen size={13} /> Ledger
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => openLedger(a)}
+                              className="flex items-center gap-1.5 text-xs font-medium text-navy border border-navy/30 hover:bg-navy hover:text-white px-3 py-1.5 rounded-lg transition-colors"
+                            >
+                              <BookOpen size={13} /> Ledger
+                            </button>
+                            <button
+                              onClick={() => openEditAccount(a)}
+                              className="flex items-center gap-1.5 text-xs font-medium text-gray-600 border border-gray-200 hover:bg-gray-100 px-3 py-1.5 rounded-lg transition-colors"
+                              title="Edit account details"
+                            >
+                              <Pencil size={13} /> Edit
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -476,6 +512,38 @@ export default function Bank() {
             </div>
           )}
         </div>
+      )}
+
+      {editAccount && (
+        <Modal title={`Edit — ${editAccount.account_name}`} onClose={() => setEditAccount(null)}>
+          <form onSubmit={handleEditAccount} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Account Name *</label>
+              <input value={editForm.account_name} onChange={(e) => setEditForm({ ...editForm, account_name: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy" required />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Account Number *</label>
+              <input value={editForm.account_number} onChange={(e) => setEditForm({ ...editForm, account_number: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy" required />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name *</label>
+              <input value={editForm.bank_name} onChange={(e) => setEditForm({ ...editForm, bank_name: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy" required />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Branch Name</label>
+              <input value={editForm.branch_name} onChange={(e) => setEditForm({ ...editForm, branch_name: e.target.value })}
+                placeholder="Optional"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy" />
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button type="button" onClick={() => setEditAccount(null)} className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+              <Button type="submit" loading={editSaving}>Save Changes</Button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {showAddModal && (

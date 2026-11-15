@@ -275,6 +275,27 @@ const getBankTransactions = async (req, res) => {
   }
 };
 
+// PATCH /api/v1/bank/accounts/:id
+const updateBankAccount = async (req, res) => {
+  try {
+    const { account_name, account_number, bank_name, branch_name } = req.body;
+    if (!account_name || !account_number || !bank_name)
+      return error(res, 'account_name, account_number, bank_name are required', 400);
+
+    const filter = { id: `eq.${req.params.id}` };
+    if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
+
+    const rows = await pgrestPatch('bank_accounts', filter, {
+      account_name,
+      account_number,
+      bank_name,
+      branch_name: branch_name || null,
+    });
+    if (!rows?.[0]) return error(res, 'Account not found or access denied', 404);
+    return success(res, rows[0], 'Account updated');
+  } catch (err) { return error(res, err.message); }
+};
+
 // PATCH /api/v1/bank/accounts/:id/opening-balance
 const updateOpeningBalance = async (req, res) => {
   try {
@@ -546,4 +567,4 @@ const getBankSummary = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getBankAccounts, createBankAccount, getBankTransactions, updateOpeningBalance, getBankLedger, getBankSummary };
+module.exports = { getBankAccounts, createBankAccount, updateBankAccount, getBankTransactions, updateOpeningBalance, getBankLedger, getBankSummary };
