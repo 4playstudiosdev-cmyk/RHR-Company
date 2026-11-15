@@ -801,7 +801,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
               </label>
               <select
                 value={form.salesman_id}
-                onChange={(e) => { setForm({ ...form, salesman_id: e.target.value }); loadCashInHand(e.target.value); }}
+                onChange={(e) => { setForm({ ...form, salesman_id: e.target.value, customer_id: '' }); loadCashInHand(e.target.value); }}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
               >
                 <option value="">— Select Salesman —</option>
@@ -823,7 +823,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
               <CustomerSelect
                 value={form.customer_id}
                 onChange={(e) => setForm({ ...form, customer_id: e.target.value })}
-                customers={customersList}
+                customers={form.salesman_id ? customersList.filter(c => c.salesman_id === form.salesman_id) : customersList}
                 placeholder="Search or select customer..."
               />
             </div>

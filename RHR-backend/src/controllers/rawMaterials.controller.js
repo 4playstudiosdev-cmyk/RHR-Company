@@ -374,7 +374,13 @@ const purchaseMaterials = async (req, res) => {
               description:     `Purchase ${purchaseDate} — ${itemsDesc}`,
               reference_type:  'purchase',
               created_by:      req.user.id,
+              created_at:      new Date(purchaseDate + 'T00:00:00').toISOString(),
             });
+            // Recalc so backdated entries don't break the running_balance chain
+            try {
+              const { recalcSupplierLedger } = require('../services/orderLedger.service');
+              await recalcSupplierLedger(supplier.id);
+            } catch (_) {}
           } catch (ledgerErr) { /* phase77_supplier_ledger.sql not run yet — ignore */ }
         }
       } catch (e) { /* suppliers is a phase21 addition — ignore until it's run */ }
