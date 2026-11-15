@@ -243,7 +243,7 @@ router.patch('/vendor/:entityId', authenticate, isAdmin, async (req, res) => {
       });
     }
 
-    // Update the matching supplier ledger entry (match by entry_type) and recalc
+    // Update or create the matching supplier ledger entry and recalc
     try {
       const ledgerEntry = await pgrestGet('supplier_ledger_entries', {
         select: 'id',
@@ -255,8 +255,22 @@ router.patch('/vendor/:entityId', authenticate, isAdmin, async (req, res) => {
       });
       if (ledgerEntry?.length) {
         await pgrestPatch('supplier_ledger_entries', { id: `eq.${ledgerEntry[0].id}` }, { amount: Number(amount) });
-        await recalcSupplierLedger(entityId);
+      } else {
+        // No existing entry — create one so it appears as the first line in the ledger
+        const supplierRows = await pgrestGet('suppliers', { select: 'company_id', id: `eq.${entityId}` });
+        const companyId = supplierRows?.[0]?.company_id || req.user.company_id;
+        await pgrestPost('supplier_ledger_entries', {
+          company_id:      companyId,
+          supplier_id:     entityId,
+          entry_type:      balanceType,
+          amount:          Number(amount),
+          running_balance: 0,
+          description:     balanceType === 'credit' ? 'Opening balance — amount vendor owed' : 'Opening balance',
+          reference_type:  'opening_balance',
+          created_by:      req.user.id,
+        });
       }
+      await recalcSupplierLedger(entityId);
     } catch (_) { /* supplier_ledger_entries may not exist yet — not fatal */ }
 
     return success(res, null, 'Opening balance updated');
