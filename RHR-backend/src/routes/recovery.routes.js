@@ -699,7 +699,7 @@ router.patch('/cheques/:id/clear', authenticate, isAdmin, async (req, res) => {
       await creditLedger({
         companyId: cheque.company_id, customerId: cheque.customer_id, amount: Number(cheque.amount),
         description: `Cheque #${cheque.cheque_number} (${cheque.cheque_bank}) cleared — deposited to ${bankLabel}`,
-        userId: req.user.id,
+        userId: req.user.id, referenceId: cheque.id,
       });
       paymentMessages.paymentReceived({ customerId: cheque.customer_id, amount: cheque.amount, method: 'cheque' });
     }
@@ -733,11 +733,22 @@ router.patch('/cheques/:id/reject', authenticate, isAdmin, async (req, res) => {
     if (!updated?.[0]) return error(res, 'This cheque was just updated by someone else — refresh the list.', 409);
 
     if (wasCredited) {
-      await debitLedger({
-        companyId: cheque.company_id, customerId: cheque.customer_id, amount: Number(cheque.amount),
-        description: `Cheque #${cheque.cheque_number || '—'} (${cheque.cheque_bank}) rejected by ${req.user.full_name || 'admin'} — reason: ${reason} — balance restored`,
-        userId: req.user.id,
+      // Hard-delete the original credit entry so no reversal line appears
+      const byRef = await pgrestGet('ledger_entries', {
+        select: 'id', customer_id: `eq.${cheque.customer_id}`,
+        reference_type: 'eq.recovery', reference_id: `eq.${cheque.id}`, limit: '1',
       });
+      let entryId = byRef?.[0]?.id;
+      if (!entryId) {
+        const byAmt = await pgrestGet('ledger_entries', {
+          select: 'id', customer_id: `eq.${cheque.customer_id}`,
+          reference_type: 'eq.recovery', entry_type: 'eq.credit',
+          amount: `eq.${Number(cheque.amount)}`, order: 'created_at.desc', limit: '1',
+        });
+        entryId = byAmt?.[0]?.id;
+      }
+      if (entryId) await pgrestDelete('ledger_entries', { id: `eq.${entryId}` });
+      await recalcCustomerLedger(cheque.customer_id);
     }
     await notifyUser({
       companyId: cheque.company_id, recipientId: cheque.salesman_id,
