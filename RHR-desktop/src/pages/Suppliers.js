@@ -20,7 +20,7 @@ const CATEGORIES = [
   { label: 'Other', value: 'other' },
 ];
 const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.value, c.label]));
-const EMPTY_FORM = { name: '', address: '', contact_number: '', categories: [], opening_balance_amount: '' };
+const EMPTY_FORM = { name: '', address: '', contact_number: '', categories: [], opening_balance_amount: '', vendor_owed_amount: '' };
 
 export default function Suppliers({ onViewVendorLedger }) {
   const toast = useToast();
@@ -72,8 +72,14 @@ export default function Suppliers({ onViewVendorLedger }) {
     });
     api.get('/opening-balances', { params: { entity_type: 'vendor', entity_id: s.id } })
       .then((r) => {
-        const latest = (r.data?.data || [])[0];
-        setForm((prev) => ({ ...prev, opening_balance_amount: latest?.amount != null ? String(latest.amount) : '' }));
+        const entries = r.data?.data || [];
+        const debitEntry = entries.find(e => e.balance_type === 'debit');
+        const creditEntry = entries.find(e => e.balance_type === 'credit');
+        setForm((prev) => ({
+          ...prev,
+          opening_balance_amount: debitEntry?.amount != null ? String(debitEntry.amount) : '',
+          vendor_owed_amount: creditEntry?.amount != null ? String(creditEntry.amount) : '',
+        }));
       })
       .catch(() => {});
     setShowModal(true);
@@ -105,9 +111,21 @@ export default function Suppliers({ onViewVendorLedger }) {
             await api.patch(`/opening-balances/vendor/${editing.id}`, {
               amount: Number(form.opening_balance_amount),
               entity_name: form.name.trim(),
+              balance_type: 'debit',
             });
           } catch (balErr) {
             toast.error('Supplier saved but opening balance update failed: ' + (balErr.response?.data?.message || balErr.message));
+          }
+        }
+        if (form.vendor_owed_amount !== '' && Number.isFinite(Number(form.vendor_owed_amount)) && Number(form.vendor_owed_amount) >= 0) {
+          try {
+            await api.patch(`/opening-balances/vendor/${editing.id}`, {
+              amount: Number(form.vendor_owed_amount),
+              entity_name: form.name.trim(),
+              balance_type: 'credit',
+            });
+          } catch (balErr) {
+            toast.error('Supplier saved but vendor-owed balance update failed: ' + (balErr.response?.data?.message || balErr.message));
           }
         }
         toast.success('Supplier updated.');
@@ -133,6 +151,20 @@ export default function Suppliers({ onViewVendorLedger }) {
             });
           } catch (obErr) {
             toast.error('Supplier added but opening balance failed — run phase77 SQL first.');
+          }
+        }
+        if (newSupplier?.id && form.vendor_owed_amount && Number(form.vendor_owed_amount) > 0) {
+          try {
+            await api.post('/opening-balances', {
+              entity_type: 'vendor',
+              entity_id: newSupplier.id,
+              entity_name: form.name.trim(),
+              balance_type: 'credit',
+              amount: Number(form.vendor_owed_amount),
+              notes: 'Opening balance — amount vendor owed at creation',
+            });
+          } catch (obErr) {
+            toast.error('Supplier added but vendor-owed balance failed — run phase77 SQL first.');
           }
         }
         toast.success('Supplier added.');
@@ -346,6 +378,24 @@ export default function Suppliers({ onViewVendorLedger }) {
               </div>
               <p className="text-xs text-gray-400 mt-1">
                 {editing ? 'Update the recorded opening balance for this supplier.' : 'Enter the amount you owe this supplier from before today. Leave blank if starting fresh.'}
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Amount Vendor Owed (PKR)</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">PKR</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.vendor_owed_amount}
+                  onChange={(e) => setForm({ ...form, vendor_owed_amount: e.target.value })}
+                  placeholder="0"
+                  className="w-full border border-gray-300 rounded-lg pl-12 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                {editing ? 'Amount this supplier owes us (already paid to them). Appears as a credit in their ledger.' : 'If you already paid this supplier before today, enter that amount here. It will appear as a credit in their ledger.'}
               </p>
             </div>
             <div className="flex justify-end gap-3 pt-2">

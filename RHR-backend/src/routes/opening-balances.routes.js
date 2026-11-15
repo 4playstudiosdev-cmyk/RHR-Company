@@ -4,7 +4,7 @@ const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin, requireRole } = require('../middleware/role.middleware');
 const { success, error } = require('../utils/response');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
-const { recalcCustomerLedger } = require('../services/orderLedger.service');
+const { recalcCustomerLedger, recalcSupplierLedger } = require('../services/orderLedger.service');
 const { resolveCompanyId } = require('../utils/companyScope');
 
 // GET /api/v1/opening-balances?entity_type=customer
@@ -209,19 +209,23 @@ router.patch('/customer/:entityId', authenticate, isAdmin, async (req, res) => {
 // PATCH /api/v1/opening-balances/vendor/:entityId
 // Updates the opening_balances reference row AND the matching supplier_ledger_entries
 // row so the vendor's running balance reflects the corrected opening amount.
+// Pass balance_type: 'debit' (default) or 'credit' in the body to target the right entry.
 router.patch('/vendor/:entityId', authenticate, isAdmin, async (req, res) => {
   try {
     const { entityId } = req.params;
-    const { amount, entity_name } = req.body;
+    const { amount, entity_name, balance_type: reqBalanceType } = req.body;
+    const balanceType = ['debit', 'credit'].includes(reqBalanceType) ? reqBalanceType : 'debit';
+
     if (amount === undefined || isNaN(Number(amount)) || Number(amount) < 0)
       return error(res, 'A non-negative amount is required', 400);
 
     const existing = await pgrestGet('opening_balances', {
       select: 'id',
-      entity_type: 'eq.vendor',
-      entity_id:   `eq.${entityId}`,
-      order:       'created_at.desc',
-      limit:       '1',
+      entity_type:  'eq.vendor',
+      entity_id:    `eq.${entityId}`,
+      balance_type: `eq.${balanceType}`,
+      order:        'created_at.desc',
+      limit:        '1',
     });
 
     if (existing?.[0]) {
@@ -232,42 +236,26 @@ router.patch('/vendor/:entityId', authenticate, isAdmin, async (req, res) => {
         entity_type:  'vendor',
         entity_id:    entityId,
         entity_name:  entity_name || '',
-        balance_type: 'debit',
+        balance_type: balanceType,
         amount:       Number(amount),
         notes:        'Opening balance (reference)',
         created_by:   req.user.id,
       });
     }
 
-    // Update the matching supplier ledger entry and recalculate running balances
+    // Update the matching supplier ledger entry (match by entry_type) and recalc
     try {
       const ledgerEntry = await pgrestGet('supplier_ledger_entries', {
         select: 'id',
         supplier_id:    `eq.${entityId}`,
         reference_type: `eq.opening_balance`,
+        entry_type:     `eq.${balanceType}`,
         order:          'created_at.asc',
         limit:          '1',
       });
       if (ledgerEntry?.length) {
         await pgrestPatch('supplier_ledger_entries', { id: `eq.${ledgerEntry[0].id}` }, { amount: Number(amount) });
-        const allEntries = await pgrestGet('supplier_ledger_entries', {
-          select: 'id,entry_type,amount,running_balance,reference_type',
-          supplier_id: `eq.${entityId}`,
-          order:       'created_at.asc',
-        });
-        if (allEntries?.length) {
-          allEntries.sort((a, b) => {
-            const aOp = a.reference_type === 'opening_balance' ? 0 : 1;
-            const bOp = b.reference_type === 'opening_balance' ? 0 : 1;
-            return aOp !== bOp ? aOp - bOp : 0;
-          });
-          let bal = 0;
-          for (const e of allEntries) {
-            bal = e.entry_type === 'debit' ? bal + Number(e.amount) : bal - Number(e.amount);
-            if (Number(e.running_balance) !== bal)
-              await pgrestPatch('supplier_ledger_entries', { id: `eq.${e.id}` }, { running_balance: bal });
-          }
-        }
+        await recalcSupplierLedger(entityId);
       }
     } catch (_) { /* supplier_ledger_entries may not exist yet — not fatal */ }
 
