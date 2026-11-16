@@ -320,6 +320,13 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
 
   useEffect(() => { loadReport(); }, [loadReport]);
 
+  // Auto-refresh when the user switches back to this tab / window
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') loadReport(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [loadReport]);
+
   const handleDownloadPdf = async () => {
     if (!data) return;
     setPdfLoading(true);
