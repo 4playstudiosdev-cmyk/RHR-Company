@@ -100,19 +100,22 @@ const adjustSupplierLedger = async (req, res) => {
     // Create expense when admin records a payment to supplier
     if (entry_type === 'credit' && (refType || 'adjustment') === 'payment') {
       const expDate = payment_date || new Date().toISOString().split('T')[0];
-      const expMethod = payment_method === 'bank' ? 'bank' : 'cash';
+      const expMethod = payment_method === 'bank' ? 'bank' : payment_method === 'cheque' ? 'bank' : 'cash';
+      const expenseBase = {
+        company_id:   supplier.company_id,
+        category:     'Vendor Payment',
+        amount:       Number(amount),
+        description:  `Vendor payment to ${supplier.name || 'vendor'} — ${description}`,
+        expense_date: expDate,
+        method:       expMethod,
+        created_by:   req.user.id,
+      };
+      // Try with supplier_id first; fall back without if the column doesn't exist yet
       try {
-        await pgrestPost('expenses', {
-          company_id:   supplier.company_id,
-          category:     'Vendor Payment',
-          amount:       Number(amount),
-          description:  `Vendor payment to ${supplier.name || 'vendor'} — ${description}`,
-          expense_date: expDate,
-          method:       expMethod,
-          supplier_id:  id,
-          created_by:   req.user.id,
-        });
-      } catch (_) { /* non-fatal — expense columns may vary */ }
+        await pgrestPost('expenses', { ...expenseBase, supplier_id: id });
+      } catch (_) {
+        try { await pgrestPost('expenses', expenseBase); } catch (_2) { /* non-fatal */ }
+      }
     }
 
     return success(res, data, 'Ledger entry added', 201);
