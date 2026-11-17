@@ -3,7 +3,7 @@ import { customerLabel } from '../utils/customerLabel';
 import CustomerSelect from '../components/CustomerSelect';
 import DateRangeFilter from '../components/DateRangeFilter';
 import React, { useEffect, useRef, useState } from 'react';
-import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2, FileText, ArrowLeftRight, Camera, X, CalendarClock } from 'lucide-react';
+import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2, FileText, ArrowLeftRight, Camera, X, CalendarClock, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import PageHeader from '../components/PageHeader';
 import Button from '../components/Button';
@@ -126,6 +126,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
   const [editDateTarget, setEditDateTarget] = useState(null);
   const [editDateValue, setEditDateValue] = useState('');
   const [editDateSaving, setEditDateSaving] = useState(false);
+  const [expandedHistoryRow, setExpandedHistoryRow] = useState(null);
 
   useEffect(() => {
     loadSalesmen();
@@ -1491,12 +1492,14 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Photo</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-center">Status</th>
+                    <th className="px-3 py-3 w-8 text-center"><Info size={12} /></th>
                     <th className="px-4 py-3 w-12"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {visibleTransactions.map((t, i) => (
-                    <tr key={t.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                    <React.Fragment key={t.id}>
+                    <tr className={`border-b ${expandedHistoryRow === t.id ? 'border-blue-100' : 'border-gray-50'} last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                       <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
                           <WhenCell date={t.recovery_date} createdAt={t.created_at} />
@@ -1544,6 +1547,15 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                           {t.status}
                         </span>
                       </td>
+                      <td className="px-3 py-3.5 text-center">
+                        <button
+                          onClick={() => setExpandedHistoryRow(expandedHistoryRow === t.id ? null : t.id)}
+                          className="text-gray-300 hover:text-blue-500 p-1 rounded transition-colors"
+                          title="View details"
+                        >
+                          {expandedHistoryRow === t.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        </button>
+                      </td>
                       <td className="px-4 py-3.5 text-center">
                         <button
                           onClick={() => handleDeleteHistory(t)}
@@ -1555,6 +1567,58 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                         </button>
                       </td>
                     </tr>
+                    {expandedHistoryRow === t.id && (
+                      <tr className="bg-blue-50/40 border-b border-blue-100">
+                        <td colSpan={11} className="px-8 py-4">
+                          <div className="flex items-center gap-1.5 mb-3 text-blue-600 text-xs font-semibold uppercase tracking-wide">
+                            <Info size={12} /> Entry Details
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
+                            <div>
+                              <div className="text-xs text-gray-400 mb-0.5">Amount</div>
+                              <div className="font-semibold text-navy">PKR {Number(t.amount).toLocaleString()}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-400 mb-0.5">Payment Type</div>
+                              <div className="font-medium text-gray-700 capitalize">{(t.payment_type || '—').replace(/_/g, ' ')}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-400 mb-0.5">Method</div>
+                              <div className="font-medium text-gray-700 capitalize">{(t.payment_method || t.payment_type || '—').replace(/_/g, ' ')}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-400 mb-0.5">Date</div>
+                              <div className="font-medium text-gray-700">{t.recovery_date ? new Date(t.recovery_date).toLocaleDateString('en-GB') : '—'}</div>
+                            </div>
+                            {t.payment_type === 'vendor_transfer' && (t.suppliers?.name || t.vendor_name) && (
+                              <div>
+                                <div className="text-xs text-gray-400 mb-0.5">Vendor Paid</div>
+                                <div className="font-semibold text-indigo-700">{t.suppliers?.name || t.vendor_name}</div>
+                              </div>
+                            )}
+                            {t.cheque_number && (
+                              <div>
+                                <div className="text-xs text-gray-400 mb-0.5">Cheque #</div>
+                                <div className="font-medium text-gray-700">{t.cheque_number}</div>
+                              </div>
+                            )}
+                            {t.cheque_bank && (
+                              <div>
+                                <div className="text-xs text-gray-400 mb-0.5">Cheque Bank</div>
+                                <div className="font-medium text-gray-700">{t.cheque_bank}</div>
+                              </div>
+                            )}
+                          </div>
+                          {t.notes && (
+                            <div>
+                              <div className="text-xs text-gray-400 mb-0.5">Notes:</div>
+                              <div className="text-xs text-gray-600">{t.notes}</div>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>

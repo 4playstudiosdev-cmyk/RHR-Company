@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import CustomerSelect from '../components/CustomerSelect';
-import { BookOpen, Plus, FileText, FileSpreadsheet, TrendingDown, TrendingUp, Wallet, Trash2 } from 'lucide-react';
+import { BookOpen, Plus, FileText, FileSpreadsheet, TrendingDown, TrendingUp, Wallet, Trash2, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
 import Button from '../components/Button';
@@ -117,6 +117,7 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [deletingEntryId, setDeletingEntryId] = useState(null);
+  const [expandedLedgerRow, setExpandedLedgerRow] = useState(null);
 
   useEffect(() => {
     loadCustomers();
@@ -427,6 +428,7 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Received (-)</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Balance</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-center">Type</th>
+                        <th className="px-3 py-3 w-8 text-center"><Info size={12} /></th>
                         <th className="px-4 py-3 w-10"></th>
                       </tr>
                     </thead>
@@ -446,12 +448,13 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
                                 Opening
                               </span>
                             </td>
+                            <td className="px-3 py-3.5" />
                             <td className="px-4 py-3.5" />
                           </tr>
                         ) : (
+                        <React.Fragment key={entry.id}>
                         <tr
-                          key={entry.id}
-                          className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${
+                          className={`border-b ${expandedLedgerRow === entry.id ? 'border-blue-100' : 'border-gray-50'} last:border-0 hover:bg-gray-50/80 transition-colors ${
                             i % 2 === 1 ? 'bg-gray-50/40' : ''
                           }`}
                         >
@@ -478,6 +481,15 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
                               {typeLabel(entry)}
                             </span>
                           </td>
+                          <td className="px-3 py-3.5 text-center">
+                            <button
+                              onClick={() => setExpandedLedgerRow(expandedLedgerRow === entry.id ? null : entry.id)}
+                              className="text-gray-300 hover:text-blue-500 p-1 rounded transition-colors"
+                              title="View details"
+                            >
+                              {expandedLedgerRow === entry.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            </button>
+                          </td>
                           <td className="px-4 py-3.5 text-center">
                             {(entry.reference_type === 'recovery' || entry.reference_type === 'vendor_transfer') && (
                               <button
@@ -491,6 +503,50 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
                             )}
                           </td>
                         </tr>
+                        {expandedLedgerRow === entry.id && (
+                          <tr className="bg-blue-50/40 border-b border-blue-100">
+                            <td colSpan={9} className="px-8 py-4">
+                              <div className="flex items-center gap-1.5 mb-3 text-blue-600 text-xs font-semibold uppercase tracking-wide">
+                                <Info size={12} /> Entry Details
+                              </div>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
+                                <div>
+                                  <div className="text-xs text-gray-400 mb-0.5">Amount</div>
+                                  <div className="font-semibold text-navy">PKR {Number(entry.amount).toLocaleString()}</div>
+                                </div>
+                                <div>
+                                  <div className="text-xs text-gray-400 mb-0.5">Entry Type</div>
+                                  <div className="font-medium text-gray-700 capitalize">{entry.entry_type === 'debit' ? 'Debit (Billed)' : 'Credit (Payment)'}</div>
+                                </div>
+                                <div>
+                                  <div className="text-xs text-gray-400 mb-0.5">Reference Type</div>
+                                  <div className="font-medium text-gray-700 capitalize">{(entry.reference_type || '—').replace(/_/g, ' ')}</div>
+                                </div>
+                                <div>
+                                  <div className="text-xs text-gray-400 mb-0.5">Date Recorded</div>
+                                  <div className="font-medium text-gray-700">{new Date(entry.created_at).toLocaleDateString('en-GB')}</div>
+                                </div>
+                                {(entry.reference_type === 'vendor_transfer' || (entry.description || '').toLowerCase().includes('vendor transfer')) && (() => {
+                                  const m = (entry.description || '').match(/vendor transfer to ([^—\n]+)/i);
+                                  const vendor = m ? m[1].trim() : null;
+                                  return vendor ? (
+                                    <div>
+                                      <div className="text-xs text-gray-400 mb-0.5">Vendor Paid</div>
+                                      <div className="font-semibold text-indigo-700">{vendor}</div>
+                                    </div>
+                                  ) : null;
+                                })()}
+                              </div>
+                              {entry.description && (
+                                <div>
+                                  <div className="text-xs text-gray-400 mb-0.5">Full description:</div>
+                                  <div className="text-xs text-gray-600">{entry.description}</div>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                        </React.Fragment>
                         )
                       ))}
                     </tbody>

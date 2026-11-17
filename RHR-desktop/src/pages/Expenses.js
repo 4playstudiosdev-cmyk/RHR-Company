@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Wallet, Plus, Download, Trash2, Receipt, Camera, Image as ImageIcon, X, Users, List, UserPlus, Search } from 'lucide-react';
+import { Wallet, Plus, Download, Trash2, Receipt, Camera, Image as ImageIcon, X, Users, List, UserPlus, Search, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import Modal from '../components/Modal';
@@ -80,6 +80,7 @@ export default function Expenses() {
   const [personSearch, setPersonSearch] = useState('');
   const [personDropdownOpen, setPersonDropdownOpen] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [expandedExpenseRow, setExpandedExpenseRow] = useState(null);
   // New account modal
   const [showNewAcctModal, setShowNewAcctModal] = useState(false);
   const [newAcctForm, setNewAcctForm] = useState({ name: '', opening_balance: '' });
@@ -1185,12 +1186,14 @@ export default function Expenses() {
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Person</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Paid From</th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount</th>
+                    <th className="px-3 py-3 w-8 text-center"><Info size={12} /></th>
                     <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {expenses.map((e, i) => (
-                    <tr key={e.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                    <React.Fragment key={e.id}>
+                    <tr className={`border-b ${expandedExpenseRow === e.id ? 'border-blue-100' : 'border-gray-50'} last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                       <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{new Date(e.expense_date).toLocaleDateString('en-GB')}</td>
                       <td className="px-6 py-3.5">
                         <span className="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-navy-chip text-navy">{e.category}</span>
@@ -1208,6 +1211,15 @@ export default function Expenses() {
                           : getPaidFromLabel(e)}
                       </td>
                       <td className="px-6 py-3.5 text-right font-semibold text-red-600">PKR {Number(e.amount).toLocaleString()}</td>
+                      <td className="px-3 py-3.5 text-center">
+                        <button
+                          onClick={() => setExpandedExpenseRow(expandedExpenseRow === e.id ? null : e.id)}
+                          className="text-gray-300 hover:text-blue-500 p-1 rounded transition-colors"
+                          title="View details"
+                        >
+                          {expandedExpenseRow === e.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        </button>
+                      </td>
                       <td className="px-6 py-3.5 whitespace-nowrap">
                         {e.receipt_url && (
                           <button
@@ -1226,13 +1238,59 @@ export default function Expenses() {
                         </button>
                       </td>
                     </tr>
+                    {expandedExpenseRow === e.id && (
+                      <tr className="bg-blue-50/40 border-b border-blue-100">
+                        <td colSpan={8} className="px-8 py-4">
+                          <div className="flex items-center gap-1.5 mb-3 text-blue-600 text-xs font-semibold uppercase tracking-wide">
+                            <Info size={12} /> Entry Details
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
+                            <div>
+                              <div className="text-xs text-gray-400 mb-0.5">Amount</div>
+                              <div className="font-semibold text-red-600">PKR {Number(e.amount).toLocaleString()}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-400 mb-0.5">Category</div>
+                              <div className="font-medium text-gray-700">{e.category || '—'}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-400 mb-0.5">Method</div>
+                              <div className="font-medium text-gray-700 capitalize">{(e.method || '—').replace(/_/g, ' ')}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-400 mb-0.5">Date</div>
+                              <div className="font-medium text-gray-700">{new Date(e.expense_date).toLocaleDateString('en-GB')}</div>
+                            </div>
+                            {e.suppliers?.name && (
+                              <div>
+                                <div className="text-xs text-gray-400 mb-0.5">Vendor Paid</div>
+                                <div className="font-semibold text-indigo-700">{e.suppliers.name}</div>
+                              </div>
+                            )}
+                            {e.bank_accounts?.bank_name && (
+                              <div>
+                                <div className="text-xs text-gray-400 mb-0.5">Bank Account</div>
+                                <div className="font-medium text-gray-700">{e.bank_accounts.bank_name}</div>
+                              </div>
+                            )}
+                          </div>
+                          {e.description && (
+                            <div>
+                              <div className="text-xs text-gray-400 mb-0.5">Full description:</div>
+                              <div className="text-xs text-gray-600">{e.description}</div>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="bg-navy">
                     <td colSpan={5} className="px-6 py-3.5 text-white font-semibold text-sm">TOTAL</td>
                     <td className="px-6 py-3.5 text-orange font-bold text-sm text-right">PKR {totalExpenses.toLocaleString()}</td>
-                    <td></td>
+                    <td colSpan={2}></td>
                   </tr>
                 </tfoot>
               </table>

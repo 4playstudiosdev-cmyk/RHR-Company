@@ -111,12 +111,23 @@ router.get('/transactions', authenticate, isAdmin, async (req, res) => {
     const companyId = resolveCompanyId(req);
     const { salesman_id, status } = req.query;
 
-    const params = { select: await withPhoto(RECOVERY_SELECT), order: 'recovery_date.desc,created_at.desc' };
+    let selectStr = await withPhoto(RECOVERY_SELECT);
+    if (await hasVendorColumn()) {
+      try { selectStr += ',suppliers!vendor_id(id,name)'; } catch (_) {}
+    }
+    const params = { select: selectStr, order: 'recovery_date.desc,created_at.desc' };
     if (companyId)   params.company_id  = `eq.${companyId}`;
     if (salesman_id) params.salesman_id = `eq.${salesman_id}`;
     params.status = status ? `eq.${status}` : 'neq.deleted';
 
-    const data = await pgrestGet('salesman_recoveries', params);
+    let data;
+    try {
+      data = await pgrestGet('salesman_recoveries', params);
+    } catch (_) {
+      // fallback without suppliers join if FK not set up
+      params.select = await withPhoto(RECOVERY_SELECT);
+      data = await pgrestGet('salesman_recoveries', params);
+    }
     return success(res, data);
   } catch (err) { return error(res, err.message); }
 });
@@ -239,11 +250,19 @@ router.patch('/transactions/:id/approve', authenticate, isAdmin, async (req, res
       const expenseDate = recovery.recovery_date || new Date().toISOString().split('T')[0];
       const rawMethod = recovery.payment_method; // 'vendor_transfer' or 'bank_transfer'
 
+      let supplierNameForLedger = 'vendor';
+      try {
+        if (supplierId) {
+          const sRows = await pgrestGet('suppliers', { select: 'name', id: `eq.${supplierId}` });
+          supplierNameForLedger = sRows?.[0]?.name || 'vendor';
+        }
+      } catch (_) {}
+
       await creditLedger({
         companyId:   recovery.company_id,
         customerId:  recovery.customer_id,
         amount:      Number(recovery.amount),
-        description: 'Vendor transfer approved — customer balance settled via supplier',
+        description: `Vendor transfer to ${supplierNameForLedger} — customer balance settled`,
         userId:      req.user.id,
         date:        recovery.recovery_date,
         referenceId: recovery.id,
@@ -1438,6 +1457,13 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
     };
     if (await hasVendorColumn()) rowData.vendor_id = supplier_id;
 
+    // Lookup supplier name early so it appears in all descriptions
+    let supplierNameEarly = 'vendor';
+    try {
+      const sRows = await pgrestGet('suppliers', { select: 'name', id: `eq.${supplier_id}` });
+      supplierNameEarly = sRows?.[0]?.name || 'vendor';
+    } catch (_) {}
+
     let recovery;
     try {
       [recovery] = await pgrestPost('salesman_recoveries', { ...rowData, photo_url: photo_url || null });
@@ -1449,7 +1475,7 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
       companyId,
       customerId:  customer_id,
       amount:      Number(amount),
-      description: 'Direct vendor transfer — customer balance settled via supplier',
+      description: `Vendor transfer to ${supplierNameEarly} — customer balance settled`,
       date:        recovery_date,
       userId:      req.user.id,
       referenceId: recovery.id,
@@ -1457,11 +1483,7 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
 
     // For cash or bank_transfer: create an expense and credit supplier ledger
     if (vendor_payment_method === 'cash' || vendor_payment_method === 'bank_transfer') {
-      let supplierName = 'vendor';
-      try {
-        const suppliers = await pgrestGet('suppliers', { select: 'name', id: `eq.${supplier_id}` });
-        supplierName = suppliers?.[0]?.name || 'vendor';
-      } catch (_) {}
+      const supplierName = supplierNameEarly;
 
       // Fetch bank name for description
       let adminBankName = '';
