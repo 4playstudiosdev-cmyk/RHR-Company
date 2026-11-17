@@ -341,7 +341,7 @@ const getBankLedger = async (req, res) => {
     if (req.user.role !== 'super_admin' && account.company_id !== req.user.company_id)
       return error(res, 'Access denied', 403);
 
-    const isCashInHand = account.bank_name === 'Cash';
+    const isCashInHand = account.bank_name === 'Cash' || account.account_name?.toLowerCase().includes('cash in hand');
     const cid = account.company_id;
 
     const [transfers, cheques, expenses] = await Promise.all([
@@ -538,7 +538,7 @@ const getBankSummary = async (req, res) => {
       if (id) outMap[id] = (outMap[id] || 0) + amt;
     });
 
-    const cashAccount = (accounts || []).find(a => a.bank_name === 'Cash');
+    const cashAccount = (accounts || []).find(a => a.bank_name === 'Cash' || a.account_name?.toLowerCase().includes('cash in hand'));
     const cashOpening = Number(cashAccount?.opening_balance || 0);
     const cashIn  = (pettyCashClose || []).reduce((s, c) => s + Number(c.amount || 0), 0);
     const cashOut = (cashExp        || []).reduce((s, e) => s + Number(e.amount || 0), 0);
@@ -551,7 +551,7 @@ const getBankSummary = async (req, res) => {
       account_name: a.account_name,
       bank_name: a.bank_name,
       account_number: a.account_number,
-      current_balance: a.bank_name === 'Cash'
+      current_balance: (a.bank_name === 'Cash' || a.account_name?.toLowerCase().includes('cash in hand'))
         ? cashInHand
         : Number(a.opening_balance || 0) + (inMap[a.id] || 0) - (outMap[a.id] || 0),
     }));
