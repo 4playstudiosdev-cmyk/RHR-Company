@@ -8,6 +8,7 @@ router.get('/summary',                           authenticate, isAdmin, ctrl.get
 router.get('/accounts',                          authenticate, isAdmin, ctrl.getBankAccounts);
 router.post('/accounts',                         authenticate, isAdmin, ctrl.createBankAccount);
 router.patch('/accounts/:id',                    authenticate, isAdmin, ctrl.updateBankAccount);
+router.delete('/accounts/:id',                   authenticate, isAdmin, ctrl.deleteBankAccount);
 router.patch('/accounts/:id/opening-balance',    authenticate, isAdmin, ctrl.updateOpeningBalance);
 router.get('/accounts/:id/ledger',               authenticate, isAdmin, ctrl.getBankLedger);
 router.get('/transactions',                      authenticate, isAdmin, ctrl.getBankTransactions);

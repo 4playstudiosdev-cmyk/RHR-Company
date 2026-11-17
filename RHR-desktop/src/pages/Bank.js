@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Landmark, Plus, ArrowLeftRight, BookOpen, RefreshCw, Pencil } from 'lucide-react';
+import { Landmark, Plus, ArrowLeftRight, BookOpen, RefreshCw, Pencil, Trash2 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
 import Button from '../components/Button';
@@ -38,6 +38,7 @@ export default function Bank() {
   const [editAccount, setEditAccount] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [editSaving, setEditSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   const openLedger = async (account) => {
     setLedgerAccount(account);
@@ -119,6 +120,31 @@ export default function Bank() {
       toast.error(err.response?.data?.message || 'Failed to update account.');
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  const handleDeleteAccount = async (account) => {
+    const txnCount = transactions.filter((t) => {
+      if (t.bank_accounts?.account_name === account.account_name) return true;
+      return false;
+    }).length;
+    const msg = `DELETE "${account.account_name}"?\n\nThis will permanently delete the bank account AND all its linked payments, expenses, and transactions from Supabase.\n\nType the account name to confirm:`;
+    const typed = window.prompt(msg);
+    if (typed === null) return;
+    if (typed.trim().toLowerCase() !== account.account_name.trim().toLowerCase()) {
+      window.alert('Name did not match — delete cancelled.');
+      return;
+    }
+    setDeletingId(account.id);
+    try {
+      await api.delete(`/bank/accounts/${account.id}`);
+      toast.success(`"${account.account_name}" deleted along with all linked transactions.`);
+      if (ledgerAccount?.id === account.id) { setLedgerAccount(null); setLedgerData(null); }
+      loadAll();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete account.');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -312,6 +338,14 @@ export default function Bank() {
                               title="Edit account details"
                             >
                               <Pencil size={13} /> Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteAccount(a)}
+                              disabled={deletingId === a.id}
+                              className="flex items-center gap-1.5 text-xs font-medium text-red-600 border border-red-200 hover:bg-red-50 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors"
+                              title="Delete account and all linked transactions"
+                            >
+                              {deletingId === a.id ? '...' : <><Trash2 size={13} /> Delete</>}
                             </button>
                           </div>
                         </td>

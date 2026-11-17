@@ -1,6 +1,6 @@
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
-const { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
 
 // GET /api/v1/bank/accounts?company_id=
 const getBankAccounts = async (req, res) => {
@@ -567,4 +567,28 @@ const getBankSummary = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getBankAccounts, createBankAccount, updateBankAccount, getBankTransactions, updateOpeningBalance, getBankLedger, getBankSummary };
+// DELETE /api/v1/bank/accounts/:id — hard-deletes the account and all linked transactions
+const deleteBankAccount = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const filter = { id: `eq.${id}` };
+    if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
+
+    const rows = await pgrestGet('bank_accounts', { ...filter, select: 'id,account_name,company_id' });
+    if (!rows?.[0]) return error(res, 'Bank account not found or access denied', 404);
+
+    // Delete all linked data before removing the account itself
+    // 1. Bank-transfer recoveries pointing to this account (reference_number stores account UUID)
+    try { await pgrestDelete('salesman_recoveries', { reference_number: `eq.${id}` }); } catch (_) {}
+    // 2. Cheques that were cleared into this account
+    try { await pgrestDelete('salesman_recoveries', { cleared_bank_account_id: `eq.${id}` }); } catch (_) {}
+    // 3. Expenses paid from this account
+    try { await pgrestDelete('expenses', { bank_account_id: `eq.${id}` }); } catch (_) {}
+    // 4. The account itself
+    await pgrestDelete('bank_accounts', { id: `eq.${id}` });
+
+    return success(res, { deleted: true }, 'Bank account and all linked transactions deleted');
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { getBankAccounts, createBankAccount, updateBankAccount, deleteBankAccount, getBankTransactions, updateOpeningBalance, getBankLedger, getBankSummary };
