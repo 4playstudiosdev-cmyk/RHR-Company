@@ -119,6 +119,11 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       final list = d is List ? d : (d['products'] ?? []);
       final priceById = <dynamic, dynamic>{for (final e in list) e['id']: e['price']};
       if (!mounted || _selectedCustomerId != customerId) return;
+      // Cache for offline use
+      final cacheMap = <String, dynamic>{
+        for (final e in priceById.entries) e.key.toString(): e.value,
+      };
+      HiveService.cacheCustomerPrices(customerId, cacheMap);
       setState(() {
         for (final p in _products) {
           if (priceById.containsKey(p['id'])) p['price'] = priceById[p['id']];
@@ -126,6 +131,16 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       });
     } catch (e) {
       debugPrint('Customer prices error: $e');
+      // Load cached prices when offline
+      final cached = HiveService.getCachedCustomerPrices(customerId);
+      if (cached != null && mounted && _selectedCustomerId == customerId) {
+        setState(() {
+          for (final p in _products) {
+            final id = p['id']?.toString();
+            if (id != null && cached.containsKey(id)) p['price'] = cached[id];
+          }
+        });
+      }
     }
   }
 

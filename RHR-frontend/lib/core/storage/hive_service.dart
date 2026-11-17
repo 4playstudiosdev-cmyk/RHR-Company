@@ -1,11 +1,13 @@
 import 'package:hive_flutter/hive_flutter.dart';
 
 class HiveService {
-  static const String _ordersBox    = 'offline_orders';
-  static const String _customersBox = 'cached_customers';
-  static const String _productsBox  = 'cached_products';
-  static const String _paymentsBox  = 'pending_payments';
-  static const String _newCustBox   = 'pending_customers';
+  static const String _ordersBox         = 'offline_orders';
+  static const String _customersBox      = 'cached_customers';
+  static const String _productsBox       = 'cached_products';
+  static const String _paymentsBox       = 'pending_payments';
+  static const String _newCustBox        = 'pending_customers';
+  static const String _bankAccountsBox   = 'cached_bank_accounts';
+  static const String _customerPricesBox = 'cached_customer_prices';
 
   static Future<void> init() async {
     await Hive.initFlutter();
@@ -14,6 +16,8 @@ class HiveService {
     await Hive.openBox<Map>(_productsBox);
     await Hive.openBox<Map>(_paymentsBox);
     await Hive.openBox<Map>(_newCustBox);
+    await Hive.openBox<Map>(_bankAccountsBox);
+    await Hive.openBox<Map>(_customerPricesBox);
   }
 
   // ── Offline orders ───────────────────────────────────────────────────────
@@ -54,14 +58,17 @@ class HiveService {
   static Future<void> cacheProducts(List<Map<String, dynamic>> products) async {
     final box = Hive.box<Map>(_productsBox);
     await box.clear();
-    for (final p in products) {
-      await box.put(p['id'] as String, p);
+    for (int i = 0; i < products.length; i++) {
+      await box.put(products[i]['id'] as String, {...products[i], '_sort_index': i});
     }
   }
 
-  static List<Map<String, dynamic>> getCachedProducts() =>
-      Hive.box<Map>(_productsBox).values
-          .map((e) => Map<String, dynamic>.from(e)).toList();
+  static List<Map<String, dynamic>> getCachedProducts() {
+    final list = Hive.box<Map>(_productsBox).values
+        .map((e) => Map<String, dynamic>.from(e)).toList();
+    list.sort((a, b) => (a['_sort_index'] as int? ?? 0).compareTo(b['_sort_index'] as int? ?? 0));
+    return list;
+  }
 
   static bool hasProductCache() => Hive.box<Map>(_productsBox).isNotEmpty;
 
@@ -100,6 +107,32 @@ class HiveService {
 
   static Future<void> clearPendingCustomer(String key) async =>
       Hive.box<Map>(_newCustBox).delete(key);
+
+  // ── Bank accounts cache ──────────────────────────────────────────────────
+  static Future<void> cacheBankAccounts(List<Map<String, dynamic>> accounts) async {
+    final box = Hive.box<Map>(_bankAccountsBox);
+    await box.clear();
+    for (final a in accounts) {
+      await box.put(a['id'] as String, a);
+    }
+  }
+
+  static List<Map<String, dynamic>> getCachedBankAccounts() =>
+      Hive.box<Map>(_bankAccountsBox).values
+          .map((e) => Map<String, dynamic>.from(e)).toList();
+
+  static bool hasBankAccountCache() => Hive.box<Map>(_bankAccountsBox).isNotEmpty;
+
+  // ── Customer custom prices cache ─────────────────────────────────────────
+  static Future<void> cacheCustomerPrices(String customerId, Map<String, dynamic> priceMap) async {
+    await Hive.box<Map>(_customerPricesBox).put(customerId, priceMap);
+  }
+
+  static Map<String, dynamic>? getCachedCustomerPrices(String customerId) {
+    final raw = Hive.box<Map>(_customerPricesBox).get(customerId);
+    if (raw == null) return null;
+    return Map<String, dynamic>.from(raw);
+  }
 
   // ── Totals ───────────────────────────────────────────────────────────────
   static int getTotalPendingCount() =>
