@@ -210,7 +210,9 @@ export default function VendorLedger({ initialSupplierId }) {
         receipt_url,
         payment_method:  method,
         payment_date:    paymentForm.payment_date,
-        bank_account_id: method === 'bank' ? (paymentForm.bank_account_id || null) : null,
+        bank_account_id: method === 'bank' ? (paymentForm.bank_account_id || null)
+          : method === 'cheque' ? (paymentForm.cheque_bank_account_id || null)
+          : null,
       });
       toast.success('Payment recorded.');
       setShowPaymentModal(false);

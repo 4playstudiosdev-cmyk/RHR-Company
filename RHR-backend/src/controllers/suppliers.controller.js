@@ -160,20 +160,38 @@ const deleteSupplierLedgerEntry = async (req, res) => {
     const remaining = (allEntries || []).filter((e) => e.id !== entryId);
     await recalcRunningBalances(remaining);
 
-    // Delete linked expense if this was a payment credit
-    if (entryToDelete?.entry_type === 'credit' && entryToDelete?.reference_type === 'payment') {
+    // Delete linked expense if this was a payment or vendor_transfer credit
+    if (entryToDelete?.entry_type === 'credit' &&
+        (entryToDelete?.reference_type === 'payment' || entryToDelete?.reference_type === 'vendor_transfer')) {
       try {
         const entryDate = (entryToDelete.created_at || '').split('T')[0];
-        const linked = await pgrestGet('expenses', {
-          supplier_id: `eq.${supplierId}`,
-          amount: `eq.${Number(entryToDelete.amount)}`,
-          category: `eq.Vendor Payment`,
-          expense_date: `eq.${entryDate}`,
-          order: 'created_at.desc',
-          limit: '1',
-        });
-        if (linked?.[0]?.id) {
-          await pgrestDelete('expenses', { id: `eq.${linked[0].id}` });
+        // Try matching by supplier_id first
+        let linked = null;
+        try {
+          const rows = await pgrestGet('expenses', {
+            supplier_id: `eq.${supplierId}`,
+            amount: `eq.${Number(entryToDelete.amount)}`,
+            category: `eq.Vendor Payment`,
+            expense_date: `eq.${entryDate}`,
+            order: 'created_at.desc',
+            limit: '1',
+          });
+          if (rows?.[0]?.id) linked = rows[0];
+        } catch (_) {}
+        // Fallback: match by company_id only (expense may have been created without supplier_id)
+        if (!linked) {
+          const rows = await pgrestGet('expenses', {
+            company_id: `eq.${supplier.company_id}`,
+            amount: `eq.${Number(entryToDelete.amount)}`,
+            category: `eq.Vendor Payment`,
+            expense_date: `eq.${entryDate}`,
+            order: 'created_at.desc',
+            limit: '1',
+          });
+          if (rows?.[0]?.id) linked = rows[0];
+        }
+        if (linked?.id) {
+          await pgrestDelete('expenses', { id: `eq.${linked.id}` });
         }
       } catch (_) { /* non-fatal */ }
     }
