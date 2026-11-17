@@ -260,11 +260,26 @@ router.patch('/transactions/:id/approve', authenticate, isAdmin, async (req, res
         const bankAcctId = recovery.bank_account_id
           || (rawMethod === 'bank_transfer' || rawMethod === 'cheque' ? recovery.reference_number : null)
           || null;
+
+        // Fetch bank name for description
+        let bankNameLabel = '';
+        if (bankAcctId && (rawMethod === 'bank_transfer' || rawMethod === 'cheque')) {
+          try {
+            const bankRow = await pgrestGet('bank_accounts', { select: 'bank_name', id: `eq.${bankAcctId}`, limit: '1' });
+            bankNameLabel = bankRow?.[0]?.bank_name || '';
+          } catch (_) {}
+        }
+        const methodLabel = rawMethod === 'bank_transfer'
+          ? `bank${bankNameLabel ? ` — ${bankNameLabel}` : ''}`
+          : rawMethod === 'cheque'
+            ? `cheque${recovery.cheque_number ? `#${recovery.cheque_number}` : ''}${bankNameLabel ? ` — ${bankNameLabel}` : ''}`
+            : 'cash';
+
         const expenseBase = {
           company_id:   recovery.company_id,
           category:     'Vendor Payment',
           amount:       Number(recovery.amount),
-          description:  `Vendor payment to ${supplierName} — salesman transfer${recovery.cheque_number ? ` Cheque#${recovery.cheque_number}` : ''}`,
+          description:  `Vendor payment to ${supplierName} — salesman transfer${recovery.cheque_number ? ` Cheque#${recovery.cheque_number}` : ''}${bankNameLabel ? ` via ${bankNameLabel}` : ''}`,
           expense_date: expenseDate,
           method:       expMethod,
           ...(bankAcctId && (rawMethod === 'bank_transfer' || rawMethod === 'cheque') ? { bank_account_id: bankAcctId } : {}),
@@ -288,7 +303,7 @@ router.patch('/transactions/:id/approve', authenticate, isAdmin, async (req, res
             entry_type:      'credit',
             amount:          Number(recovery.amount),
             running_balance: prevBal - Number(recovery.amount),
-            description:     `Salesman vendor transfer approved — via ${rawMethod === 'bank_transfer' ? 'bank' : rawMethod === 'cheque' ? 'cheque' : 'cash'}`,
+            description:     `Salesman vendor transfer approved — via ${methodLabel}`,
             reference_type:  'vendor_transfer',
             created_by:      req.user.id,
             created_at:      new Date(expenseDate).toISOString(),
@@ -1448,11 +1463,20 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
         supplierName = suppliers?.[0]?.name || 'vendor';
       } catch (_) {}
 
+      // Fetch bank name for description
+      let adminBankName = '';
+      if (vendor_payment_method === 'bank_transfer' && bank_account_id) {
+        try {
+          const bankRow = await pgrestGet('bank_accounts', { select: 'bank_name', id: `eq.${bank_account_id}`, limit: '1' });
+          adminBankName = bankRow?.[0]?.bank_name || '';
+        } catch (_) {}
+      }
+
       const expenseBase = {
         company_id:   companyId,
         category:     'Vendor Payment',
         amount:       Number(amount),
-        description:  `Vendor payment to ${supplierName}${reference_number ? ` — Ref: ${reference_number}` : ''}`,
+        description:  `Vendor payment to ${supplierName}${adminBankName ? ` via ${adminBankName}` : ''}${reference_number ? ` — Ref: ${reference_number}` : ''}`,
         expense_date: expenseDate,
         method:       vendor_payment_method === 'bank_transfer' ? 'bank' : 'cash',
         ...(vendor_payment_method === 'bank_transfer' && bank_account_id ? { bank_account_id } : {}),
@@ -1475,7 +1499,7 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
           entry_type:      'credit',
           amount:          Number(amount),
           running_balance: prevBal - Number(amount),
-          description:     `Admin vendor transfer — via ${vendor_payment_method === 'bank_transfer' ? 'bank' : 'cash'}`,
+          description:     `Admin vendor transfer — via ${vendor_payment_method === 'bank_transfer' ? `bank${adminBankName ? ` — ${adminBankName}` : ''}` : 'cash'}`,
           reference_type:  'vendor_transfer',
           created_by:      req.user.id,
           created_at:      new Date(expenseDate).toISOString(),
