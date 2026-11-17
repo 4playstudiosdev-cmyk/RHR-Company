@@ -482,7 +482,7 @@ async function deleteEntry(req, res, table, label) {
     const adminName = req.user.full_name || 'admin';
     const isPayment = table === 'salesman_recoveries';
     const rows = await pgrestGet(table, {
-      select: isPayment ? 'id,status,company_id,salesman_id,customer_id,amount,payment_type,payment_method,recovery_date,notes,users!customer_id(full_name,shop_name)' : 'id,status',
+      select: isPayment ? 'id,status,company_id,salesman_id,customer_id,vendor_id,amount,payment_type,payment_method,recovery_date,notes,users!customer_id(full_name,shop_name)' : 'id,status',
       ...scopeFilter(req),
     });
     const row = rows?.[0];
@@ -492,6 +492,38 @@ async function deleteEntry(req, res, table, label) {
     if (row.status === 'approved') {
       if (!isPayment) return error(res, `An approved ${label.toLowerCase()} can't be deleted — it has already been counted in the books.`, 400);
       const who = row.users?.shop_name || row.users?.full_name || 'customer';
+
+      // Cascade-delete supplier ledger entry + expense for vendor transfers
+      if (row.payment_type === 'vendor_transfer') {
+        const expDate = (row.recovery_date || '').split('T')[0];
+        try {
+          // Delete supplier ledger entry — match by reference_type + amount + date prefix
+          const { pgrestGetRaw: pgRaw } = require('../utils/directQuery');
+          const suppEntries = await pgRaw(
+            `supplier_ledger_entries?select=id,supplier_id&reference_type=eq.vendor_transfer&amount=eq.${Number(row.amount)}&created_at=gte.${expDate}T00:00:00.000Z&created_at=lte.${expDate}T23:59:59.999Z&limit=1`
+          ).catch(() => null);
+          if (suppEntries?.[0]) {
+            const suppId = suppEntries[0].supplier_id;
+            await pgrestDelete('supplier_ledger_entries', { id: `eq.${suppEntries[0].id}` });
+            const { recalcSupplierLedger } = require('../services/orderLedger.service');
+            try { await recalcSupplierLedger(suppId); } catch (_) {}
+          }
+        } catch (_) {}
+        try {
+          // Delete linked expense (match by company + amount + date + category)
+          const expRows = await pgrestGet('expenses', {
+            select: 'id',
+            company_id: `eq.${row.company_id}`,
+            category: 'eq.Vendor Payment',
+            amount: `eq.${Number(row.amount)}`,
+            expense_date: `eq.${expDate}`,
+            order: 'created_at.desc',
+            limit: '1',
+          });
+          if (expRows?.[0]) await pgrestDelete('expenses', { id: `eq.${expRows[0].id}` });
+        } catch (_) {}
+      }
+
       // Hard-delete the original credit entry so no reversal line appears in the ledger
       if (row.customer_id) {
         // Try by reference_id first (set on new entries), then fall back to amount+date match
