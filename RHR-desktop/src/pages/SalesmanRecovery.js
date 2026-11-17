@@ -3,7 +3,7 @@ import { customerLabel } from '../utils/customerLabel';
 import CustomerSelect from '../components/CustomerSelect';
 import DateRangeFilter from '../components/DateRangeFilter';
 import React, { useEffect, useRef, useState } from 'react';
-import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2, FileText, ArrowLeftRight, Camera, X } from 'lucide-react';
+import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2, FileText, ArrowLeftRight, Camera, X, CalendarClock } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import PageHeader from '../components/PageHeader';
 import Button from '../components/Button';
@@ -121,6 +121,11 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
   const [photoPreview, setPhotoPreview] = useState('');
   const photoInputRef = useRef(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  // Date edit modal
+  const [editDateTarget, setEditDateTarget] = useState(null);
+  const [editDateValue, setEditDateValue] = useState('');
+  const [editDateSaving, setEditDateSaving] = useState(false);
 
   useEffect(() => {
     loadSalesmen();
@@ -531,6 +536,21 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
       toast.error(err.response?.data?.message || 'Failed to delete.');
     } finally {
       setApprovingId(null);
+    }
+  };
+
+  const handleEditDateSave = async () => {
+    if (!editDateTarget || !editDateValue) return;
+    setEditDateSaving(true);
+    try {
+      await api.patch(`/recovery/${editDateTarget.id}/date`, { new_date: editDateValue });
+      toast.success('Date updated successfully.');
+      setEditDateTarget(null);
+      loadTransactions();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update date.');
+    } finally {
+      setEditDateSaving(false);
     }
   };
 
@@ -1477,7 +1497,19 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                 <tbody>
                   {visibleTransactions.map((t, i) => (
                     <tr key={t.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                      <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap"><WhenCell date={t.recovery_date} createdAt={t.created_at} /></td>
+                      <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <WhenCell date={t.recovery_date} createdAt={t.created_at} />
+                          <button
+                            type="button"
+                            title="Edit date"
+                            onClick={() => { setEditDateTarget(t); setEditDateValue(t.recovery_date || ''); }}
+                            className="text-gray-300 hover:text-navy transition-colors p-0.5 rounded"
+                          >
+                            <CalendarClock size={13} />
+                          </button>
+                        </div>
+                      </td>
                       <td className="px-6 py-3.5 font-medium text-navy">{t.salesmen?.full_name || '—'}</td>
                       <td className="px-6 py-3.5 text-gray-600">
                         {(t.users || {}).shop_name || (t.users || {}).full_name || '—'}
@@ -1539,6 +1571,46 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
             <a href={photoUrl} target="_blank" rel="noreferrer" className="text-sm font-semibold text-navy hover:underline">
               Open full size
             </a>
+          </div>
+        </Modal>
+      )}
+
+      {editDateTarget && (
+        <Modal title="Edit Entry Date" onClose={() => setEditDateTarget(null)} size="sm">
+          <div className="space-y-4">
+            <div>
+              <p className="text-xs text-gray-500 mb-3">
+                Changing the date updates: recovery record, customer ledger entry, daily report
+                {editDateTarget.payment_type === 'vendor_transfer' ? ', and vendor ledger.' : '.'}
+              </p>
+              <label className="block text-xs font-medium text-gray-700 mb-1.5">New Date</label>
+              <input
+                type="date"
+                value={editDateValue}
+                onChange={(e) => setEditDateValue(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+              />
+            </div>
+            <div className="text-xs text-gray-400 bg-gray-50 rounded-lg p-2.5">
+              <span className="font-medium text-gray-600">Customer:</span> {editDateTarget.users?.shop_name || editDateTarget.users?.full_name || '—'}<br />
+              <span className="font-medium text-gray-600">Amount:</span> PKR {Number(editDateTarget.amount).toLocaleString()}<br />
+              <span className="font-medium text-gray-600">Current date:</span> {editDateTarget.recovery_date}
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setEditDateTarget(null)}
+                className="flex-1 px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditDateSave}
+                disabled={editDateSaving || !editDateValue || editDateValue === editDateTarget.recovery_date}
+                className="flex-1 px-4 py-2 text-sm bg-navy text-white rounded-lg hover:bg-navy/90 disabled:opacity-50 transition-colors font-medium"
+              >
+                {editDateSaving ? 'Saving…' : 'Save Date'}
+              </button>
+            </div>
           </div>
         </Modal>
       )}

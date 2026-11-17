@@ -1562,4 +1562,75 @@ router.post('/driver-handoffs', authenticate, isAdmin, async (req, res) => {
   } catch (err) { return error(res, err.message); }
 });
 
+// PATCH /api/v1/recovery/:id/date — admin corrects the date on any recovery entry.
+// Updates: salesman_recoveries.recovery_date, linked ledger_entries.created_at,
+// and (for vendor_transfer) linked expenses.expense_date + supplier_ledger_entries.created_at.
+router.patch('/:id/date', authenticate, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { new_date } = req.body;
+    if (!new_date || !/^\d{4}-\d{2}-\d{2}$/.test(new_date))
+      return error(res, 'new_date is required (YYYY-MM-DD)', 400);
+
+    // Fetch the recovery
+    const rows = await pgrestGet('salesman_recoveries', {
+      select: 'id,company_id,amount,recovery_date,payment_type,customer_id,vendor_id',
+      id: `eq.${id}`,
+      company_id: `eq.${req.user.company_id}`,
+      limit: '1',
+    });
+    const rec = rows?.[0];
+    if (!rec) return error(res, 'Recovery not found or access denied', 404);
+
+    const oldDate = (rec.recovery_date || '').split('T')[0];
+    const newTs = `${new_date}T00:00:00.000Z`;
+
+    // 1. Update recovery_date on the main record
+    await pgrestPatch('salesman_recoveries', { id: `eq.${id}` }, { recovery_date: new_date });
+
+    // 2. Update customer ledger entry date (reference_id = recovery id)
+    try {
+      const { pgrestGetRaw } = require('../utils/directQuery');
+      const ledRows = await pgrestGetRaw(
+        `ledger_entries?select=id&reference_id=eq.${id}&limit=5`
+      ).catch(() => []);
+      for (const le of (ledRows || [])) {
+        await pgrestPatch('ledger_entries', { id: `eq.${le.id}` }, { created_at: newTs });
+      }
+    } catch (_) {}
+
+    // 3. For vendor_transfer: update expense_date + supplier_ledger_entries.created_at
+    if (rec.payment_type === 'vendor_transfer') {
+      // Update expense
+      try {
+        const expRows = await pgrestGet('expenses', {
+          select: 'id',
+          company_id: `eq.${rec.company_id}`,
+          category: 'eq.Vendor Payment',
+          amount: `eq.${Number(rec.amount)}`,
+          expense_date: `eq.${oldDate}`,
+          order: 'created_at.desc',
+          limit: '3',
+        });
+        for (const exp of (expRows || [])) {
+          await pgrestPatch('expenses', { id: `eq.${exp.id}` }, { expense_date: new_date });
+        }
+      } catch (_) {}
+
+      // Update supplier ledger entry
+      try {
+        const { pgrestGetRaw } = require('../utils/directQuery');
+        const sleRows = await pgrestGetRaw(
+          `supplier_ledger_entries?select=id,supplier_id&amount=eq.${Number(rec.amount)}&created_at=gte.${oldDate}T00:00:00.000Z&created_at=lte.${oldDate}T23:59:59.999Z&limit=3`
+        ).catch(() => []);
+        for (const sle of (sleRows || [])) {
+          await pgrestPatch('supplier_ledger_entries', { id: `eq.${sle.id}` }, { created_at: newTs });
+        }
+      } catch (_) {}
+    }
+
+    return success(res, { id, new_date }, 'Date updated successfully');
+  } catch (err) { return error(res, err.message, err.status || 500); }
+});
+
 module.exports = router;
