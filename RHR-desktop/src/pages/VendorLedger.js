@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { BookOpen, TrendingDown, TrendingUp, Wallet, X, Banknote, Building2, FileText, ImagePlus, Trash2, Pencil, Check } from 'lucide-react';
+import { BookOpen, TrendingDown, TrendingUp, Wallet, X, Banknote, Building2, FileText, ImagePlus, Trash2, Pencil, Check, ChevronDown, ChevronUp, Info } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
@@ -35,6 +35,48 @@ function typeBadgeClass(entry) {
 
 const fmtPKR = (n) => 'PKR ' + Number(n || 0).toLocaleString();
 
+// Parse structured details from the description string
+function parseEntryDetails(entry) {
+  const desc = entry.description || '';
+  const details = {};
+
+  // Payment entries: "Vendor payment to X — YYYY-MM-DD — Payment via {method} — {bank} Ref: {ref} ({notes})"
+  if (entry.reference_type === 'payment' || entry.reference_type === 'vendor_transfer') {
+    const methodMatch = desc.match(/Payment via (\w+)/i);
+    if (methodMatch) details.method = methodMatch[1];
+
+    // Bank name: after "Payment via method —" or "Payment via method"
+    const bankMatch = desc.match(/Payment via \w+\s*[—\-]\s*([^(—\n]+)/i);
+    if (bankMatch) details.bank = bankMatch[1].replace(/Ref:.*/i, '').trim().replace(/\s*$/, '');
+
+    // Reference number
+    const refMatch = desc.match(/Ref:\s*([^\s(—]+)/i);
+    if (refMatch) details.ref = refMatch[1];
+
+    // Notes in parentheses
+    const notesMatch = desc.match(/\(([^)]+)\)/);
+    if (notesMatch) details.notes = notesMatch[1];
+
+    // Date
+    const dateMatch = desc.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (dateMatch) details.paymentDate = dateMatch[1];
+
+    // Cheque details
+    const chequeMatch = desc.match(/Cheque#?\s*([^\s]+)/i);
+    if (chequeMatch) details.chequeNumber = chequeMatch[1];
+    const chequeDateMatch = desc.match(/dated\s+([\d-]+)/i);
+    if (chequeDateMatch) details.chequeDate = chequeDateMatch[1];
+  }
+
+  // Purchase entries
+  if (entry.reference_type === 'purchase') {
+    const qtyMatch = desc.match(/(\d+)\s*(bag|ton|kg|pcs|piece)/i);
+    if (qtyMatch) details.quantity = `${qtyMatch[1]} ${qtyMatch[2]}`;
+  }
+
+  return details;
+}
+
 export default function VendorLedger({ initialSupplierId }) {
   const toast = useToast();
   const user = getCurrentUser();
@@ -66,6 +108,10 @@ export default function VendorLedger({ initialSupplierId }) {
   const [editingEntryId, setEditingEntryId] = useState(null);
   const [editAmount, setEditAmount] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
+  const [expandedRowId, setExpandedRowId] = useState(null);
+  const [showAdjustModal, setShowAdjustModal] = useState(false);
+  const [adjustForm, setAdjustForm] = useState({ entry_type: 'debit', amount: '', description: '' });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     loadSuppliers();
@@ -333,66 +379,166 @@ export default function VendorLedger({ initialSupplierId }) {
                         <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide text-right">Debit (owe)</th>
                         <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide text-right">Credit (paid)</th>
                         <th className="px-5 py-3 font-semibold text-xs uppercase tracking-wide text-right">Balance</th>
+                        <th className="px-3 py-3 w-8 text-center"><Info size={12} /></th>
                         <th className="px-3 py-3 w-10"></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {pageEntries.map((e, i) => (
-                        <tr key={e.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
-                          <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">
-                            {new Date(e.created_at).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}
-                          </td>
-                          <td className="px-5 py-3 text-gray-700 max-w-[300px]">
-                            <span className="line-clamp-2">{e.description || '—'}</span>
-                          </td>
-                          <td className="px-5 py-3">
-                            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${typeBadgeClass(e)}`}>
-                              {typeLabel(e)}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3 text-right font-medium text-red-600">
-                            {e.entry_type === 'debit' ? fmtPKR(e.amount) : '—'}
-                          </td>
-                          <td className="px-5 py-3 text-right font-medium text-emerald-600">
-                            {e.entry_type === 'credit' ? (
-                              editingEntryId === e.id ? (
-                                <div className="flex items-center gap-1 justify-end">
-                                  <input
-                                    type="number" min="0.01" step="0.01"
-                                    value={editAmount}
-                                    onChange={(ev) => setEditAmount(ev.target.value)}
-                                    className="w-24 border border-gray-300 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-navy"
-                                    autoFocus
-                                    onKeyDown={(ev) => { if (ev.key === 'Enter') handleEditSave(e.id); if (ev.key === 'Escape') setEditingEntryId(null); }}
-                                  />
-                                  <button onClick={() => handleEditSave(e.id)} disabled={savingEdit} className="text-emerald-600 hover:text-emerald-800"><Check size={13} /></button>
-                                  <button onClick={() => setEditingEntryId(null)} className="text-gray-400 hover:text-gray-600"><X size={13} /></button>
-                                </div>
-                              ) : (
+                      {pageEntries.map((e, i) => {
+                        const isExpanded = expandedRowId === e.id;
+                        const details = isExpanded ? parseEntryDetails(e) : null;
+                        const isPayment = e.reference_type === 'payment' || e.reference_type === 'vendor_transfer';
+                        return (
+                          <React.Fragment key={e.id}>
+                            <tr className={`border-b border-gray-50 hover:bg-gray-50/80 transition-colors ${isExpanded ? 'bg-blue-50/30' : i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                              <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">
+                                {new Date(e.created_at).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </td>
+                              <td className="px-5 py-3 text-gray-700 max-w-[300px]">
+                                <span className="line-clamp-2">{e.description || '—'}</span>
+                              </td>
+                              <td className="px-5 py-3">
+                                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${typeBadgeClass(e)}`}>
+                                  {typeLabel(e)}
+                                </span>
+                              </td>
+                              <td className="px-5 py-3 text-right font-medium text-red-600">
+                                {e.entry_type === 'debit' ? fmtPKR(e.amount) : '—'}
+                              </td>
+                              <td className="px-5 py-3 text-right font-medium text-emerald-600">
+                                {e.entry_type === 'credit' ? (
+                                  editingEntryId === e.id ? (
+                                    <div className="flex items-center gap-1 justify-end">
+                                      <input
+                                        type="number" min="0.01" step="0.01"
+                                        value={editAmount}
+                                        onChange={(ev) => setEditAmount(ev.target.value)}
+                                        className="w-24 border border-gray-300 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-navy"
+                                        autoFocus
+                                        onKeyDown={(ev) => { if (ev.key === 'Enter') handleEditSave(e.id); if (ev.key === 'Escape') setEditingEntryId(null); }}
+                                      />
+                                      <button onClick={() => handleEditSave(e.id)} disabled={savingEdit} className="text-emerald-600 hover:text-emerald-800"><Check size={13} /></button>
+                                      <button onClick={() => setEditingEntryId(null)} className="text-gray-400 hover:text-gray-600"><X size={13} /></button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => { setEditingEntryId(e.id); setEditAmount(String(e.amount)); }}
+                                      className="font-medium text-emerald-600 hover:text-emerald-800 flex items-center gap-1 ml-auto group"
+                                    >
+                                      {fmtPKR(e.amount)}
+                                      <Pencil size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
+                                    </button>
+                                  )
+                                ) : '—'}
+                              </td>
+                              <td className="px-5 py-3 text-right font-bold text-navy">
+                                {fmtPKR(e.running_balance)}
+                              </td>
+                              <td className="px-3 py-3 text-center">
                                 <button
-                                  onClick={() => { setEditingEntryId(e.id); setEditAmount(String(e.amount)); }}
-                                  className="font-medium text-emerald-600 hover:text-emerald-800 flex items-center gap-1 ml-auto group"
+                                  onClick={() => setExpandedRowId(isExpanded ? null : e.id)}
+                                  className={`p-1 rounded transition-colors ${isExpanded ? 'text-blue-500 bg-blue-50 hover:bg-blue-100' : 'text-gray-300 hover:text-blue-400 hover:bg-blue-50'}`}
+                                  title="View details"
                                 >
-                                  {fmtPKR(e.amount)}
-                                  <Pencil size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
+                                  {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                                 </button>
-                              )
-                            ) : '—'}
-                          </td>
-                          <td className="px-5 py-3 text-right font-bold text-navy">
-                            {fmtPKR(e.running_balance)}
-                          </td>
-                          <td className="px-3 py-3 text-center">
-                            <button
-                              onClick={() => handleDeleteEntry(e.id)}
-                              className="text-gray-300 hover:text-red-500 transition-colors p-1 rounded hover:bg-red-50"
-                              title="Delete entry"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <button
+                                  onClick={() => handleDeleteEntry(e.id)}
+                                  className="text-gray-300 hover:text-red-500 transition-colors p-1 rounded hover:bg-red-50"
+                                  title="Delete entry"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr className="bg-blue-50/20 border-b border-blue-100">
+                                <td colSpan={8} className="px-6 py-4">
+                                  <div className="bg-white border border-blue-100 rounded-xl p-4 shadow-sm">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-blue-400 mb-3 flex items-center gap-1.5">
+                                      <Info size={11} /> Entry Details
+                                    </p>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                      <div>
+                                        <p className="text-xs text-gray-400 mb-0.5">Amount</p>
+                                        <p className="font-semibold text-navy">{fmtPKR(e.amount)}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-xs text-gray-400 mb-0.5">Entry Type</p>
+                                        <p className="font-medium text-gray-700 capitalize">{e.entry_type}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-xs text-gray-400 mb-0.5">Reference Type</p>
+                                        <p className="font-medium text-gray-700 capitalize">{(e.reference_type || '—').replace(/_/g, ' ')}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-xs text-gray-400 mb-0.5">Date Recorded</p>
+                                        <p className="font-medium text-gray-700">
+                                          {new Date(e.created_at).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                        </p>
+                                      </div>
+                                      {isPayment && details?.method && (
+                                        <div>
+                                          <p className="text-xs text-gray-400 mb-0.5">Payment Method</p>
+                                          <p className="font-medium text-gray-700 capitalize">{details.method === 'bank' ? 'Bank Transfer' : details.method}</p>
+                                        </div>
+                                      )}
+                                      {isPayment && details?.bank && (
+                                        <div>
+                                          <p className="text-xs text-gray-400 mb-0.5">Bank</p>
+                                          <p className="font-medium text-gray-700">{details.bank}</p>
+                                        </div>
+                                      )}
+                                      {isPayment && details?.ref && (
+                                        <div>
+                                          <p className="text-xs text-gray-400 mb-0.5">Reference No.</p>
+                                          <p className="font-medium text-gray-700">{details.ref}</p>
+                                        </div>
+                                      )}
+                                      {isPayment && details?.chequeNumber && (
+                                        <div>
+                                          <p className="text-xs text-gray-400 mb-0.5">Cheque No.</p>
+                                          <p className="font-medium text-gray-700">{details.chequeNumber}</p>
+                                        </div>
+                                      )}
+                                      {isPayment && details?.chequeDate && (
+                                        <div>
+                                          <p className="text-xs text-gray-400 mb-0.5">Cheque Date</p>
+                                          <p className="font-medium text-gray-700">{details.chequeDate}</p>
+                                        </div>
+                                      )}
+                                      {isPayment && details?.paymentDate && (
+                                        <div>
+                                          <p className="text-xs text-gray-400 mb-0.5">Payment Date</p>
+                                          <p className="font-medium text-gray-700">{details.paymentDate}</p>
+                                        </div>
+                                      )}
+                                      {details?.notes && (
+                                        <div className="col-span-2">
+                                          <p className="text-xs text-gray-400 mb-0.5">Notes</p>
+                                          <p className="font-medium text-gray-700">{details.notes}</p>
+                                        </div>
+                                      )}
+                                      {details?.quantity && (
+                                        <div>
+                                          <p className="text-xs text-gray-400 mb-0.5">Quantity</p>
+                                          <p className="font-medium text-gray-700">{details.quantity}</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="mt-3 pt-3 border-t border-gray-100">
+                                      <p className="text-xs text-gray-400">Full description:</p>
+                                      <p className="text-xs text-gray-600 mt-0.5 break-words">{e.description || '—'}</p>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
