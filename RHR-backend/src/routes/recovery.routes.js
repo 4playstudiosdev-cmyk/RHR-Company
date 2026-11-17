@@ -229,6 +229,80 @@ router.patch('/transactions/:id/approve', authenticate, isAdmin, async (req, res
       approved_at: new Date().toISOString(),
     });
 
+    if (recovery.payment_type === 'vendor_transfer') {
+      // Deferred ledger + expense writes for salesman vendor transfers
+      const supplierId = recovery.vendor_id || null;
+      const expenseDate = recovery.recovery_date || new Date().toISOString().split('T')[0];
+      const rawMethod = recovery.payment_method; // 'vendor_transfer' or 'bank_transfer'
+
+      await creditLedger({
+        companyId:   recovery.company_id,
+        customerId:  recovery.customer_id,
+        amount:      Number(recovery.amount),
+        description: 'Vendor transfer approved — customer balance settled via supplier',
+        userId:      req.user.id,
+        date:        recovery.recovery_date,
+        referenceId: recovery.id,
+      });
+
+      if (supplierId) {
+        let supplierName = 'vendor';
+        try {
+          const suppliers = await pgrestGet('suppliers', { select: 'name', id: `eq.${supplierId}` });
+          supplierName = suppliers?.[0]?.name || 'vendor';
+        } catch (_) {}
+
+        const expMethod = rawMethod === 'bank_transfer' ? 'bank' : 'cash';
+        const expenseBase = {
+          company_id:   recovery.company_id,
+          category:     'Vendor Payment',
+          amount:       Number(recovery.amount),
+          description:  `Vendor payment to ${supplierName} — salesman transfer${recovery.reference_number ? ` Ref: ${recovery.reference_number}` : ''}`,
+          expense_date: expenseDate,
+          method:       expMethod,
+        };
+        try {
+          await pgrestPost('expenses', { ...expenseBase, salesman_id: recovery.salesman_id, supplier_id: supplierId });
+        } catch (_) {
+          try { await pgrestPost('expenses', { ...expenseBase, supplier_id: supplierId }); } catch (_2) {
+            try { await pgrestPost('expenses', expenseBase); } catch (_3) { /* non-fatal */ }
+          }
+        }
+
+        try {
+          const last = await pgrestGet('supplier_ledger_entries', {
+            select: 'running_balance', supplier_id: `eq.${supplierId}`,
+            order: 'created_at.desc', limit: '1',
+          });
+          const prevBal = Number(last?.[0]?.running_balance) || 0;
+          const ledgerRow = {
+            supplier_id:     supplierId,
+            entry_type:      'credit',
+            amount:          Number(recovery.amount),
+            running_balance: prevBal - Number(recovery.amount),
+            description:     `Salesman vendor transfer approved — via ${rawMethod === 'bank_transfer' ? 'bank' : 'cash'}`,
+            reference_type:  'vendor_transfer',
+            created_by:      req.user.id,
+            created_at:      new Date(expenseDate).toISOString(),
+          };
+          try {
+            await pgrestPost('supplier_ledger_entries', { ...ledgerRow, company_id: recovery.company_id });
+          } catch (_) { await pgrestPost('supplier_ledger_entries', ledgerRow); }
+        } catch (_) { /* non-fatal */ }
+      }
+
+      await notifyUser({
+        companyId:   recovery.company_id,
+        recipientId: recovery.salesman_id,
+        title:       'Vendor Transfer Approved',
+        body:        `Your PKR ${Number(recovery.amount).toLocaleString()} vendor transfer has been approved`,
+        type:        'payment',
+        referenceId: recovery.id,
+      });
+
+      return success(res, { approved: true }, 'Vendor transfer approved — ledger and expense updated');
+    }
+
     await creditLedger({
       companyId: recovery.company_id,
       customerId: recovery.customer_id,
@@ -1227,9 +1301,9 @@ router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) =>
       payment_method:   payMethod,
       reference_number: reference_number || null,
       notes:            notes || null,
-      status:           'approved',
+      status:           'pending',
       approved_by:      null,
-      approved_at:      new Date().toISOString(),
+      approved_at:      null,
       recovery_date:    expenseDate,
       created_by:       null,
     };
@@ -1237,68 +1311,25 @@ router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) =>
 
     const [recovery] = await pgrestPost('salesman_recoveries', rowData);
 
-    // Credit customer ledger immediately
-    await creditLedger({
-      companyId:   req.user.company_id,
-      customerId:  customer_id,
-      amount:      Number(amount),
-      description: 'Direct vendor transfer — customer balance settled via supplier',
-      userId:      null,
-      date:        recovery_date,
-      referenceId: recovery.id,
-    });
-
-    // For cash or bank_transfer: also create an expense and credit supplier ledger
-    if (vendor_payment_method === 'cash' || vendor_payment_method === 'bank_transfer') {
-      // Look up supplier name for the description
+    // Notify all admins for this company — ledger/expense/supplier updates are deferred to approval
+    try {
       let supplierName = 'vendor';
       try {
         const suppliers = await pgrestGet('suppliers', { select: 'name', id: `eq.${supplier_id}` });
         supplierName = suppliers?.[0]?.name || 'vendor';
       } catch (_) {}
+      const methodLabel = vendor_payment_method === 'bank_transfer' ? 'bank transfer' : 'cash';
+      await pgrestPost('notifications', {
+        company_id:     req.user.company_id,
+        recipient_role: 'branch_admin',
+        title:          'Vendor Transfer — Pending Approval',
+        body:           `${req.user.full_name} recorded a PKR ${Number(amount).toLocaleString()} vendor transfer to ${supplierName} via ${methodLabel}${reference_number ? ` (Ref: ${reference_number})` : ''} — approve in Salesman Recovery.`,
+        type:           'payment',
+        reference_id:   recovery?.id || null,
+      });
+    } catch (_) { /* non-fatal */ }
 
-      // Create expense (tries with salesman_id+supplier_id first, falls back without)
-      const expenseBase = {
-        company_id:   req.user.company_id,
-        category:     'Vendor Payment',
-        amount:       Number(amount),
-        description:  `Vendor payment to ${supplierName}${reference_number ? ` — Ref: ${reference_number}` : ''}`,
-        expense_date: expenseDate,
-        method:       vendor_payment_method === 'bank_transfer' ? 'bank' : 'cash',
-        ...(vendor_payment_method === 'bank_transfer' && bank_account_id ? { bank_account_id } : {}),
-      };
-      try {
-        await pgrestPost('expenses', { ...expenseBase, salesman_id: req.user.id, supplier_id });
-      } catch (_) {
-        try { await pgrestPost('expenses', { ...expenseBase, supplier_id }); } catch (_2) {
-          try { await pgrestPost('expenses', expenseBase); } catch (_3) { /* skip — recovery already recorded */ }
-        }
-      }
-
-      // Credit supplier ledger (reduces what RHR owes the supplier)
-      try {
-        const last = await pgrestGet('supplier_ledger_entries', {
-          select: 'running_balance', supplier_id: `eq.${supplier_id}`,
-          order: 'created_at.desc', limit: '1',
-        });
-        const prevBal = Number(last?.[0]?.running_balance) || 0;
-        const ledgerRow = {
-          supplier_id,
-          entry_type:      'credit',
-          amount:          Number(amount),
-          running_balance: prevBal - Number(amount),
-          description:     `Salesman vendor transfer — via ${vendor_payment_method === 'bank_transfer' ? 'bank' : 'cash'}`,
-          reference_type:  'vendor_transfer',
-          created_by:      null,
-          created_at:      new Date(expenseDate).toISOString(),
-        };
-        try {
-          await pgrestPost('supplier_ledger_entries', { ...ledgerRow, company_id: req.user.company_id });
-        } catch (_) { await pgrestPost('supplier_ledger_entries', ledgerRow); }
-      } catch (_) { /* supplier_ledger_entries may not exist — skip */ }
-    }
-
-    return success(res, recovery, 'Direct vendor transfer recorded', 201);
+    return success(res, recovery, 'Vendor transfer recorded — pending admin approval', 201);
   } catch (err) { return error(res, err.message, err.status || 500); }
 });
 
