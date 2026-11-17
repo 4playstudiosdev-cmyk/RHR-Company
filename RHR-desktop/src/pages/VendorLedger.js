@@ -55,8 +55,8 @@ export default function VendorLedger({ initialSupplierId }) {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentForm, setPaymentForm] = useState({
     amount: '', payment_method: 'cash', notes: '',
-    bank_name: '', reference_number: '',
-    cheque_number: '', cheque_date: '', cheque_bank: '',
+    bank_account_id: '', bank_name: '', reference_number: '',
+    cheque_number: '', cheque_date: '', cheque_bank: '', cheque_bank_account_id: '',
     payment_date: new Date().toISOString().split('T')[0],
   });
   const [savingPayment, setSavingPayment] = useState(false);
@@ -203,21 +203,22 @@ export default function VendorLedger({ initialSupplierId }) {
       const receipt_url = await uploadReceipt(receiptFile);
 
       await api.post(`/suppliers/${supplierId}/ledger/adjustment`, {
-        entry_type:     'credit',
-        amount:         Number(paymentForm.amount),
-        description:    desc,
-        reference_type: 'payment',
+        entry_type:      'credit',
+        amount:          Number(paymentForm.amount),
+        description:     desc,
+        reference_type:  'payment',
         receipt_url,
-        payment_method: method,
-        payment_date:   paymentForm.payment_date,
+        payment_method:  method,
+        payment_date:    paymentForm.payment_date,
+        bank_account_id: method === 'bank' ? (paymentForm.bank_account_id || null) : null,
       });
       toast.success('Payment recorded.');
       setShowPaymentModal(false);
       setReceiptFile(null);
       setPaymentForm({
         amount: '', payment_method: 'cash', notes: '',
-        bank_name: '', reference_number: '',
-        cheque_number: '', cheque_date: '', cheque_bank: '',
+        bank_account_id: '', bank_name: '', reference_number: '',
+        cheque_number: '', cheque_date: '', cheque_bank: '', cheque_bank_account_id: '',
         payment_date: new Date().toISOString().split('T')[0],
       });
       loadLedger();
@@ -473,13 +474,16 @@ export default function VendorLedger({ initialSupplierId }) {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">Bank Account</label>
                     <select
-                      value={paymentForm.bank_name}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, bank_name: e.target.value })}
+                      value={paymentForm.bank_account_id}
+                      onChange={(e) => {
+                        const acct = bankAccounts.find((b) => b.id === e.target.value);
+                        setPaymentForm({ ...paymentForm, bank_account_id: e.target.value, bank_name: acct?.bank_name || '' });
+                      }}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white"
                     >
                       <option value="">— Select bank —</option>
                       {bankAccounts.map((b) => (
-                        <option key={b.id} value={b.bank_name}>{b.account_name} — {b.bank_name}</option>
+                        <option key={b.id} value={b.id}>{b.account_name} — {b.bank_name}</option>
                       ))}
                     </select>
                   </div>
@@ -501,13 +505,16 @@ export default function VendorLedger({ initialSupplierId }) {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">Bank Account</label>
                     <select
-                      value={paymentForm.cheque_bank}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, cheque_bank: e.target.value })}
+                      value={paymentForm.cheque_bank_account_id}
+                      onChange={(e) => {
+                        const acct = bankAccounts.find((b) => b.id === e.target.value);
+                        setPaymentForm({ ...paymentForm, cheque_bank_account_id: e.target.value, cheque_bank: acct?.bank_name || '' });
+                      }}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white"
                     >
                       <option value="">— Select bank —</option>
                       {bankAccounts.map((b) => (
-                        <option key={b.id} value={b.bank_name}>{b.account_name} — {b.bank_name}</option>
+                        <option key={b.id} value={b.id}>{b.account_name} — {b.bank_name}</option>
                       ))}
                     </select>
                   </div>

@@ -44,7 +44,7 @@ const getSupplierLedger = async (req, res) => {
 const adjustSupplierLedger = async (req, res) => {
   try {
     const { id } = req.params;
-    const { entry_type, amount, description, reference_type: refType, receipt_url, payment_method, payment_date } = req.body;
+    const { entry_type, amount, description, reference_type: refType, receipt_url, payment_method, payment_date, bank_account_id } = req.body;
     if (!entry_type || !amount || !description)
       return error(res, 'entry_type, amount, description are required', 400);
     if (!['debit', 'credit'].includes(entry_type))
@@ -109,6 +109,7 @@ const adjustSupplierLedger = async (req, res) => {
         expense_date: expDate,
         method:       expMethod,
         created_by:   req.user.id,
+        ...(bank_account_id ? { bank_account_id } : {}),
       };
       // Try with supplier_id first; fall back without if the column doesn't exist yet
       try {
