@@ -151,6 +151,10 @@ router.post('/transactions', authenticate, isAdmin, async (req, res) => {
     const isCash = payment_type === 'cash';
     const companyId = req.user.company_id;
 
+    // Bank transfer requires a bank account to be linked
+    if (payment_type === 'online' && payment_method === 'bank_transfer' && !bank_account_id)
+      return error(res, 'bank_account_id is required for bank_transfer payments', 400);
+
     // For bank_transfer, encode bank_account_id in reference_number and label in notes
     const isBankTransfer = payment_method === 'bank_transfer';
     const effectiveRef = isBankTransfer && bank_account_id ? bank_account_id : (reference_number || null);
@@ -1393,6 +1397,8 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
             vendor_payment_method, bank_account_id, photo_url } = req.body;
     if (!customer_id || !supplier_id || !amount || Number(amount) <= 0)
       return error(res, 'customer_id, supplier_id and a positive amount are required', 400);
+    if ((vendor_payment_method === 'bank_transfer' || vendor_payment_method === 'cheque') && !bank_account_id)
+      return error(res, 'bank_account_id is required for bank transfer / cheque vendor payment', 400);
 
     const companyId = req.user.company_id;
     const expenseDate = recovery_date || new Date().toISOString().split('T')[0];

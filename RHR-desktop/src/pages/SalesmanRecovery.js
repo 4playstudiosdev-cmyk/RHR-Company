@@ -338,6 +338,10 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
         toast.error('Customer, vendor and a valid amount are required.');
         return;
       }
+      if ((form.vendor_payment_method === 'bank_transfer' || form.vendor_payment_method === 'cheque') && !form.bank_account_id) {
+        toast.error('Bank account required for bank transfer / cheque vendor payment.');
+        return;
+      }
       setSaving(true);
       try {
         setUploadingPhoto(true);
@@ -379,6 +383,10 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
     }
     if (form.payment_type === 'cheque' && (!form.cheque_bank.trim() || !form.cheque_number.trim() || !form.cheque_date)) {
       toast.error('Cheque needs the bank name, cheque number and cheque date.');
+      return;
+    }
+    if (form.payment_type === 'online' && form.payment_method === 'bank_transfer' && !form.bank_account_id) {
+      toast.error('Please select the bank account for this bank transfer.');
       return;
     }
     setSaving(true);
