@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import CustomerSelect from '../components/CustomerSelect';
-import { BookOpen, Plus, FileText, FileSpreadsheet, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+import { BookOpen, Plus, FileText, FileSpreadsheet, TrendingDown, TrendingUp, Wallet, Trash2 } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
 import Button from '../components/Button';
@@ -116,6 +116,7 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
   const [form, setForm] = useState(EMPTY_ADJUSTMENT);
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [deletingEntryId, setDeletingEntryId] = useState(null);
 
   useEffect(() => {
     loadCustomers();
@@ -198,6 +199,22 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
 
   const totalPages = Math.max(1, Math.ceil(displayRows.length / PAGE_SIZE));
   const pageEntries = displayRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const handleDeleteEntry = async (entry) => {
+    const typeLabel = entry.reference_type || entry.entry_type || 'entry';
+    const msg = `Delete this PKR ${Number(entry.amount).toLocaleString()} ${typeLabel} entry?\n\nThis will also delete the linked record from Salesman Recovery History and Vendor Ledger (if any). This cannot be undone.`;
+    if (!window.confirm(msg)) return;
+    setDeletingEntryId(entry.id);
+    try {
+      await api.delete(`/ledger/${customerId}/entry/${entry.id}`);
+      toast.success('Entry deleted — vendor ledger and recovery history updated.');
+      loadLedger();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete entry.');
+    } finally {
+      setDeletingEntryId(null);
+    }
+  };
 
   const handleAdjustSubmit = async (e) => {
     e.preventDefault();
@@ -410,6 +427,7 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Received (-)</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Balance</th>
                         <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-center">Type</th>
+                        <th className="px-4 py-3 w-10"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -428,6 +446,7 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
                                 Opening
                               </span>
                             </td>
+                            <td className="px-4 py-3.5" />
                           </tr>
                         ) : (
                         <tr
@@ -458,6 +477,18 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
                             <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wide ${typeBadgeClasses(entry)}`}>
                               {typeLabel(entry)}
                             </span>
+                          </td>
+                          <td className="px-4 py-3.5 text-center">
+                            {(entry.reference_type === 'recovery' || entry.reference_type === 'vendor_transfer') && (
+                              <button
+                                onClick={() => handleDeleteEntry(entry)}
+                                disabled={deletingEntryId === entry.id}
+                                title="Delete (cascades to vendor ledger + recovery history)"
+                                className="text-gray-300 hover:text-red-500 disabled:opacity-50 p-1 rounded transition-colors"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
                           </td>
                         </tr>
                         )

@@ -3,6 +3,7 @@ const { success, error } = require('../utils/response');
 const { buildStatementPDF } = require('../services/statement.service');
 const paymentMessages = require('../services/paymentMessages.service');
 const { buildExcelBuffer } = require('../services/excel.service');
+const { pgrestGet, pgrestGetRaw, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
 
 // Shared access rule: customer sees only their own ledger, salesman only his
 // customers' ledgers, admin roles see everything in their company.
@@ -297,4 +298,86 @@ const downloadStatementExcel = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getLedger, adjustLedger, setOutstandingBalance, downloadStatement, downloadStatementExcel };
+// DELETE /api/v1/ledger/:customerId/entry/:entryId
+// Deletes a customer ledger entry and cascades to vendor ledger + salesman recovery.
+const deleteLedgerEntry = async (req, res) => {
+  try {
+    const { customerId, entryId } = req.params;
+    if (!await canAccessLedger(req.user, customerId))
+      return error(res, 'Access denied', 403);
+
+    // Fetch the entry to delete
+    const entryRows = await pgrestGetRaw(
+      `ledger_entries?select=id,customer_id,amount,entry_type,reference_type,reference_id,created_at&id=eq.${entryId}&customer_id=eq.${customerId}&limit=1`
+    ).catch(() => []);
+    const entry = entryRows?.[0];
+    if (!entry) return error(res, 'Ledger entry not found', 404);
+
+    // Delete the customer ledger entry
+    await pgrestDelete('ledger_entries', { id: `eq.${entryId}` });
+
+    // Recalc customer running balance
+    try {
+      const allLed = await pgrestGetRaw(
+        `ledger_entries?select=id,amount,entry_type&customer_id=eq.${customerId}&order=created_at.asc&limit=1000`
+      ).catch(() => []);
+      let bal = 0;
+      for (const le of (allLed || [])) {
+        bal = le.entry_type === 'debit' ? bal + Number(le.amount) : bal - Number(le.amount);
+        await pgrestPatch('ledger_entries', { id: `eq.${le.id}` }, { running_balance: bal });
+      }
+    } catch (_) {}
+
+    // Cascade: if entry is linked to a salesman_recovery, delete it + vendor ledger + expense
+    const recoveryId = entry.reference_id;
+    if (recoveryId && (entry.reference_type === 'recovery' || entry.reference_type === 'vendor_transfer')) {
+      try {
+        const recRows = await pgrestGetRaw(
+          `salesman_recoveries?select=id,amount,recovery_date,payment_type,vendor_id,company_id&id=eq.${recoveryId}&limit=1`
+        ).catch(() => []);
+        const rec = recRows?.[0];
+        if (rec) {
+          const expDate = (rec.recovery_date || '').split('T')[0];
+
+          // Delete expense
+          if (rec.payment_type === 'vendor_transfer') {
+            try {
+              const expRows = await pgrestGet('expenses', {
+                select: 'id',
+                company_id: `eq.${rec.company_id}`,
+                category: 'eq.Vendor Payment',
+                amount: `eq.${Number(rec.amount)}`,
+                expense_date: `eq.${expDate}`,
+                order: 'created_at.desc',
+                limit: '1',
+              });
+              if (expRows?.[0]) await pgrestDelete('expenses', { id: `eq.${expRows[0].id}` });
+            } catch (_) {}
+
+            // Delete supplier ledger entry
+            try {
+              const sleRows = await pgrestGetRaw(
+                `supplier_ledger_entries?select=id,supplier_id&reference_type=eq.vendor_transfer&amount=eq.${Number(rec.amount)}&created_at=gte.${expDate}T00:00:00.000Z&created_at=lte.${expDate}T23:59:59.999Z&limit=3`
+              ).catch(() => []);
+              for (const sle of (sleRows || [])) {
+                await pgrestDelete('supplier_ledger_entries', { id: `eq.${sle.id}` });
+                // Recalc supplier balance
+                try {
+                  const { recalcSupplierLedger } = require('../services/orderLedger.service');
+                  await recalcSupplierLedger(sle.supplier_id);
+                } catch (_) {}
+              }
+            } catch (_) {}
+          }
+
+          // Delete the recovery itself
+          await pgrestDelete('salesman_recoveries', { id: `eq.${rec.id}` });
+        }
+      } catch (_) { /* non-fatal */ }
+    }
+
+    return success(res, { deleted: true }, 'Ledger entry deleted');
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { getLedger, adjustLedger, setOutstandingBalance, downloadStatement, downloadStatementExcel, deleteLedgerEntry };

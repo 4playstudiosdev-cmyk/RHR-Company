@@ -194,6 +194,47 @@ const deleteSupplierLedgerEntry = async (req, res) => {
           await pgrestDelete('expenses', { id: `eq.${linked.id}` });
         }
       } catch (_) { /* non-fatal */ }
+
+      // Cascade: delete linked salesman_recovery + customer ledger entry
+      if (entryToDelete?.reference_type === 'vendor_transfer') {
+        try {
+          const { pgrestGetRaw } = require('../utils/directQuery');
+          const entryDate = (entryToDelete.created_at || '').split('T')[0];
+
+          // Find linked salesman_recovery (vendor_transfer, same supplier, same amount, same date)
+          const recoveries = await pgrestGetRaw(
+            `salesman_recoveries?select=id,customer_id&payment_type=eq.vendor_transfer&vendor_id=eq.${supplierId}&amount=eq.${Number(entryToDelete.amount)}&recovery_date=eq.${entryDate}&status=eq.approved&limit=3`
+          ).catch(() => []);
+
+          for (const rec of (recoveries || [])) {
+            // Delete customer ledger entry (reference_id = recovery.id)
+            try {
+              const ledRows = await pgrestGetRaw(
+                `ledger_entries?select=id,customer_id&reference_id=eq.${rec.id}&limit=5`
+              ).catch(() => []);
+              for (const le of (ledRows || [])) {
+                await pgrestDelete('ledger_entries', { id: `eq.${le.id}` });
+              }
+              // Recalc customer running balance
+              if (rec.customer_id) {
+                try {
+                  const allLed = await pgrestGetRaw(
+                    `ledger_entries?select=id,amount,entry_type&customer_id=eq.${rec.customer_id}&order=created_at.asc&limit=1000`
+                  ).catch(() => []);
+                  let bal = 0;
+                  for (const le of (allLed || [])) {
+                    bal = le.entry_type === 'debit' ? bal + Number(le.amount) : bal - Number(le.amount);
+                    await pgrestPatch('ledger_entries', { id: `eq.${le.id}` }, { running_balance: bal });
+                  }
+                } catch (_) {}
+              }
+            } catch (_) {}
+
+            // Delete the salesman_recovery row itself
+            await pgrestDelete('salesman_recoveries', { id: `eq.${rec.id}` });
+          }
+        } catch (_) { /* non-fatal */ }
+      }
     }
 
     return success(res, { deleted: true }, 'Ledger entry deleted');
