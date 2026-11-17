@@ -252,14 +252,18 @@ router.patch('/transactions/:id/approve', authenticate, isAdmin, async (req, res
           supplierName = suppliers?.[0]?.name || 'vendor';
         } catch (_) {}
 
-        const expMethod = rawMethod === 'bank_transfer' ? 'bank' : 'cash';
+        const expMethod = (rawMethod === 'bank_transfer' || rawMethod === 'cheque') ? 'bank' : 'cash';
+        const bankAcctId = recovery.bank_account_id
+          || (rawMethod === 'bank_transfer' || rawMethod === 'cheque' ? recovery.reference_number : null)
+          || null;
         const expenseBase = {
           company_id:   recovery.company_id,
           category:     'Vendor Payment',
           amount:       Number(recovery.amount),
-          description:  `Vendor payment to ${supplierName} — salesman transfer${recovery.reference_number ? ` Ref: ${recovery.reference_number}` : ''}`,
+          description:  `Vendor payment to ${supplierName} — salesman transfer${recovery.cheque_number ? ` Cheque#${recovery.cheque_number}` : ''}`,
           expense_date: expenseDate,
           method:       expMethod,
+          ...(bankAcctId && (rawMethod === 'bank_transfer' || rawMethod === 'cheque') ? { bank_account_id: bankAcctId } : {}),
         };
         try {
           await pgrestPost('expenses', { ...expenseBase, salesman_id: recovery.salesman_id, supplier_id: supplierId });
@@ -280,7 +284,7 @@ router.patch('/transactions/:id/approve', authenticate, isAdmin, async (req, res
             entry_type:      'credit',
             amount:          Number(recovery.amount),
             running_balance: prevBal - Number(recovery.amount),
-            description:     `Salesman vendor transfer approved — via ${rawMethod === 'bank_transfer' ? 'bank' : 'cash'}`,
+            description:     `Salesman vendor transfer approved — via ${rawMethod === 'bank_transfer' ? 'bank' : rawMethod === 'cheque' ? 'cheque' : 'cash'}`,
             reference_type:  'vendor_transfer',
             created_by:      req.user.id,
             created_at:      new Date(expenseDate).toISOString(),
@@ -1283,14 +1287,18 @@ async function hasVendorColumn() {
 // null because they FK to users(id) and a salesman's id is in salesmen, not users.
 router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) => {
   try {
-    const { customer_id, supplier_id, amount, recovery_date, reference_number, notes, vendor_payment_method, bank_account_id } = req.body;
+    const { customer_id, supplier_id, amount, recovery_date, reference_number, notes, vendor_payment_method, bank_account_id, cheque_number, cheque_date, cheque_bank } = req.body;
     if (!customer_id || !supplier_id || !amount || Number(amount) <= 0)
       return error(res, 'customer_id, supplier_id and a positive amount are required', 400);
     if (vendor_payment_method === 'bank_transfer' && !bank_account_id)
       return error(res, 'bank_account_id is required for bank transfer vendor payment', 400);
+    if (vendor_payment_method === 'cheque' && (!cheque_number || !cheque_date))
+      return error(res, 'cheque_number and cheque_date are required for cheque vendor payment', 400);
 
     const expenseDate = recovery_date || new Date().toISOString().split('T')[0];
-    const payMethod = vendor_payment_method === 'bank_transfer' ? 'bank_transfer' : 'vendor_transfer';
+    const payMethod = vendor_payment_method === 'bank_transfer' ? 'bank_transfer'
+      : vendor_payment_method === 'cheque' ? 'cheque'
+      : 'vendor_transfer';
 
     const rowData = {
       company_id:       req.user.company_id,
@@ -1308,6 +1316,15 @@ router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) =>
       created_by:       null,
     };
     if (await hasVendorColumn()) rowData.vendor_id = supplier_id;
+    if (await hasChequeColumns()) {
+      if (cheque_number) rowData.cheque_number = cheque_number;
+      if (cheque_bank)   rowData.cheque_bank   = cheque_bank;
+      if (cheque_date)   rowData.cheque_date   = cheque_date;
+    }
+    // Store bank_account_id in reference_number only when user gave no reference
+    if (bank_account_id && !reference_number) {
+      rowData.reference_number = bank_account_id;
+    }
 
     const [recovery] = await pgrestPost('salesman_recoveries', rowData);
 
@@ -1318,7 +1335,9 @@ router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) =>
         const suppliers = await pgrestGet('suppliers', { select: 'name', id: `eq.${supplier_id}` });
         supplierName = suppliers?.[0]?.name || 'vendor';
       } catch (_) {}
-      const methodLabel = vendor_payment_method === 'bank_transfer' ? 'bank transfer' : 'cash';
+      const methodLabel = vendor_payment_method === 'bank_transfer' ? 'bank transfer'
+        : vendor_payment_method === 'cheque' ? 'cheque'
+        : 'cash';
       await pgrestPost('notifications', {
         company_id:     req.user.company_id,
         recipient_role: 'branch_admin',

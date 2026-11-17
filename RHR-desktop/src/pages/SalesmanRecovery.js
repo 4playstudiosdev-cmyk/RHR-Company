@@ -1010,7 +1010,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
       {tab === 'pending' && (
         <div className="space-y-8">
           <div>
-            <h3 className="font-semibold text-navy text-sm mb-3">Pending Online, Bank Transfer &amp; Vendor Transfer Payments ({pendingData.online_payments.length})</h3>
+            <h3 className="font-semibold text-navy text-sm mb-3">Pending Online, Bank Transfer, Cheque &amp; Vendor Transfer Payments ({pendingData.online_payments.length})</h3>
             {pendingData.online_payments.length === 0 ? (
               <div className="bg-white rounded-2xl shadow-card border border-gray-100">
                 <EmptyState icon={Smartphone} title="No pending online, bank transfer or vendor transfer payments" />
@@ -1045,7 +1045,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                           <td className="px-6 py-3.5">
                             <span className="inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-navy-chip text-navy capitalize">
                               {p.payment_type === 'vendor_transfer'
-                                ? `Vendor Transfer (${p.payment_method === 'bank_transfer' ? 'Bank' : 'Cash'})`
+                                ? `Vendor Transfer (${p.payment_method === 'bank_transfer' ? 'Bank' : p.payment_method === 'cheque' ? 'Cheque' : 'Cash'})`
                                 : p.payment_method === 'bank_transfer' && bankLabel(p.notes)
                                   ? `bank_transfer (${bankLabel(p.notes)})`
                                   : p.payment_method}
