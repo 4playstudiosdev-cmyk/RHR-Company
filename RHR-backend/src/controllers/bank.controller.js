@@ -567,6 +567,125 @@ const getBankSummary = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+const CITY_NAMES = {
+  '1e5962c6-33a7-460b-913e-9e08db46973a': 'Karachi',
+  '09a1fda3-7ac0-406a-8f42-75d973dc3b7e': 'Hyderabad',
+  '00f79d89-0d36-4704-8865-fc7bbd662267': 'Sukkur',
+};
+
+// GET /api/v1/bank/merged-ledger?bank_name=Meezan+Bank[&company_id=]
+// Merges ledger entries from ALL accounts sharing the same bank_name across
+// all cities (or one city when company_id is given). Each entry carries a
+// `branch` field so the UI can show which city it came from.
+const getMergedBankLedger = async (req, res) => {
+  try {
+    const { bank_name } = req.query;
+    if (!bank_name) return error(res, 'bank_name is required', 400);
+
+    const companyId = resolveCompanyId(req);
+    const acctParams = {
+      select: 'id,account_name,bank_name,account_number,opening_balance,opening_balance_date,company_id,created_at',
+      is_active: 'eq.true',
+      bank_name: `ilike.${bank_name}`,
+    };
+    if (companyId) acctParams.company_id = `eq.${companyId}`;
+
+    const accounts = await pgrestGet('bank_accounts', acctParams);
+    if (!accounts?.length) return success(res, { accounts: [], entries: [], total_balance: 0 });
+
+    if (req.user.role !== 'super_admin') {
+      const allowed = accounts.filter(a => a.company_id === req.user.company_id);
+      if (!allowed.length) return error(res, 'Access denied', 403);
+    }
+
+    const allEntries = [];
+
+    for (const account of accounts) {
+      const branch = CITY_NAMES[account.company_id] || 'Unknown';
+      const isCashInHand = account.bank_name === 'Cash' || account.account_name?.toLowerCase().includes('cash in hand');
+      const cid = account.company_id;
+
+      const [transfers, cheques, expenses] = await Promise.all([
+        pgrestGetRaw(
+          `salesman_recoveries?select=id,amount,recovery_date,created_at,notes,customer:users!customer_id(full_name,shop_name),salesman:salesmen!salesman_id(full_name)&payment_method=eq.bank_transfer&status=eq.approved&reference_number=eq.${account.id}`
+        ).catch(() => []),
+        pgrestGetRaw(
+          `salesman_recoveries?select=id,amount,cleared_at,cheque_number,cheque_bank,customer:users!customer_id(full_name,shop_name),salesman:salesmen!salesman_id(full_name)&cleared_bank_account_id=eq.${account.id}&status=eq.approved`
+        ).catch(() => []),
+        pgrestGetRaw(
+          `expenses?select=id,amount,expense_date,category,description,method,bank_amount&bank_account_id=eq.${account.id}`
+        ).catch(() => []),
+      ]);
+
+      let pettyCashClosings = [], cashExpenses = [];
+      if (isCashInHand) {
+        [pettyCashClosings, cashExpenses] = await Promise.all([
+          pgrestGetRaw(`salesman_cash_closings?select=id,amount,closing_date,notes,salesmen(full_name)&deposit_to=eq.petty_cash&status=eq.approved&company_id=eq.${cid}&order=closing_date.asc`).catch(() => []),
+          pgrestGetRaw(`expenses?select=id,amount,expense_date,category,description&method=eq.cash&bank_account_id=is.null&company_id=eq.${cid}&order=expense_date.asc`).catch(() => []),
+        ]);
+      }
+
+      // Opening balance row
+      const openingBal = Number(account.opening_balance || 0);
+      allEntries.push({
+        id: `opening-${account.id}`,
+        date: account.opening_balance_date || account.created_at,
+        type: 'opening',
+        description: `Opening Balance — ${account.account_name}`,
+        debit: openingBal > 0 ? openingBal : 0,
+        credit: openingBal < 0 ? Math.abs(openingBal) : 0,
+        branch,
+        account_name: account.account_name,
+      });
+
+      for (const r of (transfers || [])) {
+        const name = r.customer?.shop_name || r.customer?.full_name || '—';
+        const note = r.notes ? r.notes.replace(/Bank:\s*[^·]+·?\s*/i, '').trim() : '';
+        allEntries.push({ id: r.id, date: r.recovery_date || r.created_at, type: 'transfer_in',
+          description: `Bank Transfer — ${name}${note ? ` (${note})` : ''}${r.salesman?.full_name ? ` via ${r.salesman.full_name}` : ''}`,
+          debit: Number(r.amount || 0), credit: 0, branch, account_name: account.account_name });
+      }
+      for (const c of (cheques || [])) {
+        const name = c.customer?.shop_name || c.customer?.full_name || '—';
+        allEntries.push({ id: c.id, date: c.cleared_at, type: 'cheque_in',
+          description: `Cheque Cleared — ${name}${c.cheque_number ? ` #${c.cheque_number}` : ''}`,
+          debit: Number(c.amount || 0), credit: 0, branch, account_name: account.account_name });
+      }
+      for (const e of (expenses || [])) {
+        const amt = e.method === 'split' ? Number(e.bank_amount || 0) : Number(e.amount || 0);
+        allEntries.push({ id: e.id, date: e.expense_date, type: 'expense',
+          description: `${e.category || 'Expense'}${e.description ? ` — ${e.description}` : ''}`,
+          debit: 0, credit: amt, branch, account_name: account.account_name });
+      }
+      for (const c of (pettyCashClosings || [])) {
+        allEntries.push({ id: c.id, date: c.closing_date, type: 'petty_cash_in',
+          description: `Petty Cash — ${c.salesmen?.full_name || 'Salesman'} deposited${c.notes ? ` · ${c.notes}` : ''}`,
+          debit: Number(c.amount || 0), credit: 0, branch, account_name: account.account_name });
+      }
+      for (const e of (cashExpenses || [])) {
+        allEntries.push({ id: `cexp-${e.id}`, date: e.expense_date, type: 'expense',
+          description: `${e.category || 'Expense'}${e.description ? ` — ${e.description}` : ''}`,
+          debit: 0, credit: Number(e.amount || 0), branch, account_name: account.account_name });
+      }
+    }
+
+    // Sort: opening entries first (by date), then rest by date ascending
+    allEntries.sort((a, b) => {
+      if (a.type === 'opening' && b.type !== 'opening') return -1;
+      if (b.type === 'opening' && a.type !== 'opening') return 1;
+      return new Date(a.date) - new Date(b.date);
+    });
+
+    let running = 0;
+    for (const e of allEntries) {
+      running += e.debit - e.credit;
+      e.balance = running;
+    }
+
+    return success(res, { accounts, entries: allEntries, total_balance: running });
+  } catch (err) { return error(res, err.message); }
+};
+
 // DELETE /api/v1/bank/accounts/:id — hard-deletes the account and all linked transactions
 const deleteBankAccount = async (req, res) => {
   try {
@@ -591,4 +710,4 @@ const deleteBankAccount = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getBankAccounts, createBankAccount, updateBankAccount, deleteBankAccount, getBankTransactions, updateOpeningBalance, getBankLedger, getBankSummary };
+module.exports = { getBankAccounts, createBankAccount, updateBankAccount, deleteBankAccount, getBankTransactions, updateOpeningBalance, getBankLedger, getMergedBankLedger, getBankSummary };

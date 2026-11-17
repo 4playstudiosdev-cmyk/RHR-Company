@@ -31,6 +31,7 @@ export default function Bank() {
   const [ledgerAccount, setLedgerAccount] = useState(null);
   const [ledgerData, setLedgerData] = useState(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [isMergedLedger, setIsMergedLedger] = useState(false);
   const [txnDateFilter, setTxnDateFilter] = useState('all');
   const [txnTypeFilter, setTxnTypeFilter] = useState('all');
   const [ledgerDateFilter, setLedgerDateFilter] = useState('all');
@@ -46,9 +47,17 @@ export default function Bank() {
     setLedgerLoading(true);
     setTab('ledger');
     setLedgerDateFilter('all');
+    const merged = selectedCity === 'all';
+    setIsMergedLedger(merged);
     try {
-      const res = await api.get(`/bank/accounts/${account.id}/ledger`);
-      setLedgerData(res.data.data);
+      if (merged) {
+        const res = await api.get('/bank/merged-ledger', { params: { bank_name: account.bank_name } });
+        // Shape it like single-account ledger so the same table renders
+        setLedgerData({ account, entries: res.data.data.entries, isMerged: true, accounts: res.data.data.accounts, total_balance: res.data.data.total_balance });
+      } else {
+        const res = await api.get(`/bank/accounts/${account.id}/ledger`);
+        setLedgerData(res.data.data);
+      }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load ledger.');
     } finally {
@@ -263,7 +272,7 @@ export default function Bank() {
               <BookOpen size={14} /> {ledgerAccount.account_name}
             </button>
             <button
-              onClick={() => { setLedgerAccount(null); setLedgerData(null); if (tab === 'ledger') setTab('accounts'); }}
+              onClick={() => { setLedgerAccount(null); setLedgerData(null); setIsMergedLedger(false); if (tab === 'ledger') setTab('accounts'); }}
               className="ml-1 opacity-60 hover:opacity-100 text-lg leading-none"
             >×</button>
           </div>
@@ -362,8 +371,14 @@ export default function Bank() {
           {/* Ledger header */}
           <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
             <div>
-              <h3 className="font-bold text-navy text-base">{ledgerAccount?.account_name}</h3>
-              <p className="text-xs text-gray-400 mt-0.5">{ledgerAccount?.bank_name}{ledgerAccount?.account_number ? ` · #${ledgerAccount.account_number}` : ''}</p>
+              <h3 className="font-bold text-navy text-base">
+                {isMergedLedger ? `${ledgerAccount?.bank_name} — All Cities` : ledgerAccount?.account_name}
+              </h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {isMergedLedger
+                  ? `Merged ledger across ${ledgerData?.accounts?.length || 0} accounts: ${(ledgerData?.accounts || []).map(a => a.account_name).join(', ')}`
+                  : `${ledgerAccount?.bank_name}${ledgerAccount?.account_number ? ` · #${ledgerAccount.account_number}` : ''}`}
+              </p>
             </div>
             <button onClick={() => setTab('accounts')} className="text-xs text-gray-500 hover:text-navy border border-gray-200 hover:border-navy px-3 py-1.5 rounded-lg transition-colors">
               ← Back to Accounts
@@ -396,30 +411,45 @@ export default function Bank() {
                 ))}
                 {ledgerDateFilter !== 'all' && (
                   <span className="text-xs text-gray-400 self-center ml-1">
-                    {filteredLedgerEntries.filter(e => e.type !== 'opening').length} of {(ledgerData?.entries?.length ?? 1) - 1} entries
+                    {filteredLedgerEntries.filter(e => e.type !== 'opening').length} of {(ledgerData?.entries?.length ?? 1) - (isMergedLedger ? (ledgerData?.accounts?.length || 1) : 1)} entries
                   </span>
                 )}
               </div>
 
               {/* Summary cards */}
               <div className="flex gap-4 px-6 py-4 border-b border-gray-100 flex-wrap bg-gray-50/30">
-                {[
-                  { label: 'Account #', value: ledgerAccount?.account_number || '—' },
-                  { label: 'Opening Balance', value: fmtPKR(ledgerData.account.opening_balance) },
-                  { label: 'Current Balance', value: fmtPKR(ledgerData.entries.length ? ledgerData.entries[ledgerData.entries.length - 1].balance : 0), bold: true, color: 'text-navy' },
-                ].map(({ label, value, bold, color }) => (
-                  <div key={label} className="bg-white rounded-xl border border-gray-100 px-5 py-3 flex-1 min-w-[140px]">
-                    <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">{label}</p>
-                    <p className={`text-sm mt-0.5 ${bold ? `font-bold ${color || ''}` : 'text-gray-700'}`}>{value}</p>
-                  </div>
-                ))}
+                {isMergedLedger ? (
+                  <>
+                    {(ledgerData.accounts || []).map(a => (
+                      <div key={a.id} className="bg-white rounded-xl border border-gray-100 px-5 py-3 flex-1 min-w-[140px]">
+                        <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">{a.account_name}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{a.account_number ? `#${a.account_number}` : '—'}</p>
+                      </div>
+                    ))}
+                    <div className="bg-white rounded-xl border border-navy/20 px-5 py-3 flex-1 min-w-[140px]">
+                      <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Combined Balance</p>
+                      <p className={`text-sm font-bold mt-0.5 ${(ledgerData.total_balance ?? 0) >= 0 ? 'text-navy' : 'text-red-600'}`}>{fmtPKR(ledgerData.total_balance ?? 0)}</p>
+                    </div>
+                  </>
+                ) : (
+                  [
+                    { label: 'Account #', value: ledgerAccount?.account_number || '—' },
+                    { label: 'Opening Balance', value: fmtPKR(ledgerData.account.opening_balance) },
+                    { label: 'Current Balance', value: fmtPKR(ledgerData.entries.length ? ledgerData.entries[ledgerData.entries.length - 1].balance : 0), bold: true, color: 'text-navy' },
+                  ].map(({ label, value, bold, color }) => (
+                    <div key={label} className="bg-white rounded-xl border border-gray-100 px-5 py-3 flex-1 min-w-[140px]">
+                      <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">{label}</p>
+                      <p className={`text-sm mt-0.5 ${bold ? `font-bold ${color || ''}` : 'text-gray-700'}`}>{value}</p>
+                    </div>
+                  ))
+                )}
               </div>
               {/* Ledger table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-navy text-white text-xs font-semibold uppercase tracking-wide">
-                      {['#', 'Date', 'Description', 'Debit (In)', 'Credit (Out)', 'Balance'].map((h) => (
+                      {['#', 'Date', isMergedLedger ? 'Branch' : null, 'Description', 'Debit (In)', 'Credit (Out)', 'Balance'].filter(Boolean).map((h) => (
                         <th key={h} className={`px-5 py-3 ${['Debit (In)', 'Credit (Out)', 'Balance'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
                       ))}
                     </tr>
@@ -431,8 +461,18 @@ export default function Bank() {
                         <td className="px-5 py-3 text-gray-500 whitespace-nowrap text-xs">
                           {e.date ? new Date(e.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                         </td>
+                        {isMergedLedger && (
+                          <td className="px-5 py-3 text-xs whitespace-nowrap">
+                            <span className={`inline-block px-2 py-0.5 rounded-full font-semibold ${
+                              e.branch === 'Karachi' ? 'bg-blue-50 text-blue-700' :
+                              e.branch === 'Sukkur'  ? 'bg-purple-50 text-purple-700' :
+                              e.branch === 'Hyderabad' ? 'bg-orange-50 text-orange-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>{e.branch}</span>
+                          </td>
+                        )}
                         <td className="px-5 py-3 text-gray-700 text-xs">
-                          {e.type === 'opening' ? <span className="font-semibold text-navy">Opening Balance</span> : e.description}
+                          {e.type === 'opening' ? <span className="font-semibold text-navy">{isMergedLedger ? e.description : 'Opening Balance'}</span> : e.description}
                         </td>
                         <td className="px-5 py-3 text-right font-semibold text-green-700 text-xs">
                           {e.debit > 0 ? fmtPKR(e.debit) : '—'}

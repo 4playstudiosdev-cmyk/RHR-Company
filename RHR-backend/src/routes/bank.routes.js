@@ -5,6 +5,7 @@ const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin, requireRole } = require('../middleware/role.middleware');
 
 router.get('/summary',                           authenticate, isAdmin, ctrl.getBankSummary);
+router.get('/merged-ledger',                     authenticate, isAdmin, ctrl.getMergedBankLedger);
 router.get('/accounts',                          authenticate, isAdmin, ctrl.getBankAccounts);
 router.post('/accounts',                         authenticate, isAdmin, ctrl.createBankAccount);
 router.patch('/accounts/:id',                    authenticate, isAdmin, ctrl.updateBankAccount);
