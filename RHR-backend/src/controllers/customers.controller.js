@@ -37,8 +37,13 @@ const getCustomers = async (req, res) => {
     try {
       data = await pgrestGet('users', { ...baseParams, select: CUSTOMER_COLUMNS });
     } catch (e) {
-      data = await pgrestGet('users', { ...baseParams, select: CUSTOMER_COLUMNS_FALLBACK });
+      try {
+        data = await pgrestGet('users', { ...baseParams, select: CUSTOMER_COLUMNS_FALLBACK });
+      } catch (_) {
+        data = [];
+      }
     }
+    if (!data) data = [];
 
     // A salesman's "Your Customers" list needs last-order-date and
     // outstanding balance per customer to be useful at a glance — two

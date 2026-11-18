@@ -96,10 +96,11 @@ export default function Dashboard({ user, setPage, onViewLedger, onQuickAction }
     setError('');
     try {
       const companyParams = selectedCity === 'all' ? {} : { company_id: selectedCity };
+      const empty = { data: { data: [] } };
       const [ordersRes, pendingCustomersRes, paymentsRes] = await Promise.all([
-        api.get('/orders', { params: companyParams }),
-        api.get('/customers/pending', { params: companyParams }),
-        api.get('/payments', { params: companyParams })
+        api.get('/orders', { params: companyParams }).catch(() => empty),
+        api.get('/customers/pending', { params: companyParams }).catch(() => empty),
+        api.get('/payments', { params: companyParams }).catch(() => empty),
       ]);
 
       // Non-fatal — company-wide financial totals are a bonus on top of the
