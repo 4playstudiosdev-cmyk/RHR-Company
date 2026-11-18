@@ -1611,10 +1611,25 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                 ))}
               </tbody>
               <tfoot>
-                <tr className="bg-navy">
-                  <td colSpan={3} className="px-4 py-3 text-white font-semibold text-sm">TOTAL</td>
-                  <td className="px-4 py-3 text-orange font-bold text-sm">PKR {Number(selectedOrder.total_amount).toLocaleString()}</td>
-                </tr>
+                {(() => {
+                  const itemsSubtotal = (selectedOrder.order_items || []).reduce((s, it) => s + Number(it.subtotal), 0);
+                  const previewConveyance = Number(selectedOrder.invoice_conveyance) || 0;
+                  const grandTotal = itemsSubtotal + previewConveyance;
+                  return (
+                    <>
+                      {previewConveyance > 0 && (
+                        <tr className="border-t border-gray-200">
+                          <td colSpan={3} className="px-4 py-2 text-gray-600 text-sm font-medium">Conveyance</td>
+                          <td className="px-4 py-2 text-gray-700 text-sm font-semibold">PKR {previewConveyance.toLocaleString()}</td>
+                        </tr>
+                      )}
+                      <tr className="bg-navy">
+                        <td colSpan={3} className="px-4 py-3 text-white font-semibold text-sm">TOTAL</td>
+                        <td className="px-4 py-3 text-orange font-bold text-sm">PKR {grandTotal.toLocaleString()}</td>
+                      </tr>
+                    </>
+                  );
+                })()}
               </tfoot>
             </table>
           </div>

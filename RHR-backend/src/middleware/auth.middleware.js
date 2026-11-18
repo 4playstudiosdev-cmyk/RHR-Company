@@ -49,7 +49,10 @@ const authenticate = async (req, res, next) => {
       });
       user = rows?.[0];
     } catch (dbErr) {
+      // DB temporarily unreachable — return 503 so the frontend knows it's
+      // a server/network issue, not an auth failure (which would log the user out).
       console.error('[authenticate] user lookup failed:', dbErr.message);
+      return res.status(503).json({ success: false, message: 'Service temporarily unavailable. Please retry.' });
     }
 
     if (!user) {
