@@ -2,7 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { supabaseAdmin, createAuthClient } = require('../config/supabase');
 const { withRetry } = require('../utils/withRetry');
-const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
+const { pgrestGet, pgrestPost, pgrestPatch, supabaseSignIn } = require('../utils/directQuery');
 const { uploadBase64ToStorage } = require('../utils/storageUpload');
 const { normalizePhone, phoneLast10 } = require('../utils/phone');
 const { notifyPending, notifyApproved } = require('./accountStatusMessages.service');
@@ -221,11 +221,12 @@ async function loginWithCredentials({ email, password, latitude, longitude, forc
   if (!user) throw new Error('Invalid email or password');
   if (!user.is_active) throw new Error('Account has been deactivated');
 
-  const signInOk = await withRetry(async () => {
-    const { error: signInError } = await createAuthClient().auth.signInWithPassword({ email, password });
-    if (signInError) throw new Error(`signIn: ${signInError.status || ''} ${signInError.code || ''} ${signInError.message}`);
-    return true;
-  }, 20, 700).catch((e) => { console.error('[login] signInWithPassword failed:', e.message); return false; });
+  // supabase-js signInWithPassword hangs silently on some Railway requests
+  // (same bug as the PostgREST reads — see utils/directQuery.js). Replaced
+  // with a raw HTTPS call that bypasses supabase-js entirely.
+  const signInOk = await supabaseSignIn(email, password)
+    .then(() => true)
+    .catch((e) => { console.error('[login] signInWithPassword failed:', e.message); return false; });
 
   if (!signInOk) throw new Error('Invalid email or password');
 

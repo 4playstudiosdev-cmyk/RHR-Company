@@ -166,4 +166,40 @@ function pgrestDelete(table, params) {
   });
 }
 
-module.exports = { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch, pgrestDelete };
+// Raw HTTPS bypass for Supabase Auth signInWithPassword — same Railway/supabase-js
+// bug as the PostgREST reads: supabase-js silently hangs on some Railway requests.
+// Calls POST /auth/v1/token?grant_type=password directly with the anon key.
+function supabaseSignIn(email, password) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify({ email, password });
+    const baseUrl = process.env.SUPABASE_URL;
+    const req = https.request(`${baseUrl}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: {
+        apikey: process.env.SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+      },
+    }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          if (res.statusCode >= 400) {
+            return reject(new Error(`signIn: ${res.statusCode} ${data.error_code || data.error || ''} ${data.msg || data.message || ''}`));
+          }
+          resolve(data);
+        } catch (e) {
+          reject(new Error(`Auth returned non-JSON: ${body.slice(0, 200)}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(20000, () => { req.destroy(); reject(new Error('Auth signIn request timed out')); });
+    req.write(payload);
+    req.end();
+  });
+}
+
+module.exports = { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch, pgrestDelete, supabaseSignIn };
