@@ -39,56 +39,56 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         invoice_deleted_at: 'is.null',
         ...companyFilter,
         created_at: `gte.${from}T00:00:00`,
-      }).then((rows) => (rows || []).filter((o) => o.created_at <= `${to}T23:59:59`)),
+      }).then((rows) => (rows || []).filter((o) => o.created_at <= `${to}T23:59:59`)).catch(() => []),
 
       pgrestGet('productions', {
         select: 'id,qty_produced,total_cost,finished_item_id,date',
         ...companyFilter,
         date: `gte.${from}`,
-      }).then((rows) => (rows || []).filter((p) => p.date <= to)),
+      }).then((rows) => (rows || []).filter((p) => p.date <= to)).catch(() => []),
 
       pgrestGet('salesman_recoveries', {
         select: 'id,amount,salesman_id,payment_type,status,recovery_date',
         ...companyFilter,
         status: 'eq.approved',
         recovery_date: `gte.${from}`,
-      }).then((rows) => (rows || []).filter((r) => r.recovery_date <= to)),
+      }).then((rows) => (rows || []).filter((r) => r.recovery_date <= to)).catch(() => []),
 
       pgrestGet('expenses', {
         select: 'id,amount,category,expense_date',
         ...companyFilter,
         expense_date: `gte.${from}`,
-      }).then((rows) => (rows || []).filter((e) => e.expense_date <= to)),
+      }).then((rows) => (rows || []).filter((e) => e.expense_date <= to)).catch(() => []),
 
       pgrestGet('salesman_cash_closings', {
         select: 'id,amount,salesman_id,status,closing_date',
         ...companyFilter,
         status: 'eq.approved',
         closing_date: `gte.${from}`,
-      }).then((rows) => (rows || []).filter((c) => c.closing_date <= to)),
+      }).then((rows) => (rows || []).filter((c) => c.closing_date <= to)).catch(() => []),
 
       pgrestGet('raw_materials', {
         select: 'id,name,stock,min_level,unit',
         ...companyFilter,
-      }),
+      }).catch(() => []),
 
       pgrestGet('products', {
         select: 'id,name,stock_quantity,unit',
         ...companyFilter,
         is_active: 'eq.true',
-      }),
+      }).catch(() => []),
 
       pgrestGet('salesmen', {
         select: 'id,full_name',
         ...companyFilter,
         is_active: 'eq.true',
-      }),
+      }).catch(() => []),
 
       pgrestGet('dispatches', {
         select: 'id,qty,status,dispatched_at',
         ...companyFilter,
         dispatched_at: `gte.${from}T00:00:00`,
-      }).then((rows) => (rows || []).filter((d) => d.dispatched_at <= `${to}T23:59:59`)),
+      }).then((rows) => (rows || []).filter((d) => d.dispatched_at <= `${to}T23:59:59`)).catch(() => []),
     ]);
 
     const ordersData     = orders || [];

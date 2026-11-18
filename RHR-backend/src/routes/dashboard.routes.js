@@ -110,7 +110,7 @@ async function approvedReceipts(cf, from, to) {
       ...between('created_at', from, to),
       order: 'created_at.desc',
       ...cf,
-    }),
+    }).catch(() => []),
   ]);
   return [
     ...(recoveries || []).map((r) => ({
@@ -144,12 +144,12 @@ router.get('/summary', authenticate, isAdmin, async (req, res) => {
     ]);
     const recentReceipts = allReceipts;
     const [cashClosings, expensesToday, newClients, pendingOrders, products, rawMaterials] = await Promise.all([
-      pgrestGet('salesman_cash_closings', { select: 'amount', status: 'eq.approved', ...cf }),
-      pgrestGet('expenses', { select: 'amount', expense_date: `eq.${today}`, ...cf }),
-      pgrestGet('users', { select: 'id', role: 'eq.customer', ...between('created_at', monthStart, today), ...cf }),
-      pgrestGet('orders', { select: 'id', status: 'in.(pending,confirmed)', invoice_deleted_at: 'is.null', ...cf }),
-      pgrestGet('products', { select: 'id,stock_quantity', is_active: 'eq.true', ...cf }),
-      pgrestGet('raw_materials', { select: 'stock,min_level', ...cf }),
+      pgrestGet('salesman_cash_closings', { select: 'amount', status: 'eq.approved', ...cf }).catch(() => []),
+      pgrestGet('expenses', { select: 'amount', expense_date: `eq.${today}`, ...cf }).catch(() => []),
+      pgrestGet('users', { select: 'id', role: 'eq.customer', ...between('created_at', monthStart, today), ...cf }).catch(() => []),
+      pgrestGet('orders', { select: 'id', status: 'in.(pending,confirmed)', invoice_deleted_at: 'is.null', ...cf }).catch(() => []),
+      pgrestGet('products', { select: 'id,stock_quantity', is_active: 'eq.true', ...cf }).catch(() => []),
+      pgrestGet('raw_materials', { select: 'stock,min_level', ...cf }).catch(() => []),
     ]);
 
     const sum = (rows, key = 'total_amount') => (rows || []).reduce((s, r) => s + (Number(r[key]) || 0), 0);
