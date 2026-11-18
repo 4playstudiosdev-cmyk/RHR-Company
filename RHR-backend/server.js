@@ -110,8 +110,10 @@ app.use((err, req, res, next) => {
 
 function start() {
   app.listen(PORT, () => {
+    const projectRef = (process.env.SUPABASE_URL || '').match(/\/\/([^.]+)\./)?.[1] || 'unknown';
     console.log(`🚀 RHR Backend running on port ${PORT}`);
     console.log(`📡 Health check: http://localhost:${PORT}/health`);
+    console.log(`🗄️  Supabase project: ${projectRef}`);
   });
 }
 
