@@ -695,12 +695,16 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
       const res = await api.get(`/orders/${order.id}`);
       const detail = res.data.data;
       const printConveyance = Number(detail.invoice_conveyance) || 0;
-      const printTax = detail.invoice_with_tax ? Number(detail.total_amount) * TAX_RATE : 0;
+      // total_amount now includes conveyance (merged by add-conveyance endpoint),
+      // so tax is on the base amount (total_amount - conveyance).
+      const baseForTax = Number(detail.total_amount) - printConveyance;
+      const printTax = detail.invoice_with_tax ? baseForTax * TAX_RATE : 0;
       let previousBalance = 0;
       try {
         const ledgerRes = await api.get(`/ledger/${detail.customer_id}`);
         const currentBalance = ledgerRes.data?.data?.currentBalance ?? 0;
-        previousBalance = Math.max(0, currentBalance - Number(detail.total_amount) - printConveyance - printTax);
+        // total_amount already includes conveyance, so don't subtract printConveyance again
+        previousBalance = Math.max(0, currentBalance - Number(detail.total_amount) - printTax);
       } catch (e) { /* ledger unavailable — skip previous balance */ }
       await buildInvoicePdf(detail, { withTax: !!detail.invoice_with_tax, conveyance: printConveyance, previousBalance, withRate });
       toast.success(`Invoice for ${order.order_number} downloaded.`);
@@ -745,25 +749,28 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
 
       await buildInvoicePdf(detail, { withTax, conveyance, previousBalance, invoiceDate: invoiceDate || null, withRate });
 
-      // Tax and conveyance aren't part of orders.total_amount, so without
-      // this the customer's ledger (and anything that rolls up from it —
-      // Reports Outstanding, etc.) would under-count what they actually
-      // owe once either is added to a printed invoice.
-      const charges = [];
-      if (taxAmount > 0) charges.push({ amount: taxAmount, description: `Sales Tax (18%) — Order #${order.order_number}` });
-      if (conveyance > 0) charges.push({ amount: conveyance, description: `Conveyance Charge — Order #${order.order_number}` });
-      for (const charge of charges) {
+      // Tax goes in as a separate ledger adjustment. Conveyance is merged
+      // into the order's existing ledger entry (and total_amount) so the
+      // customer ledger shows one combined line, not two.
+      const extraCharges = [];
+      if (taxAmount > 0) {
         await api.post('/ledger/adjustment', {
           customer_id: detail.customer_id,
           entry_type: 'debit',
-          amount: charge.amount,
-          description: charge.description,
+          amount: taxAmount,
+          description: `Sales Tax (18%) — Order #${order.order_number}`,
           reference_type: 'order',
           reference_id: detail.id,
         });
+        extraCharges.push('Sales Tax');
       }
-      if (charges.length > 0) {
-        toast.success(`Invoice downloaded — ${charges.map((c) => c.description.split(' — ')[0]).join(' + ')} added to ${detail.users?.full_name || 'the customer'}'s ledger.`);
+      if (conveyance > 0) {
+        await api.patch(`/orders/${detail.id}/add-conveyance`, { conveyance });
+        setOrders((prev) => prev.map((o) => o.id === detail.id ? { ...o, total_amount: Number(o.total_amount) + conveyance } : o));
+        extraCharges.push('Conveyance');
+      }
+      if (extraCharges.length > 0) {
+        toast.success(`Invoice downloaded — ${extraCharges.join(' + ')} added to ${detail.users?.full_name || 'the customer'}'s ledger.`);
       } else {
         toast.success(`Invoice for ${order.order_number} downloaded.`);
       }

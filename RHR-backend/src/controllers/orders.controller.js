@@ -3,7 +3,7 @@ const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
 const { MIN_TOTAL_QTY } = require('../utils/orderQtyRules');
-const { deleteOrderLedgerEntries } = require('../services/orderLedger.service');
+const { deleteOrderLedgerEntries, recalcCustomerLedger } = require('../services/orderLedger.service');
 const { notifyUser } = require('../services/notify.service');
 
 const createOrder = async (req, res) => {
@@ -395,7 +395,46 @@ const updateOrderDate = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
+// PATCH /api/v1/orders/:id/add-conveyance
+// Adds a conveyance charge to an order: updates orders.total_amount and
+// merges the amount into the existing order ledger entry instead of creating
+// a separate "Conveyance Charge" adjustment entry.
+const addConveyance = async (req, res) => {
+  try {
+    const { conveyance } = req.body;
+    const amount = Number(conveyance);
+    if (!amount || amount <= 0) return error(res, 'A positive conveyance amount is required', 400);
+
+    const orderId = req.params.id;
+    const companyFilter = req.user.role === 'super_admin' ? {} : { company_id: `eq.${req.user.company_id}` };
+
+    const orders = await pgrestGet('orders', { select: 'id,total_amount,customer_id', id: `eq.${orderId}`, ...companyFilter });
+    if (!orders?.length) return error(res, 'Order not found', 404);
+    const order = orders[0];
+
+    const newTotal = Number(order.total_amount) + amount;
+
+    await pgrestPatch('orders', { id: `eq.${orderId}` }, { total_amount: newTotal });
+
+    const existing = await pgrestGet('ledger_entries', {
+      select: 'id',
+      customer_id: `eq.${order.customer_id}`,
+      reference_type: 'eq.order',
+      reference_id: `eq.${orderId}`,
+      order: 'created_at.asc',
+      limit: '1',
+    });
+
+    if (existing?.length) {
+      await pgrestPatch('ledger_entries', { id: `eq.${existing[0].id}` }, { amount: newTotal });
+      await recalcCustomerLedger(order.customer_id);
+    }
+
+    return success(res, { total_amount: newTotal }, 'Conveyance added to order');
+  } catch (err) { return error(res, err.message); }
+};
+
 module.exports = {
   createOrder, getOrders, getOrderById, updateOrderStatus, driverUpdateOrderStatus, updateOrderItems, customerUpdateOrderItems, markInvoiceGenerated,
-  deleteInvoice, getDeletedInvoices, setOrderPriority, updateOrderDate,
+  deleteInvoice, getDeletedInvoices, setOrderPriority, updateOrderDate, addConveyance,
 };
