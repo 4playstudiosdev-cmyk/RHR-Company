@@ -1,5 +1,9 @@
 const https = require('https');
 
+// Keep-alive agent so Railway → Supabase TLS connections are reused across
+// requests instead of re-handshaking every call (~200–500 ms saved per query).
+const keepAliveAgent = new https.Agent({ keepAlive: true, maxSockets: 50 });
+
 // Bypasses @supabase/supabase-js entirely for reads that need it. Proved via
 // a raw-https diagnostic probe that supabase-js's own HTTP client silently
 // drops the body on some fraction of requests when running on Railway —
@@ -26,6 +30,7 @@ function pgrestGetRaw(pathAndQuery) {
   return new Promise((resolve, reject) => {
     const url = `${process.env.SUPABASE_URL}/rest/v1/${pathAndQuery}`;
     const req = https.get(url, {
+      agent: keepAliveAgent,
       headers: {
         apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
         Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
@@ -61,6 +66,7 @@ function pgrestPost(table, body) {
     const url = `${process.env.SUPABASE_URL}/rest/v1/${table}`;
     const req = https.request(url, {
       method: 'POST',
+      agent: keepAliveAgent,
       headers: {
         apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
         Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
@@ -102,6 +108,7 @@ function pgrestPatch(table, params, body) {
     const url = `${process.env.SUPABASE_URL}/rest/v1/${table}?${qs}`;
     const req = https.request(url, {
       method: 'PATCH',
+      agent: keepAliveAgent,
       headers: {
         apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
         Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
@@ -141,6 +148,7 @@ function pgrestDelete(table, params) {
     const url = `${process.env.SUPABASE_URL}/rest/v1/${table}?${qs}`;
     const req = https.request(url, {
       method: 'DELETE',
+      agent: keepAliveAgent,
       headers: {
         apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
         Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
@@ -175,6 +183,7 @@ function supabaseSignIn(email, password) {
     const baseUrl = process.env.SUPABASE_URL;
     const req = https.request(`${baseUrl}/auth/v1/token?grant_type=password`, {
       method: 'POST',
+      agent: keepAliveAgent,
       headers: {
         apikey: process.env.SUPABASE_ANON_KEY,
         'Content-Type': 'application/json',
