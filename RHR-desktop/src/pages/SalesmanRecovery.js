@@ -169,6 +169,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
 
   const loadTransactions = async () => {
     setTransactionsLoading(true);
+    setTransactions([]);
     try {
       const data = companyFilter
         ? (await api.get('/recovery/transactions', { params: { company_id: companyFilter } })).data.data || []

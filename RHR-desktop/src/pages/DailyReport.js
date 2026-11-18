@@ -306,6 +306,7 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
   const loadReport = useCallback(async () => {
     setLoading(true);
     setError('');
+    setData(null);
     try {
       const res = await api.get('/daily-report', {
         params: { date: reportDate, company_id: selectedCity },

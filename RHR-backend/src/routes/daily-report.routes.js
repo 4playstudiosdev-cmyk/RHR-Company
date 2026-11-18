@@ -36,7 +36,15 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         recovery_date: `eq.${date}`,
         ...cfObj,
         order: 'created_at.asc',
-      }),
+      }).catch(() =>
+        pgrestGet('salesman_recoveries', {
+          select: 'id,salesman_id,amount,payment_type,recovery_date,notes',
+          status: 'eq.approved',
+          recovery_date: `eq.${date}`,
+          ...cfObj,
+          order: 'created_at.asc',
+        }).catch(() => [])
+      ),
 
       // Delivered orders with items — use order_date if set, else fall back
       // to updated_at so back-dated orders appear on their back-dated day.

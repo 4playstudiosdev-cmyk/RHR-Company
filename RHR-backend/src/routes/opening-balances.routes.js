@@ -82,6 +82,16 @@ router.post('/', authenticate, requireRole('super_admin', 'branch_admin', 'sales
         }
       }
 
+      const existingOB = await pgrestGet('ledger_entries', {
+        select: 'id',
+        customer_id:    `eq.${entity_id}`,
+        reference_type: 'eq.opening_balance',
+        limit:          '1',
+      });
+      if (existingOB?.length) {
+        return error(res, 'Opening balance already exists for this customer. Use the edit button to update it.', 409);
+      }
+
       const last = await pgrestGet('ledger_entries', {
         select: 'running_balance',
         customer_id: `eq.${entity_id}`,
@@ -97,7 +107,7 @@ router.post('/', authenticate, requireRole('super_admin', 'branch_admin', 'sales
         entry_type:      balance_type,
         amount:          Number(amount),
         running_balance: newBalance,
-        description:     notes || 'Opening balance',
+        description:     notes || 'Opening balance at customer creation',
         reference_type:  'opening_balance',
         created_by:      isSalesman ? null : req.user.id,
       });

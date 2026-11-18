@@ -45,7 +45,7 @@ function pgrestGetRaw(pathAndQuery) {
       });
     });
     req.on('error', reject);
-    req.setTimeout(8000, () => { req.destroy(); reject(new Error('PostgREST request timed out')); });
+    req.setTimeout(20000, () => { req.destroy(); reject(new Error('PostgREST request timed out')); });
   });
 }
 
@@ -83,7 +83,7 @@ function pgrestPost(table, body) {
       });
     });
     req.on('error', reject);
-    req.setTimeout(8000, () => { req.destroy(); reject(new Error('PostgREST request timed out')); });
+    req.setTimeout(20000, () => { req.destroy(); reject(new Error('PostgREST request timed out')); });
     req.write(payload);
     req.end();
   });
@@ -124,7 +124,7 @@ function pgrestPatch(table, params, body) {
       });
     });
     req.on('error', reject);
-    req.setTimeout(8000, () => { req.destroy(); reject(new Error('PostgREST request timed out')); });
+    req.setTimeout(20000, () => { req.destroy(); reject(new Error('PostgREST request timed out')); });
     req.write(payload);
     req.end();
   });
@@ -161,7 +161,7 @@ function pgrestDelete(table, params) {
       });
     });
     req.on('error', reject);
-    req.setTimeout(8000, () => { req.destroy(); reject(new Error('PostgREST request timed out')); });
+    req.setTimeout(20000, () => { req.destroy(); reject(new Error('PostgREST request timed out')); });
     req.end();
   });
 }
