@@ -1,8 +1,6 @@
--- CRITICAL — orders.status is a Postgres ENUM (order_status), not a
--- plain text column. The driver delivery workflow added 'undelivered'
--- as a status value in application code (orders.service.js) without
--- this migration, which meant every GET /orders for a driver role has
--- been throwing "invalid input value for enum order_status:
--- 'undelivered'" and returning nothing — this is why dispatched orders
--- never appeared in the driver app at all, not just the Cancel button.
-ALTER TYPE order_status ADD VALUE IF NOT EXISTS 'undelivered';
+-- orders.status is TEXT in new project (not ENUM), so skip if type doesn't exist
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'order_status') THEN
+    EXECUTE 'ALTER TYPE order_status ADD VALUE IF NOT EXISTS ''undelivered''';
+  END IF;
+END $$;

@@ -50,3 +50,26 @@ RHR-frontend/build/
 
 # --- OS ---
 Thumbs.db
+
+.vercel
+.env*
+
+# --- Build artifacts & binaries ---
+*.apk
+*.aab
+*.jpg
+*.jpeg
+*.png
+!RHR-frontend/assets/images/rhr-logo.png
+
+# --- Generated exports ---
+RHR-backend/exports/
+
+# --- Scratch / temp ---
+.scratch/
+
+# --- Android build output ---
+RHR-frontend/android/build/
+
+# --- WhatsApp bot (separate project) ---
+RHR-whatsapp-bot/

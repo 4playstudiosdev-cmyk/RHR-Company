@@ -81,8 +81,13 @@ $$ LANGUAGE plpgsql;
 SELECT _drop_fk_if_exists('orders', 'salesman_id');
 ALTER TABLE orders ADD CONSTRAINT orders_salesman_id_fkey FOREIGN KEY (salesman_id) REFERENCES salesmen(id);
 
-SELECT _drop_fk_if_exists('payments', 'salesman_id');
-ALTER TABLE payments ADD CONSTRAINT payments_salesman_id_fkey FOREIGN KEY (salesman_id) REFERENCES salesmen(id);
+-- payments table replaced by salesman_recoveries — skip if not present
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='payments' AND table_schema='public') THEN
+    PERFORM _drop_fk_if_exists('payments', 'salesman_id');
+    EXECUTE 'ALTER TABLE payments ADD CONSTRAINT payments_salesman_id_fkey FOREIGN KEY (salesman_id) REFERENCES salesmen(id)';
+  END IF;
+END $$;
 
 SELECT _drop_fk_if_exists('customer_visits', 'salesman_id');
 ALTER TABLE customer_visits ADD CONSTRAINT customer_visits_salesman_id_fkey FOREIGN KEY (salesman_id) REFERENCES salesmen(id);

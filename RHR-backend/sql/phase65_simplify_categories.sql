@@ -19,6 +19,8 @@ DECLARE
   dup RECORD;
   spec RECORD;
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='categories' AND table_schema='public') THEN RETURN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM categories LIMIT 1) THEN RETURN; END IF;
   FOR comp IN SELECT DISTINCT company_id FROM categories LOOP
     FOR spec IN
       SELECT * FROM (VALUES

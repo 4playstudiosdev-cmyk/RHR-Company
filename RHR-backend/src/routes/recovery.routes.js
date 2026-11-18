@@ -406,7 +406,7 @@ router.get('/cash-in-hand/:salesmanId', authenticate, isAdmin, async (req, res) 
 // end-of-day deposit of cash held; sits pending until an admin approves it.
 router.post('/cash-closing', authenticate, isAdmin, async (req, res) => {
   try {
-    const { salesman_id, amount, deposit_to, bank_account, notes } = req.body;
+    const { salesman_id, amount, deposit_to, bank_account, notes, closing_date } = req.body;
     if (!salesman_id || !amount || Number(amount) <= 0)
       return error(res, 'salesman_id and a positive amount are required', 400);
 
@@ -418,7 +418,7 @@ router.post('/cash-closing', authenticate, isAdmin, async (req, res) => {
       bank_account: bank_account || null,
       notes:        notes || null,
       status:       'pending',
-      closing_date: new Date().toISOString().split('T')[0],
+      closing_date: closing_date || new Date().toISOString().split('T')[0],
       created_by:   req.user.id,
     });
 

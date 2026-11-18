@@ -29,25 +29,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_company_name
 
 ALTER TABLE suppliers ENABLE ROW LEVEL SECURITY;
 
--- Seeded into Karachi — move/copy any of these to Hyderabad or Sukkur
--- from the new Suppliers panel if they actually supply those branches too.
-INSERT INTO suppliers (company_id, name) VALUES
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Lucky Cement OPC'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Cherat Packaging Limited'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'DWM Trading Co Chemical'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Fahad Traders Bag'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Usman Paper Bags'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Kamran Sahab POP'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Shabbir Sahab Chemical'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Brothers Group'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Standard Colors'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Waseem Bottle'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Hutaib Industrial'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Kamran patlo chemical'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Osama Bags'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Sultan Blocks'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Aqeel Bhai Snow White'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Gull Baig Sand'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Guides Corporation'),
-  ('1e5962c6-33a7-460b-913e-9e08db46973a', 'Taimoor Chawk')
-ON CONFLICT (company_id, lower(name)) DO NOTHING;
+-- Seed inserts removed — data will be migrated via migration script

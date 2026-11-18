@@ -32,7 +32,7 @@ const EMPTY_FORM = {
   vendor_id: '', vendor_payment_method: 'cash', bank_account_id: '',
 };
 
-const EMPTY_CLOSING_FORM = { salesman_id: '', amount: '', deposit_to: 'bank', bank_account: '', notes: '' };
+const EMPTY_CLOSING_FORM = { salesman_id: '', amount: '', deposit_to: 'bank', bank_account: '', notes: '', closing_date: new Date().toISOString().split('T')[0] };
 
 // Extract bank label from notes field: "Bank: Jazz Cash" → "Jazz Cash"
 const bankLabel = (notes) => {
@@ -1028,6 +1028,16 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
               </div>
             </div>
           )}
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Closing Date *</label>
+            <input
+              type="date"
+              value={closingForm.closing_date}
+              onChange={(e) => setClosingForm({ ...closingForm, closing_date: e.target.value })}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+            />
+          </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1.5">Amount to Deposit (PKR) *</label>

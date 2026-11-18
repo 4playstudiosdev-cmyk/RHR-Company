@@ -17,8 +17,9 @@
 -- ───────────────────────────────────────────────
 DO $$
 BEGIN
-  ALTER TABLE attendance
-    ADD CONSTRAINT attendance_user_date_unique UNIQUE (user_id, date);
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'attendance' AND table_schema = 'public') THEN
+    ALTER TABLE attendance ADD CONSTRAINT attendance_user_date_unique UNIQUE (user_id, date);
+  END IF;
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;

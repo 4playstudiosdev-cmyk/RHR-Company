@@ -2,14 +2,14 @@
 -- a proof photo) but blocks an admin from recording a Recovery entry
 -- directly at the office with no photo. Nullable now; the mobile flow
 -- still requires one at the application level (payments.controller.js).
-ALTER TABLE payments
-  ALTER COLUMN photo_url DROP NOT NULL;
-
-ALTER TABLE payments
-  ADD COLUMN IF NOT EXISTS bank_account_id UUID;
-
-ALTER TABLE payments
-  ADD COLUMN IF NOT EXISTS notes TEXT;
+-- payments table was replaced by salesman_recoveries — skip if not present
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='payments' AND table_schema='public') THEN
+    EXECUTE 'ALTER TABLE payments ALTER COLUMN photo_url DROP NOT NULL';
+    EXECUTE 'ALTER TABLE payments ADD COLUMN IF NOT EXISTS bank_account_id UUID';
+    EXECUTE 'ALTER TABLE payments ADD COLUMN IF NOT EXISTS notes TEXT';
+  END IF;
+END $$;
 
 -- bank_accounts already existed in this database (unused by any code
 -- until now) with this exact shape — this CREATE is a no-op here, kept
@@ -33,12 +33,9 @@ ALTER TABLE bank_accounts ENABLE ROW LEVEL SECURITY;
 -- by hand so re-running the file doesn't fail with "constraint already exists".
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'fk_payments_bank_account'
-  ) THEN
-    ALTER TABLE payments
-      ADD CONSTRAINT fk_payments_bank_account
-      FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id);
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='payments' AND table_schema='public')
+  AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_payments_bank_account') THEN
+    ALTER TABLE payments ADD CONSTRAINT fk_payments_bank_account FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id);
   END IF;
 END $$;
 
