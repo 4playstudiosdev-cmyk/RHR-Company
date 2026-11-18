@@ -32,7 +32,7 @@ const EMPTY_FORM = {
   vendor_id: '', vendor_payment_method: 'cash', bank_account_id: '',
 };
 
-const EMPTY_CLOSING_FORM = { salesman_id: '', amount: '', deposit_to: 'bank', bank_account: '', notes: '', closing_date: new Date().toISOString().split('T')[0] };
+const EMPTY_CLOSING_FORM = { salesman_id: '', amount: '', deposit_to: 'bank', bank_account: '', bank_account_id: '', notes: '', closing_date: new Date().toISOString().split('T')[0] };
 
 // Extract bank label from notes field: "Bank: Jazz Cash" → "Jazz Cash"
 const bankLabel = (notes) => {
@@ -435,9 +435,18 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
       toast.error('Salesman and a valid amount are required.');
       return;
     }
+    if (closingForm.deposit_to === 'bank' && !closingForm.bank_account_id) {
+      toast.error('Please select a bank account.');
+      return;
+    }
     setSavingClosing(true);
     try {
-      await api.post('/recovery/cash-closing', closingForm);
+      const payload = { ...closingForm };
+      if (payload.bank_account_id) {
+        const sel = banksList.find(b => b.id === payload.bank_account_id);
+        if (sel) payload.bank_account = sel.bank_name + (sel.account_number ? ' — ' + sel.account_number : '');
+      }
+      await api.post('/recovery/cash-closing', payload);
       toast.success('Cash closing submitted — pending admin approval.');
       setClosingForm(EMPTY_CLOSING_FORM);
       setCashInHand({});
@@ -1055,7 +1064,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
             <label className="block text-xs font-medium text-gray-700 mb-1.5">Deposit To</label>
             <select
               value={closingForm.deposit_to}
-              onChange={(e) => setClosingForm({ ...closingForm, deposit_to: e.target.value })}
+              onChange={(e) => setClosingForm({ ...closingForm, deposit_to: e.target.value, bank_account_id: '' })}
               className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
             >
               <option value="bank">Bank Account</option>
@@ -1063,16 +1072,23 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
             </select>
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1.5">Bank / Account (optional)</label>
-            <input
-              type="text"
-              value={closingForm.bank_account}
-              onChange={(e) => setClosingForm({ ...closingForm, bank_account: e.target.value })}
-              placeholder="e.g. Meezan — 0123456789"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-            />
-          </div>
+          {closingForm.deposit_to === 'bank' && (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1.5">Bank Account *</label>
+              <select
+                value={closingForm.bank_account_id}
+                onChange={(e) => setClosingForm({ ...closingForm, bank_account_id: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+              >
+                <option value="">— Select Bank Account —</option>
+                {banksList.map(b => (
+                  <option key={b.id} value={b.id}>
+                    {b.bank_name}{b.account_number ? ` — ${b.account_number}` : ''}{b.account_name ? ` (${b.account_name})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1.5">Notes (optional)</label>
