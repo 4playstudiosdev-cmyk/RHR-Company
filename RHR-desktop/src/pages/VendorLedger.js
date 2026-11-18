@@ -232,7 +232,6 @@ export default function VendorLedger({ initialSupplierId }) {
   const handlePaymentSubmit = async (e) => {
     e.preventDefault();
     if (!paymentForm.amount || Number(paymentForm.amount) <= 0) { toast.error('Enter a positive amount.'); return; }
-    if (!receiptFile) { toast.error('Please attach a payment receipt image.'); return; }
     setSavingPayment(true);
     try {
       const method = paymentForm.payment_method;
@@ -246,7 +245,7 @@ export default function VendorLedger({ initialSupplierId }) {
       }
       if (paymentForm.notes) desc += ` (${paymentForm.notes})`;
 
-      const receipt_url = await uploadReceipt(receiptFile);
+      const receipt_url = receiptFile ? await uploadReceipt(receiptFile) : null;
 
       await api.post(`/suppliers/${supplierId}/ledger/adjustment`, {
         entry_type:      'credit',
