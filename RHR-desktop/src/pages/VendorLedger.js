@@ -107,6 +107,7 @@ export default function VendorLedger({ initialSupplierId }) {
   const receiptInputRef = useRef(null);
   const [editingEntryId, setEditingEntryId] = useState(null);
   const [editAmount, setEditAmount] = useState('');
+  const [editingDateId, setEditingDateId] = useState(null);
   const [editDate, setEditDate] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
   const [expandedRowId, setExpandedRowId] = useState(null);
@@ -170,19 +171,31 @@ export default function VendorLedger({ initialSupplierId }) {
   };
 
   const handleEditSave = async (entryId) => {
-    const body = {};
-    if (editAmount && Number(editAmount) > 0) body.amount = Number(editAmount);
-    if (editDate) body.entry_date = editDate;
-    if (!body.amount && !body.entry_date) { toast.error('Enter amount or date.'); return; }
+    if (!editAmount || Number(editAmount) <= 0) { toast.error('Enter a valid amount.'); return; }
     setSavingEdit(true);
     try {
-      await api.patch(`/suppliers/${supplierId}/ledger/${entryId}`, body);
-      toast.success('Entry updated.');
+      await api.patch(`/suppliers/${supplierId}/ledger/${entryId}`, { amount: Number(editAmount) });
+      toast.success('Amount updated.');
       setEditingEntryId(null);
+      loadLedger();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update amount.');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDateSave = async (entryId) => {
+    if (!editDate) { toast.error('Select a date.'); return; }
+    setSavingEdit(true);
+    try {
+      await api.patch(`/suppliers/${supplierId}/ledger/${entryId}`, { entry_date: editDate });
+      toast.success('Date updated.');
+      setEditingDateId(null);
       setEditDate('');
       loadLedger();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to update entry.');
+      toast.error(err.response?.data?.message || 'Failed to update date.');
     } finally {
       setSavingEdit(false);
     }
@@ -396,15 +409,30 @@ export default function VendorLedger({ initialSupplierId }) {
                           <React.Fragment key={e.id}>
                             <tr className={`border-b border-gray-50 hover:bg-gray-50/80 transition-colors ${isExpanded ? 'bg-blue-50/30' : i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                               <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">
-                                {editingEntryId === e.id ? (
-                                  <input
-                                    type="date"
-                                    value={editDate}
-                                    onChange={(ev) => setEditDate(ev.target.value)}
-                                    className="border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-navy w-32"
-                                  />
+                                {editingDateId === e.id ? (
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      type="date"
+                                      value={editDate}
+                                      onChange={(ev) => setEditDate(ev.target.value)}
+                                      className="border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-navy w-32"
+                                      autoFocus
+                                      onKeyDown={(ev) => { if (ev.key === 'Enter') handleDateSave(e.id); if (ev.key === 'Escape') setEditingDateId(null); }}
+                                    />
+                                    <button onClick={() => handleDateSave(e.id)} disabled={savingEdit} className="text-emerald-600 hover:text-emerald-800"><Check size={13} /></button>
+                                    <button onClick={() => setEditingDateId(null)} className="text-gray-400 hover:text-gray-600"><X size={13} /></button>
+                                  </div>
                                 ) : (
-                                  new Date(e.created_at).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })
+                                  <div className="flex items-center gap-1 group">
+                                    {new Date(e.created_at).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                    <button
+                                      onClick={() => { setEditingDateId(e.id); setEditDate((e.created_at || '').split('T')[0]); }}
+                                      className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity text-gray-400 hover:text-navy p-0.5"
+                                      title="Edit date"
+                                    >
+                                      <Pencil size={11} />
+                                    </button>
+                                  </div>
                                 )}
                               </td>
                               <td className="px-5 py-3 text-gray-700 max-w-[300px]">
@@ -431,11 +459,11 @@ export default function VendorLedger({ initialSupplierId }) {
                                         onKeyDown={(ev) => { if (ev.key === 'Enter') handleEditSave(e.id); if (ev.key === 'Escape') setEditingEntryId(null); }}
                                       />
                                       <button onClick={() => handleEditSave(e.id)} disabled={savingEdit} className="text-emerald-600 hover:text-emerald-800"><Check size={13} /></button>
-                                      <button onClick={() => { setEditingEntryId(null); setEditDate(''); }} className="text-gray-400 hover:text-gray-600"><X size={13} /></button>
+                                      <button onClick={() => setEditingEntryId(null)} className="text-gray-400 hover:text-gray-600"><X size={13} /></button>
                                     </div>
                                   ) : (
                                     <button
-                                      onClick={() => { setEditingEntryId(e.id); setEditAmount(String(e.amount)); setEditDate((e.created_at || '').split('T')[0]); }}
+                                      onClick={() => { setEditingEntryId(e.id); setEditAmount(String(e.amount)); }}
                                       className="font-medium text-emerald-600 hover:text-emerald-800 flex items-center gap-1 ml-auto group"
                                     >
                                       {fmtPKR(e.amount)}
