@@ -573,11 +573,9 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
 
   // History for everyone, or for one salesman. The picker lists every salesman
   // — the salesmen list plus anyone who appears in the history itself.
-  const historySalesmen = (() => {
-    const byId = new Map((salesmenList || []).map((x) => [x.id, x.full_name]));
-    transactions.forEach((t) => { if (t.salesman_id && !byId.has(t.salesman_id)) byId.set(t.salesman_id, t.salesmen?.full_name || 'Salesman'); });
-    return [...byId.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  })();
+  const historySalesmen = (salesmenList || [])
+    .map((x) => ({ id: x.id, name: x.full_name }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
   const inHistoryRange = (t) => (!historyRange.from || String(t.recovery_date) >= historyRange.from) && (!historyRange.to || String(t.recovery_date) <= historyRange.to);
   const historySearchLower = historySearch.trim().toLowerCase();
   const visibleTransactions = transactions.filter((t) => {
