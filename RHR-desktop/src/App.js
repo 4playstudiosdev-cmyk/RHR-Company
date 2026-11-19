@@ -30,6 +30,7 @@ import Ledger from './pages/Ledger';
 import VendorLedger from './pages/VendorLedger';
 import CashClosing from './pages/CashClosing';
 import CashReport from './pages/CashReport';
+import CashLedger from './pages/CashLedger';
 import DailyReport from './pages/DailyReport';
 import MarketDifference from './pages/MarketDifference';
 import Reports from './pages/Reports';
@@ -74,6 +75,7 @@ const PAGES = {
   'vendor-ledger': VendorLedger,
   'cash-closing': CashClosing,
   'cash-report': CashReport,
+  'cash-ledger': CashLedger,
   'daily-report': DailyReport,
   'market-difference': MarketDifference,
   reports: Reports,
@@ -112,6 +114,7 @@ const PAGE_ACCESS = {
   expenses: { requiredPermission: 'can_view_payments' },
   'cash-closing': { requiredPermission: 'can_view_payments' },
   'cash-report':  { requiredPermission: 'can_view_payments' },
+  'cash-ledger':  { requiredPermission: 'can_view_payments' },
   'daily-report': { requiredPermission: 'can_export_reports' },
   'market-difference': { requiredPermission: 'can_export_reports' },
   reports: { requiredPermission: 'can_export_reports' },

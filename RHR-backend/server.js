@@ -79,6 +79,7 @@ app.use('/api/v1/vehicles',      require('./src/routes/vehicles.routes'));
 app.use('/api/v1/opening-balances', require('./src/routes/opening-balances.routes'));
 app.use('/api/v1/daily-dashboard', require('./src/routes/daily-dashboard.routes'));
 app.use('/api/v1/daily-report',    require('./src/routes/daily-report.routes'));
+app.use('/api/v1/cash-ledger',     require('./src/routes/cash-ledger.routes'));
 app.use('/api/v1/dashboard',       require('./src/routes/dashboard.routes'));
 app.use('/api/v1/manufacturing', require('./src/routes/manufacturing.routes'));
 app.use('/api/v1/geocode',    require('./src/routes/geocode.routes'));
