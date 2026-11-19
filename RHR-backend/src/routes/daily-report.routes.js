@@ -322,10 +322,28 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       const id = r.reference_number;
       if (id) bankInMap[id] = (bankInMap[id] || 0) + Number(r.amount || 0);
     });
+
+    // Cash account day activity: cash recoveries = debit, cash expenses = credit
+    const cashRecoveriesOnDate = recoveryList
+      .filter(r => r.payment_type === 'cash')
+      .reduce((s, r) => s + r.amount, 0);
+    const cashExpensesOnDate = expenseList
+      .filter(e => !e.bank_account_id)
+      .reduce((s, e) => s + e.amount, 0);
+
     const bankDetail = (bankAccounts || []).map(b => {
-      const currentBalance = b.bank_name === 'Cash'
-        ? physicalCashInHand
-        : Number(b.opening_balance || 0) + (allTimeInMap[b.id] || 0) - (allTimeOutMap[b.id] || 0);
+      if (b.bank_name === 'Cash') {
+        return {
+          id: b.id,
+          account_name: b.account_name,
+          bank_name: b.bank_name,
+          account_number: b.account_number,
+          day_debit: cashRecoveriesOnDate,
+          day_credit: cashExpensesOnDate,
+          current_balance: physicalCashInHand,
+        };
+      }
+      const currentBalance = Number(b.opening_balance || 0) + (allTimeInMap[b.id] || 0) - (allTimeOutMap[b.id] || 0);
       return {
         id: b.id,
         account_name: b.account_name,
