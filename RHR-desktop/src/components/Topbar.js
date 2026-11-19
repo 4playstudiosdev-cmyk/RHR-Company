@@ -1,6 +1,7 @@
 import React from 'react';
 import { Search, RefreshCw } from 'lucide-react';
 import QuickActionMenu from './QuickActionMenu';
+import ThemeToggle from './ThemeToggle';
 
 // Desktop-only (the mobile header in App.js already carries the
 // hamburger + title bar) — a persistent strip above every page with a
@@ -28,6 +29,8 @@ export default function Topbar({ onOpenSearch, onRefresh, refreshing, onQuickAct
       >
         <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
       </button>
+
+      <ThemeToggle className="p-2 rounded-lg text-gray-500 hover:text-navy hover:bg-gray-100 transition-colors" />
 
       <QuickActionMenu onTrigger={onQuickAction} />
 

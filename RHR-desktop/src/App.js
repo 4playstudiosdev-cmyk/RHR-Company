@@ -10,6 +10,7 @@ import api, { hasPermission, releaseServerSession } from './services/api';
 import { ToastProvider } from './components/Toast';
 import NotificationBell from './components/NotificationBell';
 import Topbar from './components/Topbar';
+import ThemeToggle from './components/ThemeToggle';
 import GlobalSearch from './components/GlobalSearch';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -347,6 +348,7 @@ function AppShell() {
             <Menu size={24} />
           </button>
           <h1 className="text-base font-bold tracking-wide flex-1">RHR & Company</h1>
+          <ThemeToggle className="p-1 text-white" iconSize={20} />
           <button
             onClick={handleRefresh}
             className="p-1 text-white"

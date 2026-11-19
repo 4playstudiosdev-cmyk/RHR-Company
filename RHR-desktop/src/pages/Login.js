@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Loader2, Factory, Mail, Lock, Eye, EyeOff, ArrowRight, Network, ShoppingCart, Compass } from 'lucide-react';
 import api from '../services/api';
+import ThemeToggle from '../components/ThemeToggle';
 
 const FEATURES = [
   { icon: Network, title: 'Multi-Branch Control', text: 'Unified management across all locations.' },
@@ -62,7 +63,8 @@ export default function Login({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-cream">
+    <div className="min-h-screen flex flex-col md:flex-row bg-cream relative">
+      <ThemeToggle className="absolute top-4 right-4 z-10 p-2 rounded-lg bg-white/80 text-gray-600 hover:text-navy shadow-card" />
       {/* Left: Login form */}
       <div className="w-full md:w-[45%] min-h-screen flex items-center justify-center p-6">
         <div className="w-full max-w-sm bg-white rounded-2xl shadow-card border border-gray-100 p-8">

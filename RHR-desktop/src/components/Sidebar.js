@@ -310,7 +310,7 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
             here would be visible anyway — not rendering it at all
             avoids any stray padding/border peeking past the edge. */}
         {!collapsed && (
-          <div className="bg-navy text-white flex flex-col h-screen overflow-hidden">
+          <div className="rhr-sidebar bg-navy text-white flex flex-col h-screen overflow-hidden">
             <div className="py-6 px-6 border-b border-white/10 flex-shrink-0 flex items-center justify-between">
               <div>
                 <h1 className="text-xl font-bold tracking-wide text-white">RHR & Company</h1>

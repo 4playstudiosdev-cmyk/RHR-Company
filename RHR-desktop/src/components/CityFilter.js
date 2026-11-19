@@ -13,6 +13,7 @@ export default function CityFilter({ selectedCity, onChange }) {
 
   return (
     <select
+      className="rhr-filter-select"
       value={selectedCity}
       onChange={e => onChange(e.target.value)}
       style={{

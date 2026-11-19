@@ -84,7 +84,7 @@ export default function DateRangeFilter({ from, to, onApply, defaultPreset = 'Th
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <select value={activePreset} onChange={(e) => handleSelect(e.target.value)} style={selectStyle}>
+      <select className="rhr-filter-select" value={activePreset} onChange={(e) => handleSelect(e.target.value)} style={selectStyle}>
         {presets.map((preset) => (
           <option key={preset.label} value={preset.label}>{preset.label}</option>
         ))}
