@@ -179,19 +179,21 @@ async function buildDailyReportPdf(reportDate, data) {
   y = pdfSectionHeader(doc, y, 'SUMMARY', PAGE_W, M);
   y += 3;
 
-  const sumH = 46;
+  const sumH = 55;
   const colMid = M + (PAGE_W - M * 2) / 2 + 1;
   doc.setDrawColor(...NAVY);
   doc.setLineWidth(0.3);
   doc.rect(M, y, PAGE_W - M * 2, sumH);
   doc.line(colMid, y, colMid, y + sumH);
 
+  const _mdVal = (data.summary.total_recovery || 0) - (data.summary.total_sales || 0);
   const sumLeft = [
     ['Previous Cash Balance', fmtPKR(data.summary.previous_cash_balance)],
     ['+ Total Recovery', fmtPKR(data.summary.total_recovery)],
     ['- Total Expenses', fmtPKR(data.summary.total_expenses)],
     ['Net Cash', fmtPKR(data.summary.net_cash)],
     ['Cash In Hand', fmtPKR(data.summary.cash_in_hand)],
+    ['Market Difference', fmtPKR(Math.abs(_mdVal))],
   ];
   const sumRight = [
     ['Total Production BAG', fmtN(data.summary.total_production_bags)],
@@ -204,10 +206,17 @@ async function buildDailyReportPdf(reportDate, data) {
 
   let rowY = y + 7;
   sumLeft.forEach(([label, val], i) => {
-    const isCashInHand = i === sumLeft.length - 1;
-    doc.setFont('helvetica', isCashInHand ? 'bold' : 'normal');
-    doc.setFontSize(isCashInHand ? 9 : 8);
-    if (isCashInHand) { doc.setTextColor(...NAVY); } else { doc.setTextColor(60, 60, 60); }
+    const isCashInHand = i === 4;
+    const isMarketDiff = i === 5;
+    doc.setFont('helvetica', (isCashInHand || isMarketDiff) ? 'bold' : 'normal');
+    doc.setFontSize((isCashInHand || isMarketDiff) ? 9 : 8);
+    if (isCashInHand) {
+      doc.setTextColor(...NAVY);
+    } else if (isMarketDiff) {
+      doc.setTextColor(...(_mdVal >= 0 ? [22, 163, 74] : [220, 38, 38]));
+    } else {
+      doc.setTextColor(60, 60, 60);
+    }
     doc.text(label, M + 4, rowY);
     doc.text(val, colMid - 4, rowY, { align: 'right' });
     if (isCashInHand) {
