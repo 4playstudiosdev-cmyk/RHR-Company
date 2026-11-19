@@ -29,7 +29,7 @@ const EMPTY_FORM = {
   reference_number: '', notes: '',
   cheque_bank: '', cheque_number: '', cheque_date: '',
   recovery_date: new Date().toISOString().split('T')[0],
-  vendor_id: '', vendor_payment_method: 'cash', bank_account_id: '',
+  vendor_id: '', vendor_payment_method: 'bank_transfer', bank_account_id: '',
 };
 
 const EMPTY_CLOSING_FORM = { salesman_id: '', amount: '', deposit_to: 'bank', bank_account: '', bank_account_id: '', notes: '', closing_date: new Date().toISOString().split('T')[0] };
@@ -573,6 +573,9 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
 
   // History for everyone, or for one salesman. The picker lists every salesman
   // — the salesmen list plus anyone who appears in the history itself.
+  const directTransferAccounts = banksList.filter(b =>
+    (b.account_name || b.bank_name || '').toLowerCase().includes('direct transfer')
+  );
   const historySalesmen = (salesmenList || [])
     .map((x) => ({ id: x.id, name: x.full_name }))
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
@@ -654,7 +657,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                     <button
                       type="button"
                       key={pt.v}
-                      onClick={() => { clearPhoto(); setForm({ ...form, payment_type: pt.v, payment_method: pt.v === 'cash' ? 'cash' : pt.v === 'cheque' ? 'cheque' : pt.v === 'vendor_transfer' ? 'vendor_transfer' : 'easypaisa', bank_account_id: '', vendor_payment_method: 'cash' }); }}
+                      onClick={() => { clearPhoto(); setForm({ ...form, payment_type: pt.v, payment_method: pt.v === 'cash' ? 'cash' : pt.v === 'cheque' ? 'cheque' : pt.v === 'vendor_transfer' ? 'vendor_transfer' : 'easypaisa', bank_account_id: '', vendor_payment_method: 'bank_transfer' }); }}
                       className={`flex flex-col items-center gap-1 rounded-xl border-2 px-3 py-3 text-center transition-colors ${
                         active ? 'border-navy bg-navy-chip/30' : 'border-gray-200 hover:border-navy/40'
                       }`}
@@ -792,76 +795,18 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Payment Method</label>
-                  <div className="flex gap-2">
-                    {['cash', 'bank_transfer', 'cheque'].map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        onClick={() => setForm({ ...form, vendor_payment_method: m, bank_account_id: '', cheque_number: '', cheque_date: '', cheque_bank: '' })}
-                        className={`flex-1 py-2 rounded-lg text-xs font-semibold border-2 transition-colors ${
-                          form.vendor_payment_method === m ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-gray-300 text-gray-600 hover:border-indigo-400'
-                        }`}
-                      >
-                        {m === 'cash' ? 'Cash' : m === 'bank_transfer' ? 'Bank Transfer' : 'Cheque'}
-                      </button>
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Bank Account (RHR) *</label>
+                  <select
+                    value={form.bank_account_id}
+                    onChange={(e) => setForm({ ...form, bank_account_id: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
+                  >
+                    <option value="">— Select Bank Account —</option>
+                    {directTransferAccounts.map((b) => (
+                      <option key={b.id} value={b.id}>{b.account_name || b.bank_name}</option>
                     ))}
-                  </div>
+                  </select>
                 </div>
-                {form.vendor_payment_method === 'bank_transfer' && (
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1.5">Bank Account (RHR) *</label>
-                    <select
-                      value={form.bank_account_id}
-                      onChange={(e) => setForm({ ...form, bank_account_id: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-                    >
-                      <option value="">— Select Bank Account —</option>
-                      {banksList.map((b) => (
-                        <option key={b.id} value={b.id}>{b.account_name || b.bank_name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                {form.vendor_payment_method === 'cheque' && (
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1.5">Bank *</label>
-                      <select
-                        value={form.bank_account_id}
-                        onChange={(e) => {
-                          const b = banksList.find((x) => x.id === e.target.value);
-                          setForm({ ...form, bank_account_id: e.target.value, cheque_bank: b?.bank_name || '' });
-                        }}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-                      >
-                        <option value="">— Select Bank —</option>
-                        {banksList.map((b) => (
-                          <option key={b.id} value={b.id}>{b.bank_name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1.5">Cheque Number *</label>
-                      <input
-                        type="text"
-                        value={form.cheque_number}
-                        onChange={(e) => setForm({ ...form, cheque_number: e.target.value })}
-                        placeholder="e.g. 001234"
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1.5">Cheque Date *</label>
-                      <input
-                        type="date"
-                        value={form.cheque_date}
-                        onChange={(e) => setForm({ ...form, cheque_date: e.target.value })}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
-                      />
-                    </div>
-                  </div>
-                )}
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1.5">Reference / Transaction Number</label>
                   <input

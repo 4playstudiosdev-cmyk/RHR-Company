@@ -46,7 +46,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
 
   List<Map<String, dynamic>> _suppliers = [];
   String? _selectedSupplierId;
-  String _vendorSubMethod = 'Cash';
+  String _vendorSubMethod = 'Bank Transfer';
   String? _vendorBankAccountId;
   final _referenceController = TextEditingController();
   final _vendorChequeNumberController = TextEditingController();
@@ -166,16 +166,6 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
     if (picked != null) setState(() => _chequeDate = picked);
   }
 
-  Future<void> _pickVendorChequeDate() async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _vendorChequeDate ?? now,
-      firstDate: now.subtract(const Duration(days: 365)),
-      lastDate: now.add(const Duration(days: 365)),
-    );
-    if (picked != null) setState(() => _vendorChequeDate = picked);
-  }
 
   @override
   void dispose() {
@@ -743,67 +733,6 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
               ]),
             ),
             const SizedBox(height: 14),
-            _fieldLabel('Transfer Type'),
-            const SizedBox(height: 8),
-            Row(children: [
-              Expanded(
-                child: TapScale(
-                  onTap: () => setState(() => _vendorSubMethod = 'Cash'),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 11),
-                    decoration: BoxDecoration(
-                      color: _vendorSubMethod == 'Cash' ? kNavy : Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: _vendorSubMethod == 'Cash' ? kNavy : const Color(0xFFE0E5EF)),
-                    ),
-                    child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      Icon(Icons.payments_rounded, size: 16, color: _vendorSubMethod == 'Cash' ? Colors.white : kNavy),
-                      const SizedBox(width: 6),
-                      Text('Cash', style: TextStyle(color: _vendorSubMethod == 'Cash' ? Colors.white : kNavy, fontWeight: FontWeight.w700, fontSize: 13)),
-                    ]),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TapScale(
-                  onTap: () { setState(() => _vendorSubMethod = 'Bank Transfer'); _loadBankAccounts(); },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 11),
-                    decoration: BoxDecoration(
-                      color: _vendorSubMethod == 'Bank Transfer' ? kNavy : Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: _vendorSubMethod == 'Bank Transfer' ? kNavy : const Color(0xFFE0E5EF)),
-                    ),
-                    child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      Icon(Icons.account_balance_rounded, size: 16, color: _vendorSubMethod == 'Bank Transfer' ? Colors.white : kNavy),
-                      const SizedBox(width: 6),
-                      Text('Bank', style: TextStyle(color: _vendorSubMethod == 'Bank Transfer' ? Colors.white : kNavy, fontWeight: FontWeight.w700, fontSize: 13)),
-                    ]),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TapScale(
-                  onTap: () { setState(() => _vendorSubMethod = 'Cheque'); _loadBankAccounts(); },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 11),
-                    decoration: BoxDecoration(
-                      color: _vendorSubMethod == 'Cheque' ? kNavy : Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: _vendorSubMethod == 'Cheque' ? kNavy : const Color(0xFFE0E5EF)),
-                    ),
-                    child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      Icon(Icons.assignment_outlined, size: 16, color: _vendorSubMethod == 'Cheque' ? Colors.white : kNavy),
-                      const SizedBox(width: 6),
-                      Text('Cheque', style: TextStyle(color: _vendorSubMethod == 'Cheque' ? Colors.white : kNavy, fontWeight: FontWeight.w700, fontSize: 13)),
-                    ]),
-                  ),
-                ),
-              ),
-            ]),
-            const SizedBox(height: 14),
             _fieldLabel('Vendor / Supplier *'),
             const SizedBox(height: 8),
             _suppliers.isEmpty
@@ -837,10 +766,14 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                   : _dropdownField(
                       hint: _bankAccounts.isEmpty ? 'No bank accounts set up' : 'Select bank account',
                       value: _vendorBankAccountId,
-                      items: _bankAccounts.map((a) => DropdownMenuItem(
-                        value: a['id'] as String,
-                        child: Text('${a['bank_name']} — ${a['account_name']}', overflow: TextOverflow.ellipsis),
-                      )).toList(),
+                      items: _bankAccounts
+                          .where((a) =>
+                              (a['account_name']?.toString().toLowerCase() ?? '').contains('direct transfer') ||
+                              (a['bank_name']?.toString().toLowerCase() ?? '').contains('direct transfer'))
+                          .map((a) => DropdownMenuItem(
+                            value: a['id'] as String,
+                            child: Text('${a['bank_name']} — ${a['account_name']}', overflow: TextOverflow.ellipsis),
+                          )).toList(),
                       onChanged: (v) => setState(() => _vendorBankAccountId = v),
                     ),
               const SizedBox(height: 14),
@@ -849,41 +782,6 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                 hint: 'e.g. TXN-001',
                 controller: _referenceController,
                 prefixIcon: Icons.tag_rounded,
-              ),
-            ],
-            if (_vendorSubMethod == 'Cheque') ...[
-              const SizedBox(height: 14),
-              _fieldLabel('Bank *'),
-              const SizedBox(height: 8),
-              _loadingBankAccounts
-                  ? const Center(child: Padding(
-                      padding: EdgeInsets.all(8),
-                      child: CircularProgressIndicator(strokeWidth: 2, color: kNavy)))
-                  : _dropdownField(
-                      hint: _bankAccounts.isEmpty ? 'No bank accounts set up' : 'Select bank',
-                      value: _vendorChequeBankId,
-                      items: _bankAccounts.map((a) => DropdownMenuItem(
-                        value: a['id'] as String,
-                        child: Text(a['bank_name']?.toString() ?? '', overflow: TextOverflow.ellipsis),
-                      )).toList(),
-                      onChanged: (v) => setState(() => _vendorChequeBankId = v),
-                    ),
-              const SizedBox(height: 14),
-              PremiumInput(
-                label: 'Cheque Number *',
-                hint: 'e.g. 001234',
-                controller: _vendorChequeNumberController,
-                prefixIcon: Icons.tag_rounded,
-              ),
-              const SizedBox(height: 14),
-              _fieldLabel('Cheque Date *'),
-              const SizedBox(height: 8),
-              _datePicker(
-                label: _vendorChequeDate == null
-                    ? 'Select cheque date'
-                    : '${_vendorChequeDate!.year}-${_vendorChequeDate!.month.toString().padLeft(2, '0')}-${_vendorChequeDate!.day.toString().padLeft(2, '0')}',
-                onTap: _pickVendorChequeDate,
-                isEmpty: _vendorChequeDate == null,
               ),
             ],
           ],
