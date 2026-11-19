@@ -106,8 +106,8 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 
       // Bank inflows for this date: cheques cleared to bank
       pgrestGetRaw(
-        `salesman_recoveries?select=amount,cleared_bank_account_id&cheque_status=eq.cleared&cleared_at=gte.${date}T00:00:00${cf}`
-      ).then(rows => (rows || []).filter(r => r.cleared_at <= `${date}T23:59:59` && r.cleared_bank_account_id))
+        `salesman_recoveries?select=amount,cleared_bank_account_id,cleared_at&cheque_status=eq.cleared&cleared_at=gte.${date}T00:00:00&cleared_at=lte.${date}T23:59:59${cf}`
+      ).then(rows => (rows || []).filter(r => r.cleared_bank_account_id))
         .catch(() => []),
 
       // Approved bank transfers for this date (reference_number = bank_account_id)
