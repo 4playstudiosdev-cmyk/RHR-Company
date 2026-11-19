@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import CustomerSelect from '../components/CustomerSelect';
-import { BookOpen, Plus, FileText, FileSpreadsheet, TrendingDown, TrendingUp, Wallet, Trash2, Info, ChevronDown, ChevronUp } from 'lucide-react';
+import { BookOpen, Plus, FileText, FileSpreadsheet, TrendingDown, TrendingUp, Wallet, Trash2, Info, ChevronDown, ChevronUp, Pencil, Check, X } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
 import Button from '../components/Button';
@@ -118,6 +118,9 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
   const [downloading, setDownloading] = useState(false);
   const [deletingEntryId, setDeletingEntryId] = useState(null);
   const [expandedLedgerRow, setExpandedLedgerRow] = useState(null);
+  const [editDateId, setEditDateId] = useState(null);
+  const [editDate, setEditDate] = useState('');
+  const [savingDate, setSavingDate] = useState(false);
 
   useEffect(() => {
     loadCustomers();
@@ -200,6 +203,22 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
 
   const totalPages = Math.max(1, Math.ceil(displayRows.length / PAGE_SIZE));
   const pageEntries = displayRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const handleDateSave = async (entryId) => {
+    if (!editDate) { toast.error('Select a date.'); return; }
+    setSavingDate(true);
+    try {
+      await api.patch(`/ledger/${customerId}/entry/${entryId}`, { entry_date: editDate });
+      toast.success('Date updated.');
+      setEditDateId(null);
+      setEditDate('');
+      loadLedger();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update date.');
+    } finally {
+      setSavingDate(false);
+    }
+  };
 
   const handleDeleteEntry = async (entry) => {
     const typeLabel = entry.reference_type || entry.entry_type || 'entry';
@@ -459,7 +478,31 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
                           }`}
                         >
                           <td className="px-6 py-3.5 whitespace-nowrap text-gray-500">
-                            {new Date(entry.created_at).toLocaleDateString('en-GB')}
+                            {editDateId === entry.id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="date"
+                                  value={editDate}
+                                  onChange={(ev) => setEditDate(ev.target.value)}
+                                  className="border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-navy w-32"
+                                  autoFocus
+                                  onKeyDown={(ev) => { if (ev.key === 'Enter') handleDateSave(entry.id); if (ev.key === 'Escape') { setEditDateId(null); setEditDate(''); } }}
+                                />
+                                <button onClick={() => handleDateSave(entry.id)} disabled={savingDate} className="text-emerald-600 hover:text-emerald-800 p-0.5"><Check size={12} /></button>
+                                <button onClick={() => { setEditDateId(null); setEditDate(''); }} className="text-gray-400 hover:text-gray-600 p-0.5"><X size={12} /></button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1 group">
+                                {new Date(entry.created_at).toLocaleDateString('en-GB')}
+                                <button
+                                  onClick={() => { setEditDateId(entry.id); setEditDate((entry.created_at || '').split('T')[0]); }}
+                                  className="opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity text-gray-400 hover:text-navy p-0.5"
+                                  title="Edit date"
+                                >
+                                  <Pencil size={11} />
+                                </button>
+                              </div>
+                            )}
                           </td>
                           <td className="px-6 py-3.5 text-navy font-medium">
                             <DescriptionCell

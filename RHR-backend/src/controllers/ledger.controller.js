@@ -380,4 +380,30 @@ const deleteLedgerEntry = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { getLedger, adjustLedger, setOutstandingBalance, downloadStatement, downloadStatementExcel, deleteLedgerEntry };
+// PATCH /api/v1/ledger/:customerId/entry/:entryId
+// Accepts { entry_date } — updates created_at and recalculates running balances.
+const updateLedgerEntry = async (req, res) => {
+  try {
+    const { customerId, entryId } = req.params;
+    const { entry_date } = req.body;
+    if (!entry_date) return error(res, 'entry_date is required', 400);
+    if (!await canAccessLedger(req.user, customerId))
+      return error(res, 'Access denied', 403);
+
+    await pgrestPatch('ledger_entries', { id: `eq.${entryId}` }, { created_at: `${entry_date}T12:00:00.000Z` });
+
+    // Re-fetch all and recalculate running balances
+    const allLed = await pgrestGetRaw(
+      `ledger_entries?select=id,amount,entry_type,reference_type&customer_id=eq.${customerId}&order=created_at.asc&limit=5000`
+    ).catch(() => []);
+    let bal = 0;
+    for (const le of (allLed || [])) {
+      bal = le.entry_type === 'debit' ? bal + Number(le.amount) : bal - Number(le.amount);
+      await pgrestPatch('ledger_entries', { id: `eq.${le.id}` }, { running_balance: bal });
+    }
+
+    return success(res, { updated: true }, 'Entry date updated');
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { getLedger, adjustLedger, setOutstandingBalance, downloadStatement, downloadStatementExcel, deleteLedgerEntry, updateLedgerEntry };

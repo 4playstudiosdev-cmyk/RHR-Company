@@ -22,11 +22,11 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 
     const [expenses, recoveries, orders, productions, bankAccounts, prevCashRec, prevCashClose, bankExpenses, bankPayments, bankTransfers, allTimeBankTransfers, allTimeCheques, allTimeBankExp, allTimePettyCashClosings, allTimeCashExpenses, cashClosingsOnDate] = await Promise.all([
 
-      // Expenses for the date — try with full joins, degrade gracefully
+      // Expenses for the date — vendor payments excluded (tracked in vendor ledger separately)
       pgrestGetRaw(
-        `expenses?select=id,category,description,amount,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),salesmen(full_name),suppliers(name)&expense_date=eq.${date}${cf}&order=created_at.asc`
+        `expenses?select=id,category,description,amount,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),salesmen(full_name),suppliers(name)&expense_date=eq.${date}&category=neq.Vendor%20Payment${cf}&order=created_at.asc`
       ).catch(() =>
-        pgrestGet('expenses', { select: 'id,category,description,amount,expense_date,method,bank_account_id', expense_date: `eq.${date}`, ...cfObj, order: 'created_at.asc' })
+        pgrestGet('expenses', { select: 'id,category,description,amount,expense_date,method,bank_account_id', expense_date: `eq.${date}`, category: 'neq.Vendor Payment', ...cfObj, order: 'created_at.asc' })
       ),
 
       // Approved recoveries for the date
@@ -147,11 +147,12 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         ...cfObj,
       }).catch(() => []),
 
-      // Cash expenses up to and including report date (for Cash balance as of date)
+      // Cash expenses up to and including report date (vendor payments excluded — tracked in vendor ledger)
       pgrestGet('expenses', {
         select: 'amount',
         method: 'eq.cash',
         bank_account_id: 'is.null',
+        category: 'neq.Vendor Payment',
         expense_date: `lte.${date}`,
         ...cfObj,
       }).catch(() => []),

@@ -6,6 +6,7 @@ const { isAdmin, isSuperAdmin } = require('../middleware/role.middleware');
 
 router.post('/adjustment',                      authenticate, isAdmin, ctrl.adjustLedger);
 router.patch('/:customerId/balance',            authenticate, isSuperAdmin, ctrl.setOutstandingBalance);
+router.patch('/:customerId/entry/:entryId',     authenticate, isAdmin, ctrl.updateLedgerEntry);
 router.delete('/:customerId/entry/:entryId',    authenticate, isAdmin, ctrl.deleteLedgerEntry);
 router.get('/:customerId',                      authenticate, ctrl.getLedger);
 router.get('/:customerId/statement',            authenticate, ctrl.downloadStatement);

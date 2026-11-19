@@ -242,11 +242,14 @@ const deleteSupplierLedgerEntry = async (req, res) => {
 };
 
 // PATCH /api/v1/suppliers/:id/ledger/:entryId
+// Accepts { amount?, entry_date? } — at least one required.
 const updateSupplierLedgerEntry = async (req, res) => {
   try {
     const { id: supplierId, entryId } = req.params;
-    const { amount } = req.body;
-    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0)
+    const { amount, entry_date } = req.body;
+    if (!amount && !entry_date)
+      return error(res, 'amount or entry_date is required', 400);
+    if (amount && (isNaN(Number(amount)) || Number(amount) <= 0))
       return error(res, 'amount must be a positive number', 400);
 
     const suppliers = await pgrestGet('suppliers', { select: 'id,company_id', id: `eq.${supplierId}` });
@@ -255,14 +258,19 @@ const updateSupplierLedgerEntry = async (req, res) => {
     if (req.user.role !== 'super_admin' && supplier.company_id !== req.user.company_id)
       return error(res, 'Access denied', 403);
 
+    const patch = {};
+    if (amount) patch.amount = Number(amount);
+    if (entry_date) patch.created_at = `${entry_date}T12:00:00.000Z`;
+
+    await pgrestPatch('supplier_ledger_entries', { id: `eq.${entryId}` }, patch);
+
+    // Re-fetch after patch so sort order reflects any date change
     const allEntries = await pgrestGet('supplier_ledger_entries', {
-      select: 'id,entry_type,amount,running_balance',
+      select: 'id,entry_type,amount,running_balance,reference_type,created_at',
       supplier_id: `eq.${supplierId}`,
       order: 'created_at.asc',
     });
-    await pgrestPatch('supplier_ledger_entries', { id: `eq.${entryId}` }, { amount: Number(amount) });
-    const updated = (allEntries || []).map((e) => e.id === entryId ? { ...e, amount: Number(amount) } : e);
-    await recalcRunningBalances(updated);
+    await recalcRunningBalances(allEntries || []);
     return success(res, { updated: true }, 'Ledger entry updated');
   } catch (err) { return error(res, err.message); }
 };
