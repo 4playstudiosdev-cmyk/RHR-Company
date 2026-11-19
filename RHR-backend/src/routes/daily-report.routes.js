@@ -71,9 +71,9 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         pgrestGet('productions', { select: 'id,qty_produced,total_cost,date', date: `eq.${date}`, ...cfObj, order: 'created_at.asc' })
       ),
 
-      // Active bank accounts (include created_at to filter by report date)
+      // Active bank accounts
       pgrestGet('bank_accounts', {
-        select: 'id,account_name,account_number,bank_name,opening_balance,created_at',
+        select: 'id,account_name,account_number,bank_name,opening_balance',
         is_active: 'eq.true',
         ...cfObj,
         order: 'account_name.asc',
@@ -307,12 +307,6 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       + (cashAccount ? (allTimeInMap[cashAccount.id] || 0) : 0)
       - (cashAccount ? (allTimeOutMap[cashAccount.id] || 0) : 0);
 
-    // ── Filter out accounts created after the report date
-    const eligibleBankAccounts = (bankAccounts || []).filter(b => {
-      if (!b.created_at) return true;
-      return b.created_at.split('T')[0] <= date;
-    });
-
     // ── Bank detail: debit (in) and credit (out) per account for this date
     const bankExpMap = {};
     (bankExpenses || []).forEach(e => {
@@ -328,7 +322,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       const id = r.reference_number;
       if (id) bankInMap[id] = (bankInMap[id] || 0) + Number(r.amount || 0);
     });
-    const bankDetail = eligibleBankAccounts.map(b => {
+    const bankDetail = (bankAccounts || []).map(b => {
       const currentBalance = b.bank_name === 'Cash'
         ? physicalCashInHand
         : Number(b.opening_balance || 0) + (allTimeInMap[b.id] || 0) - (allTimeOutMap[b.id] || 0);
