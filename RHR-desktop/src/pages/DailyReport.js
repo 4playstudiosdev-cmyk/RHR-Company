@@ -192,7 +192,7 @@ async function buildDailyReportPdf(reportDate, data, cityName) {
   y = pdfSectionHeader(doc, y, 'SUMMARY', PAGE_W, M);
   y += 3;
 
-  const sumH = 55;
+  const sumH = 48;
   const colMid = M + (PAGE_W - M * 2) / 2 + 1;
   doc.setDrawColor(...NAVY);
   doc.setLineWidth(0.3);
@@ -205,7 +205,6 @@ async function buildDailyReportPdf(reportDate, data, cityName) {
     ['+ Total Recovery', fmtPKR(data.summary.total_recovery)],
     ['- Total Expenses', fmtPKR(data.summary.total_expenses)],
     ['Net Cash', fmtPKR(data.summary.net_cash)],
-    ['Cash In Hand', fmtPKR(data.summary.cash_in_hand)],
     ['Market Difference', fmtPKR(Math.abs(_mdVal))],
   ];
   const sumRight = [
@@ -219,24 +218,16 @@ async function buildDailyReportPdf(reportDate, data, cityName) {
 
   let rowY = y + 7;
   sumLeft.forEach(([label, val], i) => {
-    const isCashInHand = i === 4;
-    const isMarketDiff = i === 5;
-    doc.setFont('helvetica', (isCashInHand || isMarketDiff) ? 'bold' : 'normal');
-    doc.setFontSize((isCashInHand || isMarketDiff) ? 9 : 8);
-    if (isCashInHand) {
-      doc.setTextColor(...NAVY);
-    } else if (isMarketDiff) {
+    const isMarketDiff = i === 4;
+    doc.setFont('helvetica', isMarketDiff ? 'bold' : 'normal');
+    doc.setFontSize(isMarketDiff ? 9 : 8);
+    if (isMarketDiff) {
       doc.setTextColor(...(_mdVal >= 0 ? [22, 163, 74] : [220, 38, 38]));
     } else {
       doc.setTextColor(60, 60, 60);
     }
     doc.text(label, M + 4, rowY);
     doc.text(val, colMid - 4, rowY, { align: 'right' });
-    if (isCashInHand) {
-      doc.setDrawColor(...NAVY);
-      doc.setLineWidth(0.3);
-      doc.line(M + 2, rowY + 1.5, colMid - 2, rowY + 1.5);
-    }
     rowY += 7;
   });
 

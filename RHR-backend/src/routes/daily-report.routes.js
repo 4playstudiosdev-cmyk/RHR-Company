@@ -71,9 +71,9 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         pgrestGet('productions', { select: 'id,qty_produced,total_cost,date', date: `eq.${date}`, ...cfObj, order: 'created_at.asc' })
       ),
 
-      // Active bank accounts
+      // Active bank accounts (include created_at to filter by report date)
       pgrestGet('bank_accounts', {
-        select: 'id,account_name,account_number,bank_name,opening_balance',
+        select: 'id,account_name,account_number,bank_name,opening_balance,created_at',
         is_active: 'eq.true',
         ...cfObj,
         order: 'account_name.asc',
@@ -119,39 +119,43 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         ...cfObj,
       }).catch(() => []),
 
-      // All-time approved bank transfers (for current balance)
+      // Bank transfers up to and including report date (for balance as of date)
       pgrestGet('salesman_recoveries', {
         select: 'amount,reference_number',
         payment_method: 'eq.bank_transfer',
         status: 'eq.approved',
+        recovery_date: `lte.${date}`,
         ...cfObj,
       }).catch(() => []),
 
-      // All-time cleared cheques into bank (for current balance)
+      // Cleared cheques into bank up to report date (for balance as of date)
       pgrestGetRaw(
-        `salesman_recoveries?select=amount,cleared_bank_account_id&cleared_bank_account_id=not.is.null&status=eq.approved${cf}`
+        `salesman_recoveries?select=amount,cleared_bank_account_id&cleared_bank_account_id=not.is.null&status=eq.approved&cleared_at=lte.${date}T23:59:59${cf}`
       ).catch(() => []),
 
-      // All-time bank expenses (for current balance)
+      // Bank expenses up to and including report date (for balance as of date)
       pgrestGet('expenses', {
         select: 'amount,bank_account_id',
         bank_account_id: 'not.is.null',
+        expense_date: `lte.${date}`,
         ...cfObj,
       }).catch(() => []),
 
-      // All-time petty_cash closings — for physical Cash in Hand balance
+      // Petty_cash closings up to and including report date (for Cash balance as of date)
       pgrestGet('salesman_cash_closings', {
         select: 'amount',
         deposit_to: 'eq.petty_cash',
         status: 'eq.approved',
+        closing_date: `lte.${date}`,
         ...cfObj,
       }).catch(() => []),
 
-      // All-time cash expenses — for physical Cash in Hand balance
+      // Cash expenses up to and including report date (for Cash balance as of date)
       pgrestGet('expenses', {
         select: 'amount',
         method: 'eq.cash',
         bank_account_id: 'is.null',
+        expense_date: `lte.${date}`,
         ...cfObj,
       }).catch(() => []),
     ]);
@@ -295,13 +299,19 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       if (id) allTimeOutMap[id] = (allTimeOutMap[id] || 0) + Number(e.amount || 0);
     });
 
-    // ── Physical Cash in Hand: opening + all petty_cash_closings − all cash_expenses
+    // ── Physical Cash in Hand: opening + petty_cash_closings up to date − cash_expenses up to date
     const cashAccount = (bankAccounts || []).find(a => a.bank_name === 'Cash');
     const physicalCashInHand = Number(cashAccount?.opening_balance || 0)
       + (allTimePettyCashClosings || []).reduce((s, c) => s + Number(c.amount || 0), 0)
       - (allTimeCashExpenses      || []).reduce((s, e) => s + Number(e.amount || 0), 0)
       + (cashAccount ? (allTimeInMap[cashAccount.id] || 0) : 0)
       - (cashAccount ? (allTimeOutMap[cashAccount.id] || 0) : 0);
+
+    // ── Filter out accounts created after the report date
+    const eligibleBankAccounts = (bankAccounts || []).filter(b => {
+      if (!b.created_at) return true;
+      return b.created_at.split('T')[0] <= date;
+    });
 
     // ── Bank detail: debit (in) and credit (out) per account for this date
     const bankExpMap = {};
@@ -318,7 +328,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       const id = r.reference_number;
       if (id) bankInMap[id] = (bankInMap[id] || 0) + Number(r.amount || 0);
     });
-    const bankDetail = (bankAccounts || []).map(b => {
+    const bankDetail = eligibleBankAccounts.map(b => {
       const currentBalance = b.bank_name === 'Cash'
         ? physicalCashInHand
         : Number(b.opening_balance || 0) + (allTimeInMap[b.id] || 0) - (allTimeOutMap[b.id] || 0);
