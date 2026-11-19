@@ -1445,7 +1445,19 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
     if ((vendor_payment_method === 'bank_transfer' || vendor_payment_method === 'cheque') && !bank_account_id)
       return error(res, 'bank_account_id is required for bank transfer / cheque vendor payment', 400);
 
-    const companyId = req.user.company_id;
+    // Supplier's company decides where the payment is booked — a super_admin's own
+    // company_id would otherwise put a Sukkur vendor payment into another city's books.
+    let supplierNameEarly = 'vendor';
+    let supplierCompanyId = null;
+    try {
+      const sRows = await pgrestGet('suppliers', { select: 'name,company_id', id: `eq.${supplier_id}` });
+      supplierNameEarly = sRows?.[0]?.name || 'vendor';
+      supplierCompanyId = sRows?.[0]?.company_id || null;
+    } catch (_) {}
+
+    const companyId = req.user.role === 'super_admin' && supplierCompanyId
+      ? supplierCompanyId
+      : req.user.company_id;
     const expenseDate = recovery_date || new Date().toISOString().split('T')[0];
     const payMethod = vendor_payment_method === 'bank_transfer' ? 'bank_transfer'
       : vendor_payment_method === 'cash' ? 'cash'
@@ -1467,13 +1479,6 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
       created_by:       req.user.id,
     };
     if (await hasVendorColumn()) rowData.vendor_id = supplier_id;
-
-    // Lookup supplier name early so it appears in all descriptions
-    let supplierNameEarly = 'vendor';
-    try {
-      const sRows = await pgrestGet('suppliers', { select: 'name', id: `eq.${supplier_id}` });
-      supplierNameEarly = sRows?.[0]?.name || 'vendor';
-    } catch (_) {}
 
     let recovery;
     try {
