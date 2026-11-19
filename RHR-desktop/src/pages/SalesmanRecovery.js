@@ -3,7 +3,7 @@ import { customerLabel } from '../utils/customerLabel';
 import CustomerSelect from '../components/CustomerSelect';
 import DateRangeFilter from '../components/DateRangeFilter';
 import React, { useEffect, useRef, useState } from 'react';
-import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2, FileText, ArrowLeftRight, Camera, X, CalendarClock, Info, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Wallet, Smartphone, Clock3, ListChecks, Banknote, Trash2, FileText, ArrowLeftRight, Camera, X, CalendarClock, Info, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import PageHeader from '../components/PageHeader';
 import Button from '../components/Button';
@@ -91,6 +91,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
   const [customersList, setCustomersList] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [historySalesman, setHistorySalesman] = useState(initialRecoveryFilter?.salesman_id || '');
+  const [historySearch, setHistorySearch] = useState('');
   const todayStr = new Date().toISOString().split('T')[0];
   const [historyRange, setHistoryRange] = useState(
     initialRecoveryFilter?.from
@@ -578,7 +579,19 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
     return [...byId.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => String(a.name).localeCompare(String(b.name)));
   })();
   const inHistoryRange = (t) => (!historyRange.from || String(t.recovery_date) >= historyRange.from) && (!historyRange.to || String(t.recovery_date) <= historyRange.to);
-  const visibleTransactions = transactions.filter((t) => t.status !== 'rejected' && t.status !== 'deleted' && (!historySalesman || t.salesman_id === historySalesman) && inHistoryRange(t));
+  const historySearchLower = historySearch.trim().toLowerCase();
+  const visibleTransactions = transactions.filter((t) => {
+    if (t.status === 'rejected' || t.status === 'deleted') return false;
+    if (historySalesman && t.salesman_id !== historySalesman) return false;
+    if (!inHistoryRange(t)) return false;
+    if (historySearchLower) {
+      const u = t.users || {};
+      const customerName = `${u.shop_name || ''} ${u.full_name || ''}`.toLowerCase();
+      const salesmanName = (t.salesmen?.full_name || '').toLowerCase();
+      if (!customerName.includes(historySearchLower) && !salesmanName.includes(historySearchLower)) return false;
+    }
+    return true;
+  });
   // Rejected / Deleted tab: same salesman + date filters as History
   const removedRowsAll = removed.filter((t) => (!historySalesman || t.salesman_id === historySalesman));
   const removedInRange = (t) => { const d = String(t.removed_at || t.approved_at || t.created_at || '').slice(0, 10); return (!historyRange.from || d >= historyRange.from) && (!historyRange.to || d <= historyRange.to); };
@@ -1493,6 +1506,21 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
             <option value="">All salesmen ({historySalesmen.length})</option>
             {historySalesmen.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
           </select>
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input
+              type="text"
+              value={historySearch}
+              onChange={(e) => setHistorySearch(e.target.value)}
+              placeholder="Search customer / salesman..."
+              className="border border-gray-300 rounded-lg pl-8 pr-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-navy-chip focus:border-navy w-56"
+            />
+            {historySearch && (
+              <button onClick={() => setHistorySearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                <X size={13} />
+              </button>
+            )}
+          </div>
           <div className="flex gap-2 flex-wrap text-xs font-semibold">
             <span className="px-3 py-1.5 rounded-full bg-navy-chip text-navy">{historyStats.count} entries</span>
             <span className="px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700">Collected PKR {historyStats.total.toLocaleString()}</span>
