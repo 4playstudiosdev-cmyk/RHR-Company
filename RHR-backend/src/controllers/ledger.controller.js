@@ -171,6 +171,23 @@ const getLedger = async (req, res) => {
     let data = recalculated;
     if (from_date) data = data.filter(e => e.created_at >= from_date);
     if (to_date)   data = data.filter(e => e.created_at <= to_date + 'T23:59:59.999Z');
+
+    // Name the vendor on direct-vendor-transfer entries so the money trail can be verified
+    // from the customer side (old entries only say "settled via supplier").
+    const recIds = [...new Set(data.filter(e => e.reference_type === 'recovery' && e.reference_id).map(e => e.reference_id))];
+    if (recIds.length) {
+      try {
+        const recs = await pgrestGetRaw(
+          `salesman_recoveries?select=id,suppliers!vendor_id(name)&payment_type=eq.vendor_transfer&id=in.(${recIds.join(',')})`
+        );
+        const vendorByRec = Object.fromEntries((recs || []).filter(r => r.suppliers?.name).map(r => [r.id, r.suppliers.name]));
+        data = data.map(e => {
+          const vendor = vendorByRec[e.reference_id];
+          if (!vendor || (e.description || '').includes(vendor)) return e;
+          return { ...e, description: `Direct vendor transfer to ${vendor} — customer balance settled` };
+        });
+      } catch (_) { /* vendor_id column or join unavailable — leave descriptions as stored */ }
+    }
     data = [...data].reverse();
 
     return success(res, { entries: data, currentBalance });

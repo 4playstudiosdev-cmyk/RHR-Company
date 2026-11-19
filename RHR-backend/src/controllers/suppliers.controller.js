@@ -1,6 +1,6 @@
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
-const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
+const { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
 const { recalcSupplierLedger } = require('../services/orderLedger.service');
 
 // ─── Supplier Ledger ─────────────────────────────────────────────────────────
@@ -35,8 +35,33 @@ const getSupplierLedger = async (req, res) => {
     });
 
     const currentBalance = bal;
+
+    // Name the customer whose balance each vendor transfer cleared, so the payment can be
+    // traced back from the vendor side.
+    let entries = recalculated;
+    if (entries.some(e => e.reference_type === 'vendor_transfer')) {
+      try {
+        const recs = await pgrestGetRaw(
+          `salesman_recoveries?select=id,amount,recovery_date,users!customer_id(full_name,shop_name)&payment_type=eq.vendor_transfer&vendor_id=eq.${id}&status=eq.approved&order=created_at.asc`
+        );
+        const pool = (recs || []).map(r => ({ ...r, used: false }));
+        entries = entries.map(e => {
+          if (e.reference_type !== 'vendor_transfer') return e;
+          const day = (e.created_at || '').slice(0, 10);
+          const sameAmount = pool.filter(r => !r.used && Number(r.amount) === Number(e.amount));
+          const match = sameAmount.find(r => (r.recovery_date || '').slice(0, 10) === day)
+            || (sameAmount.length === 1 ? sameAmount[0] : null);
+          if (!match) return e;
+          match.used = true;
+          const who = match.users?.shop_name || match.users?.full_name;
+          if (!who || (e.description || '').includes(who)) return e;
+          return { ...e, description: `${e.description} — from ${who}` };
+        });
+      } catch (_) { /* vendor_id column or join unavailable — leave descriptions as stored */ }
+    }
+
     // Return in reverse-chronological order for display
-    return success(res, { entries: recalculated.reverse(), currentBalance });
+    return success(res, { entries: entries.reverse(), currentBalance });
   } catch (err) { return error(res, err.message); }
 };
 
