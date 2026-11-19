@@ -27,7 +27,13 @@ function pdfSectionHeader(doc, y, title, pageW, M) {
   return y + 8;
 }
 
-async function buildDailyReportPdf(reportDate, data) {
+const CITY_NAMES = {
+  '1e5962c6-33a7-460b-913e-9e08db46973a': 'Karachi',
+  '09a1fda3-7ac0-406a-8f42-75d973dc3b7e': 'Hyderabad',
+  '00f79d89-0d36-4704-8865-fc7bbd662267': 'Sukkur',
+};
+
+async function buildDailyReportPdf(reportDate, data, cityName) {
   const doc = new jsPDF();
   const M = 14;
   const PAGE_W = 210;
@@ -37,6 +43,13 @@ async function buildDailyReportPdf(reportDate, data) {
     title: 'DAILY REPORT',
     subtitle: `Date: ${reportDate}`,
   });
+
+  if (cityName) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(27, 46, 107);
+    doc.text(cityName.toUpperCase(), PAGE_W - 20, 31, { align: 'right' });
+  }
 
   // Print date/time line
   doc.setFont('helvetica', 'normal');
@@ -341,7 +354,7 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
     if (!data) return;
     setPdfLoading(true);
     try {
-      await buildDailyReportPdf(reportDate, data);
+      await buildDailyReportPdf(reportDate, data, CITY_NAMES[selectedCity] || '');
     } catch (e) {
       setError('PDF generation failed: ' + e.message);
     } finally {
