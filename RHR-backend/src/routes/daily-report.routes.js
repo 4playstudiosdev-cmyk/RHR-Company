@@ -79,22 +79,19 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         order: 'account_name.asc',
       }).catch(() => []),
 
-      // All approved cash recoveries BEFORE this date (for previous balance)
-      pgrestGet('salesman_recoveries', {
-        select: 'amount',
-        status: 'eq.approved',
-        payment_type: 'eq.cash',
-        ...cfObj,
-        recovery_date: `lt.${date}`,
-      }).catch(() => []),
+      // All approved cash recoveries BEFORE this date (for previous balance + ledger)
+      pgrestGetRaw(
+        `salesman_recoveries?select=amount,recovery_date,users!customer_id(full_name,shop_name),salesmen(full_name)&status=eq.approved&payment_type=eq.cash${cf}&recovery_date=lt.${date}&order=recovery_date.asc,created_at.asc`
+      ).catch(() =>
+        pgrestGet('salesman_recoveries', { select: 'amount,recovery_date', status: 'eq.approved', payment_type: 'eq.cash', ...cfObj, recovery_date: `lt.${date}`, order: 'recovery_date.asc' })
+      ),
 
-      // All approved cash closings BEFORE this date
-      pgrestGet('salesman_cash_closings', {
-        select: 'amount',
-        status: 'eq.approved',
-        ...cfObj,
-        closing_date: `lt.${date}`,
-      }).catch(() => []),
+      // All approved cash closings BEFORE this date (for previous balance + ledger)
+      pgrestGetRaw(
+        `salesman_cash_closings?select=amount,closing_date,salesmen(full_name)&status=eq.approved${cf}&closing_date=lt.${date}&order=closing_date.asc,created_at.asc`
+      ).catch(() =>
+        pgrestGet('salesman_cash_closings', { select: 'amount,closing_date', status: 'eq.approved', ...cfObj, closing_date: `lt.${date}`, order: 'closing_date.asc' })
+      ),
 
       // Bank expenses for this date (money OUT of each bank account)
       pgrestGet('expenses', {
@@ -292,6 +289,28 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 
     const netCash = previousCashBalance + totalRecovery - totalExpenses;
 
+    // ── Previous Cash Balance Ledger (all entries that make up the previous balance)
+    const prevLedgerEntries = [
+      ...(prevCashRec || []).map(r => ({
+        date: r.recovery_date,
+        description: `Cash Recovery — ${r.users?.shop_name || r.users?.full_name || 'Customer'}${r.salesmen?.full_name ? ` via ${r.salesmen.full_name}` : ''}`,
+        debit: Number(r.amount || 0),
+        credit: 0,
+      })),
+      ...(prevCashClose || []).map(c => ({
+        date: c.closing_date,
+        description: `Cash Deposit — ${c.salesmen?.full_name || 'Salesman'}`,
+        debit: 0,
+        credit: Number(c.amount || 0),
+      })),
+    ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+    let prevLedgerBal = 0;
+    const previousCashLedger = prevLedgerEntries.map((e, i) => {
+      prevLedgerBal += e.debit - e.credit;
+      return { sno: i + 1, ...e, running_balance: prevLedgerBal };
+    });
+
     // ── All-time balance maps (for current balance per account)
     const allTimeInMap = {};
     (allTimeBankTransfers || []).forEach(r => {
@@ -368,6 +387,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       recovery: recoveryList,
       sales: salesList,
       production: productionList,
+      previous_cash_ledger: previousCashLedger,
       bank_detail: bankDetail,
       summary: {
         previous_cash_balance: previousCashBalance,

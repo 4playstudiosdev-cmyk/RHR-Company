@@ -275,6 +275,38 @@ async function buildDailyReportPdf(reportDate, data, cityName) {
     y = doc.lastAutoTable.finalY + 6;
   }
 
+  // ── PREVIOUS CASH BALANCE LEDGER ──────────────────────────────────
+  if (data.previous_cash_ledger && data.previous_cash_ledger.length > 0) {
+    checkPage(20);
+    y = pdfSectionHeader(doc, y, 'PREVIOUS CASH BALANCE LEDGER', PAGE_W, M);
+
+    autoTable(doc, {
+      startY: y,
+      head: [['#', 'Date', 'Description', 'Debit (In)', 'Credit (Out)', 'Balance']],
+      body: [
+        ...data.previous_cash_ledger.map(e => [
+          e.sno, e.date, e.description,
+          e.debit ? fmtPKR(e.debit) : '—',
+          e.credit ? fmtPKR(e.credit) : '—',
+          fmtPKR(e.running_balance),
+        ]),
+        [
+          { content: 'Total (Previous Cash Balance)', colSpan: 3, styles: { fontStyle: 'bold' } },
+          { content: fmtPKR(data.previous_cash_ledger.reduce((s, e) => s + e.debit, 0)), styles: { fontStyle: 'bold', halign: 'right' } },
+          { content: fmtPKR(data.previous_cash_ledger.reduce((s, e) => s + e.credit, 0)), styles: { fontStyle: 'bold', halign: 'right' } },
+          { content: fmtPKR(data.summary.previous_cash_balance), styles: { fontStyle: 'bold', halign: 'right' } },
+        ],
+      ],
+      margin: { left: M, right: M },
+      headStyles: { fillColor: NAVY, textColor: WHITE, fontSize: 8, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 7.5, textColor: [30, 30, 30] },
+      footStyles: { fillColor: NAVY, textColor: ORANGE, fontStyle: 'bold', fontSize: 8 },
+      columnStyles: { 0: { cellWidth: 8 }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+      styles: { cellPadding: { top: 2.5, bottom: 2.5, left: 3, right: 3 } },
+    });
+    y = doc.lastAutoTable.finalY + 6;
+  }
+
   // Page numbers
   const totalPages = doc.internal.pages.length - 1;
   for (let p = 1; p <= totalPages; p++) {
@@ -692,6 +724,41 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                       <td className="px-4 py-2.5 text-right text-navy">
                         {fmtPKR(data.bank_detail.reduce((s, b) => s + (b.current_balance ?? 0), 0))}
                       </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </Section>
+          )}
+
+          {/* ── Previous Cash Balance Ledger ── */}
+          {data.previous_cash_ledger && data.previous_cash_ledger.length > 0 && (
+            <Section title={`Previous Cash Balance Ledger (upto ${reportDate})`}>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-semibold">
+                      {['#', 'Date', 'Description', 'Debit (In)', 'Credit (Out)', 'Balance'].map(h => (
+                        <th key={h} className={`px-4 py-2.5 ${['Debit (In)', 'Credit (Out)', 'Balance'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.previous_cash_ledger.map((e) => (
+                      <tr key={e.sno} className="border-b border-gray-50 hover:bg-gray-50/60">
+                        <td className="px-4 py-2.5 text-gray-400 text-xs">{e.sno}</td>
+                        <td className="px-4 py-2.5 text-gray-600">{e.date}</td>
+                        <td className="px-4 py-2.5 text-navy">{e.description}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-green-700">{e.debit ? fmtPKR(e.debit) : '—'}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-red-600">{e.credit ? fmtPKR(e.credit) : '—'}</td>
+                        <td className={`px-4 py-2.5 text-right font-bold ${e.running_balance >= 0 ? 'text-navy' : 'text-red-600'}`}>{fmtPKR(e.running_balance)}</td>
+                      </tr>
+                    ))}
+                    <tr className="bg-navy/5 border-t-2 border-navy/20 font-bold text-sm">
+                      <td colSpan={3} className="px-4 py-2.5 text-navy font-bold">Total (Previous Cash Balance)</td>
+                      <td className="px-4 py-2.5 text-right text-green-700">{fmtPKR(data.previous_cash_ledger.reduce((acc, e) => acc + e.debit, 0))}</td>
+                      <td className="px-4 py-2.5 text-right text-red-600">{fmtPKR(data.previous_cash_ledger.reduce((acc, e) => acc + e.credit, 0))}</td>
+                      <td className="px-4 py-2.5 text-right text-navy">{fmtPKR(s.previous_cash_balance)}</td>
                     </tr>
                   </tbody>
                 </table>
