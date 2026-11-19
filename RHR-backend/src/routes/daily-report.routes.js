@@ -20,7 +20,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
     const cf = companyId ? `&company_id=eq.${companyId}` : '';
     const cfObj = companyId ? { company_id: `eq.${companyId}` } : {};
 
-    const [expenses, recoveries, orders, productions, bankAccounts, prevCashRec, prevCashClose, bankExpenses, bankPayments, bankTransfers, allTimeBankTransfers, allTimeCheques, allTimeBankExp, allTimePettyCashClosings, allTimeCashExpenses] = await Promise.all([
+    const [expenses, recoveries, orders, productions, bankAccounts, prevCashRec, prevCashClose, bankExpenses, bankPayments, bankTransfers, allTimeBankTransfers, allTimeCheques, allTimeBankExp, allTimePettyCashClosings, allTimeCashExpenses, cashClosingsOnDate] = await Promise.all([
 
       // Expenses for the date — try with full joins, degrade gracefully
       pgrestGetRaw(
@@ -156,6 +156,15 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         method: 'eq.cash',
         bank_account_id: 'is.null',
         expense_date: `lte.${date}`,
+        ...cfObj,
+      }).catch(() => []),
+
+      // Petty cash closings ON this date (Cash account day_debit)
+      pgrestGet('salesman_cash_closings', {
+        select: 'amount',
+        deposit_to: 'eq.petty_cash',
+        status: 'eq.approved',
+        closing_date: `eq.${date}`,
         ...cfObj,
       }).catch(() => []),
     ]);
@@ -323,10 +332,8 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       if (id) bankInMap[id] = (bankInMap[id] || 0) + Number(r.amount || 0);
     });
 
-    // Cash account day activity: cash recoveries = debit, cash expenses = credit
-    const cashRecoveriesOnDate = recoveryList
-      .filter(r => r.payment_type === 'cash')
-      .reduce((s, r) => s + r.amount, 0);
+    // Cash account day activity: petty_cash closings = debit, cash expenses = credit
+    const cashDepositsOnDate = (cashClosingsOnDate || []).reduce((s, c) => s + Number(c.amount || 0), 0);
     const cashExpensesOnDate = expenseList
       .filter(e => !e.bank_account_id)
       .reduce((s, e) => s + e.amount, 0);
@@ -338,7 +345,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
           account_name: b.account_name,
           bank_name: b.bank_name,
           account_number: b.account_number,
-          day_debit: cashRecoveriesOnDate,
+          day_debit: cashDepositsOnDate,
           day_credit: cashExpensesOnDate,
           current_balance: physicalCashInHand,
         };
