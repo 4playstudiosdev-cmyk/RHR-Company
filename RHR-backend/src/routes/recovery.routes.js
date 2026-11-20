@@ -923,10 +923,34 @@ router.patch('/cheques/:id/reject', authenticate, isAdmin, async (req, res) => {
 router.get('/removed', authenticate, isAdmin, async (req, res) => {
   try {
     const companyId = resolveCompanyId(req);
-    const params = { select: await withPhoto(RECOVERY_SELECT), status: 'in.(rejected,deleted)', order: 'created_at.desc' };
+    const baseSelect = await withPhoto(RECOVERY_SELECT);
+    const params = { select: baseSelect, status: 'in.(rejected,deleted)', order: 'created_at.desc' };
     if (companyId) params.company_id = `eq.${companyId}`;
     if (req.query.salesman_id) params.salesman_id = `eq.${req.query.salesman_id}`;
-    return success(res, await pgrestGet('salesman_recoveries', params));
+
+    // Vendor name for vendor transfers; falls back to the plain select if the join isn't available.
+    let rows;
+    try {
+      rows = await pgrestGet('salesman_recoveries', {
+        ...params,
+        select: (await hasVendorColumn()) ? `${baseSelect},suppliers!vendor_id(id,name)` : baseSelect,
+      });
+    } catch (_) {
+      rows = await pgrestGet('salesman_recoveries', params);
+    }
+
+    // reference_number holds the chosen bank account's id for bank / vendor transfers —
+    // resolve it to a readable bank + account name.
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const bankIds = [...new Set((rows || []).map((r) => r.reference_number).filter((v) => UUID.test(v || '')))];
+    let banks = {};
+    if (bankIds.length) {
+      try {
+        const list = await pgrestGet('bank_accounts', { select: 'id,account_name,bank_name,account_number', id: `in.(${bankIds.join(',')})` });
+        banks = Object.fromEntries((list || []).map((b) => [b.id, b]));
+      } catch (_) { /* names are a nicety — rows still return */ }
+    }
+    return success(res, (rows || []).map((r) => ({ ...r, bank_account: banks[r.reference_number] || null })));
   } catch (err) { return error(res, err.message); }
 });
 

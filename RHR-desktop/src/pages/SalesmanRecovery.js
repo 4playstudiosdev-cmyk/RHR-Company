@@ -1409,8 +1409,33 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                             <span className="block text-[11px] text-gray-400">{u.full_name}</span>
                           )}
                         </td>
-                        <td className="px-5 py-3.5 text-gray-600 text-xs">
-                          {t.payment_type === 'cash' ? 'Cash' : t.payment_type === 'cheque' ? `Cheque${t.cheque_bank ? ` — ${t.cheque_bank}` : ''}${t.cheque_number ? ` #${t.cheque_number}` : ''}` : String(t.payment_method || 'online').replace('_', ' ')}
+                        <td className="px-5 py-3.5 text-gray-600 text-xs max-w-[260px]">
+                          {(() => {
+                            const isVendor = t.payment_type === 'vendor_transfer';
+                            const title = isVendor ? 'Vendor Transfer'
+                              : t.payment_type === 'bank' ? 'Bank Transfer'
+                              : t.payment_type === 'cheque' ? 'Cheque'
+                              : t.payment_type === 'cash' ? 'Cash'
+                              : String(t.payment_method || 'online').replace(/_/g, ' ');
+                            const via = isVendor
+                              ? (t.payment_method === 'bank_transfer' ? 'Bank transfer' : t.payment_method === 'cheque' ? 'Cheque' : 'Cash')
+                              : null;
+                            const b = t.bank_account;
+                            const ref = t.reference_number && !b ? t.reference_number : null;
+                            return (
+                              <>
+                                <span className="block font-semibold text-navy text-[13px] capitalize">{title}</span>
+                                {isVendor && t.suppliers?.name && <span className="block">To vendor: <b>{t.suppliers.name}</b></span>}
+                                {via && <span className="block text-gray-500">Paid via {via}</span>}
+                                {b && <span className="block">Bank: {b.bank_name}{b.account_name ? ` — ${b.account_name}` : ''}{b.account_number ? ` (${b.account_number})` : ''}</span>}
+                                {ref && <span className="block">Ref: {ref}</span>}
+                                {(t.cheque_number || t.cheque_bank) && (
+                                  <span className="block">Cheque: {t.cheque_bank || ''}{t.cheque_number ? ` #${t.cheque_number}` : ''}{t.cheque_date ? ` · dated ${t.cheque_date}` : ''}</span>
+                                )}
+                                {t.notes && t.status !== 'deleted' && <span className="block text-[11px] text-gray-400">{t.notes}</span>}
+                              </>
+                            );
+                          })()}
                         </td>
                         <td className="px-5 py-3.5 text-right font-semibold text-navy">PKR {Number(t.amount).toLocaleString()}</td>
                         <td className="px-5 py-3.5"><PhotoButton url={t.photo_url} onOpen={setPhotoUrl} /></td>
