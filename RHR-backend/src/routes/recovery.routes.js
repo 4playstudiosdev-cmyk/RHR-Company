@@ -1471,18 +1471,24 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
     if ((vendor_payment_method === 'bank_transfer' || vendor_payment_method === 'cheque') && !bank_account_id)
       return error(res, 'bank_account_id is required for bank transfer / cheque vendor payment', 400);
 
-    // Supplier's company decides where the payment is booked — a super_admin's own
-    // company_id would otherwise put a Sukkur vendor payment into another city's books.
+    // The customer's company decides where the payment is booked (recovery, customer ledger,
+    // expense, vendor ledger) — a super_admin's own company_id would otherwise put a Sukkur
+    // customer's transfer into Karachi's books. Supplier's company is the fallback.
     let supplierNameEarly = 'vendor';
     let supplierCompanyId = null;
+    let customerCompanyId = null;
     try {
       const sRows = await pgrestGet('suppliers', { select: 'name,company_id', id: `eq.${supplier_id}` });
       supplierNameEarly = sRows?.[0]?.name || 'vendor';
       supplierCompanyId = sRows?.[0]?.company_id || null;
     } catch (_) {}
+    try {
+      const cRows = await pgrestGet('users', { select: 'company_id', id: `eq.${customer_id}` });
+      customerCompanyId = cRows?.[0]?.company_id || null;
+    } catch (_) {}
 
-    const companyId = req.user.role === 'super_admin' && supplierCompanyId
-      ? supplierCompanyId
+    const companyId = req.user.role === 'super_admin'
+      ? (customerCompanyId || supplierCompanyId || req.user.company_id)
       : req.user.company_id;
     const expenseDate = recovery_date || new Date().toISOString().split('T')[0];
     const payMethod = vendor_payment_method === 'bank_transfer' ? 'bank_transfer'
