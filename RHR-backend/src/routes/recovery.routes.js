@@ -1669,8 +1669,7 @@ router.patch('/:id/date', authenticate, isAdmin, async (req, res) => {
     // Fetch the recovery
     const rows = await pgrestGet('salesman_recoveries', {
       select: 'id,company_id,amount,recovery_date,payment_type,customer_id,vendor_id',
-      id: `eq.${id}`,
-      company_id: `eq.${req.user.company_id}`,
+      ...scopeFilter(req),
       limit: '1',
     });
     const rec = rows?.[0];
