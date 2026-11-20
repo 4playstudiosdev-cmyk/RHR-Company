@@ -117,9 +117,15 @@ export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, 
   let lineY = doc.lastAutoTable.finalY + 10;
 
   if (withRate) {
-    const subtotal = Number(order.total_amount);
+    // Conveyance is merged into orders.total_amount once the first invoice is made, so
+    // total_amount is NOT the items subtotal on a reprint — sum the line items instead,
+    // and show conveyance as its own line. Falls back to the saved invoice_conveyance
+    // for callers that don't pass it (e.g. the Returns page).
+    const conveyanceCharge = Number(conveyance) || Number(order.invoice_conveyance) || 0;
+    const itemsSum = items.reduce((s, it) => s + Number(it.subtotal || 0), 0);
+    const subtotal = itemsSum > 0 ? itemsSum : Math.max(0, Number(order.total_amount) - conveyanceCharge);
     const taxAmount = withTax ? subtotal * TAX_RATE : 0;
-    const grandTotal = subtotal + taxAmount + conveyance - returnAmount;
+    const grandTotal = subtotal + taxAmount + conveyanceCharge - returnAmount;
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
@@ -130,8 +136,8 @@ export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, 
       doc.text(`Sales Tax (18%): Rs ${taxAmount.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
       lineY += 6;
     }
-    if (conveyance > 0) {
-      doc.text(`Conveyance: Rs ${conveyance.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
+    if (conveyanceCharge > 0) {
+      doc.text(`Conveyance: Rs ${conveyanceCharge.toLocaleString()}`, PAGE_W - M, lineY, { align: 'right' });
       lineY += 6;
     }
     if (returnAmount > 0) {

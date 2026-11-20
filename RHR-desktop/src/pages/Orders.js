@@ -744,7 +744,9 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
       try {
         const ledgerRes = await api.get(`/ledger/${detail.customer_id}`);
         const currentBalance = ledgerRes.data?.data?.currentBalance ?? 0;
-        previousBalance = Math.max(0, currentBalance - Number(detail.total_amount) - conveyance - taxAmount);
+        // Conveyance and tax are posted to the ledger only AFTER this PDF is built, so the
+        // ledger currently holds just prior balance + the order's own total_amount.
+        previousBalance = Math.max(0, currentBalance - Number(detail.total_amount));
       } catch (e) { /* ledger unavailable — skip previous balance */ }
 
       await buildInvoicePdf(detail, { withTax, conveyance, previousBalance, invoiceDate: invoiceDate || null, withRate });
