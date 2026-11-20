@@ -1109,7 +1109,9 @@ router.get('/bank-transfers/me', authenticate, isSalesman, async (req, res) => {
     const data = await pgrestGet('salesman_recoveries', {
       select: RECOVERY_SELECT,
       salesman_id: `eq.${req.user.id}`,
-      payment_type: 'eq.bank',
+      // vendor_transfer rows are included so a salesman's rejected/pending vendor transfer
+      // also shows in Deposit History (the app reads this list as-is).
+      payment_type: 'in.(bank,vendor_transfer)',
       status: 'neq.deleted',
       order: 'recovery_date.desc,created_at.desc',
     });
