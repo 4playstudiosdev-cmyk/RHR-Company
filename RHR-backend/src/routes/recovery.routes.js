@@ -402,6 +402,20 @@ router.get('/cash-in-hand/:salesmanId', authenticate, isAdmin, async (req, res) 
   } catch (err) { return error(res, err.message); }
 });
 
+// Approved cash collected minus approved deposits, plus deposits still waiting for approval.
+// ownerKey: 'salesman_id' | 'driver_id'.
+async function cashPosition(ownerKey, ownerId) {
+  const [collected, closings] = await Promise.all([
+    pgrestGet('salesman_recoveries', { select: 'amount', [ownerKey]: `eq.${ownerId}`, payment_type: 'eq.cash', status: 'eq.approved' }),
+    pgrestGet('salesman_cash_closings', { select: 'amount,status', [ownerKey]: `eq.${ownerId}`, status: 'in.(approved,pending)' }),
+  ]);
+  const sum = (rows) => (rows || []).reduce((s, r) => s + Number(r.amount), 0);
+  return {
+    cashInHand: sum(collected) - sum((closings || []).filter((c) => c.status === 'approved')),
+    pendingTotal: sum((closings || []).filter((c) => c.status === 'pending')),
+  };
+}
+
 // POST /api/v1/recovery/cash-closing — salesman/admin submits an
 // end-of-day deposit of cash held; sits pending until an admin approves it.
 router.post('/cash-closing', authenticate, isAdmin, async (req, res) => {
@@ -410,8 +424,24 @@ router.post('/cash-closing', authenticate, isAdmin, async (req, res) => {
     if (!salesman_id || !amount || Number(amount) <= 0)
       return error(res, 'salesman_id and a positive amount are required', 400);
 
+    // A deposit can never be more than the cash the salesman actually holds — counting
+    // deposits already waiting for approval, so two entries can't add up past it.
+    const { cashInHand, pendingTotal } = await cashPosition('salesman_id', salesman_id);
+    const available = cashInHand - pendingTotal;
+    if (Number(amount) > available + 0.5) {
+      return error(res, `Amount PKR ${Number(amount).toLocaleString()} is more than this salesman's cash in hand. Available to deposit: PKR ${Math.max(0, Math.round(available)).toLocaleString()}${pendingTotal > 0 ? ` (PKR ${Math.round(pendingTotal).toLocaleString()} already waiting for approval)` : ''}.`, 400);
+    }
+
+    // Book it under the salesman's own branch — a super_admin's company would put a Sukkur
+    // deposit into Karachi's books and out of Sukkur's Daily Report.
+    let ownerCompanyId = null;
+    try {
+      const s = await pgrestGet('salesmen', { select: 'company_id', id: `eq.${salesman_id}` });
+      ownerCompanyId = s?.[0]?.company_id || null;
+    } catch (_) {}
+
     const [data] = await pgrestPost('salesman_cash_closings', {
-      company_id:   req.user.company_id,
+      company_id:   ownerCompanyId || req.user.company_id,
       salesman_id,
       amount:       Number(amount),
       deposit_to:   deposit_to === 'petty_cash' ? 'petty_cash' : 'bank',
@@ -630,6 +660,20 @@ router.patch('/cash-closing/:id/approve', authenticate, isAdmin, async (req, res
   try {
     const filter = { id: `eq.${req.params.id}` };
     if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
+
+    const found = await pgrestGet('salesman_cash_closings', { select: 'id,amount,status,salesman_id,driver_id', ...filter });
+    const closing = found?.[0];
+    if (!closing) return error(res, 'Cash closing not found or access denied', 404);
+    if (closing.status !== 'pending') return error(res, `This deposit is already ${closing.status}.`, 400);
+
+    // Re-checked at approval: cash in hand may have dropped since it was submitted.
+    const ownerKey = closing.salesman_id ? 'salesman_id' : 'driver_id';
+    const { cashInHand } = await cashPosition(ownerKey, closing[ownerKey]);
+    if (Number(closing.amount) > cashInHand + 0.5) {
+      return error(res, `Can't approve: this deposit is PKR ${Number(closing.amount).toLocaleString()} but the cash in hand is only PKR ${Math.max(0, Math.round(cashInHand)).toLocaleString()}. Reject it and enter the correct amount.`, 400);
+    }
+
+    filter.status = 'eq.pending';
     const updated = await pgrestPatch('salesman_cash_closings', filter, {
       status: 'approved',
       approved_by: req.user.id,

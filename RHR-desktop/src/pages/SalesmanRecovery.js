@@ -488,6 +488,10 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
       toast.error('Please select a bank account.');
       return;
     }
+    if (cashInHand.cash_in_hand !== undefined && Number(closingForm.amount) > Number(cashInHand.cash_in_hand) + 0.5) {
+      toast.error(`Amount is more than the cash in hand (PKR ${Math.max(0, Math.round(Number(cashInHand.cash_in_hand))).toLocaleString()}).`);
+      return;
+    }
     setSavingClosing(true);
     try {
       const payload = { ...closingForm };
