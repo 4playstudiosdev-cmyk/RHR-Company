@@ -107,6 +107,7 @@ export default function VendorLedger({ initialSupplierId }) {
   const receiptInputRef = useRef(null);
   const [editingEntryId, setEditingEntryId] = useState(null);
   const [editAmount, setEditAmount] = useState('');
+  const [pendingChanges, setPendingChanges] = useState({});
   const [editingDateId, setEditingDateId] = useState(null);
   const [editDate, setEditDate] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
@@ -159,6 +160,20 @@ export default function VendorLedger({ initialSupplierId }) {
 
   useEffect(() => { loadLedger(); }, [loadLedger]);
 
+  // Amount edits on vendor transfers wait for approval — show which entries have one pending.
+  const loadPendingChanges = useCallback(async () => {
+    if (!supplierId) { setPendingChanges({}); return; }
+    try {
+      const companyId = suppliers.find((s) => s.id === supplierId)?.company_id;
+      const res = await api.get('/recovery/amount-changes', { params: { supplier_id: supplierId, ...(companyId ? { company_id: companyId } : {}) } });
+      setPendingChanges(Object.fromEntries((res.data?.data || []).map((r) => [r.supplier_ledger_entry_id, r])));
+    } catch {
+      setPendingChanges({});
+    }
+  }, [supplierId, suppliers]);
+
+  useEffect(() => { loadPendingChanges(); }, [loadPendingChanges]);
+
   const handleDeleteEntry = async (entryId) => {
     if (!window.confirm('Delete this ledger entry? This cannot be undone.')) return;
     try {
@@ -174,10 +189,15 @@ export default function VendorLedger({ initialSupplierId }) {
     if (!editAmount || Number(editAmount) <= 0) { toast.error('Enter a valid amount.'); return; }
     setSavingEdit(true);
     try {
-      await api.patch(`/suppliers/${supplierId}/ledger/${entryId}`, { amount: Number(editAmount) });
-      toast.success('Amount updated.');
+      const res = await api.patch(`/suppliers/${supplierId}/ledger/${entryId}`, { amount: Number(editAmount) });
+      if (res.data?.data?.pending) {
+        toast.success('Amount change sent for approval — it applies everywhere once approved in Salesman Recovery → Pending Approvals.');
+      } else {
+        toast.success('Amount updated.');
+      }
       setEditingEntryId(null);
       loadLedger();
+      loadPendingChanges();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update amount.');
     } finally {
@@ -462,13 +482,23 @@ export default function VendorLedger({ initialSupplierId }) {
                                       <button onClick={() => setEditingEntryId(null)} className="text-gray-400 hover:text-gray-600"><X size={13} /></button>
                                     </div>
                                   ) : (
-                                    <button
-                                      onClick={() => { setEditingEntryId(e.id); setEditAmount(String(e.amount)); }}
-                                      className="font-medium text-emerald-600 hover:text-emerald-800 flex items-center gap-1 ml-auto group"
-                                    >
-                                      {fmtPKR(e.amount)}
-                                      <Pencil size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
-                                    </button>
+                                    <div>
+                                      <button
+                                        onClick={() => { setEditingEntryId(e.id); setEditAmount(String(e.amount)); }}
+                                        className="font-medium text-emerald-600 hover:text-emerald-800 flex items-center gap-1 ml-auto group"
+                                      >
+                                        {fmtPKR(e.amount)}
+                                        <Pencil size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
+                                      </button>
+                                      {pendingChanges[e.id] && (
+                                        <span
+                                          className="block text-[10px] font-semibold text-amber-600 mt-0.5"
+                                          title={`Requested by ${pendingChanges[e.id].requested_by_name || 'an admin'}`}
+                                        >
+                                          → {fmtPKR(pendingChanges[e.id].new_amount)} awaiting approval
+                                        </span>
+                                      )}
+                                    </div>
                                   )
                                 ) : '—'}
                               </td>

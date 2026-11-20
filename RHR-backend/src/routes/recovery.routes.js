@@ -3,7 +3,7 @@ const router  = express.Router();
 const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin, isSalesman, isDriver } = require('../middleware/role.middleware');
 const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
-const { recalcCustomerLedger } = require('../services/orderLedger.service');
+const { recalcCustomerLedger, recalcSupplierLedger } = require('../services/orderLedger.service');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { success, error } = require('../utils/response');
 const { notifyUser } = require('../services/notify.service');
@@ -1719,6 +1719,104 @@ router.patch('/:id/date', authenticate, isAdmin, async (req, res) => {
 
     return success(res, { id, new_date }, 'Date updated successfully');
   } catch (err) { return error(res, err.message, err.status || 500); }
+});
+
+// ════════════════════════════════════════════════════════════════
+// Vendor-transfer amount changes (requested from the Vendor Ledger, approved here)
+// ════════════════════════════════════════════════════════════════
+
+const REQUEST_TABLE = 'vendor_amount_change_requests';
+const adminName = (req) => req.user.full_name || req.user.email || 'Admin';
+
+// GET /api/v1/recovery/amount-changes?status=pending&supplier_id=&company_id=
+router.get('/amount-changes', authenticate, isAdmin, async (req, res) => {
+  try {
+    const companyId = resolveCompanyId(req);
+    const params = { select: '*', order: 'created_at.desc' };
+    if (companyId) params.company_id = `eq.${companyId}`;
+    if (req.query.supplier_id) params.supplier_id = `eq.${req.query.supplier_id}`;
+    params.status = `eq.${req.query.status || 'pending'}`;
+    let rows = [];
+    try { rows = await pgrestGet(REQUEST_TABLE, params); } catch (_) { /* table not created yet — nothing pending */ }
+    return success(res, rows || []);
+  } catch (err) { return error(res, err.message); }
+});
+
+async function loadOwnRequest(req) {
+  const rows = await pgrestGet(REQUEST_TABLE, { select: '*', ...scopeFilter(req) });
+  return rows?.[0] || null;
+}
+
+// PATCH /api/v1/recovery/amount-changes/:id/approve — applies the new amount everywhere the
+// transfer shows up: vendor ledger, salesman recovery (History), customer ledger, expense.
+router.patch('/amount-changes/:id/approve', authenticate, isAdmin, async (req, res) => {
+  try {
+    const request = await loadOwnRequest(req);
+    if (!request) return error(res, 'Request not found or access denied', 404);
+    if (request.status !== 'pending') return error(res, `This request is already ${request.status}.`, 400);
+
+    const oldAmount = Number(request.old_amount);
+    const newAmount = Number(request.new_amount);
+
+    const entries = await pgrestGet('supplier_ledger_entries', { select: 'id,amount,created_at', id: `eq.${request.supplier_ledger_entry_id}` });
+    const entry = entries?.[0];
+    if (!entry) return error(res, 'The vendor ledger entry no longer exists.', 409);
+    if (Number(entry.amount) !== oldAmount) return error(res, 'The vendor ledger amount was changed since this request — reject it and raise a new one.', 409);
+
+    // 1. Vendor ledger
+    await pgrestPatch('supplier_ledger_entries', { id: `eq.${entry.id}` }, { amount: newAmount });
+    try { await recalcSupplierLedger(request.supplier_id); } catch (_) {}
+
+    // 2. Salesman recovery (History) + 3. customer ledger
+    let recovery = null;
+    if (request.recovery_id) {
+      const recs = await pgrestGet('salesman_recoveries', { select: 'id,salesman_id,company_id,customer_id,recovery_date', id: `eq.${request.recovery_id}` });
+      recovery = recs?.[0] || null;
+      if (recovery) {
+        await pgrestPatch('salesman_recoveries', { id: `eq.${recovery.id}` }, { amount: newAmount });
+        const led = await pgrestGet('ledger_entries', { select: 'id', reference_id: `eq.${recovery.id}`, reference_type: 'eq.recovery' });
+        for (const l of (led || [])) await pgrestPatch('ledger_entries', { id: `eq.${l.id}` }, { amount: newAmount });
+        try { await recalcCustomerLedger(recovery.customer_id); } catch (_) {}
+      }
+    }
+
+    // 4. Expense (feeds Daily Report, cash in hand and the Bank ledger)
+    try {
+      const day = String(recovery?.recovery_date || entry.created_at || '').slice(0, 10);
+      const base = { select: 'id', company_id: `eq.${request.company_id}`, category: 'eq.Vendor Payment', amount: `eq.${oldAmount}`, expense_date: `eq.${day}`, order: 'created_at.desc', limit: '1' };
+      let exp = await pgrestGet('expenses', { ...base, supplier_id: `eq.${request.supplier_id}` }).catch(() => []);
+      if (!exp?.[0] && request.supplier_name) exp = await pgrestGet('expenses', { ...base, description: `ilike.*${request.supplier_name}*` }).catch(() => []);
+      if (exp?.[0]) await pgrestPatch('expenses', { id: `eq.${exp[0].id}` }, { amount: newAmount });
+    } catch (_) { /* expense sync is best-effort */ }
+
+    await pgrestPatch(REQUEST_TABLE, { id: `eq.${request.id}` }, {
+      status: 'approved', decided_by: req.user.id, decided_by_name: adminName(req), decided_at: new Date().toISOString(),
+    });
+
+    if (recovery?.salesman_id) {
+      await notifyUser({
+        companyId: recovery.company_id, recipientId: recovery.salesman_id,
+        title: 'Vendor transfer amount changed',
+        body: `Your vendor transfer to ${request.supplier_name || 'the vendor'} was changed from PKR ${oldAmount.toLocaleString()} to PKR ${newAmount.toLocaleString()} by the office.`,
+        type: 'payment', referenceId: recovery.id,
+      });
+    }
+    return success(res, { approved: true, linked_recovery: !!recovery }, 'Amount change approved and applied everywhere');
+  } catch (err) { return error(res, err.message); }
+});
+
+// PATCH /api/v1/recovery/amount-changes/:id/reject { reason? } — nothing changes anywhere.
+router.patch('/amount-changes/:id/reject', authenticate, isAdmin, async (req, res) => {
+  try {
+    const request = await loadOwnRequest(req);
+    if (!request) return error(res, 'Request not found or access denied', 404);
+    if (request.status !== 'pending') return error(res, `This request is already ${request.status}.`, 400);
+    await pgrestPatch(REQUEST_TABLE, { id: `eq.${request.id}` }, {
+      status: 'rejected', decided_by: req.user.id, decided_by_name: adminName(req), decided_at: new Date().toISOString(),
+      decision_note: String(req.body?.reason || '').slice(0, 200) || null,
+    });
+    return success(res, { rejected: true }, 'Amount change rejected');
+  } catch (err) { return error(res, err.message); }
 });
 
 module.exports = router;

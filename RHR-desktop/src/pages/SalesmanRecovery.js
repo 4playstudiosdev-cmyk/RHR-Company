@@ -101,6 +101,8 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
   const [transactionsLoading, setTransactionsLoading] = useState(true);
   const [pendingData, setPendingData] = useState({ online_payments: [], cash_closings: [] });
   const [cashInHand, setCashInHand] = useState({});
+  const [amountChanges, setAmountChanges] = useState([]);   // vendor-transfer amount edits waiting for approval
+  const [changeBusyId, setChangeBusyId] = useState(null);
 
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -310,7 +312,52 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
     }
   };
 
+  const loadAmountChanges = async () => {
+    try {
+      if (companyFilter) {
+        const res = await api.get('/recovery/amount-changes', { params: { company_id: companyFilter } });
+        setAmountChanges(res.data.data || []);
+      } else {
+        const results = await Promise.all(CITY_IDS.map((id) => api.get('/recovery/amount-changes', { params: { company_id: id } })));
+        setAmountChanges(results.flatMap((r) => r.data.data || []));
+      }
+    } catch (err) {
+      setAmountChanges([]);
+    }
+  };
+
+  const approveAmountChange = async (r) => {
+    const fmt = (n) => `PKR ${Number(n).toLocaleString()}`;
+    if (!window.confirm(`Approve changing the ${r.supplier_name || 'vendor'} transfer from ${fmt(r.old_amount)} to ${fmt(r.new_amount)}?\n\nThis updates the vendor ledger${r.recovery_id ? ', Salesman Recovery history, the customer ledger' : ''} and the expense.`)) return;
+    setChangeBusyId(r.id);
+    try {
+      await api.patch(`/recovery/amount-changes/${r.id}/approve`);
+      toast.success('Amount change approved and applied everywhere.');
+      loadPending(); loadTransactions(); loadRemoved();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to approve the amount change.');
+    } finally {
+      setChangeBusyId(null);
+    }
+  };
+
+  const rejectAmountChange = async (r) => {
+    const reason = askDeleteReason('Reject this amount change? Nothing is changed anywhere.');
+    if (!reason) return;
+    setChangeBusyId(r.id);
+    try {
+      await api.patch(`/recovery/amount-changes/${r.id}/reject`, { reason });
+      toast.success('Amount change rejected.');
+      loadPending();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to reject the amount change.');
+    } finally {
+      setChangeBusyId(null);
+    }
+  };
+
   const loadPending = async () => {
+    loadAmountChanges();
     try {
       if (companyFilter) {
         const res = await api.get('/recovery/pending-approvals', { params: { company_id: companyFilter } });
@@ -566,7 +613,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
     }
   };
 
-  const pendingCount = pendingData.online_payments.length + pendingData.cash_closings.length;
+  const pendingCount = pendingData.online_payments.length + pendingData.cash_closings.length + amountChanges.length;
   const pendingChequeCount = cheques.filter((c) => c.cheque_status === 'pending').length;
   // number shown on a tab (and the highlight ring) while something there is waiting on an admin
   const tabWaiting = (key) => (key === 'pending' ? pendingCount : key === 'cheques' ? pendingChequeCount : 0);
@@ -1065,6 +1112,64 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
 
       {tab === 'pending' && (
         <div className="space-y-8">
+          {amountChanges.length > 0 && (
+            <div>
+              <h3 className="font-semibold text-navy text-sm mb-3">Vendor Amount Change Requests ({amountChanges.length})</h3>
+              <div className="bg-white rounded-2xl shadow-card border border-amber-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Requested</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Requested By</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Vendor</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Customer</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Transfer Date</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide text-right">Amount Change</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Will Update</th>
+                        <th className="px-6 py-3 font-semibold text-xs uppercase tracking-wide">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {amountChanges.map((r, i) => (
+                        <tr key={r.id} className={`border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                          <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap"><WhenCell date={String(r.created_at || '').slice(0, 10)} createdAt={r.created_at} /></td>
+                          <td className="px-6 py-3.5 font-medium text-navy">{r.requested_by_name || '—'}</td>
+                          <td className="px-6 py-3.5 text-gray-700">{r.supplier_name || '—'}</td>
+                          <td className="px-6 py-3.5 text-gray-600">{r.customer_name || <span className="text-gray-300">—</span>}</td>
+                          <td className="px-6 py-3.5 text-gray-500 whitespace-nowrap">{r.entry_date || '—'}</td>
+                          <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                            <span className="text-gray-400 line-through">PKR {Number(r.old_amount).toLocaleString()}</span>
+                            <span className="mx-1.5 text-gray-400">→</span>
+                            <span className="font-bold text-navy">PKR {Number(r.new_amount).toLocaleString()}</span>
+                          </td>
+                          <td className="px-6 py-3.5 text-[11px] text-gray-500 max-w-[200px]">
+                            {r.recovery_id
+                              ? 'Vendor ledger · Recovery history · Customer ledger · Expense'
+                              : 'Vendor ledger · Expense (no linked salesman transfer found)'}
+                          </td>
+                          <td className="px-6 py-3.5">
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => approveAmountChange(r)}
+                                disabled={changeBusyId === r.id}
+                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50"
+                              >Approve</button>
+                              <button
+                                onClick={() => rejectAmountChange(r)}
+                                disabled={changeBusyId === r.id}
+                                className="px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold disabled:opacity-50"
+                              >Reject</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
           <div>
             <h3 className="font-semibold text-navy text-sm mb-3">Pending Online, Bank Transfer, Cheque &amp; Vendor Transfer Payments ({pendingData.online_payments.length})</h3>
             {pendingData.online_payments.length === 0 ? (

@@ -2,6 +2,7 @@ const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
 const { recalcSupplierLedger } = require('../services/orderLedger.service');
+const { findLinkedRecovery } = require('../services/vendorTransferLink.service');
 
 // ─── Supplier Ledger ─────────────────────────────────────────────────────────
 
@@ -277,25 +278,92 @@ const updateSupplierLedgerEntry = async (req, res) => {
     if (amount && (isNaN(Number(amount)) || Number(amount) <= 0))
       return error(res, 'amount must be a positive number', 400);
 
-    const suppliers = await pgrestGet('suppliers', { select: 'id,company_id', id: `eq.${supplierId}` });
+    const suppliers = await pgrestGet('suppliers', { select: 'id,company_id,name', id: `eq.${supplierId}` });
     const supplier = suppliers?.[0];
     if (!supplier) return error(res, 'Supplier not found', 404);
     if (req.user.role !== 'super_admin' && supplier.company_id !== req.user.company_id)
       return error(res, 'Access denied', 403);
 
+    const entryRows = await pgrestGet('supplier_ledger_entries', {
+      select: 'id,entry_type,amount,reference_type,created_at',
+      id: `eq.${entryId}`,
+      supplier_id: `eq.${supplierId}`,
+    });
+    const entry = entryRows?.[0];
+    if (!entry) return error(res, 'Ledger entry not found', 404);
+
+    const amountChanged = !!amount && Number(amount) !== Number(entry.amount);
+    if (amount && !amountChanged && !entry_date) return error(res, 'The amount is unchanged.', 400);
+
+    // A vendor transfer was made on a customer's behalf (salesman recovery + customer ledger +
+    // expense all hang off it), so its amount can't be changed in this one ledger alone —
+    // it becomes a request that an admin approves in Pending Approvals.
+    let pendingRequest = null;
+    if (amountChanged && entry.reference_type === 'vendor_transfer') {
+      const dup = await pgrestGet('vendor_amount_change_requests', {
+        select: 'id', supplier_ledger_entry_id: `eq.${entryId}`, status: 'eq.pending',
+      }).catch((e) => { throw new Error('Amount-change approvals are not set up yet — run phase82_vendor_amount_change_requests.sql in Supabase.'); });
+      if (dup?.length) return error(res, 'An amount change for this entry is already waiting for approval.', 409);
+
+      const entryDate = String(entry.created_at || '').slice(0, 10);
+      const linked = await findLinkedRecovery(supplierId, entry.amount, entryDate);
+      const customer = linked?.users;
+      [pendingRequest] = await pgrestPost('vendor_amount_change_requests', {
+        company_id: supplier.company_id,
+        supplier_id: supplierId,
+        supplier_name: supplier.name || null,
+        supplier_ledger_entry_id: entryId,
+        recovery_id: linked?.id || null,
+        customer_id: linked?.customer_id || null,
+        customer_name: customer?.shop_name || customer?.full_name || null,
+        entry_date: entryDate || null,
+        old_amount: Number(entry.amount),
+        new_amount: Number(amount),
+        requested_by: req.user.id,
+        requested_by_name: req.user.full_name || req.user.email || 'Admin',
+      });
+      try {
+        await pgrestPost('notifications', {
+          company_id: supplier.company_id,
+          recipient_role: 'branch_admin',
+          title: 'Vendor amount change — pending approval',
+          body: `${req.user.full_name || 'An admin'} asked to change a ${supplier.name || 'vendor'} transfer from PKR ${Number(entry.amount).toLocaleString()} to PKR ${Number(amount).toLocaleString()} — approve in Salesman Recovery → Pending Approvals.`,
+          type: 'payment',
+          reference_id: pendingRequest?.id || null,
+        });
+      } catch (_) { /* non-fatal */ }
+    }
+
     const patch = {};
-    if (amount) patch.amount = Number(amount);
+    if (amountChanged && !pendingRequest) patch.amount = Number(amount);
     if (entry_date) patch.created_at = `${entry_date}T12:00:00.000Z`;
 
-    await pgrestPatch('supplier_ledger_entries', { id: `eq.${entryId}` }, patch);
+    if (Object.keys(patch).length) {
+      await pgrestPatch('supplier_ledger_entries', { id: `eq.${entryId}` }, patch);
 
-    // Re-fetch after patch so sort order reflects any date change
-    const allEntries = await pgrestGet('supplier_ledger_entries', {
-      select: 'id,entry_type,amount,running_balance,reference_type,created_at',
-      supplier_id: `eq.${supplierId}`,
-      order: 'created_at.asc',
-    });
-    await recalcRunningBalances(allEntries || []);
+      // A plain (admin-recorded) payment has an expense row that must follow its amount.
+      if (patch.amount && entry.entry_type === 'credit') {
+        try {
+          const day = String(entry.created_at || '').slice(0, 10);
+          const base = { select: 'id', company_id: `eq.${supplier.company_id}`, category: 'eq.Vendor Payment', amount: `eq.${Number(entry.amount)}`, expense_date: `eq.${day}`, order: 'created_at.desc', limit: '1' };
+          let exp = await pgrestGet('expenses', { ...base, supplier_id: `eq.${supplierId}` }).catch(() => []);
+          if (!exp?.[0]) exp = await pgrestGet('expenses', { ...base, description: `ilike.*${supplier.name}*` }).catch(() => []);
+          if (exp?.[0]) await pgrestPatch('expenses', { id: `eq.${exp[0].id}` }, { amount: patch.amount });
+        } catch (_) { /* expense sync is best-effort */ }
+      }
+
+      // Re-fetch after patch so sort order reflects any date change
+      const allEntries = await pgrestGet('supplier_ledger_entries', {
+        select: 'id,entry_type,amount,running_balance,reference_type,created_at',
+        supplier_id: `eq.${supplierId}`,
+        order: 'created_at.asc',
+      });
+      await recalcRunningBalances(allEntries || []);
+    }
+
+    if (pendingRequest) {
+      return success(res, { pending: true, request_id: pendingRequest.id }, 'Amount change sent for approval');
+    }
     return success(res, { updated: true }, 'Ledger entry updated');
   } catch (err) { return error(res, err.message); }
 };
