@@ -7,7 +7,7 @@ const { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch, pgrestDelete } = requi
 // it comes IN and goes OUT at once and never sits with us, so the account
 // always nets to zero. Only one side of each movement is stored, so the other
 // side is added here:
-//   • Vendor Payment expense (OUT)  → matching IN line just before it
+//   • Expense / vendor payment (OUT) → matching IN line just before it
 //   • Bank transfer received (IN)   → matching OUT line just after it
 //   • Cheque cleared (IN)           → matching OUT line just after it
 // A vendor payment made by cheque #N and cheque #N cleared into the same
@@ -20,7 +20,8 @@ const directOutDescription = (src) => `Direct Transfer Out — paid on to vendor
 
 // → { inForExpense, outForTransfer, outForCheque }: Sets of source row ids to mirror
 function directTransferMirrors({ transfers = [], cheques = [], expenses = [] }) {
-  const vendorPays = (expenses || []).filter((e) => e.category === 'Vendor Payment');
+  // every expense here was paid by a customer directly — not only vendor payments
+  const vendorPays = expenses || [];
   const clearedNos = new Set((cheques || []).map((c) => c.cheque_number).filter(Boolean).map(String));
   const paidNos = new Set(vendorPays.map((e) => chequeNoFrom(e.description)).filter(Boolean));
   return {
