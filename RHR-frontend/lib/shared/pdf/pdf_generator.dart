@@ -2,6 +2,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import '../order_charges.dart';
 
 const _navy = PdfColor.fromInt(0xFF1B2E6B);
 const _orange = PdfColor.fromInt(0xFFE8841A);
@@ -67,18 +68,39 @@ pw.Widget _footer() {
   );
 }
 
-/// Order Tracking PDF — order number, date, status, items, total.
+/// Order Tracking PDF — order number, date, status, items (qty × rate = amount),
+/// then Subtotal, Sales Tax and Conveyance (only when the order has them) and
+/// the Total — the same breakdown as the admin invoice.
 Future<void> generateOrderPdf({
   required String orderId,
   required String date,
   required String status,
   required List<Map<String, dynamic>> items,
   required num total,
+  num? subtotal,
+  num salesTax = 0,
+  num conveyance = 0,
 }) async {
   final logo = await _loadLogo();
   final doc = pw.Document();
-  doc.addPage(pw.Page(
-    build: (context) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+  final itemsSubtotal = subtotal ?? items.fold<num>(0, (s, it) => s + OrderCharges.lineAmount(it));
+
+  pw.Widget cell(String text, {bool bold = false, bool right = false}) => pw.Padding(
+        padding: const pw.EdgeInsets.all(6),
+        child: pw.Text(text,
+            textAlign: right ? pw.TextAlign.right : pw.TextAlign.left,
+            style: pw.TextStyle(fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+      );
+  pw.Widget sumRow(String label, num value) => pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(vertical: 2),
+        child: pw.Row(mainAxisAlignment: pw.MainAxisAlignment.end, children: [
+          pw.SizedBox(width: 130, child: pw.Text(label, textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 11))),
+          pw.SizedBox(width: 110, child: pw.Text(pkr(value), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 11))),
+        ]),
+      );
+
+  doc.addPage(pw.MultiPage(
+    build: (context) => [
       _letterhead(logo, 'Order Receipt', subtitle: 'Order #$orderId'),
       pw.SizedBox(height: 20),
       pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
@@ -89,32 +111,38 @@ Future<void> generateOrderPdf({
       pw.SizedBox(height: 16),
       pw.Table(
         border: pw.TableBorder.all(color: PdfColors.grey300),
-        columnWidths: {0: const pw.FlexColumnWidth(4), 1: const pw.FlexColumnWidth(1), 2: const pw.FlexColumnWidth(2)},
+        columnWidths: {
+          0: const pw.FlexColumnWidth(4),
+          1: const pw.FlexColumnWidth(1),
+          2: const pw.FlexColumnWidth(1.6),
+          3: const pw.FlexColumnWidth(2),
+        },
         children: [
           pw.TableRow(
             decoration: const pw.BoxDecoration(color: PdfColors.grey100),
-            children: [
-              pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Item', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
-              pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Qty', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
-              pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Amount', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
-            ],
+            children: [cell('Item', bold: true), cell('Qty', bold: true), cell('Rate', bold: true, right: true), cell('Amount', bold: true, right: true)],
           ),
           ...items.map((item) => pw.TableRow(children: [
-                pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${item['name'] ?? item['product_name'] ?? 'Item'}')),
-                pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('${item['qty'] ?? item['quantity'] ?? 1}')),
-                pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('PKR ${item['price'] ?? item['unit_price'] ?? 0}')),
+                cell('${item['name'] ?? item['product_name'] ?? 'Item'}'),
+                cell('${item['qty'] ?? item['quantity'] ?? 1}'),
+                cell(pkr(OrderCharges.rateOf(item)), right: true),
+                cell(pkr(OrderCharges.lineAmount(item)), right: true),
               ])),
         ],
       ),
-      pw.SizedBox(height: 16),
+      pw.SizedBox(height: 12),
+      sumRow('Subtotal:', itemsSubtotal),
+      if (salesTax > 0) sumRow('Sales Tax (18%):', salesTax),
+      if (conveyance > 0) sumRow('Conveyance:', conveyance),
+      pw.SizedBox(height: 6),
       pw.Align(
         alignment: pw.Alignment.centerRight,
-        child: pw.Text('Total: PKR $total',
+        child: pw.Text('Total: ${pkr(total)}',
             style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: _navy)),
       ),
       pw.SizedBox(height: 40),
       _footer(),
-    ]),
+    ],
   ));
   await Printing.layoutPdf(onLayout: (format) async => doc.save());
 }

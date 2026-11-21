@@ -7,6 +7,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../shared/pdf/pdf_generator.dart';
+import '../../../shared/order_charges.dart';
 import '../../../shared/router/app_transitions.dart';
 
 class OrderTrackingScreen extends StatefulWidget {
@@ -129,6 +130,14 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     return '$datePart, $hour12:$minute $ampm';
   }
 
+  Widget _chargeLine(String label, num value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Text(label, style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurfaceVariant)),
+          Text(pkr(value), style: AppTextStyles.bodyMd.copyWith(color: AppColors.onSurface, fontWeight: FontWeight.w600)),
+        ]),
+      );
+
   @override
   Widget build(BuildContext context) {
     final orderId  = _order?['id']?.toString() ?? widget.orderId ?? '';
@@ -137,6 +146,10 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     final amount   = _order?['total_amount'] ?? _order?['total'] ?? 0;
     final date     = _order?['created_at']?.toString() ?? '—';
     final items    = (_order?['order_items'] as List?) ?? [];
+    // Subtotal / conveyance / sales tax exactly as the admin invoice — the total
+    // updates as soon as the admin adds tax or conveyance at dispatch.
+    final charges  = OrderCharges.of(_order);
+    final totalLabel = items.isNotEmpty ? pkr(charges.total) : 'PKR $amount';
     final driver   = _order?['drivers'] is Map ? _order!['drivers'] as Map : null;
     final showDriver = driver != null && (status == 'dispatched' || status == 'delivered') &&
         (driver['full_name'] ?? '').toString().trim().isNotEmpty;
@@ -164,7 +177,10 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                 date: date.length > 10 ? date.substring(0, 10) : date,
                 status: status,
                 items: items.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
-                total: (amount is num) ? amount : num.tryParse(amount.toString()) ?? 0,
+                total: items.isNotEmpty ? charges.total : ((amount is num) ? amount : num.tryParse(amount.toString()) ?? 0),
+                subtotal: charges.subtotal,
+                salesTax: charges.tax,
+                conveyance: charges.conveyance,
               ),
             ),
         ],
@@ -193,7 +209,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                               ]),
                               Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
                                 Text('TOTAL AMOUNT', style: AppTextStyles.labelMd.copyWith(color: Colors.white70, fontSize: 11)),
-                                Text('PKR $amount', style: AppTextStyles.headlineSm.copyWith(color: Colors.white)),
+                                Text(totalLabel, style: AppTextStyles.headlineSm.copyWith(color: Colors.white)),
                               ]),
                             ],
                           ),
@@ -400,10 +416,29 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                   Expanded(
                                     child: Text('$name x $qty', style: AppTextStyles.bodyMd.copyWith(fontWeight: FontWeight.w600, color: AppColors.onSurface)),
                                   ),
-                                  Text('PKR $price', style: AppTextStyles.labelMd.copyWith(color: AppColors.primary)),
+                                  Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                                    Text(pkr(OrderCharges.lineAmount(item as Map)), style: AppTextStyles.labelMd.copyWith(color: AppColors.primary, fontWeight: FontWeight.w700)),
+                                    Text('@ PKR $price', style: AppTextStyles.bodySm.copyWith(color: AppColors.onSurfaceVariant, fontSize: 11)),
+                                  ]),
                                 ]),
                               );
                             }),
+                          if (items.isNotEmpty) ...[
+                            const Padding(padding: EdgeInsets.symmetric(vertical: AppSpacing.sm), child: Divider(color: AppColors.outlineVariant, height: 1)),
+                            _chargeLine('Subtotal', charges.subtotal),
+                            if (charges.conveyance > 0) _chargeLine('Conveyance', charges.conveyance),
+                            if (charges.tax > 0) _chargeLine('Sales Tax (18%)', charges.tax),
+                            const SizedBox(height: 6),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 10),
+                              decoration: BoxDecoration(color: AppColors.onPrimaryFixed, borderRadius: BorderRadius.circular(AppRadius.sm)),
+                              child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                                Text('TOTAL', style: AppTextStyles.labelMd.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
+                                Text(pkr(charges.total), style: AppTextStyles.headlineSm.copyWith(color: Colors.white, fontSize: 16)),
+                              ]),
+                            ),
+                          ],
                         ]),
                       ),
                     ],
