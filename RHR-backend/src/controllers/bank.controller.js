@@ -53,7 +53,7 @@ function pairVendorTransfers(transfers = [], expenses = []) {
 // Approved vendor transfers of a company (or all, when cid is null) — many do not
 // record which bank they went through, so they are matched to their vendor
 // payment only to name the paying customer on it.
-const VT_SELECT = 'id,amount,recovery_date,created_at,payment_type,vendor_id,customer:users!customer_id(full_name,shop_name)';
+const VT_SELECT = 'id,amount,recovery_date,created_at,payment_type,vendor_id,customer:users!customer_id(full_name,shop_name),salesman:salesmen!salesman_id(full_name)';
 const loadVendorTransfers = (cid) => pgrestGetRaw(
   `salesman_recoveries?select=${VT_SELECT}&payment_type=eq.vendor_transfer&status=eq.approved${cid ? `&company_id=eq.${cid}` : ''}&order=created_at.asc`
 ).catch(() => []);
@@ -71,12 +71,36 @@ function payerPairs(transfers, vendorTransfers, expenses, cheques = []) {
   }
   return pairs;
 }
-// Expense line text; a vendor transfer's payment also names the paying customer
-function expenseDescription(e, pairs) {
+// Expense line text; a vendor transfer's / cheque's payment also names the paying
+// customer and the salesman who handled it. In Cash in Hand (`cash`), a vendor
+// transfer is also marked as paid in cash.
+function expenseDescription(e, pairs, { cash = false } = {}) {
   const base = `${e.category || 'Expense'}${e.description ? ` — ${e.description}` : ''}`;
-  const who = customerName(pairs?.get(e.id));
-  return who && !base.includes(`from ${who}`) ? `${base} — from ${who}` : base;
+  const p = pairs?.get(e.id);
+  const who = customerName(p);
+  if (!who || base.includes(`from ${who}`)) return base;
+  const how = cash && p.payment_type === 'vendor_transfer' ? ' — vendor transfer paid in cash' : '';
+  const by = p.salesman?.full_name;
+  return `${base}${how} — from ${who}${by ? ` (by ${by})` : ''}`;
 }
+
+// A payment and the cheque / transfer that funded it are one movement: keep the
+// IN line first and its OUT line right after it, at the earlier of the two dates,
+// instead of all the day's payments going out before the cheques come in.
+// Expense entries carry `payerId` (the funding recovery's id).
+function keepPairsTogether(entries) {
+  const anchors = new Map(entries.filter((x) => x.type === 'cheque_in' || x.type === 'transfer_in').map((x) => [x.id, x]));
+  let i = 0;
+  for (const x of entries) {
+    if (x.type !== 'expense' || !x.payerId) continue;
+    const a = anchors.get(x.payerId);
+    if (!a) continue;
+    const k = Math.min(new Date(a.date).getTime(), new Date(x.date).getTime()) + (i++) * 2;
+    a.sortKey = k;
+    x.sortKey = k + 1;
+  }
+}
+const sortKeyOf = (e) => (e.sortKey != null ? e.sortKey : new Date(e.date).getTime());
 
 // → { inForExpense, outForTransfer, outForCheque }: Sets of source row ids to mirror
 function directTransferMirrors({ transfers = [], cheques = [], expenses = [] }) {
@@ -522,7 +546,7 @@ const getBankLedger = async (req, res) => {
         ).catch(() => []),
 
         pgrestGetRaw(
-          `expenses?select=id,amount,expense_date,category,description&method=eq.cash&bank_account_id=is.null&company_id=eq.${cid}&order=expense_date.asc`
+          `expenses?select=id,amount,expense_date,category,description,supplier_id&method=eq.cash&bank_account_id=is.null&company_id=eq.${cid}&order=expense_date.asc`
         ).catch(() => []),
       ]);
     }
@@ -600,6 +624,7 @@ const getBankLedger = async (req, res) => {
         description: expenseDescription(e, vtPairs),
         debit: 0,
         credit: amt,
+        payerId: vtPairs.get(e.id)?.id || null,
       });
     }
 
@@ -615,23 +640,26 @@ const getBankLedger = async (req, res) => {
       });
     }
 
-    // Cash in Hand only: cash expenses (paid from office cash) → CREDIT OUT
+    // Cash in Hand only: cash expenses (paid from office cash) → CREDIT OUT.
+    // A vendor transfer paid in cash names its customer and salesman.
+    const cashPayers = cashExpenses?.length ? payerPairs([], await loadVendorTransfers(cid), cashExpenses) : new Map();
     for (const e of (cashExpenses || [])) {
       entries.push({
         id: `cexp-${e.id}`,
         date: e.expense_date,
         type: 'expense',
-        description: `${e.category || 'Expense'}${e.description ? ` — ${e.description}` : ''}`,
+        description: expenseDescription(e, cashPayers, { cash: true }),
         debit: 0,
         credit: Number(e.amount || 0),
       });
     }
 
+    keepPairsTogether(entries);
     // Sort ascending by date, opening always first
     entries.sort((a, b) => {
       if (a.type === 'opening') return -1;
       if (b.type === 'opening') return 1;
-      return new Date(a.date) - new Date(b.date);
+      return sortKeyOf(a) - sortKeyOf(b);
     });
 
     // Compute running balance
@@ -810,7 +838,7 @@ const getMergedBankLedger = async (req, res) => {
       if (isCashInHand) {
         [pettyCashClosings, cashExpenses] = await Promise.all([
           pgrestGetRaw(`salesman_cash_closings?select=id,amount,closing_date,notes,salesmen(full_name)&deposit_to=eq.petty_cash&status=eq.approved&company_id=eq.${cid}&order=closing_date.asc`).catch(() => []),
-          pgrestGetRaw(`expenses?select=id,amount,expense_date,category,description&method=eq.cash&bank_account_id=is.null&company_id=eq.${cid}&order=expense_date.asc`).catch(() => []),
+          pgrestGetRaw(`expenses?select=id,amount,expense_date,category,description,supplier_id&method=eq.cash&bank_account_id=is.null&company_id=eq.${cid}&order=expense_date.asc`).catch(() => []),
         ]);
       }
 
@@ -864,25 +892,28 @@ const getMergedBankLedger = async (req, res) => {
         }
         allEntries.push({ id: e.id, date: e.expense_date, type: 'expense',
           description: expenseDescription(e, vtPairs),
-          debit: 0, credit: amt, branch, account_name: account.account_name });
+          debit: 0, credit: amt, branch, account_name: account.account_name,
+          payerId: vtPairs.get(e.id)?.id || null });
       }
       for (const c of (pettyCashClosings || [])) {
         allEntries.push({ id: c.id, date: c.closing_date, type: 'petty_cash_in',
           description: `Petty Cash — ${c.salesmen?.full_name || 'Salesman'} deposited${c.notes ? ` · ${c.notes}` : ''}`,
           debit: Number(c.amount || 0), credit: 0, branch, account_name: account.account_name });
       }
+      const cashPayers = cashExpenses?.length ? payerPairs([], await loadVendorTransfers(cid), cashExpenses) : new Map();
       for (const e of (cashExpenses || [])) {
         allEntries.push({ id: `cexp-${e.id}`, date: e.expense_date, type: 'expense',
-          description: `${e.category || 'Expense'}${e.description ? ` — ${e.description}` : ''}`,
+          description: expenseDescription(e, cashPayers, { cash: true }),
           debit: 0, credit: Number(e.amount || 0), branch, account_name: account.account_name });
       }
     }
 
+    keepPairsTogether(allEntries);
     // Sort: opening entries first (by date), then rest by date ascending
     allEntries.sort((a, b) => {
       if (a.type === 'opening' && b.type !== 'opening') return -1;
       if (b.type === 'opening' && a.type !== 'opening') return 1;
-      return new Date(a.date) - new Date(b.date);
+      return sortKeyOf(a) - sortKeyOf(b);
     });
 
     let running = 0;
