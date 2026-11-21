@@ -84,6 +84,17 @@ function expenseDescription(e, pairs, { cash = false } = {}) {
   return `${base}${how} — from ${who}${by ? ` (by ${by})` : ''}`;
 }
 
+// A salesman vendor transfer paid in cash: the customer's cash came in and went
+// straight out to the vendor, so Cash in Hand shows both sides (IN then OUT) and
+// is not reduced by it. Only the OUT (the expense) is stored; the IN is added.
+const isCashVendorTransfer = (payer) => payer?.payment_type === 'vendor_transfer';
+function cashVendorTransferInText(e, payer) {
+  const who = customerName(payer) || 'customer';
+  const by = payer?.salesman?.full_name;
+  const vendor = (String(e.description || '').match(/Vendor payment to (.+?)(?:\s+—|$)/) || [])[1];
+  return `Cash In — vendor transfer from ${who}${by ? ` (by ${by})` : ''}${vendor ? ` for ${vendor.trim()}` : ''}`;
+}
+
 // A payment and the cheque / transfer that funded it are one movement: keep the
 // IN line first and its OUT line right after it, at the earlier of the two dates,
 // instead of all the day's payments going out before the cheques come in.
@@ -280,7 +291,7 @@ const getBankTransactions = async (req, res) => {
 
     // ── Cash expenses (method=cash, no bank_account) — Cash in Hand OUT ──
     const cashExpParts = [
-      'select=id,amount,category,description,expense_date',
+      'select=id,amount,category,description,expense_date,supplier_id',
       'method=eq.cash',
       'bank_account_id=is.null',
       'order=expense_date.desc',
@@ -426,8 +437,23 @@ const getBankTransactions = async (req, res) => {
       return who && !(e.description || '').includes(`from ${who}`) ? `${e.description || ''} — from ${who}` : e.description;
     };
 
+    // Cash vendor transfers: the customer's cash also came IN to Cash in Hand
+    const cashVtPayers = (cashExpenses || []).length ? payerPairs([], allVendorTransfers, cashExpenses) : new Map();
+    const cashVtLines = (cashExpenses || [])
+      .filter(e => isCashVendorTransfer(cashVtPayers.get(e.id)))
+      .map(e => ({
+        id: `cin-${e.id}`,
+        type: 'payment',
+        method: 'cash',
+        amount: Number(e.amount || 0),
+        created_at: e.expense_date,
+        customer: { full_name: cashVendorTransferInText(e, cashVtPayers.get(e.id)) },
+        bank_accounts: { account_name: 'Cash in Hand', bank_name: 'Cash', account_number: '' },
+      }));
+
     const merged = [
       ...directLines,
+      ...cashVtLines,
       ...(payments    || []).map((p) => ({ ...p, type: 'payment' })),
       ...(cashPayments || []).map((p) => ({ ...p, type: 'payment' })),
       ...(cashRecoveries || []).map((r) => ({ ...r, type: 'payment' })),
@@ -644,6 +670,17 @@ const getBankLedger = async (req, res) => {
     // A vendor transfer paid in cash names its customer and salesman.
     const cashPayers = cashExpenses?.length ? payerPairs([], await loadVendorTransfers(cid), cashExpenses) : new Map();
     for (const e of (cashExpenses || [])) {
+      const payer = cashPayers.get(e.id);
+      if (isCashVendorTransfer(payer)) {
+        entries.push({
+          id: `cin-${e.id}`,
+          date: e.expense_date,
+          type: 'cash_vt_in',
+          description: cashVendorTransferInText(e, payer),
+          debit: Number(e.amount || 0),
+          credit: 0,
+        });
+      }
       entries.push({
         id: `cexp-${e.id}`,
         date: e.expense_date,
@@ -702,7 +739,7 @@ const getBankSummary = async (req, res) => {
 
       // Cash expenses (paid in cash, not from a bank account) — Cash in Hand OUT
       pgrestGet('expenses', {
-        select: 'amount',
+        select: 'id,amount,expense_date,category,description,supplier_id',
         method: 'eq.cash',
         bank_account_id: 'is.null',
         ...cfObj,
@@ -757,7 +794,13 @@ const getBankSummary = async (req, res) => {
 
     const cashAccount = (accounts || []).find(a => a.bank_name === 'Cash' || a.account_name?.toLowerCase().includes('cash in hand'));
     const cashOpening = Number(cashAccount?.opening_balance || 0);
-    const cashIn  = (pettyCashClose || []).reduce((s, c) => s + Number(c.amount || 0), 0);
+    // Cash vendor transfers also came IN (customer's cash) — same as the ledger
+    let cashVtIn = 0;
+    if ((cashExp || []).length) {
+      const cashPayers = payerPairs([], await loadVendorTransfers(companyId), cashExp);
+      (cashExp || []).forEach(e => { if (isCashVendorTransfer(cashPayers.get(e.id))) cashVtIn += Number(e.amount || 0); });
+    }
+    const cashIn  = (pettyCashClose || []).reduce((s, c) => s + Number(c.amount || 0), 0) + cashVtIn;
     const cashOut = (cashExp        || []).reduce((s, e) => s + Number(e.amount || 0), 0);
     const cashInHand = cashOpening + cashIn - cashOut
       + (cashAccount ? (inMap[cashAccount.id] || 0) : 0)
@@ -902,6 +945,12 @@ const getMergedBankLedger = async (req, res) => {
       }
       const cashPayers = cashExpenses?.length ? payerPairs([], await loadVendorTransfers(cid), cashExpenses) : new Map();
       for (const e of (cashExpenses || [])) {
+        const payer = cashPayers.get(e.id);
+        if (isCashVendorTransfer(payer)) {
+          allEntries.push({ id: `cin-${e.id}`, date: e.expense_date, type: 'cash_vt_in',
+            description: cashVendorTransferInText(e, payer),
+            debit: Number(e.amount || 0), credit: 0, branch, account_name: account.account_name });
+        }
         allEntries.push({ id: `cexp-${e.id}`, date: e.expense_date, type: 'expense',
           description: expenseDescription(e, cashPayers, { cash: true }),
           debit: 0, credit: Number(e.amount || 0), branch, account_name: account.account_name });
