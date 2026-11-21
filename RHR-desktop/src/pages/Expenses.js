@@ -523,7 +523,8 @@ export default function Expenses() {
   })();
   // oldest first so the running total reads like a ledger
   // (with no person picked it is every expense in the period — the default "All" view)
-  const personEntries = (selectedPerson ? expenses.filter((e) => personOf(e)?.key === personFilter) : [...expenses])
+  // A picked person with nothing in the period shows an empty ledger, never everyone's entries
+  const personEntries = (personFilter ? expenses.filter((e) => personOf(e)?.key === personFilter) : [...expenses])
         .sort((a, b) => String(a.expense_date).localeCompare(String(b.expense_date)) || String(a.created_at).localeCompare(String(b.created_at)));
   // Merge expense entries + payment entries for a chronological ledger (account view only)
   const isAccountView = personFilter?.startsWith('account:');

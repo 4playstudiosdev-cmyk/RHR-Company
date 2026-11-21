@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { BookOpen, TrendingDown, TrendingUp, Wallet, X, Banknote, Building2, FileText, ImagePlus, Trash2, Pencil, Check, ChevronDown, ChevronUp, Info } from 'lucide-react';
+import { BookOpen, TrendingDown, TrendingUp, Wallet, X, Banknote, Building2, FileText, ImagePlus, Trash2, Pencil, Check, ChevronDown, ChevronUp, Info, Download } from 'lucide-react';
+import { exportLedgerPdf, pdfAmount, pdfDate } from '../utils/ledgerPdf';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
@@ -135,6 +136,8 @@ export default function VendorLedger({ initialSupplierId }) {
       ]);
       setSuppliers(suppData);
       setBankAccounts(bankData);
+      // Switching city must not keep showing the previous city's supplier
+      setSupplierId((cur) => (cur && !suppData.some((s) => s.id === cur) ? '' : cur));
     } catch {
       toast.error('Failed to load supplier list.');
     } finally {
@@ -229,6 +232,35 @@ export default function VendorLedger({ initialSupplierId }) {
 
   const totalPages = Math.max(1, Math.ceil(chronoEntries.length / PAGE_SIZE));
   const pageEntries = chronoEntries.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  // Whole ledger (all pages), oldest first, as a downloadable statement
+  const handleDownloadPdf = async () => {
+    try {
+      await exportLedgerPdf({
+        title: `Vendor Ledger — ${selectedSupplier?.name || 'Supplier'}`,
+        subtitle: `${selectedSupplier?.contact_number ? `${selectedSupplier.contact_number} · ` : ''}Statement — ${new Date().toLocaleDateString('en-GB')}`,
+        head: ['#', 'Date', 'Description', 'Type', 'Debit (Owe)', 'Credit (Paid)', 'Balance'],
+        body: chronoEntries.map((e, i) => [
+          i + 1,
+          pdfDate(e.created_at),
+          e.description || '',
+          typeLabel(e),
+          e.entry_type === 'debit' ? pdfAmount(e.amount) : '-',
+          e.entry_type === 'credit' ? pdfAmount(e.amount) : '-',
+          `PKR ${Number(e.running_balance || 0).toLocaleString()}`,
+        ]),
+        rightCols: [4, 5, 6],
+        summary: [
+          ['Total Purchases', pdfAmount(totalDebit)],
+          ['Total Payments', pdfAmount(totalCredit)],
+          [currentBalance >= 0 ? 'Balance (you owe)' : 'Balance (supplier owes you)', `PKR ${Math.abs(currentBalance).toLocaleString()}`],
+        ],
+        fileName: `Vendor-Ledger-${selectedSupplier?.name || 'supplier'}`,
+      });
+    } catch (err) {
+      toast.error('Could not create PDF: ' + err.message);
+    }
+  };
 
   const handleAdjustSubmit = async (e) => {
     e.preventDefault();
@@ -397,9 +429,19 @@ export default function VendorLedger({ initialSupplierId }) {
                   <p className="text-xs text-gray-400 mt-0.5">{selectedSupplier.contact_number}</p>
                 )}
               </div>
-              <span className={`text-sm font-semibold ${currentBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                {currentBalance > 0 ? `You owe ${fmtPKR(currentBalance)}` : currentBalance < 0 ? `They owe ${fmtPKR(Math.abs(currentBalance))}` : 'Settled'}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className={`text-sm font-semibold ${currentBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  {currentBalance > 0 ? `You owe ${fmtPKR(currentBalance)}` : currentBalance < 0 ? `They owe ${fmtPKR(Math.abs(currentBalance))}` : 'Settled'}
+                </span>
+                <button
+                  onClick={handleDownloadPdf}
+                  disabled={chronoEntries.length === 0}
+                  className="flex items-center gap-1.5 text-navy border border-navy/30 hover:bg-navy hover:text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+                  title="Download this ledger as PDF"
+                >
+                  <Download size={13} /> PDF
+                </button>
+              </div>
             </div>
 
             {chronoEntries.length === 0 ? (

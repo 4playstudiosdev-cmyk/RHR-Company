@@ -34,6 +34,46 @@ const getExpenses = async (req, res) => {
     // expense_account_id (phase71) — the person/shop the expense was for.
     // employee_id (phase75) — HRM employee the expense is tied to.
     // manufacturing_head_id (phase76) — Manufacturing Head. Tried first.
+    //
+    // The live database is missing several foreign keys behind these columns
+    // (vehicles, manufacturing_workers/heads, expense_accounts, employees) and
+    // has TWO keys to bank_accounts, so the embedded selects below fail and the
+    // last fallback returned expenses with no person names at all — which broke
+    // "By Person". Read the plain ids and attach every name here instead, so it
+    // works with or without those keys.
+    try {
+      const data = await pgrestGetRaw(
+        `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,driver_id,vehicle_id,fuel_price_per_liter,fuel_liters,bags_delivered,salesman_id,manufacturing_worker_id,manufacturing_head_id,supplier_id,cash_amount,bank_amount,receipt_url,expense_account_id,employee_id,created_at&order=expense_date.desc${filterStr}`
+      );
+      const rows = data || [];
+      const RELATIONS = [
+        // [id column, embed name, table, columns]
+        ['bank_account_id',         'bank_accounts',         'bank_accounts',         'account_name,bank_name'],
+        ['driver_id',               'drivers',               'drivers',               'full_name,car_number'],
+        ['vehicle_id',              'vehicles',              'vehicles',              'name,plate_number'],
+        ['salesman_id',             'salesmen',              'salesmen',              'full_name'],
+        ['manufacturing_worker_id', 'manufacturing_workers', 'manufacturing_workers', 'full_name'],
+        ['manufacturing_head_id',   'manufacturing_heads',   'manufacturing_heads',   'full_name'],
+        ['supplier_id',             'suppliers',             'suppliers',             'name'],
+        ['expense_account_id',      'expense_accounts',      'expense_accounts',      'name'],
+        ['employee_id',             'employees',             'employees',             'full_name,city'],
+      ];
+      const maps = await Promise.all(RELATIONS.map(async ([col, , table, cols]) => {
+        const ids = [...new Set(rows.map((e) => e[col]).filter(Boolean))];
+        const found = [];
+        for (let i = 0; i < ids.length; i += 150) {   // keep the URL short
+          const part = await pgrestGetRaw(`${table}?select=id,${cols}&id=in.(${ids.slice(i, i + 150).join(',')})`).catch(() => []);
+          found.push(...(part || []));
+        }
+        return Object.fromEntries(found.map(({ id, ...rest }) => [id, rest]));
+      }));
+      return success(res, rows.map((e) => {
+        const out = { ...e };
+        RELATIONS.forEach(([col, embed], i) => { out[embed] = e[col] ? maps[i][e[col]] || null : null; });
+        return out;
+      }));
+    } catch (ePlain) { /* a column is missing — fall through to the older selects */ }
+
     try {
       const data = await pgrestGetRaw(
         `expenses?select=id,company_id,category,amount,description,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),driver_id,drivers(full_name,car_number),vehicle_id,vehicles(name,plate_number),fuel_price_per_liter,fuel_liters,bags_delivered,salesman_id,salesmen(full_name),manufacturing_worker_id,manufacturing_workers(full_name),manufacturing_head_id,manufacturing_heads(full_name),supplier_id,suppliers(name),cash_amount,bank_amount,receipt_url,expense_account_id,expense_accounts(name),employee_id,employees(full_name,city),created_at&order=expense_date.desc${filterStr}`

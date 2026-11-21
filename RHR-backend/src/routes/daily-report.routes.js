@@ -24,7 +24,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 
       // Expenses for the date — try with full joins, degrade gracefully
       pgrestGetRaw(
-        `expenses?select=id,category,description,amount,expense_date,method,bank_account_id,bank_accounts(account_name,bank_name),salesmen(full_name),suppliers(name)&expense_date=eq.${date}${cf}&order=created_at.asc`
+        `expenses?select=id,category,description,amount,expense_date,method,bank_account_id,bank_accounts!expenses_bank_account_id_fkey(account_name,bank_name),salesmen(full_name),suppliers(name)&expense_date=eq.${date}${cf}&order=created_at.asc`
       ).catch(() =>
         pgrestGet('expenses', { select: 'id,category,description,amount,expense_date,method,bank_account_id', expense_date: `eq.${date}`, ...cfObj, order: 'created_at.asc' })
       ),

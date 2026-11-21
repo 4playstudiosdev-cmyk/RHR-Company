@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Landmark, Plus, ArrowLeftRight, BookOpen, RefreshCw, Pencil, Trash2 } from 'lucide-react';
+import { Landmark, Plus, ArrowLeftRight, BookOpen, RefreshCw, Pencil, Trash2, Download } from 'lucide-react';
+import { exportLedgerPdf, pdfAmount, pdfDate } from '../utils/ledgerPdf';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
 import Button from '../components/Button';
@@ -76,9 +77,77 @@ export default function Bank() {
   };
 
   useEffect(() => {
+    // A ledger opened for one city must not stay on screen under another city
+    setLedgerAccount(null);
+    setLedgerData(null);
+    setIsMergedLedger(false);
+    setTab((t) => (t === 'ledger' ? 'accounts' : t));
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCity]);
+
+  const handleLedgerPdf = async () => {
+    if (!ledgerData) return;
+    const name = isMergedLedger ? `${ledgerAccount?.bank_name} — All Cities` : ledgerAccount?.account_name;
+    const rows = filteredLedgerEntries;
+    const last = rows.length ? rows[rows.length - 1].balance : 0;
+    try {
+      await exportLedgerPdf({
+        title: `Bank Ledger — ${name || 'Account'}`,
+        subtitle: `${isMergedLedger ? 'Merged ledger' : `${ledgerAccount?.bank_name || ''}${ledgerAccount?.account_number ? ` · #${ledgerAccount.account_number}` : ''}`} · ${ledgerDateFilter === 'all' ? 'All dates' : ledgerDateFilter} · ${new Date().toLocaleDateString('en-GB')}`,
+        head: ['#', 'Date', ...(isMergedLedger ? ['Branch'] : []), 'Description', 'Debit (In)', 'Credit (Out)', 'Balance'],
+        body: rows.map((e, i) => [
+          i + 1,
+          pdfDate(e.date),
+          ...(isMergedLedger ? [e.branch || ''] : []),
+          e.type === 'opening' ? (isMergedLedger ? e.description : 'Opening Balance') : e.description,
+          e.debit > 0 ? pdfAmount(e.debit) : '-',
+          e.credit > 0 ? pdfAmount(e.credit) : '-',
+          `PKR ${Number(e.balance || 0).toLocaleString()}`,
+        ]),
+        rightCols: isMergedLedger ? [4, 5, 6] : [3, 4, 5],
+        summary: [
+          ['Total In', pdfAmount(rows.reduce((s, e) => s + (e.type === 'opening' ? 0 : Number(e.debit || 0)), 0))],
+          ['Total Out', pdfAmount(rows.reduce((s, e) => s + (e.type === 'opening' ? 0 : Number(e.credit || 0)), 0))],
+          ['Closing Balance', `PKR ${Number(last || 0).toLocaleString()}`],
+        ],
+        fileName: `Bank-Ledger-${name || 'account'}`,
+        landscape: true,
+      });
+    } catch (err) {
+      toast.error('Could not create PDF: ' + err.message);
+    }
+  };
+
+  const handleTransactionsPdf = async () => {
+    const rows = filteredTransactions;
+    const isOut = (t) => t.type === 'expense' || t.type === 'cash_deposit';
+    try {
+      await exportLedgerPdf({
+        title: 'Bank Transactions',
+        subtitle: `${txnDateFilter === 'all' ? 'All dates' : txnDateFilter}${txnTypeFilter !== 'all' ? ` · ${txnTypeFilter}` : ''} · ${new Date().toLocaleDateString('en-GB')}`,
+        head: ['#', 'Date', 'Type', 'Account', 'Details', 'In', 'Out'],
+        body: rows.map((t, i) => [
+          i + 1,
+          pdfDate(t.created_at),
+          t.type === 'expense' ? 'Expense' : t.type === 'cash_deposit' ? 'Cash Deposit' : 'Payment',
+          t.bank_accounts ? `${t.bank_accounts.account_name || t.bank_accounts.bank_name || ''}` : 'Cash in Hand',
+          isOut(t) ? `${t.category || ''}${t.description ? ` — ${t.description}` : ''}` : (t.salesman?.full_name || t.customer?.full_name || '-'),
+          isOut(t) ? '-' : pdfAmount(t.amount),
+          isOut(t) ? pdfAmount(t.amount) : '-',
+        ]),
+        rightCols: [5, 6],
+        summary: [
+          ['Total In', pdfAmount(rows.filter((t) => !isOut(t)).reduce((s, t) => s + Number(t.amount || 0), 0))],
+          ['Total Out', pdfAmount(rows.filter(isOut).reduce((s, t) => s + Number(t.amount || 0), 0))],
+        ],
+        fileName: 'Bank-Transactions',
+        landscape: true,
+      });
+    } catch (err) {
+      toast.error('Could not create PDF: ' + err.message);
+    }
+  };
 
   const loadAll = async () => {
     setLoading(true);
@@ -380,9 +449,19 @@ export default function Bank() {
                   : `${ledgerAccount?.bank_name}${ledgerAccount?.account_number ? ` · #${ledgerAccount.account_number}` : ''}`}
               </p>
             </div>
-            <button onClick={() => setTab('accounts')} className="text-xs text-gray-500 hover:text-navy border border-gray-200 hover:border-navy px-3 py-1.5 rounded-lg transition-colors">
-              ← Back to Accounts
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleLedgerPdf}
+                disabled={!ledgerData || ledgerLoading}
+                className="flex items-center gap-1.5 text-xs font-medium text-navy border border-navy/30 hover:bg-navy hover:text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+                title="Download this ledger (current date filter) as PDF"
+              >
+                <Download size={13} /> PDF
+              </button>
+              <button onClick={() => setTab('accounts')} className="text-xs text-gray-500 hover:text-navy border border-gray-200 hover:border-navy px-3 py-1.5 rounded-lg transition-colors">
+                ← Back to Accounts
+              </button>
+            </div>
           </div>
           {ledgerLoading ? (
             <div className="flex items-center justify-center py-16">
@@ -495,7 +574,17 @@ export default function Bank() {
         <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
             <h3 className="font-semibold text-navy text-sm">Bank Transactions</h3>
-            <span className="text-sm font-semibold text-navy">Total: PKR {totalTransactions.toLocaleString()}</span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-semibold text-navy">Total: PKR {totalTransactions.toLocaleString()}</span>
+              <button
+                onClick={handleTransactionsPdf}
+                disabled={filteredTransactions.length === 0}
+                className="flex items-center gap-1.5 text-xs font-medium text-navy border border-navy/30 hover:bg-navy hover:text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+                title="Download the listed transactions as PDF"
+              >
+                <Download size={13} /> PDF
+              </button>
+            </div>
           </div>
           {/* Filters row */}
           <div className="px-6 py-3 border-b border-gray-100 flex gap-3 flex-wrap items-center bg-gray-50/30">

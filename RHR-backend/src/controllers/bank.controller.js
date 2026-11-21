@@ -283,7 +283,7 @@ const getBankTransactions = async (req, res) => {
 
     // ── Expenses paid from a bank account (debit) ──
     const expenseParts = [
-      'select=id,amount,method,category,description,supplier_id,expense_date,bank_account_id,bank_accounts(account_name,bank_name,account_number),cash_amount,bank_amount',
+      'select=id,amount,method,category,description,supplier_id,expense_date,bank_account_id,bank_accounts!expenses_bank_account_id_fkey(account_name,bank_name,account_number),cash_amount,bank_amount',
       'bank_account_id=not.is.null',
       'order=expense_date.desc',
     ];
