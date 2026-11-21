@@ -65,6 +65,56 @@ async function nameVendorTransfers(entries, customerId) {
         : e);
     } catch (_) { /* vendor_id column or join unavailable */ }
   }
+  return nameBankTransfers(data, customerId);
+}
+
+// "Bank transfer approved" → "Bank transfer approved — Meezan Bank": the account
+// the money went into (salesman_recoveries.reference_number = bank account id).
+// Linked entries use reference_id; older unlinked ones are matched to the
+// customer's approved bank-transfer recovery of the same amount and day.
+const bankLabel = (a) => {
+  if (!a) return '';
+  const name = String(a.account_name || '').trim();
+  const bank = String(a.bank_name || '').trim();
+  if (!name) return bank;
+  return bank && !name.toLowerCase().includes(bank.toLowerCase()) ? `${name} (${bank})` : name;
+};
+async function nameBankTransfers(entries, customerId) {
+  let data = entries || [];
+  const isBankLine = (e) => e.reference_type === 'recovery' && /^bank transfer approved/i.test(e.description || '')
+    && !/ — /.test(e.description || '');
+  const targets = data.filter(isBankLine);
+  if (!targets.length) return data;
+  try {
+    const recs = await pgrestGetRaw(
+      `salesman_recoveries?select=id,amount,recovery_date,created_at,reference_number,payment_method&customer_id=eq.${customerId}&payment_method=eq.bank_transfer&status=eq.approved&order=created_at.asc`
+    );
+    const acctIds = [...new Set((recs || []).map(r => r.reference_number).filter(v => /^[0-9a-f-]{36}$/i.test(v || '')))];
+    if (!acctIds.length) return data;
+    const accts = await pgrestGetRaw(`bank_accounts?select=id,account_name,bank_name&id=in.(${acctIds.join(',')})`);
+    const acctById = Object.fromEntries((accts || []).map(a => [a.id, a]));
+    const recById = Object.fromEntries((recs || []).map(r => [r.id, r]));
+    const used = new Set();
+    const bankByEntry = {};
+    // linked first, then unlinked by amount + day
+    for (const e of targets.filter(t => t.reference_id && recById[t.reference_id])) {
+      used.add(e.reference_id);
+      const label = bankLabel(acctById[recById[e.reference_id].reference_number]);
+      if (label) bankByEntry[e.id] = label;
+    }
+    for (const e of targets.filter(t => !bankByEntry[t.id] && !(t.reference_id && recById[t.reference_id]))) {
+      const day = String(e.created_at || '').slice(0, 10);
+      const r = (recs || []).find(x => !used.has(x.id) && Number(x.amount) === Number(e.amount)
+        && String(x.recovery_date || x.created_at || '').slice(0, 10) === day);
+      if (!r) continue;
+      used.add(r.id);
+      const label = bankLabel(acctById[r.reference_number]);
+      if (label) bankByEntry[e.id] = label;
+    }
+    data = data.map(e => bankByEntry[e.id]
+      ? { ...e, description: `${e.description} — ${bankByEntry[e.id]}`, bank_name: bankByEntry[e.id] }
+      : e);
+  } catch (_) { /* lookup failed — leave descriptions as stored */ }
   return data;
 }
 
