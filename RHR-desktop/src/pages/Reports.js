@@ -78,6 +78,19 @@ async function exportPdf(title, head, body, summary) {
 }
 
 // ─────────────────────── SALE REPORT ───────────────────────
+// Same split the Daily Report uses (daily-report.routes.js): a weight unit
+// (kg/g/ltr…) counts as KG only; anything else counts as BAGS, and a bag unit
+// that names its weight (e.g. "20kg bag") also adds bags × kg to the KG total.
+const PURE_WEIGHT = /^(kg|g|gram|grams|ltr|liter|litre|ml)$/i;
+const splitQty = (unit, quantity) => {
+  const u = String(unit || '').trim().toLowerCase();
+  const q = Number(quantity) || 0;
+  if (PURE_WEIGHT.test(u)) return { bags: 0, kg: q };
+  const kgM = u.match(/(\d+)\s*kg/);
+  return { bags: q, kg: kgM ? q * Number(kgM[1]) : 0 };
+};
+const fmtQty = (n) => (n ? Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—');
+
 function SaleReport({ companyId, applied }) {
   const toast = useToast();
   const [data, setData] = useState({ rows: [], total_qty: 0, grand_total: 0 });
@@ -108,14 +121,16 @@ function SaleReport({ companyId, applied }) {
     } catch { toast.error('Failed to load sale report.'); } finally { setLoading(false); }
   };
 
-  const rows = data.rows || [];
+  const rows = (data.rows || []).map((r) => ({ ...r, ...splitQty(r.unit, r.quantity) }));
+  const totalBags = rows.reduce((s, r) => s + r.bags, 0);
+  const totalKg = rows.reduce((s, r) => s + r.kg, 0);
   const paged = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handlePdf = () => exportPdf(
     'Sale Report',
-    ['#', 'Date', 'Invoice No', 'Customer', 'Salesman', 'Product', 'Unit', 'Qty', 'Rate', 'Amount'],
-    rows.map((r, i) => [i + 1, fmtDate(r.date), r.order_number, r.customer, r.salesman, r.product_name, r.unit, r.quantity, fmtAmt(r.unit_price), fmtAmt(r.subtotal)]),
-    [['Total Qty', data.total_qty], ['Grand Total', fmtAmt(data.grand_total)]]
+    ['#', 'Date', 'Invoice No', 'Customer', 'Salesman', 'Product', 'Unit', 'Bags', 'KG', 'Rate', 'Amount'],
+    rows.map((r, i) => [i + 1, fmtDate(r.date), r.order_number, r.customer, r.salesman, r.product_name, r.unit, fmtQty(r.bags), fmtQty(r.kg), fmtAmt(r.unit_price), fmtAmt(r.subtotal)]),
+    [['Total Bags', fmtQty(totalBags)], ['Total KG', fmtQty(totalKg)], ['Grand Total', fmtAmt(data.grand_total)]]
   );
 
   return (
@@ -138,8 +153,9 @@ function SaleReport({ companyId, applied }) {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <SummaryCard label="Total Qty (Bags)" value={data.total_qty.toLocaleString()} />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+        <SummaryCard label="Total Bags" value={totalBags.toLocaleString(undefined, { maximumFractionDigits: 2 })} />
+        <SummaryCard label="Total KG" value={totalKg.toLocaleString(undefined, { maximumFractionDigits: 2 })} />
         <SummaryCard label="Grand Total" value={fmtAmt(data.grand_total)} />
       </div>
 
@@ -157,7 +173,7 @@ function SaleReport({ companyId, applied }) {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="text-left text-gray-500 bg-gray-50 border-b border-gray-100">
-                  {['#','Date','Invoice No','Customer','Salesman','Product','Unit','Qty','Rate','Amount'].map((h) => (
+                  {['#','Date','Invoice No','Customer','Salesman','Product','Unit','Bags','KG','Rate','Amount'].map((h) => (
                     <th key={h} className="px-4 py-3 font-semibold text-xs uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr></thead>
@@ -171,7 +187,8 @@ function SaleReport({ companyId, applied }) {
                       <td className="px-4 py-3 text-gray-600">{r.salesman}</td>
                       <td className="px-4 py-3 text-gray-700 font-medium">{r.product_name}</td>
                       <td className="px-4 py-3 text-gray-500">{r.unit}</td>
-                      <td className="px-4 py-3 text-right font-semibold">{r.quantity}</td>
+                      <td className="px-4 py-3 text-right font-semibold">{fmtQty(r.bags)}</td>
+                      <td className="px-4 py-3 text-right font-semibold">{fmtQty(r.kg)}</td>
                       <td className="px-4 py-3 text-right text-gray-600">{fmtAmt(r.unit_price)}</td>
                       <td className="px-4 py-3 text-right font-semibold text-navy">{fmtAmt(r.subtotal)}</td>
                     </tr>
