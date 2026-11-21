@@ -20,7 +20,18 @@ const CATEGORIES = [
   { label: 'Other', value: 'other' },
 ];
 const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.value, c.label]));
-const EMPTY_FORM = { name: '', address: '', contact_number: '', categories: [], opening_balance_amount: '', vendor_owed_amount: '' };
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const OB_TYPES = [
+  { value: 'debit',  label: 'We Owe Supplier',   hint: 'Opening balance payable', activeClass: 'border-red-300 bg-red-50 text-red-700 ring-1 ring-red-200' },
+  { value: 'credit', label: 'Supplier Owes Us',  hint: 'Advance already paid',    activeClass: 'border-green-300 bg-green-50 text-green-700 ring-1 ring-green-200' },
+];
+const emptyForm = () => ({
+  name: '', address: '', contact_number: '', categories: [],
+  ob_type: 'debit', ob_amount: '', ob_date: todayStr(), had_ob: false,
+});
 
 export default function Suppliers({ onViewVendorLedger }) {
   const toast = useToast();
@@ -34,7 +45,7 @@ export default function Suppliers({ onViewVendorLedger }) {
   const [categoryTab, setCategoryTab] = useState('All');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
 
@@ -60,29 +71,40 @@ export default function Suppliers({ onViewVendorLedger }) {
     }
   };
 
-  const openAdd = () => { setEditing(null); setForm(EMPTY_FORM); setShowModal(true); };
+  const openAdd = () => { setEditing(null); setForm(emptyForm()); setShowModal(true); };
   const openEdit = (s) => {
     setEditing(s);
     setForm({
+      ...emptyForm(),
       name: s.name || '',
       address: s.address || '',
       contact_number: s.contact_number || '',
       categories: s.categories || [],
-      opening_balance_amount: '',
     });
     api.get('/opening-balances', { params: { entity_type: 'vendor', entity_id: s.id } })
       .then((r) => {
-        const entries = r.data?.data || [];
-        const debitEntry = entries.find(e => e.balance_type === 'debit');
-        const creditEntry = entries.find(e => e.balance_type === 'credit');
+        // newest first; a vendor has one opening balance (older data may hold two — take the newest non-zero)
+        const entry = (r.data?.data || []).find(e => Number(e.amount) > 0);
+        if (!entry) return;
         setForm((prev) => ({
           ...prev,
-          opening_balance_amount: debitEntry?.amount != null ? String(debitEntry.amount) : '',
-          vendor_owed_amount: creditEntry?.amount != null ? String(creditEntry.amount) : '',
+          ob_type: entry.balance_type === 'credit' ? 'credit' : 'debit',
+          ob_amount: String(entry.amount),
+          ob_date: (entry.balance_date || '').slice(0, 10) || prev.ob_date,
+          had_ob: true,
         }));
       })
       .catch(() => {});
     setShowModal(true);
+  };
+
+  const saveOpeningBalance = async (supplierId) => {
+    await api.patch(`/opening-balances/vendor/${supplierId}`, {
+      amount: Number(form.ob_amount || 0),
+      balance_type: form.ob_type,
+      balance_date: form.ob_date || todayStr(),
+      entity_name: form.name.trim(),
+    });
   };
 
   const toggleCategory = (value) => {
@@ -106,26 +128,12 @@ export default function Suppliers({ onViewVendorLedger }) {
           contact_number: form.contact_number,
           categories: form.categories,
         });
-        if (form.opening_balance_amount !== '' && Number.isFinite(Number(form.opening_balance_amount)) && Number(form.opening_balance_amount) >= 0) {
+        // Save when an amount is entered, or when an existing one was blanked (clears it)
+        if (form.ob_amount !== '' || form.had_ob) {
           try {
-            await api.patch(`/opening-balances/vendor/${editing.id}`, {
-              amount: Number(form.opening_balance_amount),
-              entity_name: form.name.trim(),
-              balance_type: 'debit',
-            });
+            await saveOpeningBalance(editing.id);
           } catch (balErr) {
             toast.error('Supplier saved but opening balance update failed: ' + (balErr.response?.data?.message || balErr.message));
-          }
-        }
-        if (form.vendor_owed_amount !== '' && Number.isFinite(Number(form.vendor_owed_amount)) && Number(form.vendor_owed_amount) >= 0) {
-          try {
-            await api.patch(`/opening-balances/vendor/${editing.id}`, {
-              amount: Number(form.vendor_owed_amount),
-              entity_name: form.name.trim(),
-              balance_type: 'credit',
-            });
-          } catch (balErr) {
-            toast.error('Supplier saved but vendor-owed balance update failed: ' + (balErr.response?.data?.message || balErr.message));
           }
         }
         toast.success('Supplier updated.');
@@ -139,32 +147,11 @@ export default function Suppliers({ onViewVendorLedger }) {
           company_id: targetCompanyId,
         });
         const newSupplier = res.data?.data;
-        if (newSupplier?.id && form.opening_balance_amount && Number(form.opening_balance_amount) > 0) {
+        if (newSupplier?.id && Number(form.ob_amount) > 0) {
           try {
-            await api.post('/opening-balances', {
-              entity_type: 'vendor',
-              entity_id: newSupplier.id,
-              entity_name: form.name.trim(),
-              balance_type: 'debit',
-              amount: Number(form.opening_balance_amount),
-              notes: 'Opening balance at supplier creation',
-            });
+            await saveOpeningBalance(newSupplier.id);
           } catch (obErr) {
-            toast.error('Supplier added but opening balance failed — run phase77 SQL first.');
-          }
-        }
-        if (newSupplier?.id && form.vendor_owed_amount && Number(form.vendor_owed_amount) > 0) {
-          try {
-            await api.post('/opening-balances', {
-              entity_type: 'vendor',
-              entity_id: newSupplier.id,
-              entity_name: form.name.trim(),
-              balance_type: 'credit',
-              amount: Number(form.vendor_owed_amount),
-              notes: 'Opening balance — amount vendor owed at creation',
-            });
-          } catch (obErr) {
-            toast.error('Supplier added but vendor-owed balance failed — run phase77 SQL first.');
+            toast.error('Supplier added but opening balance failed: ' + (obErr.response?.data?.message || obErr.message));
           }
         }
         toast.success('Supplier added.');
@@ -362,40 +349,58 @@ export default function Suppliers({ onViewVendorLedger }) {
                 ))}
               </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Opening Balance — Amount Owed (PKR)</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">PKR</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.opening_balance_amount}
-                  onChange={(e) => setForm({ ...form, opening_balance_amount: e.target.value })}
-                  placeholder="0"
-                  className="w-full border border-gray-300 rounded-lg pl-12 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-                />
+            <div className="border border-gray-200 rounded-xl p-3 space-y-3 bg-gray-50/50">
+              <label className="block text-sm font-medium text-gray-700">Opening Balance</label>
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Opening balance type">
+                {OB_TYPES.map((t) => {
+                  const active = form.ob_type === t.value;
+                  return (
+                    <button
+                      key={t.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => setForm({ ...form, ob_type: t.value })}
+                      className={`text-left rounded-lg border px-3 py-2 transition-colors ${active ? t.activeClass : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      <span className="block text-sm font-semibold">{t.label}</span>
+                      <span className="block text-[11px] opacity-80">{t.hint}</span>
+                    </button>
+                  );
+                })}
               </div>
-              <p className="text-xs text-gray-400 mt-1">
-                {editing ? 'Update the recorded opening balance for this supplier.' : 'Enter the amount you owe this supplier from before today. Leave blank if starting fresh.'}
-              </p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Amount Vendor Owed (PKR)</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">PKR</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.vendor_owed_amount}
-                  onChange={(e) => setForm({ ...form, vendor_owed_amount: e.target.value })}
-                  placeholder="0"
-                  className="w-full border border-gray-300 rounded-lg pl-12 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Amount (PKR)</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">PKR</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.ob_amount}
+                      onChange={(e) => setForm({ ...form, ob_amount: e.target.value })}
+                      placeholder="0"
+                      className="w-full border border-gray-300 rounded-lg pl-12 pr-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">As of Date</label>
+                  <input
+                    type="date"
+                    value={form.ob_date}
+                    max={todayStr()}
+                    onChange={(e) => setForm({ ...form, ob_date: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                  />
+                </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1">
-                {editing ? 'Amount this supplier owes us (already paid to them). Appears as a credit in their ledger.' : 'If you already paid this supplier before today, enter that amount here. It will appear as a credit in their ledger.'}
+              <p className="text-xs text-gray-400">
+                {form.ob_type === 'credit'
+                  ? 'Advance already paid to this supplier — shows as a credit on the first line of their ledger.'
+                  : 'Amount you owe this supplier as of this date — shows as a debit on the first line of their ledger.'}
+                {editing && form.had_ob ? ' Set the amount to 0 to remove it.' : ' Leave blank if starting fresh.'}
               </p>
             </div>
             <div className="flex justify-end gap-3 pt-2">

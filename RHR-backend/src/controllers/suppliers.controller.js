@@ -3,6 +3,7 @@ const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
 const { recalcSupplierLedger } = require('../services/orderLedger.service');
 const { findLinkedRecovery } = require('../services/vendorTransferLink.service');
+const { ensureVendorOpeningLine } = require('../services/vendorOpeningBalance.service');
 
 // ─── Supplier Ledger ─────────────────────────────────────────────────────────
 
@@ -19,6 +20,19 @@ const getSupplierLedger = async (req, res) => {
       });
     } catch (e) {
       return success(res, { entries: [], currentBalance: 0 });
+    }
+
+    // Restore an opening balance that was saved but never made it into the ledger
+    try {
+      if (await ensureVendorOpeningLine(id, data, req.user?.id)) {
+        data = await pgrestGet('supplier_ledger_entries', {
+          select: '*',
+          supplier_id: `eq.${id}`,
+          order: 'created_at.asc',
+        });
+      }
+    } catch (e) {
+      console.error('Opening balance ledger repair failed:', e.message);
     }
     if (!data?.length) return success(res, { entries: [], currentBalance: 0 });
 

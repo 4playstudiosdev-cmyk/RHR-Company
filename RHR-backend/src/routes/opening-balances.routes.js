@@ -4,8 +4,9 @@ const { authenticate } = require('../middleware/auth.middleware');
 const { isAdmin, requireRole } = require('../middleware/role.middleware');
 const { success, error } = require('../utils/response');
 const { pgrestGet, pgrestPost, pgrestPatch } = require('../utils/directQuery');
-const { recalcCustomerLedger, recalcSupplierLedger } = require('../services/orderLedger.service');
+const { recalcCustomerLedger } = require('../services/orderLedger.service');
 const { resolveCompanyId } = require('../utils/companyScope');
+const { upsertVendorOpeningBalance } = require('../services/vendorOpeningBalance.service');
 
 // GET /api/v1/opening-balances?entity_type=customer
 router.get('/', authenticate, isAdmin, async (req, res) => {
@@ -120,31 +121,18 @@ router.post('/', authenticate, requireRole('super_admin', 'branch_admin', 'sales
       }
       if (!amount || Number(amount) <= 0) return error(res, 'A positive amount is required', 400);
 
-      try {
-        const last = await pgrestGet('supplier_ledger_entries', {
-          select: 'running_balance',
-          supplier_id: `eq.${entity_id}`,
-          order: 'created_at.desc',
-          limit: '1',
-        });
-        const prevBalance = Number(last?.[0]?.running_balance) || 0;
-        const newBalance = balance_type === 'debit'
-          ? prevBalance + Number(amount)
-          : prevBalance - Number(amount);
-
-        await pgrestPost('supplier_ledger_entries', {
-          company_id:      companyId,
-          supplier_id:     entity_id,
-          entry_type:      balance_type,
-          amount:          Number(amount),
-          running_balance: newBalance,
-          description:     notes || 'Opening balance',
-          reference_type:  'opening_balance',
-          created_by:      req.user.id,
-        });
-      } catch (e) {
-        console.error('Supplier ledger write failed (run phase77_supplier_ledger.sql):', e.message);
-      }
+      // A vendor has exactly one opening balance (either side), dated and
+      // always the first ledger line — shared with the PATCH below.
+      const data = await upsertVendorOpeningBalance({
+        supplierId:  entity_id,
+        entityName:  entity_name,
+        balanceType: balance_type,
+        amount:      Number(amount),
+        balanceDate: balance_date,
+        notes,
+        user:        req.user,
+      });
+      return success(res, data, 'Opening balance recorded', 201);
     }
 
     if (entity_type === 'raw_material') {
@@ -219,71 +207,31 @@ router.patch('/customer/:entityId', authenticate, isAdmin, async (req, res) => {
 // PATCH /api/v1/opening-balances/vendor/:entityId
 // Updates the opening_balances reference row AND the matching supplier_ledger_entries
 // row so the vendor's running balance reflects the corrected opening amount.
-// Pass balance_type: 'debit' (default) or 'credit' in the body to target the right entry.
+// A vendor has ONE opening balance: balance_type 'debit' (we owe them) or
+// 'credit' (vendor owes us), dated balance_date (YYYY-MM-DD). Saving replaces
+// whatever was there before; amount 0 clears it.
 router.patch('/vendor/:entityId', authenticate, isAdmin, async (req, res) => {
   try {
     const { entityId } = req.params;
-    const { amount, entity_name, balance_type: reqBalanceType } = req.body;
-    const balanceType = ['debit', 'credit'].includes(reqBalanceType) ? reqBalanceType : 'debit';
+    const { amount, entity_name, balance_type, balance_date, notes } = req.body;
 
-    if (amount === undefined || isNaN(Number(amount)) || Number(amount) < 0)
+    if (amount === undefined || amount === '' || isNaN(Number(amount)) || Number(amount) < 0)
       return error(res, 'A non-negative amount is required', 400);
+    if (balance_type !== undefined && !['debit', 'credit'].includes(balance_type))
+      return error(res, "balance_type must be 'debit' or 'credit'", 400);
+    if (balance_date && !/^\d{4}-\d{2}-\d{2}$/.test(balance_date))
+      return error(res, 'balance_date must be YYYY-MM-DD', 400);
 
-    const existing = await pgrestGet('opening_balances', {
-      select: 'id',
-      entity_type:  'eq.vendor',
-      entity_id:    `eq.${entityId}`,
-      balance_type: `eq.${balanceType}`,
-      order:        'created_at.desc',
-      limit:        '1',
+    const data = await upsertVendorOpeningBalance({
+      supplierId:  entityId,
+      entityName:  entity_name,
+      balanceType: balance_type || 'debit',
+      amount:      Number(amount),
+      balanceDate: balance_date,
+      notes,
+      user:        req.user,
     });
-
-    if (existing?.[0]) {
-      await pgrestPatch('opening_balances', { id: `eq.${existing[0].id}` }, { amount: Number(amount) });
-    } else {
-      await pgrestPost('opening_balances', {
-        company_id:   req.user.company_id,
-        entity_type:  'vendor',
-        entity_id:    entityId,
-        entity_name:  entity_name || '',
-        balance_type: balanceType,
-        amount:       Number(amount),
-        notes:        'Opening balance (reference)',
-        created_by:   req.user.id,
-      });
-    }
-
-    // Update or create the matching supplier ledger entry and recalc
-    try {
-      const ledgerEntry = await pgrestGet('supplier_ledger_entries', {
-        select: 'id',
-        supplier_id:    `eq.${entityId}`,
-        reference_type: `eq.opening_balance`,
-        entry_type:     `eq.${balanceType}`,
-        order:          'created_at.asc',
-        limit:          '1',
-      });
-      if (ledgerEntry?.length) {
-        await pgrestPatch('supplier_ledger_entries', { id: `eq.${ledgerEntry[0].id}` }, { amount: Number(amount) });
-      } else {
-        // No existing entry — create one so it appears as the first line in the ledger
-        const supplierRows = await pgrestGet('suppliers', { select: 'company_id', id: `eq.${entityId}` });
-        const companyId = supplierRows?.[0]?.company_id || req.user.company_id;
-        await pgrestPost('supplier_ledger_entries', {
-          company_id:      companyId,
-          supplier_id:     entityId,
-          entry_type:      balanceType,
-          amount:          Number(amount),
-          running_balance: 0,
-          description:     balanceType === 'credit' ? 'Opening balance — amount vendor owed' : 'Opening balance',
-          reference_type:  'opening_balance',
-          created_by:      req.user.id,
-        });
-      }
-      await recalcSupplierLedger(entityId);
-    } catch (_) { /* supplier_ledger_entries may not exist yet — not fatal */ }
-
-    return success(res, null, 'Opening balance updated');
+    return success(res, data, Number(amount) > 0 ? 'Opening balance updated' : 'Opening balance cleared');
   } catch (err) { return error(res, err.message); }
 });
 
