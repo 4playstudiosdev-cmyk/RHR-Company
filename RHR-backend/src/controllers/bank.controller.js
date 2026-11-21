@@ -12,11 +12,42 @@ const { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch, pgrestDelete } = requi
 //   • Cheque cleared (IN)           → matching OUT line just after it
 // A vendor payment made by cheque #N and cheque #N cleared into the same
 // account are already the two sides of one movement — neither is mirrored.
+// Likewise a vendor transfer (customer → vendor, recorded from the app or by an
+// admin) stores both sides itself: the recovery (IN) and its Vendor Payment
+// expense (OUT, same amount and date) — neither is mirrored either.
 const isDirectTransferAccount = (a) => !!a && /direct\s*transfer/i.test(`${a.account_name || ''} ${a.bank_name || ''}`);
 const chequeNoFrom = (text) => (String(text || '').match(/cheque\s*#\s*([A-Za-z0-9-]+)/i) || [])[1] || null;
 const expenseBankAmount = (e) => (e.method === 'split' ? Number(e.bank_amount || 0) : Number(e.amount || 0));
 const directInDescription = (e) => `Direct Transfer In — ${e.description || 'vendor payment'}`;
 const directOutDescription = (src) => `Direct Transfer Out — paid on to vendor (${src})`;
+
+const customerName = (r) => r?.customer?.shop_name || r?.customer?.full_name || '';
+
+// Vendor-transfer recoveries paired with the Vendor Payment expense written for
+// them on approval (same account, amount and day; "salesman transfer" ones first).
+// → Map(expenseId → recovery). Works for any account, not only Direct Transfer.
+function pairVendorTransfers(transfers = [], expenses = []) {
+  const pairs = new Map();
+  const used = new Set();
+  const candidates = (expenses || [])
+    .filter((e) => e.category === 'Vendor Payment')
+    .sort((a, b) => Number(/salesman transfer/i.test(b.description || '')) - Number(/salesman transfer/i.test(a.description || '')));
+  for (const t of (transfers || [])) {
+    if (t.payment_type !== 'vendor_transfer') continue;
+    const day = String(t.recovery_date || t.created_at || '').slice(0, 10);
+    const e = candidates.find((x) => !used.has(x.id)
+      && expenseBankAmount(x) === Number(t.amount || 0)
+      && String(x.expense_date || '').slice(0, 10) === day);
+    if (e) { used.add(e.id); pairs.set(e.id, t); }
+  }
+  return pairs;
+}
+// Expense line text; a vendor transfer's payment also names the paying customer
+function expenseDescription(e, pairs) {
+  const base = `${e.category || 'Expense'}${e.description ? ` — ${e.description}` : ''}`;
+  const who = customerName(pairs?.get(e.id));
+  return who && !base.includes(who) ? `${base} — from ${who}` : base;
+}
 
 // → { inForExpense, outForTransfer, outForCheque }: Sets of source row ids to mirror
 function directTransferMirrors({ transfers = [], cheques = [], expenses = [] }) {
@@ -24,12 +55,15 @@ function directTransferMirrors({ transfers = [], cheques = [], expenses = [] }) 
   const vendorPays = expenses || [];
   const clearedNos = new Set((cheques || []).map((c) => c.cheque_number).filter(Boolean).map(String));
   const paidNos = new Set(vendorPays.map((e) => chequeNoFrom(e.description)).filter(Boolean));
+  const pairs = pairVendorTransfers(transfers, expenses);
+  const pairedTransferIds = new Set([...pairs.values()].map((t) => t.id));
   return {
     inForExpense: new Set(vendorPays.filter((e) => {
+      if (pairs.has(e.id)) return false;
       const no = chequeNoFrom(e.description);
       return !(no && clearedNos.has(no));
     }).map((e) => e.id)),
-    outForTransfer: new Set((transfers || []).map((t) => t.id)),
+    outForTransfer: new Set((transfers || []).filter((t) => !pairedTransferIds.has(t.id)).map((t) => t.id)),
     outForCheque: new Set((cheques || []).filter((c) => !(c.cheque_number && paidNos.has(String(c.cheque_number)))).map((c) => c.id)),
   };
 }
@@ -262,7 +296,7 @@ const getBankTransactions = async (req, res) => {
     // These are the primary way salesmen record payments received via bank transfer.
     // They were missing from the transactions list, causing wrong balances in the accounts table.
     const btParts = [
-      'select=id,amount,recovery_date,created_at,notes,reference_number,customer:users!customer_id(full_name),salesman:salesmen!salesman_id(full_name)',
+      'select=id,amount,recovery_date,created_at,notes,reference_number,payment_type,customer:users!customer_id(full_name,shop_name),salesman:salesmen!salesman_id(full_name)',
       'payment_method=eq.bank_transfer',
       'status=eq.approved',
       'reference_number=not.is.null',
@@ -297,7 +331,7 @@ const getBankTransactions = async (req, res) => {
     for (const id of Object.keys(accountMap).filter(aid => isDirectTransferAccount(accountMap[aid]))) {
       const acct = accountMap[id];
       const [dTransfers, dCheques, dExpenses] = await Promise.all([
-        pgrestGetRaw(`salesman_recoveries?select=id,amount,recovery_date,created_at,customer:users!customer_id(full_name,shop_name)&payment_method=eq.bank_transfer&status=eq.approved&reference_number=eq.${id}`).catch(() => []),
+        pgrestGetRaw(`salesman_recoveries?select=id,amount,recovery_date,created_at,payment_type,customer:users!customer_id(full_name,shop_name)&payment_method=eq.bank_transfer&status=eq.approved&reference_number=eq.${id}`).catch(() => []),
         pgrestGetRaw(`salesman_recoveries?select=id,amount,cleared_at,cheque_number,customer:users!customer_id(full_name,shop_name)&cleared_bank_account_id=eq.${id}&status=eq.approved`).catch(() => []),
         pgrestGetRaw(`expenses?select=id,amount,expense_date,category,description,method,bank_amount&bank_account_id=eq.${id}`).catch(() => []),
       ]);
@@ -322,6 +356,19 @@ const getBankTransactions = async (req, res) => {
       }
     }
 
+    // Vendor transfers: name the paying customer on the matching vendor payment
+    const txPairs = new Map();
+    for (const acctId of new Set((expenses || []).map(e => e.bank_account_id).filter(Boolean))) {
+      pairVendorTransfers(
+        bankTransferRecoveries.filter(r => r.reference_number === acctId),
+        (expenses || []).filter(e => e.bank_account_id === acctId)
+      ).forEach((t, expenseId) => txPairs.set(expenseId, t));
+    }
+    const withPayer = (e) => {
+      const who = customerName(txPairs.get(e.id));
+      return who && !(e.description || '').includes(who) ? `${e.description || ''} — from ${who}` : e.description;
+    };
+
     const merged = [
       ...directLines,
       ...(payments    || []).map((p) => ({ ...p, type: 'payment' })),
@@ -331,6 +378,7 @@ const getBankTransactions = async (req, res) => {
       ...bankTransferRecoveries,
       ...(expenses   || []).map((e) => ({
         ...e,
+        description: withPayer(e),
         type: 'expense',
         amount: e.method === 'split' ? Number(e.bank_amount || 0) : e.amount,
         created_at: e.expense_date,
@@ -417,7 +465,7 @@ const getBankLedger = async (req, res) => {
     const [transfers, cheques, expenses] = await Promise.all([
       // Bank-transfer recoveries routed to this account (reference_number = account UUID)
       pgrestGetRaw(
-        `salesman_recoveries?select=id,amount,recovery_date,created_at,notes,customer:users!customer_id(full_name,shop_name),salesman:salesmen!salesman_id(full_name)&payment_method=eq.bank_transfer&status=eq.approved&reference_number=eq.${id}`
+        `salesman_recoveries?select=id,amount,recovery_date,created_at,notes,payment_type,customer:users!customer_id(full_name,shop_name),salesman:salesmen!salesman_id(full_name)&payment_method=eq.bank_transfer&status=eq.approved&reference_number=eq.${id}`
       ).catch(() => []),
 
       // Cheques cleared into this account
@@ -459,6 +507,7 @@ const getBankLedger = async (req, res) => {
       credit: 0,
     });
 
+    const vtPairs = pairVendorTransfers(transfers, expenses);
     const mirrors = isDirectTransferAccount(account)
       ? directTransferMirrors({ transfers, cheques, expenses })
       : NO_MIRRORS;
@@ -515,7 +564,7 @@ const getBankLedger = async (req, res) => {
         id: e.id,
         date: e.expense_date,
         type: 'expense',
-        description: `${e.category || 'Expense'}${e.description ? ` — ${e.description}` : ''}`,
+        description: expenseDescription(e, vtPairs),
         debit: 0,
         credit: amt,
       });
@@ -599,7 +648,7 @@ const getBankSummary = async (req, res) => {
       }).catch(() => []),
 
       pgrestGet('salesman_recoveries', {
-        select: 'id,amount,reference_number',
+        select: 'id,amount,reference_number,payment_type,recovery_date,created_at',
         payment_method: 'eq.bank_transfer',
         status: 'eq.approved',
         reference_number: 'not.is.null',
@@ -611,7 +660,7 @@ const getBankSummary = async (req, res) => {
       ).catch(() => []),
 
       pgrestGet('expenses', {
-        select: 'id,amount,bank_account_id,method,bank_amount,category,description',
+        select: 'id,amount,bank_account_id,method,bank_amount,category,description,expense_date',
         bank_account_id: 'not.is.null',
         ...cfObj,
       }).catch(() => []),
@@ -714,7 +763,7 @@ const getMergedBankLedger = async (req, res) => {
 
       const [transfers, cheques, expenses] = await Promise.all([
         pgrestGetRaw(
-          `salesman_recoveries?select=id,amount,recovery_date,created_at,notes,customer:users!customer_id(full_name,shop_name),salesman:salesmen!salesman_id(full_name)&payment_method=eq.bank_transfer&status=eq.approved&reference_number=eq.${account.id}`
+          `salesman_recoveries?select=id,amount,recovery_date,created_at,notes,payment_type,customer:users!customer_id(full_name,shop_name),salesman:salesmen!salesman_id(full_name)&payment_method=eq.bank_transfer&status=eq.approved&reference_number=eq.${account.id}`
         ).catch(() => []),
         pgrestGetRaw(
           `salesman_recoveries?select=id,amount,cleared_at,cheque_number,cheque_bank,customer:users!customer_id(full_name,shop_name),salesman:salesmen!salesman_id(full_name)&cleared_bank_account_id=eq.${account.id}&status=eq.approved`
@@ -745,6 +794,7 @@ const getMergedBankLedger = async (req, res) => {
         account_name: account.account_name,
       });
 
+      const vtPairs = pairVendorTransfers(transfers, expenses);
       const mirrors = isDirectTransferAccount(account)
         ? directTransferMirrors({ transfers, cheques, expenses })
         : NO_MIRRORS;
@@ -780,7 +830,7 @@ const getMergedBankLedger = async (req, res) => {
             debit: amt, credit: 0, branch, account_name: account.account_name });
         }
         allEntries.push({ id: e.id, date: e.expense_date, type: 'expense',
-          description: `${e.category || 'Expense'}${e.description ? ` — ${e.description}` : ''}`,
+          description: expenseDescription(e, vtPairs),
           debit: 0, credit: amt, branch, account_name: account.account_name });
       }
       for (const c of (pettyCashClosings || [])) {
