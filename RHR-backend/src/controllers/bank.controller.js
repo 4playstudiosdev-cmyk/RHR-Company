@@ -3,21 +3,36 @@ const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestGetRaw, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
 
 // ─── "Direct Transfer" pass-through accounts ────────────────────────────────
-// A vendor payment booked to a Direct Transfer account was paid straight to the
-// vendor by a customer — the money comes IN and goes OUT at once, it never sits
-// in our bank. Only the OUT (the Vendor Payment expense) is stored, so each one
-// gets a matching IN line here. A payment by cheque already has its IN when
-// that cheque was cleared into this same account, so it is not mirrored twice.
+// Money in a Direct Transfer account went from a customer straight to a vendor:
+// it comes IN and goes OUT at once and never sits with us, so the account
+// always nets to zero. Only one side of each movement is stored, so the other
+// side is added here:
+//   • Vendor Payment expense (OUT)  → matching IN line just before it
+//   • Bank transfer received (IN)   → matching OUT line just after it
+//   • Cheque cleared (IN)           → matching OUT line just after it
+// A vendor payment made by cheque #N and cheque #N cleared into the same
+// account are already the two sides of one movement — neither is mirrored.
 const isDirectTransferAccount = (a) => !!a && /direct\s*transfer/i.test(`${a.account_name || ''} ${a.bank_name || ''}`);
 const chequeNoFrom = (text) => (String(text || '').match(/cheque\s*#\s*([A-Za-z0-9-]+)/i) || [])[1] || null;
 const expenseBankAmount = (e) => (e.method === 'split' ? Number(e.bank_amount || 0) : Number(e.amount || 0));
-function needsDirectInflow(expense, clearedChequeNos) {
-  if (expense.category !== 'Vendor Payment') return false;
-  const no = chequeNoFrom(expense.description);
-  return !(no && clearedChequeNos.has(no));
-}
 const directInDescription = (e) => `Direct Transfer In — ${e.description || 'vendor payment'}`;
-const chequeNoSet = (cheques) => new Set((cheques || []).map((c) => c.cheque_number).filter(Boolean).map(String));
+const directOutDescription = (src) => `Direct Transfer Out — paid on to vendor (${src})`;
+
+// → { inForExpense, outForTransfer, outForCheque }: Sets of source row ids to mirror
+function directTransferMirrors({ transfers = [], cheques = [], expenses = [] }) {
+  const vendorPays = (expenses || []).filter((e) => e.category === 'Vendor Payment');
+  const clearedNos = new Set((cheques || []).map((c) => c.cheque_number).filter(Boolean).map(String));
+  const paidNos = new Set(vendorPays.map((e) => chequeNoFrom(e.description)).filter(Boolean));
+  return {
+    inForExpense: new Set(vendorPays.filter((e) => {
+      const no = chequeNoFrom(e.description);
+      return !(no && clearedNos.has(no));
+    }).map((e) => e.id)),
+    outForTransfer: new Set((transfers || []).map((t) => t.id)),
+    outForCheque: new Set((cheques || []).filter((c) => !(c.cheque_number && paidNos.has(String(c.cheque_number)))).map((c) => c.id)),
+  };
+}
+const NO_MIRRORS = { inForExpense: new Set(), outForTransfer: new Set(), outForCheque: new Set() };
 
 // GET /api/v1/bank/accounts?company_id=
 const getBankAccounts = async (req, res) => {
@@ -270,37 +285,44 @@ const getBankTransactions = async (req, res) => {
         }));
     } catch (e) { /* ignore */ }
 
-    // Direct Transfer accounts: each vendor payment also came IN (see top of file).
-    // Cheque numbers are read without the date filter so a cheque cleared outside
-    // the selected range still counts as that payment's IN.
-    let directInflows = [];
-    const directIds = Object.keys(accountMap).filter(id => isDirectTransferAccount(accountMap[id]));
-    if (directIds.length) {
-      let clearedRows = [];
-      try {
-        clearedRows = await pgrestGetRaw(
-          `salesman_recoveries?select=cheque_number,cleared_bank_account_id&cleared_bank_account_id=in.(${directIds.join(',')})&status=eq.approved`
-        );
-      } catch (_) { /* phase72 not run yet */ }
-      const clearedByAcct = {};
-      (clearedRows || []).forEach(c => {
-        if (c.cheque_number) { if (!clearedByAcct[c.cleared_bank_account_id]) clearedByAcct[c.cleared_bank_account_id] = new Set(); clearedByAcct[c.cleared_bank_account_id].add(String(c.cheque_number)); }
-      });
-      directInflows = (expenses || [])
-        .filter(e => directIds.includes(e.bank_account_id) && needsDirectInflow(e, clearedByAcct[e.bank_account_id] || new Set()))
-        .map(e => ({
-          id: `din-${e.id}`,
-          type: 'payment',
-          method: 'direct_transfer',
-          amount: expenseBankAmount(e),
-          created_at: e.expense_date,
-          customer: { full_name: directInDescription(e) },
-          bank_accounts: e.bank_accounts,
-        }));
+    // Direct Transfer accounts: add the missing side of every movement (see top
+    // of file). Pairing is worked out on the account's full history, then the
+    // added lines are kept only if they fall inside the requested date range.
+    const directLines = [];
+    const inRange = (d) => {
+      const day = String(d || '').slice(0, 10);
+      return (!from || day >= from) && (!to || day <= to);
+    };
+    for (const id of Object.keys(accountMap).filter(aid => isDirectTransferAccount(accountMap[aid]))) {
+      const acct = accountMap[id];
+      const [dTransfers, dCheques, dExpenses] = await Promise.all([
+        pgrestGetRaw(`salesman_recoveries?select=id,amount,recovery_date,created_at,customer:users!customer_id(full_name,shop_name)&payment_method=eq.bank_transfer&status=eq.approved&reference_number=eq.${id}`).catch(() => []),
+        pgrestGetRaw(`salesman_recoveries?select=id,amount,cleared_at,cheque_number,customer:users!customer_id(full_name,shop_name)&cleared_bank_account_id=eq.${id}&status=eq.approved`).catch(() => []),
+        pgrestGetRaw(`expenses?select=id,amount,expense_date,category,description,method,bank_amount&bank_account_id=eq.${id}`).catch(() => []),
+      ]);
+      const m = directTransferMirrors({ transfers: dTransfers, cheques: dCheques, expenses: dExpenses });
+      for (const e of (dExpenses || [])) {
+        if (!m.inForExpense.has(e.id) || !inRange(e.expense_date)) continue;
+        directLines.push({ id: `din-${e.id}`, type: 'payment', method: 'direct_transfer', amount: expenseBankAmount(e),
+          created_at: e.expense_date, customer: { full_name: directInDescription(e) }, bank_accounts: acct });
+      }
+      for (const t of (dTransfers || [])) {
+        const date = t.recovery_date || t.created_at;
+        if (!m.outForTransfer.has(t.id) || !inRange(date)) continue;
+        directLines.push({ id: `dout-${t.id}`, type: 'expense', category: 'Direct Transfer Out', amount: Number(t.amount || 0),
+          description: directOutDescription(`bank transfer from ${t.customer?.shop_name || t.customer?.full_name || 'customer'}`),
+          created_at: date, bank_accounts: acct });
+      }
+      for (const c of (dCheques || [])) {
+        if (!m.outForCheque.has(c.id) || !inRange(c.cleared_at)) continue;
+        directLines.push({ id: `dout-${c.id}`, type: 'expense', category: 'Direct Transfer Out', amount: Number(c.amount || 0),
+          description: directOutDescription(`cheque${c.cheque_number ? ` #${c.cheque_number}` : ''} from ${c.customer?.shop_name || c.customer?.full_name || 'customer'}`),
+          created_at: c.cleared_at, bank_accounts: acct });
+      }
     }
 
     const merged = [
-      ...directInflows,
+      ...directLines,
       ...(payments    || []).map((p) => ({ ...p, type: 'payment' })),
       ...(cashPayments || []).map((p) => ({ ...p, type: 'payment' })),
       ...(cashRecoveries || []).map((r) => ({ ...r, type: 'payment' })),
@@ -436,17 +458,27 @@ const getBankLedger = async (req, res) => {
       credit: 0,
     });
 
+    const mirrors = isDirectTransferAccount(account)
+      ? directTransferMirrors({ transfers, cheques, expenses })
+      : NO_MIRRORS;
+
     for (const r of (transfers || [])) {
       const name = r.customer?.shop_name || r.customer?.full_name || '—';
       const note = r.notes ? r.notes.replace(/Bank:\s*[^·]+·?\s*/i, '').trim() : '';
+      const date = r.recovery_date || r.created_at;
       entries.push({
         id: r.id,
-        date: r.recovery_date || r.created_at,
+        date,
         type: 'transfer_in',
         description: `Bank Transfer — ${name}${note ? ` (${note})` : ''}${r.salesman?.full_name ? ` via ${r.salesman.full_name}` : ''}`,
         debit: Number(r.amount || 0),
         credit: 0,
       });
+      if (mirrors.outForTransfer.has(r.id)) {
+        entries.push({ id: `dout-${r.id}`, date, type: 'direct_out',
+          description: directOutDescription(`bank transfer from ${name}`),
+          debit: 0, credit: Number(r.amount || 0) });
+      }
     }
 
     for (const c of (cheques || [])) {
@@ -459,13 +491,16 @@ const getBankLedger = async (req, res) => {
         debit: Number(c.amount || 0),
         credit: 0,
       });
+      if (mirrors.outForCheque.has(c.id)) {
+        entries.push({ id: `dout-${c.id}`, date: c.cleared_at, type: 'direct_out',
+          description: directOutDescription(`cheque${c.cheque_number ? ` #${c.cheque_number}` : ''} from ${name}`),
+          debit: 0, credit: Number(c.amount || 0) });
+      }
     }
 
-    const directAccount = isDirectTransferAccount(account);
-    const clearedNos = chequeNoSet(cheques);
     for (const e of (expenses || [])) {
       const amt = expenseBankAmount(e);
-      if (directAccount && needsDirectInflow(e, clearedNos)) {
+      if (mirrors.inForExpense.has(e.id)) {
         entries.push({
           id: `din-${e.id}`,
           date: e.expense_date,
@@ -563,7 +598,7 @@ const getBankSummary = async (req, res) => {
       }).catch(() => []),
 
       pgrestGet('salesman_recoveries', {
-        select: 'amount,reference_number',
+        select: 'id,amount,reference_number',
         payment_method: 'eq.bank_transfer',
         status: 'eq.approved',
         reference_number: 'not.is.null',
@@ -571,11 +606,11 @@ const getBankSummary = async (req, res) => {
       }).catch(() => []),
 
       pgrestGetRaw(
-        `salesman_recoveries?select=amount,cleared_bank_account_id,cheque_number&cleared_bank_account_id=not.is.null&status=eq.approved${cf}`
+        `salesman_recoveries?select=id,amount,cleared_bank_account_id,cheque_number&cleared_bank_account_id=not.is.null&status=eq.approved${cf}`
       ).catch(() => []),
 
       pgrestGet('expenses', {
-        select: 'amount,bank_account_id,method,bank_amount,category,description',
+        select: 'id,amount,bank_account_id,method,bank_amount,category,description',
         bank_account_id: 'not.is.null',
         ...cfObj,
       }).catch(() => []),
@@ -597,19 +632,16 @@ const getBankSummary = async (req, res) => {
       if (id) outMap[id] = (outMap[id] || 0) + amt;
     });
 
-    // Direct Transfer accounts: mirror each vendor payment with its IN
-    const directIds = new Set((accounts || []).filter(isDirectTransferAccount).map(a => a.id));
-    if (directIds.size) {
-      const clearedByAcct = {};
-      (allCheques || []).forEach(c => {
-        if (!directIds.has(c.cleared_bank_account_id) || !c.cheque_number) return;
-        { if (!clearedByAcct[c.cleared_bank_account_id]) clearedByAcct[c.cleared_bank_account_id] = new Set(); clearedByAcct[c.cleared_bank_account_id].add(String(c.cheque_number)); }
-      });
-      (allBankExp || []).forEach(e => {
-        const id = e.bank_account_id;
-        if (!directIds.has(id) || !needsDirectInflow(e, clearedByAcct[id] || new Set())) return;
-        inMap[id] = (inMap[id] || 0) + expenseBankAmount(e);
-      });
+    // Direct Transfer accounts: add the missing side of every movement (see top of file)
+    for (const acct of (accounts || []).filter(isDirectTransferAccount)) {
+      const id = acct.id;
+      const transfers = (allTransfers || []).filter(r => r.reference_number === id);
+      const cheques = (allCheques || []).filter(c => c.cleared_bank_account_id === id);
+      const expenses = (allBankExp || []).filter(e => e.bank_account_id === id);
+      const m = directTransferMirrors({ transfers, cheques, expenses });
+      expenses.forEach(e => { if (m.inForExpense.has(e.id)) inMap[id] = (inMap[id] || 0) + expenseBankAmount(e); });
+      transfers.forEach(r => { if (m.outForTransfer.has(r.id)) outMap[id] = (outMap[id] || 0) + Number(r.amount || 0); });
+      cheques.forEach(c => { if (m.outForCheque.has(c.id)) outMap[id] = (outMap[id] || 0) + Number(c.amount || 0); });
     }
 
     const cashAccount = (accounts || []).find(a => a.bank_name === 'Cash' || a.account_name?.toLowerCase().includes('cash in hand'));
@@ -712,24 +744,36 @@ const getMergedBankLedger = async (req, res) => {
         account_name: account.account_name,
       });
 
+      const mirrors = isDirectTransferAccount(account)
+        ? directTransferMirrors({ transfers, cheques, expenses })
+        : NO_MIRRORS;
       for (const r of (transfers || [])) {
         const name = r.customer?.shop_name || r.customer?.full_name || '—';
         const note = r.notes ? r.notes.replace(/Bank:\s*[^·]+·?\s*/i, '').trim() : '';
-        allEntries.push({ id: r.id, date: r.recovery_date || r.created_at, type: 'transfer_in',
+        const date = r.recovery_date || r.created_at;
+        allEntries.push({ id: r.id, date, type: 'transfer_in',
           description: `Bank Transfer — ${name}${note ? ` (${note})` : ''}${r.salesman?.full_name ? ` via ${r.salesman.full_name}` : ''}`,
           debit: Number(r.amount || 0), credit: 0, branch, account_name: account.account_name });
+        if (mirrors.outForTransfer.has(r.id)) {
+          allEntries.push({ id: `dout-${r.id}`, date, type: 'direct_out',
+            description: directOutDescription(`bank transfer from ${name}`),
+            debit: 0, credit: Number(r.amount || 0), branch, account_name: account.account_name });
+        }
       }
       for (const c of (cheques || [])) {
         const name = c.customer?.shop_name || c.customer?.full_name || '—';
         allEntries.push({ id: c.id, date: c.cleared_at, type: 'cheque_in',
           description: `Cheque Cleared — ${name}${c.cheque_number ? ` #${c.cheque_number}` : ''}`,
           debit: Number(c.amount || 0), credit: 0, branch, account_name: account.account_name });
+        if (mirrors.outForCheque.has(c.id)) {
+          allEntries.push({ id: `dout-${c.id}`, date: c.cleared_at, type: 'direct_out',
+            description: directOutDescription(`cheque${c.cheque_number ? ` #${c.cheque_number}` : ''} from ${name}`),
+            debit: 0, credit: Number(c.amount || 0), branch, account_name: account.account_name });
+        }
       }
-      const directAccount = isDirectTransferAccount(account);
-      const clearedNos = chequeNoSet(cheques);
       for (const e of (expenses || [])) {
         const amt = expenseBankAmount(e);
-        if (directAccount && needsDirectInflow(e, clearedNos)) {
+        if (mirrors.inForExpense.has(e.id)) {
           allEntries.push({ id: `din-${e.id}`, date: e.expense_date, type: 'direct_in',
             description: directInDescription(e),
             debit: amt, credit: 0, branch, account_name: account.account_name });
