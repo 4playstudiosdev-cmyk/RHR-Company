@@ -17,6 +17,8 @@ const EXPENSE_CATEGORIES = [
   'Fuel', 'Vehicle Maintenance', 'Office Supplies', 'Utilities', 'Rent',
   'Salaries', 'Transport', 'Raw Material Purchase', 'Equipment', 'Other'
 ];
+// Categories that must name the vehicle the money was spent on
+const VEHICLE_CATEGORIES = ['Fuel', 'Vehicle Maintenance'];
 
 // Every expense can be tied to a person: a driver, a salesman, or one of the company's
 // "expense accounts" (a shop, a mechanic, "Home expense" …). The Add Expense form has one
@@ -394,6 +396,20 @@ export default function Expenses() {
 
   const handleSave = async (e) => {
     e.preventDefault();
+    // Every expense must say who it was for, which vehicle (fuel / maintenance)
+    // and carry a bill photo — otherwise it can't be traced later.
+    if (!form.person) {
+      toast.error('Select a Person / Account for this expense.');
+      return;
+    }
+    if (VEHICLE_CATEGORIES.includes(form.category) && !form.vehicle_id) {
+      toast.error(`Select the vehicle for this ${form.category} expense.`);
+      return;
+    }
+    if (!receiptFile) {
+      toast.error('Add a bill / receipt photo — it is required.');
+      return;
+    }
     if (!form.description.trim()) {
       toast.error('Description is required.');
       return;
@@ -898,7 +914,7 @@ export default function Expenses() {
                   )}
                 </div>
                 {!form.person && !personDropdownOpen && (
-                  <p className="text-[11px] text-gray-400 mt-1">No person selected — expense will be recorded as general.</p>
+                  <p className="text-[11px] text-red-500 mt-1">Required — pick who this expense is for (or create a new account).</p>
                 )}
                 {personDropdownOpen && (
                   <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
@@ -957,9 +973,9 @@ export default function Expenses() {
                 {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
-            {(form.category === 'Vehicle Maintenance' || form.category === 'Fuel') && (
+            {VEHICLE_CATEGORIES.includes(form.category) && (
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Vehicle</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Vehicle *</label>
                 <select
                   value={form.vehicle_id}
                   onChange={(e) => setForm({ ...form, vehicle_id: e.target.value })}
@@ -1135,7 +1151,7 @@ export default function Expenses() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Bill / Receipt Photo (optional)</label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Bill / Receipt Photo *</label>
               <input
                 ref={receiptInputRef}
                 type="file"

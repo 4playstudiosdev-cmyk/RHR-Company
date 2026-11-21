@@ -24,9 +24,9 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 
       // Expenses for the date — try with full joins, degrade gracefully
       pgrestGetRaw(
-        `expenses?select=id,category,description,amount,expense_date,method,bank_account_id,bank_accounts!expenses_bank_account_id_fkey(account_name,bank_name),salesmen(full_name),suppliers(name)&expense_date=eq.${date}${cf}&order=created_at.asc`
+        `expenses?select=id,category,description,amount,expense_date,method,bank_account_id,bank_accounts!expenses_bank_account_id_fkey(account_name,bank_name),salesman_id,salesmen(full_name),supplier_id,suppliers(name),driver_id,drivers(full_name,car_number),expense_account_id,employee_id,manufacturing_worker_id,manufacturing_head_id,vehicle_id&expense_date=eq.${date}${cf}&order=created_at.asc`
       ).catch(() =>
-        pgrestGet('expenses', { select: 'id,category,description,amount,expense_date,method,bank_account_id', expense_date: `eq.${date}`, ...cfObj, order: 'created_at.asc' })
+        pgrestGet('expenses', { select: 'id,category,description,amount,expense_date,method,bank_account_id,salesman_id,supplier_id,driver_id,expense_account_id,employee_id,manufacturing_worker_id,manufacturing_head_id,vehicle_id', expense_date: `eq.${date}`, ...cfObj, order: 'created_at.asc' })
       ),
 
       // Approved recoveries for the date
@@ -185,18 +185,47 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       } catch (e) { /* no production records — cost defaults to 0 */ }
     }
 
+    // ── Who each expense was for (expense account / person). These tables have no
+    // foreign key from expenses in the live DB, so names are looked up by id.
+    const nameMaps = {};
+    await Promise.all([
+      ['expense_account_id',      'expense_accounts',      'name'],
+      ['employee_id',             'employees',             'full_name'],
+      ['manufacturing_worker_id', 'manufacturing_workers', 'full_name'],
+      ['manufacturing_head_id',   'manufacturing_heads',   'full_name'],
+      ['vehicle_id',              'vehicles',              'name'],
+    ].map(async ([col, table, field]) => {
+      const ids = [...new Set((expenses || []).map(e => e[col]).filter(Boolean))];
+      if (!ids.length) { nameMaps[col] = {}; return; }
+      const rows = await pgrestGetRaw(`${table}?select=id,${field}&id=in.(${ids.join(',')})`).catch(() => []);
+      nameMaps[col] = Object.fromEntries((rows || []).map(r => [r.id, r[field]]));
+    }));
+    const personOf = (e) =>
+      nameMaps.expense_account_id?.[e.expense_account_id]
+      || (e.drivers ? `${e.drivers.full_name}${e.drivers.car_number ? ` — ${e.drivers.car_number}` : ''}` : '')
+      || e.salesmen?.full_name
+      || nameMaps.employee_id?.[e.employee_id]
+      || nameMaps.manufacturing_head_id?.[e.manufacturing_head_id]
+      || nameMaps.manufacturing_worker_id?.[e.manufacturing_worker_id]
+      || e.suppliers?.name
+      || (nameMaps.vehicle_id?.[e.vehicle_id] ? `Vehicle — ${nameMaps.vehicle_id[e.vehicle_id]}` : '')
+      || '';
+
     // ── Expenses with running balance
     let runBalance = 0;
     const expenseList = (expenses || []).map((e, i) => {
       runBalance += Number(e.amount || 0);
+      const paidFrom = e.bank_accounts
+        ? `${e.bank_accounts.bank_name} — ${e.bank_accounts.account_name}`
+        : (e.method === 'cash' ? 'Cash' : '');
       return {
         sno: i + 1,
         date: e.expense_date,
         category: e.category || 'Other',
         description: e.description || '',
-        account: e.bank_accounts
-          ? `${e.bank_accounts.bank_name} — ${e.bank_accounts.account_name}`
-          : (e.method === 'cash' ? 'Cash' : e.salesmen?.full_name || e.suppliers?.name || ''),
+        person: personOf(e),          // who the expense was for (A/C Name)
+        paid_from: paidFrom,          // cash / which bank it was paid from
+        account: paidFrom || e.salesmen?.full_name || e.suppliers?.name || '',
         amount: Number(e.amount || 0),
         running_balance: runBalance,
         bank_account_id: e.bank_account_id || null,

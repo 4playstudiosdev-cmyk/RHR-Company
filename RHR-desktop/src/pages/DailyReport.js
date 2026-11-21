@@ -80,17 +80,17 @@ async function buildDailyReportPdf(reportDate, data, cityName) {
   } else {
     autoTable(doc, {
       startY: y,
-      head: [['SNo', 'Date', 'A/C Name', 'Description', 'Amount', 'Balance']],
+      head: [['SNo', 'Date', 'A/C Name', 'Description', 'Paid From', 'Amount', 'Balance']],
       body: data.expenses.map(e => [
-        e.sno, e.date, e.account || e.category, e.description,
+        e.sno, e.date, e.person || e.category, e.description, e.paid_from || e.account || '',
         fmtPKR(e.amount), fmtPKR(e.running_balance),
       ]),
-      foot: [['', '', '', 'Grand Total', fmtPKR(data.summary.total_expenses), '']],
+      foot: [['', '', '', '', 'Grand Total', fmtPKR(data.summary.total_expenses), '']],
       margin: { left: M, right: M },
       headStyles: { fillColor: NAVY, textColor: WHITE, fontSize: 8, fontStyle: 'bold' },
       bodyStyles: { fontSize: 7.5, textColor: [30, 30, 30] },
       footStyles: { fillColor: NAVY, textColor: ORANGE, fontStyle: 'bold', fontSize: 8 },
-      columnStyles: { 0: { cellWidth: 10 }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+      columnStyles: { 0: { cellWidth: 10 }, 5: { halign: 'right' }, 6: { halign: 'right' } },
       styles: { cellPadding: { top: 2.5, bottom: 2.5, left: 3, right: 3 } },
     });
     y = doc.lastAutoTable.finalY + 6;
@@ -438,7 +438,7 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-semibold">
-                      {['SNo', 'Date', 'A/C Name', 'Description', 'Amount', 'Balance'].map(h => (
+                      {['SNo', 'Date', 'A/C Name', 'Description', 'Paid From', 'Amount', 'Balance'].map(h => (
                         <th key={h} className="px-4 py-2.5 text-left">{h}</th>
                       ))}
                     </tr>
@@ -448,8 +448,9 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                       <tr key={e.sno} className="border-b border-gray-50 hover:bg-gray-50/60">
                         <td className="px-4 py-2.5 text-gray-400">{e.sno}</td>
                         <td className="px-4 py-2.5">{e.date}</td>
-                        <td className="px-4 py-2.5 font-medium text-navy">{e.account || e.category}</td>
+                        <td className="px-4 py-2.5 font-medium text-navy">{e.person || <span className="text-gray-400 font-normal">{e.category}</span>}</td>
                         <td className="px-4 py-2.5 text-gray-600">{e.description}</td>
+                        <td className="px-4 py-2.5 text-gray-500 text-xs">{e.paid_from || e.account || '—'}</td>
                         <td className="px-4 py-2.5 text-right font-semibold text-red-600">{fmtPKR(e.amount)}</td>
                         <td className="px-4 py-2.5 text-right font-semibold text-navy">{fmtPKR(e.running_balance)}</td>
                       </tr>
@@ -457,7 +458,7 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                   </tbody>
                   <tfoot>
                     <tr className="bg-navy">
-                      <td colSpan={4} className="px-4 py-2.5 text-white font-bold text-xs">GRAND TOTAL</td>
+                      <td colSpan={5} className="px-4 py-2.5 text-white font-bold text-xs">GRAND TOTAL</td>
                       <td className="px-4 py-2.5 text-right text-white font-bold">{fmtPKR(s.total_expenses)}</td>
                       <td></td>
                     </tr>
