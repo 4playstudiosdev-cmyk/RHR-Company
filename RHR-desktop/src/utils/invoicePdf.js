@@ -109,8 +109,8 @@ export async function buildInvoicePdf(order, { withTax = false, conveyance = 0, 
     headStyles: { fillColor: [27, 39, 58], textColor: 255, fontStyle: 'bold', fontSize: 9.5 },
     bodyStyles: { fontSize: 9.5, textColor: [30, 30, 30] },
     columnStyles: withRate
-      ? { 0: { cellWidth: 10 }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' } }
-      : { 0: { cellWidth: 10 }, 3: { halign: 'right' } },
+      ? { 0: { cellWidth: 15, halign: 'center' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' } }
+      : { 0: { cellWidth: 15, halign: 'center' }, 3: { halign: 'right' } },
     styles: { cellPadding: { top: 4, bottom: 4, left: 4, right: 4 } }
   });
 

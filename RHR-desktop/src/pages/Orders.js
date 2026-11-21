@@ -472,8 +472,18 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
         delivery_address: dispatchForm.delivery_address,
         priority: dispatchForm.priority
       });
+      // Show the chosen driver / vehicle on the row right away (was "—" until refresh)
+      const chosenDriver = driversList.find((d) => d.id === dispatchForm.driver_id);
       setOrders((prev) =>
-        prev.map((o) => (o.id === dispatchingOrder.id ? { ...o, status: 'dispatched' } : o))
+        prev.map((o) => (o.id === dispatchingOrder.id ? {
+          ...o,
+          status: 'dispatched',
+          driver_id: dispatchForm.driver_id,
+          car_number: dispatchForm.car_number,
+          delivery_address: dispatchForm.delivery_address,
+          priority: dispatchForm.priority,
+          drivers: chosenDriver ? { ...(o.drivers || {}), full_name: chosenDriver.full_name, car_number: dispatchForm.car_number || chosenDriver.car_number } : o.drivers,
+        } : o))
       );
       toast.success(`Order ${dispatchingOrder.order_number} dispatched.`);
       setShowDispatchModal(false);
@@ -1248,7 +1258,21 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5">
-                            {(order.status === 'dispatched' || order.status === 'delivered') && (
+                            {/* Dispatched: one Print button, same as an invoiced order. If the
+                                invoice wasn't made at dispatch, it runs the same check-order /
+                                tax / conveyance steps first, then downloads it. */}
+                            {order.status === 'dispatched' && (
+                              <button
+                                onClick={() => handleInvoice(order)}
+                                disabled={pdfLoadingId === order.id}
+                                title="Print invoice"
+                                className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
+                              >
+                                <Printer size={14} />
+                                {pdfLoadingId === order.id ? 'Generating...' : 'Print'}
+                              </button>
+                            )}
+                            {order.status === 'delivered' && (
                               <button
                                 onClick={() => setPrintRateOrder(order)}
                                 disabled={pdfLoadingId === order.id}
@@ -1268,16 +1292,6 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                               >
                                 <FileDown size={14} />
                                 {editInvoiceLoadingId === order.id ? 'Loading...' : 'Edit Invoice'}
-                              </button>
-                            )}
-                            {order.status === 'dispatched' && (
-                              <button
-                                onClick={() => handleInvoice(order)}
-                                disabled={pdfLoadingId === order.id}
-                                className="flex items-center gap-1.5 bg-navy hover:bg-navy/90 disabled:opacity-60 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors"
-                              >
-                                <FileDown size={14} />
-                                {pdfLoadingId === order.id ? 'Generating...' : 'Create Invoice'}
                               </button>
                             )}
                             {(order.status === 'confirmed' || order.status === 'preparing') && (

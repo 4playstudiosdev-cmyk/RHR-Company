@@ -129,7 +129,7 @@ function MapLocationPicker({ initialLat, initialLng, onSave, onClose }) {
 // same default the Products/Raw Materials pages use, since there's no
 // single real branch a "combined view" create action could target.
 const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
-const EMPTY_CUSTOMER_FORM = { full_name: '', phone: '', email: '', shop_name: '', shop_address: '', city: '', area: '', rate_tier: 'manual', salesman_id: '', opening_balance_amount: '', shop_latitude: null, shop_longitude: null };
+const EMPTY_CUSTOMER_FORM = { full_name: '', phone: '', email: '', shop_name: '', shop_address: '', city: '', area: '', rate_tier: 'manual', salesman_id: '', opening_balance_amount: '', credit_limit: '', shop_latitude: null, shop_longitude: null };
 
 // customerForm.phone holds ONLY the local 10-digit subscriber number
 // (no country code, no leading 0) — the Phone field shows a fixed "+92"
@@ -621,12 +621,14 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
     setSavingCustomer(true);
     try {
       const targetCompanyId = selectedCity === 'all' ? KARACHI_COMPANY_ID : selectedCity;
-      const { opening_balance_amount, ...customerPayload } = customerForm;
+      const { opening_balance_amount, credit_limit, ...customerPayload } = customerForm;
       const res = await api.post('/customers', {
         ...customerPayload,
         phone: toApiPhone(customerForm.phone),
         salesman_id: customerForm.salesman_id || null,
-        company_id: targetCompanyId
+        company_id: targetCompanyId,
+        // blank = no limit; editable later in the Credit Limit column
+        credit_limit: credit_limit === '' || credit_limit == null ? null : Number(credit_limit),
       });
       const newCustomer = res.data?.data;
       if (newCustomer?.id && opening_balance_amount && Number(opening_balance_amount) > 0) {
@@ -699,7 +701,8 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
     }
     setSavingCustomer(true);
     try {
-      const { salesman_id, ...rest } = customerForm;
+      // credit_limit is edited in the list's Credit Limit column, not here
+      const { salesman_id, credit_limit: _creditLimit, ...rest } = customerForm;
       await api.patch(`/customers/${editingCustomer.id}`, { ...rest, phone: toApiPhone(customerForm.phone) });
       if (salesman_id !== (editingCustomer.salesman_id || '')) {
         await api.patch(`/customers/${editingCustomer.id}/assign-salesman`, { salesman_id: salesman_id || null });
@@ -1808,6 +1811,23 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                 </p>
               </div>
             )}
+            {!editingCustomer && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Credit Limit (optional)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="Credit limit (PKR)"
+                  value={customerForm.credit_limit}
+                  onChange={(e) => setCustomerForm({ ...customerForm, credit_limit: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition-shadow"
+                />
+                <p className="text-xs text-gray-400 mt-1.5">
+                  Maximum the customer may owe. Leave blank for no limit — it can be changed any time in the Credit Limit column of the customer list.
+                </p>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Assign Salesman (optional)</label>
               <select
@@ -1913,6 +1933,10 @@ export default function Customers({ onViewLedger, autoOpenCreate }) {
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Opening Balance</p>
                     <p className="text-sm font-medium text-navy">{customerForm.opening_balance_amount ? `PKR ${Number(customerForm.opening_balance_amount).toLocaleString()}` : 'None'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Credit Limit</p>
+                    <p className="text-sm font-medium text-navy">{customerForm.credit_limit !== '' && customerForm.credit_limit != null ? `PKR ${Number(customerForm.credit_limit).toLocaleString()}` : 'No limit'}</p>
                   </div>
                 </div>
                 <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
