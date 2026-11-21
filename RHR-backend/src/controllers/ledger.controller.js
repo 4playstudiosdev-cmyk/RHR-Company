@@ -22,6 +22,60 @@ const canAccessLedger = async (user, customerId) => {
   return true;
 };
 
+// Name the vendor on direct-vendor-transfer entries so the money trail can be
+// verified from the customer side — on screen, in the PDF statement and in Excel.
+// Linked entries use reference_id; older ones saved without it (early Sukkur
+// entries) are matched to the customer's approved vendor transfer of the same
+// amount and day. Best effort: on any lookup failure descriptions stay as stored.
+const vendorText = (vendor) => `Direct vendor transfer to ${vendor} — customer balance settled`;
+async function nameVendorTransfers(entries, customerId) {
+  let data = entries || [];
+  const recIds = [...new Set(data.filter(e => e.reference_type === 'recovery' && e.reference_id).map(e => e.reference_id))];
+  if (recIds.length) {
+    try {
+      const recs = await pgrestGetRaw(
+        `salesman_recoveries?select=id,suppliers!vendor_id(name)&payment_type=eq.vendor_transfer&id=in.(${recIds.join(',')})`
+      );
+      const vendorByRec = Object.fromEntries((recs || []).filter(r => r.suppliers?.name).map(r => [r.id, r.suppliers.name]));
+      data = data.map(e => {
+        const vendor = vendorByRec[e.reference_id];
+        if (!vendor || (e.description || '').includes(vendor)) return e;
+        return { ...e, description: vendorText(vendor), vendor_name: vendor };
+      });
+    } catch (_) { /* vendor_id column or join unavailable */ }
+  }
+
+  const unlinked = data.filter(e => e.reference_type === 'recovery' && !e.reference_id
+    && /vendor transfer/i.test(e.description || '') && !/vendor transfer to /i.test(e.description || ''));
+  if (unlinked.length) {
+    try {
+      const recs = await pgrestGetRaw(
+        `salesman_recoveries?select=id,amount,recovery_date,created_at,suppliers!vendor_id(name)&payment_type=eq.vendor_transfer&status=eq.approved&customer_id=eq.${customerId}&order=created_at.asc`
+      );
+      const pool = (recs || []).filter(r => r.suppliers?.name).map(r => ({ ...r, used: false }));
+      const vendorByEntry = {};
+      for (const e of unlinked) {
+        const day = String(e.created_at || '').slice(0, 10);
+        const r = pool.find(x => !x.used && Number(x.amount) === Number(e.amount)
+          && String(x.recovery_date || x.created_at || '').slice(0, 10) === day);
+        if (r) { r.used = true; vendorByEntry[e.id] = r.suppliers.name; }
+      }
+      data = data.map(e => vendorByEntry[e.id]
+        ? { ...e, description: vendorText(vendorByEntry[e.id]), vendor_name: vendorByEntry[e.id] }
+        : e);
+    } catch (_) { /* vendor_id column or join unavailable */ }
+  }
+  return data;
+}
+
+// Opening balance always leads, then chronological (same order everywhere)
+const ledgerOrder = (a, b) => {
+  const aOp = a.reference_type === 'opening_balance' ? 0 : 1;
+  const bOp = b.reference_type === 'opening_balance' ? 0 : 1;
+  if (aOp !== bOp) return aOp - bOp;
+  return new Date(a.created_at) - new Date(b.created_at);
+};
+
 // POST /api/v1/ledger/adjustment
 // Admin manually adds a debit or credit entry — opening balance, adjustment, discount, etc.
 const adjustLedger = async (req, res) => {
@@ -172,45 +226,7 @@ const getLedger = async (req, res) => {
     if (from_date) data = data.filter(e => e.created_at >= from_date);
     if (to_date)   data = data.filter(e => e.created_at <= to_date + 'T23:59:59.999Z');
 
-    // Name the vendor on direct-vendor-transfer entries so the money trail can be verified
-    // from the customer side (old entries only say "settled via supplier").
-    const recIds = [...new Set(data.filter(e => e.reference_type === 'recovery' && e.reference_id).map(e => e.reference_id))];
-    if (recIds.length) {
-      try {
-        const recs = await pgrestGetRaw(
-          `salesman_recoveries?select=id,suppliers!vendor_id(name)&payment_type=eq.vendor_transfer&id=in.(${recIds.join(',')})`
-        );
-        const vendorByRec = Object.fromEntries((recs || []).filter(r => r.suppliers?.name).map(r => [r.id, r.suppliers.name]));
-        data = data.map(e => {
-          const vendor = vendorByRec[e.reference_id];
-          if (!vendor || (e.description || '').includes(vendor)) return e;
-          return { ...e, description: `Direct vendor transfer to ${vendor} — customer balance settled` };
-        });
-      } catch (_) { /* vendor_id column or join unavailable — leave descriptions as stored */ }
-    }
-
-    // Older entries (e.g. early Sukkur ones) were saved without reference_id, so
-    // match them to this customer's approved vendor transfer of the same amount and day.
-    const unlinked = data.filter(e => e.reference_type === 'recovery' && !e.reference_id
-      && /vendor transfer/i.test(e.description || '') && !/vendor transfer to /i.test(e.description || ''));
-    if (unlinked.length) {
-      try {
-        const recs = await pgrestGetRaw(
-          `salesman_recoveries?select=id,amount,recovery_date,created_at,suppliers!vendor_id(name)&payment_type=eq.vendor_transfer&status=eq.approved&customer_id=eq.${customerId}&order=created_at.asc`
-        );
-        const pool = (recs || []).filter(r => r.suppliers?.name).map(r => ({ ...r, used: false }));
-        const vendorByEntry = {};
-        for (const e of unlinked) {
-          const day = String(e.created_at || '').slice(0, 10);
-          const r = pool.find(x => !x.used && Number(x.amount) === Number(e.amount)
-            && String(x.recovery_date || x.created_at || '').slice(0, 10) === day);
-          if (r) { r.used = true; vendorByEntry[e.id] = r.suppliers.name; }
-        }
-        data = data.map(e => vendorByEntry[e.id]
-          ? { ...e, description: `Direct vendor transfer to ${vendorByEntry[e.id]} — customer balance settled` }
-          : e);
-      } catch (_) { /* vendor_id column or join unavailable — leave descriptions as stored */ }
-    }
+    data = await nameVendorTransfers(data, customerId);
     data = [...data].reverse();
 
     return success(res, { entries: data, currentBalance });
@@ -249,9 +265,9 @@ const downloadStatement = async (req, res) => {
       .order('created_at', { ascending: true });
     if (dbError) throw new Error(dbError.message);
 
-    // Recompute running_balance sequentially (same as getLedger)
+    // Recompute running_balance sequentially (same order and maths as getLedger)
     let bal = 0;
-    const recalculated = (allRaw || []).map(entry => {
+    const recalculated = [...(allRaw || [])].sort(ledgerOrder).map(entry => {
       bal = entry.entry_type === 'debit' ? bal + Number(entry.amount) : bal - Number(entry.amount);
       return { ...entry, running_balance: bal };
     });
@@ -262,6 +278,7 @@ const downloadStatement = async (req, res) => {
     if (to_date)   entries = entries.filter(e => e.created_at <= to_date + 'T23:59:59.999Z');
 
     const currentBalance = entries.length > 0 ? entries[entries.length - 1].running_balance : 0;
+    entries = await nameVendorTransfers(entries, customerId);
 
     // Order-type ledger entries only ever say "Order KHI-2026-00015
     // confirmed" — no product detail. One batched lookup fetches what was
@@ -319,8 +336,9 @@ const downloadStatementExcel = async (req, res) => {
     if (from_date) query = query.gte('created_at', from_date);
     if (to_date)   query = query.lte('created_at', to_date);
 
-    const { data: entries, error: dbError } = await query;
+    const { data: rawEntries, error: dbError } = await query;
     if (dbError) throw new Error(dbError.message);
+    const entries = await nameVendorTransfers([...(rawEntries || [])].sort(ledgerOrder), customerId);
 
     const rows = entries.map(e => ({
       Date:        new Date(e.created_at).toLocaleDateString('en-GB'),

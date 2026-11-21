@@ -103,7 +103,14 @@ async function buildStatementPDF({ customer, company, entries, fromDate, toDate,
 
     entries.forEach((entry, index) => {
       const hasSummary = !!entry.itemsSummary;
-      const rowH = hasSummary ? 30 : 20;
+      // Grow the row to fit a long description (e.g. "Direct vendor transfer to
+      // <vendor> — customer balance settled") instead of clipping it.
+      const descW = col.desc.w - 8;
+      doc.font('Helvetica').fontSize(8);
+      const descH = doc.heightOfString(entry.description || '-', { width: descW });
+      doc.font('Helvetica-Oblique').fontSize(7);
+      const sumH = hasSummary ? doc.heightOfString(entry.itemsSummary, { width: descW }) : 0;
+      const rowH = Math.max(20, Math.ceil(6 + descH + (hasSummary ? 2 + sumH : 0) + 5));
 
       if (rowY + rowH > pageBottom) {
         doc.addPage();
@@ -122,10 +129,10 @@ async function buildStatementPDF({ customer, company, entries, fromDate, toDate,
       doc.text(extractOrderNumber(entry.description) || '—', col.orderNo.x + 4, rowY + 6, { width: col.orderNo.w - 6 });
 
       doc.fillColor(BLACK).font('Helvetica').fontSize(8);
-      doc.text(entry.description || '-', col.desc.x + 4, rowY + 6, { width: col.desc.w - 8 });
+      doc.text(entry.description || '-', col.desc.x + 4, rowY + 6, { width: descW });
       if (hasSummary) {
         doc.fillColor(GRAY).font('Helvetica-Oblique').fontSize(7)
-           .text(entry.itemsSummary, col.desc.x + 4, rowY + 17, { width: col.desc.w - 8 });
+           .text(entry.itemsSummary, col.desc.x + 4, rowY + 6 + descH + 2, { width: descW });
       }
 
       doc.fillColor(typeColor).font('Helvetica-Bold').fontSize(8);
