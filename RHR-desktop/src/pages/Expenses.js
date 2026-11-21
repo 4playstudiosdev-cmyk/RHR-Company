@@ -49,6 +49,91 @@ const EMPTY_FORM = {
   payLater: false,
 };
 
+// "By Person" picker: type a name to filter the people / expense accounts, grouped
+// like before. Enter picks the first match, Esc closes, "All" clears the filter.
+// `totals` (key → amount spent in the period) is shown next to each name.
+function SearchablePersonFilter({ value, onChange, groups, totals = {} }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const boxRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) { setOpen(false); setQuery(''); } };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  const all = groups.flatMap((g) => g.items);
+  const selected = all.find((i) => i.key === value);
+  const q = query.trim().toLowerCase();
+  const filtered = groups
+    .map((g) => ({ ...g, items: q ? g.items.filter((i) => i.label.toLowerCase().includes(q)) : g.items }))
+    .filter((g) => g.items.length);
+  const firstMatch = filtered[0]?.items[0];
+
+  const pick = (key) => { onChange(key); setOpen(false); setQuery(''); inputRef.current?.blur(); };
+
+  return (
+    <div ref={boxRef} className="relative min-w-[260px] w-full sm:w-80">
+      <div className={`flex items-center gap-2 border rounded-lg px-3 py-2 bg-white ${open ? 'border-navy ring-2 ring-navy/30' : 'border-gray-300'}`}>
+        <Search size={14} className="text-gray-400 shrink-0" />
+        <input
+          ref={inputRef}
+          value={open ? query : (selected?.label || (value ? 'Selected person' : ''))}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { setOpen(false); setQuery(''); e.currentTarget.blur(); }
+            if (e.key === 'Enter') { e.preventDefault(); if (firstMatch) pick(firstMatch.key); }
+          }}
+          placeholder="All — type a name to search…"
+          className="flex-1 min-w-0 text-sm outline-none bg-transparent"
+        />
+        {value ? (
+          <button type="button" onClick={() => pick('')} className="text-gray-400 hover:text-red-500" title="Show everyone">
+            <X size={14} />
+          </button>
+        ) : (
+          <ChevronDown size={14} className="text-gray-400 shrink-0" />
+        )}
+      </div>
+      {open && (
+        <div className="absolute z-30 mt-1 w-full max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => pick('')}
+            className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${!value ? 'bg-navy-chip font-semibold text-navy' : 'text-gray-700'}`}
+          >
+            All
+          </button>
+          {filtered.length === 0 ? (
+            <p className="px-3 py-3 text-xs text-gray-400">No name matches “{query}”.</p>
+          ) : filtered.map((g) => (
+            <div key={g.label}>
+              <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-gray-50">{g.label}</p>
+              {g.items.map((item) => (
+                <button
+                  type="button"
+                  key={item.key}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => pick(item.key)}
+                  className={`w-full flex items-center justify-between gap-2 text-left px-3 py-2 text-sm hover:bg-gray-50 ${value === item.key ? 'bg-navy-chip font-semibold text-navy' : 'text-gray-800'}`}
+                >
+                  <span className="truncate">{item.label}</span>
+                  {totals[item.key] ? <span className="text-xs text-red-600 shrink-0">PKR {Number(totals[item.key]).toLocaleString()}</span> : null}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Expenses() {
   const toast = useToast();
   const user = getCurrentUser();
@@ -680,27 +765,19 @@ export default function Expenses() {
               <h3 className="font-semibold text-navy text-sm">Who the money went to — {dateFrom && dateTo ? `${dateFrom} to ${dateTo}` : 'all time'}</h3>
               <p className="text-xs text-gray-500 mt-0.5">Showing everyone together — pick a person to see only their expenses month by month and as a ledger. Use "All Time" in the date filter above for their full history.</p>
             </div>
-            <select
+            <SearchablePersonFilter
               value={personFilter}
-              onChange={(e) => setPersonFilter(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy bg-white min-w-[220px]"
-            >
-              <option value="">All</option>
-              {[
+              onChange={setPersonFilter}
+              groups={[
+                { label: 'Expense Accounts', items: accountsList.map((a) => ({ key: personKey('account', a.id), label: a.name })) },
                 { label: 'Drivers', items: driversList.map((d) => ({ key: personKey('driver', d.id), label: d.full_name + (d.car_number ? ` — ${d.car_number}` : '') })) },
                 { label: 'Salesmen', items: salesmenList.map((s) => ({ key: personKey('salesman', s.id), label: s.full_name })) },
                 { label: 'HRM Employees', items: employeesList.map((emp) => ({ key: personKey('employee', emp.id), label: emp.full_name + (emp.city ? ` — ${emp.city}` : '') })) },
                 { label: 'Manufacturing Heads', items: headsList.map((h) => ({ key: personKey('head', h.id), label: h.full_name })) },
                 { label: 'Manufacturing Workers', items: workersList.map((w) => ({ key: personKey('worker', w.id), label: w.full_name })) },
-                { label: 'Expense Accounts', items: accountsList.map((a) => ({ key: personKey('account', a.id), label: a.name })) },
-              ].map(({ label, items }) =>
-                items.length ? (
-                  <optgroup key={label} label={label}>
-                    {items.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
-                  </optgroup>
-                ) : null
-              )}
-            </select>
+              ]}
+              totals={Object.fromEntries(personTotals.map((p) => [p.key, p.total]))}
+            />
           </div>
 
           {(personEntries.length > 0 || personFilter) && (
