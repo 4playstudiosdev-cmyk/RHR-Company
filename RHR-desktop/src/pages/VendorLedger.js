@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { BookOpen, TrendingDown, TrendingUp, Wallet, X, Banknote, Building2, FileText, ImagePlus, Trash2, Pencil, Check, ChevronDown, ChevronUp, Info, Download } from 'lucide-react';
-import { exportLedgerPdf, pdfAmount, pdfDate } from '../utils/ledgerPdf';
+import { exportLedgerPdf, pdfAmount, pdfMoney, pdfDate, cityNameOf } from '../utils/ledgerPdf';
 import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
@@ -235,25 +235,48 @@ export default function VendorLedger({ initialSupplierId }) {
 
   // Whole ledger (all pages), oldest first, as a downloadable statement
   const handleDownloadPdf = async () => {
+    // Plain-language type and particulars for the printed statement
+    const pdfType = (e) => {
+      if (e.reference_type === 'opening_balance') return 'Opening Balance';
+      if (e.reference_type === 'purchase') return 'Purchase';
+      if (e.reference_type === 'payment') return 'Payment';
+      if (e.reference_type === 'vendor_transfer') return 'Vendor Transfer';
+      return e.entry_type === 'debit' ? 'Adjustment (Dr)' : 'Adjustment (Cr)';
+    };
+    const particulars = (e) => {
+      if (e.reference_type === 'opening_balance') {
+        return e.entry_type === 'credit' ? 'Opening balance — advance already paid to supplier' : 'Opening balance — amount payable to supplier';
+      }
+      return (e.description || '').replace(/^\d{4}-\d{2}-\d{2}\s+—\s+/, '');   // drop the repeated date prefix
+    };
+    const balanceText = (b) => (Number(b) < 0 ? `${pdfMoney(b)} Adv.` : pdfMoney(b));
+    const dates = chronoEntries.map((e) => e.created_at).filter(Boolean).sort();
+    const closingLabel = currentBalance > 0 ? 'Closing Balance — Payable' : currentBalance < 0 ? 'Closing Balance — Advance' : 'Closing Balance — Settled';
     try {
       await exportLedgerPdf({
-        title: `Vendor Ledger — ${selectedSupplier?.name || 'Supplier'}`,
-        subtitle: `${selectedSupplier?.contact_number ? `${selectedSupplier.contact_number} · ` : ''}Statement — ${new Date().toLocaleDateString('en-GB')}`,
-        head: ['#', 'Date', 'Description', 'Type', 'Debit (Owe)', 'Credit (Paid)', 'Balance'],
+        docType: 'Vendor Ledger',
+        city: cityNameOf(selectedSupplier?.company_id),
+        details: [
+          ['Supplier', selectedSupplier?.name || '-'],
+          ['Contact', selectedSupplier?.contact_number || '-'],
+          ['City', cityNameOf(selectedSupplier?.company_id) || '-'],
+          ['Period', dates.length ? `${pdfDate(dates[0])} to ${pdfDate(dates[dates.length - 1])}` : '-'],
+        ],
+        head: ['#', 'Date', 'Particulars', 'Type', 'Purchase (Dr)', 'Payment (Cr)', 'Balance'],
         body: chronoEntries.map((e, i) => [
           i + 1,
           pdfDate(e.created_at),
-          e.description || '',
-          typeLabel(e),
+          particulars(e),
+          pdfType(e),
           e.entry_type === 'debit' ? pdfAmount(e.amount) : '-',
           e.entry_type === 'credit' ? pdfAmount(e.amount) : '-',
-          `PKR ${Number(e.running_balance || 0).toLocaleString()}`,
+          balanceText(e.running_balance),
         ]),
         rightCols: [4, 5, 6],
         summary: [
-          ['Total Purchases', pdfAmount(totalDebit)],
-          ['Total Payments', pdfAmount(totalCredit)],
-          [currentBalance >= 0 ? 'Balance (you owe)' : 'Balance (supplier owes you)', `PKR ${Math.abs(currentBalance).toLocaleString()}`],
+          ['Total Purchases (Dr)', pdfMoney(totalDebit)],
+          ['Total Payments (Cr)', pdfMoney(totalCredit)],
+          [closingLabel, pdfMoney(currentBalance)],
         ],
         fileName: `Vendor-Ledger-${selectedSupplier?.name || 'supplier'}`,
       });

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Landmark, Plus, ArrowLeftRight, BookOpen, RefreshCw, Pencil, Trash2, Download } from 'lucide-react';
-import { exportLedgerPdf, pdfAmount, pdfDate } from '../utils/ledgerPdf';
+import { exportLedgerPdf, pdfAmount, pdfMoney, pdfDate, cityNameOf } from '../utils/ledgerPdf';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
 import Button from '../components/Button';
@@ -91,11 +91,16 @@ export default function Bank() {
     const name = isMergedLedger ? `${ledgerAccount?.bank_name} — All Cities` : ledgerAccount?.account_name;
     const rows = filteredLedgerEntries;
     const last = rows.length ? rows[rows.length - 1].balance : 0;
+    const periodLabel = { all: 'All dates', today: 'Today', yesterday: 'Yesterday', week: 'Last 7 days', month: 'This month' }[ledgerDateFilter] || ledgerDateFilter;
+    const balanceText = (b) => `${Number(b) < 0 ? '-' : ''}${pdfMoney(b)}`;
     try {
       await exportLedgerPdf({
-        title: `Bank Ledger — ${name || 'Account'}`,
-        subtitle: `${isMergedLedger ? 'Merged ledger' : `${ledgerAccount?.bank_name || ''}${ledgerAccount?.account_number ? ` · #${ledgerAccount.account_number}` : ''}`} · ${ledgerDateFilter === 'all' ? 'All dates' : ledgerDateFilter} · ${new Date().toLocaleDateString('en-GB')}`,
-        head: ['#', 'Date', ...(isMergedLedger ? ['Branch'] : []), 'Description', 'Debit (In)', 'Credit (Out)', 'Balance'],
+        docType: 'Bank Statement',
+        city: isMergedLedger ? '' : cityNameOf(ledgerAccount?.company_id),
+        details: isMergedLedger
+          ? [['Bank', ledgerAccount?.bank_name || '-'], ['Accounts', (ledgerData?.accounts || []).map((a) => a.account_name).join(', ') || '-'], ['Branches', 'All cities'], ['Period', periodLabel]]
+          : [['Account', ledgerAccount?.account_name || '-'], ['Bank', ledgerAccount?.bank_name || '-'], ['Account No.', ledgerAccount?.account_number || '-'], ['City', cityNameOf(ledgerAccount?.company_id) || '-'], ['Period', periodLabel], ['Opening Balance', balanceText(ledgerData?.account?.opening_balance)]],
+        head: ['#', 'Date', ...(isMergedLedger ? ['Branch'] : []), 'Particulars', 'Deposit (In)', 'Withdrawal (Out)', 'Balance'],
         body: rows.map((e, i) => [
           i + 1,
           pdfDate(e.date),
@@ -103,13 +108,13 @@ export default function Bank() {
           e.type === 'opening' ? (isMergedLedger ? e.description : 'Opening Balance') : e.description,
           e.debit > 0 ? pdfAmount(e.debit) : '-',
           e.credit > 0 ? pdfAmount(e.credit) : '-',
-          `PKR ${Number(e.balance || 0).toLocaleString()}`,
+          balanceText(e.balance),
         ]),
         rightCols: isMergedLedger ? [4, 5, 6] : [3, 4, 5],
         summary: [
-          ['Total In', pdfAmount(rows.reduce((s, e) => s + (e.type === 'opening' ? 0 : Number(e.debit || 0)), 0))],
-          ['Total Out', pdfAmount(rows.reduce((s, e) => s + (e.type === 'opening' ? 0 : Number(e.credit || 0)), 0))],
-          ['Closing Balance', `PKR ${Number(last || 0).toLocaleString()}`],
+          ['Total Deposits (In)', pdfMoney(rows.reduce((s, e) => s + (e.type === 'opening' ? 0 : Number(e.debit || 0)), 0))],
+          ['Total Withdrawals (Out)', pdfMoney(rows.reduce((s, e) => s + (e.type === 'opening' ? 0 : Number(e.credit || 0)), 0))],
+          ['Closing Balance', balanceText(last)],
         ],
         fileName: `Bank-Ledger-${name || 'account'}`,
         landscape: true,
@@ -124,9 +129,15 @@ export default function Bank() {
     const isOut = (t) => t.type === 'expense' || t.type === 'cash_deposit';
     try {
       await exportLedgerPdf({
-        title: 'Bank Transactions',
-        subtitle: `${txnDateFilter === 'all' ? 'All dates' : txnDateFilter}${txnTypeFilter !== 'all' ? ` · ${txnTypeFilter}` : ''} · ${new Date().toLocaleDateString('en-GB')}`,
-        head: ['#', 'Date', 'Type', 'Account', 'Details', 'In', 'Out'],
+        docType: 'Bank Transactions',
+        city: selectedCity === 'all' ? '' : cityNameOf(selectedCity),
+        details: [
+          ['City', selectedCity === 'all' ? 'All cities' : cityNameOf(selectedCity) || '-'],
+          ['Period', { all: 'All dates', today: 'Today', yesterday: 'Yesterday', week: 'Last 7 days', month: 'This month' }[txnDateFilter] || txnDateFilter],
+          ['Showing', txnTypeFilter === 'all' ? 'All transactions' : txnTypeFilter === 'expense' ? 'Expenses only' : 'Payments only'],
+          ['Entries', String(rows.length)],
+        ],
+        head: ['#', 'Date', 'Type', 'Account', 'Particulars', 'In', 'Out'],
         body: rows.map((t, i) => [
           i + 1,
           pdfDate(t.created_at),
@@ -137,10 +148,11 @@ export default function Bank() {
           isOut(t) ? pdfAmount(t.amount) : '-',
         ]),
         rightCols: [5, 6],
-        summary: [
-          ['Total In', pdfAmount(rows.filter((t) => !isOut(t)).reduce((s, t) => s + Number(t.amount || 0), 0))],
-          ['Total Out', pdfAmount(rows.filter(isOut).reduce((s, t) => s + Number(t.amount || 0), 0))],
-        ],
+        summary: (() => {
+          const tin = rows.filter((t) => !isOut(t)).reduce((s, t) => s + Number(t.amount || 0), 0);
+          const tout = rows.filter(isOut).reduce((s, t) => s + Number(t.amount || 0), 0);
+          return [['Total In', pdfMoney(tin)], ['Total Out', pdfMoney(tout)], ['Net (In - Out)', `${tin - tout < 0 ? '-' : ''}${pdfMoney(tin - tout)}`]];
+        })(),
         fileName: 'Bank-Transactions',
         landscape: true,
       });

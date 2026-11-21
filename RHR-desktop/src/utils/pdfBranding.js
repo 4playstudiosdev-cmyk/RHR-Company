@@ -38,7 +38,7 @@ export function loadLogoDataUrl() {
 // position right below the header rule, for the caller to continue from.
 export function drawPdfHeader(doc, logoDataUrl, { title, subtitle, city } = {}) {
   const M = 20;
-  const PAGE_W = 210;
+  const PAGE_W = doc.internal.pageSize.getWidth(); // 210 portrait, 297 landscape
 
   if (logoDataUrl) {
     try { doc.addImage(logoDataUrl, 'JPEG', M, 10, 22, 22); } catch (e) { /* ignore */ }
