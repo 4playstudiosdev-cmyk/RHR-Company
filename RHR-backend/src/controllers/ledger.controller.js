@@ -188,6 +188,29 @@ const getLedger = async (req, res) => {
         });
       } catch (_) { /* vendor_id column or join unavailable — leave descriptions as stored */ }
     }
+
+    // Older entries (e.g. early Sukkur ones) were saved without reference_id, so
+    // match them to this customer's approved vendor transfer of the same amount and day.
+    const unlinked = data.filter(e => e.reference_type === 'recovery' && !e.reference_id
+      && /vendor transfer/i.test(e.description || '') && !/vendor transfer to /i.test(e.description || ''));
+    if (unlinked.length) {
+      try {
+        const recs = await pgrestGetRaw(
+          `salesman_recoveries?select=id,amount,recovery_date,created_at,suppliers!vendor_id(name)&payment_type=eq.vendor_transfer&status=eq.approved&customer_id=eq.${customerId}&order=created_at.asc`
+        );
+        const pool = (recs || []).filter(r => r.suppliers?.name).map(r => ({ ...r, used: false }));
+        const vendorByEntry = {};
+        for (const e of unlinked) {
+          const day = String(e.created_at || '').slice(0, 10);
+          const r = pool.find(x => !x.used && Number(x.amount) === Number(e.amount)
+            && String(x.recovery_date || x.created_at || '').slice(0, 10) === day);
+          if (r) { r.used = true; vendorByEntry[e.id] = r.suppliers.name; }
+        }
+        data = data.map(e => vendorByEntry[e.id]
+          ? { ...e, description: `Direct vendor transfer to ${vendorByEntry[e.id]} — customer balance settled` }
+          : e);
+      } catch (_) { /* vendor_id column or join unavailable — leave descriptions as stored */ }
+    }
     data = [...data].reverse();
 
     return success(res, { entries: data, currentBalance });
