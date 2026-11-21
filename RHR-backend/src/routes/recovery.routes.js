@@ -1438,7 +1438,7 @@ async function hasVendorColumn() {
 // null because they FK to users(id) and a salesman's id is in salesmen, not users.
 router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) => {
   try {
-    const { customer_id, supplier_id, amount, recovery_date, reference_number, notes, vendor_payment_method, bank_account_id, cheque_number, cheque_date, cheque_bank } = req.body;
+    const { customer_id, supplier_id, amount, recovery_date, reference_number, notes, vendor_payment_method, bank_account_id, cheque_number, cheque_date, cheque_bank, photo_url } = req.body;
     if (!customer_id || !supplier_id || !amount || Number(amount) <= 0)
       return error(res, 'customer_id, supplier_id and a positive amount are required', 400);
     if (vendor_payment_method === 'bank_transfer' && !bank_account_id)
@@ -1476,8 +1476,17 @@ router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) =>
     if (bank_account_id && !reference_number) {
       rowData.reference_number = bank_account_id;
     }
+    // photo_url (phase63) — proof photo uploaded by the app; was being dropped here
+    if (photo_url && await hasPhotoColumn()) rowData.photo_url = photo_url;
 
-    const [recovery] = await pgrestPost('salesman_recoveries', rowData);
+    let recovery;
+    try {
+      [recovery] = await pgrestPost('salesman_recoveries', rowData);
+    } catch (e) {
+      if (!rowData.photo_url) throw e;
+      delete rowData.photo_url;
+      [recovery] = await pgrestPost('salesman_recoveries', rowData);
+    }
 
     // Notify all admins for this company — ledger/expense/supplier updates are deferred to approval
     try {
