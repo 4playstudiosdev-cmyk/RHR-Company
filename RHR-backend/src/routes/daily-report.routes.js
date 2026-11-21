@@ -31,14 +31,14 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
 
       // Approved recoveries for the date
       pgrestGet('salesman_recoveries', {
-        select: 'id,salesman_id,amount,payment_type,recovery_date,notes,salesmen(full_name),users!customer_id(full_name,shop_name)',
+        select: 'id,salesman_id,customer_id,amount,payment_type,payment_method,recovery_date,notes,salesmen(full_name),users!customer_id(full_name,shop_name)',
         status: 'eq.approved',
         recovery_date: `eq.${date}`,
         ...cfObj,
         order: 'created_at.asc',
       }).catch(() =>
         pgrestGet('salesman_recoveries', {
-          select: 'id,salesman_id,amount,payment_type,recovery_date,notes',
+          select: 'id,salesman_id,customer_id,amount,payment_type,recovery_date,notes',
           status: 'eq.approved',
           recovery_date: `eq.${date}`,
           ...cfObj,
@@ -233,16 +233,35 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
     });
     const totalExpenses = runBalance;
 
+    // ── Outstanding balance of each customer who paid, as of the end of the report
+    // date (all ledger debits − credits up to that day), for the Customer Recovery table.
+    const outstandingByCustomer = {};
+    const payerIds = [...new Set((recoveries || []).map(r => r.customer_id).filter(Boolean))];
+    for (let i = 0; i < payerIds.length; i += 100) {
+      const part = payerIds.slice(i, i + 100);
+      const rows = await pgrestGetRaw(
+        `ledger_entries?select=customer_id,entry_type,amount&customer_id=in.(${part.join(',')})&created_at=lte.${date}T23:59:59.999Z`
+      ).catch(() => null);
+      if (!rows) continue;
+      part.forEach(id => { outstandingByCustomer[id] = 0; });
+      rows.forEach(l => {
+        outstandingByCustomer[l.customer_id] += (l.entry_type === 'debit' ? 1 : -1) * Number(l.amount || 0);
+      });
+    }
+
     // ── Recovery list
     const recoveryList = (recoveries || []).map((r, i) => ({
       sno: i + 1,
       date: r.recovery_date,
       salesman_id: r.salesman_id || null,
       salesman: r.salesmen?.full_name || '',
+      customer_id: r.customer_id || null,
       customer: r.users?.shop_name || r.users?.full_name || '',
       payment_type: r.payment_type,
+      payment_method: r.payment_method || null,
       notes: r.notes || '',
       amount: Number(r.amount || 0),
+      outstanding: r.customer_id && outstandingByCustomer[r.customer_id] !== undefined ? outstandingByCustomer[r.customer_id] : null,
     }));
     const totalRecovery = recoveryList.reduce((s, r) => s + r.amount, 0);
 

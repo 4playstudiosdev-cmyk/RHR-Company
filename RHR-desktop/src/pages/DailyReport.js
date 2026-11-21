@@ -11,6 +11,15 @@ import { loadLogoDataUrl, drawPdfHeader } from '../utils/pdfBranding';
 const todayISO = () => new Date().toISOString().split('T')[0];
 const fmtPKR = (n) => `Rs ${Number(n || 0).toLocaleString()}`;
 const fmtN = (n) => Number(n || 0).toLocaleString();
+// How a customer paid (Customer Recovery table)
+const recoveryMethodLabel = (r) => {
+  if (r.payment_type === 'vendor_transfer') return 'Vendor Transfer';
+  if (r.payment_type === 'cheque') return 'Cheque';
+  if (r.payment_type === 'bank' || r.payment_method === 'bank_transfer') return 'Bank Transfer';
+  if (r.payment_type === 'cash') return 'Cash';
+  return r.payment_type ? r.payment_type.replace(/_/g, ' ') : '—';
+};
+const fmtOutstanding = (o) => (o == null ? '-' : o < 0 ? `${fmtPKR(Math.abs(o))} Adv.` : fmtPKR(o));
 
 const NAVY = [27, 39, 58];
 const ORANGE = [232, 132, 26];
@@ -124,6 +133,23 @@ async function buildDailyReportPdf(reportDate, data, cityName) {
       bodyStyles: { fontSize: 7.5, textColor: [30, 30, 30] },
       footStyles: { fillColor: NAVY, textColor: ORANGE, fontStyle: 'bold', fontSize: 8 },
       columnStyles: { 0: { cellWidth: 10 }, 2: { halign: 'center' }, 3: { halign: 'right' } },
+      styles: { cellPadding: { top: 2.5, bottom: 2.5, left: 3, right: 3 } },
+    });
+    y = doc.lastAutoTable.finalY + 6;
+
+    // ── CUSTOMER RECOVERY: each payment, its salesman and what the customer still owes
+    checkPage(20);
+    y = pdfSectionHeader(doc, y, 'CUSTOMER RECOVERY', PAGE_W, M);
+    autoTable(doc, {
+      startY: y,
+      head: [['SNo', 'Customer', 'Salesman', 'Method', 'Amount', 'Outstanding']],
+      body: data.recovery.map((r, i) => [i + 1, r.customer || '-', r.salesman || '-', recoveryMethodLabel(r), fmtPKR(r.amount), fmtOutstanding(r.outstanding)]),
+      foot: [['', '', '', 'Grand Total', fmtPKR(data.summary.total_recovery), '']],
+      margin: { left: M, right: M },
+      headStyles: { fillColor: NAVY, textColor: WHITE, fontSize: 8, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 7.5, textColor: [30, 30, 30] },
+      footStyles: { fillColor: NAVY, textColor: ORANGE, fontStyle: 'bold', fontSize: 8 },
+      columnStyles: { 0: { cellWidth: 10 }, 4: { halign: 'right' }, 5: { halign: 'right' } },
       styles: { cellPadding: { top: 2.5, bottom: 2.5, left: 3, right: 3 } },
     });
     y = doc.lastAutoTable.finalY + 6;
@@ -520,6 +546,44 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                 </div>
               );
             })()}
+          </Section>
+
+          {/* ── Customer Recovery: who paid, through which salesman, and what they still owe ── */}
+          <Section title={`Customer Recovery — ${reportDate}`}>
+            {data.recovery.length === 0 ? <NoData msg="No customer paid on this date." /> : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-semibold">
+                      {['SNo', 'Customer', 'Salesman', 'Method', 'Amount', 'Outstanding Balance'].map(h => (
+                        <th key={h} className={`px-4 py-2.5 ${['Amount', 'Outstanding Balance'].includes(h) ? 'text-right' : 'text-left'}`}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.recovery.map((r, i) => (
+                      <tr key={`${r.customer_id || r.customer}-${i}`} className="border-b border-gray-50 hover:bg-gray-50/60">
+                        <td className="px-4 py-2.5 text-gray-400">{i + 1}</td>
+                        <td className="px-4 py-2.5 font-medium text-navy">{r.customer || '—'}</td>
+                        <td className="px-4 py-2.5 text-gray-600">{r.salesman || '—'}</td>
+                        <td className="px-4 py-2.5 text-gray-500 text-xs">{recoveryMethodLabel(r)}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-green-700">{fmtPKR(r.amount)}</td>
+                        <td className={`px-4 py-2.5 text-right font-semibold ${r.outstanding > 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                          {r.outstanding == null ? '—' : r.outstanding < 0 ? `${fmtPKR(Math.abs(r.outstanding))} Adv.` : fmtPKR(r.outstanding)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-navy">
+                      <td colSpan={4} className="px-4 py-2.5 text-white font-bold text-xs">GRAND TOTAL — {data.recovery.length} {data.recovery.length === 1 ? 'payment' : 'payments'}</td>
+                      <td className="px-4 py-2.5 text-right text-white font-bold">{fmtPKR(s.total_recovery)}</td>
+                      <td className="px-4 py-2.5 text-right text-white/70 text-[11px]">as of {reportDate}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
           </Section>
 
           {/* ── Sales ── */}
