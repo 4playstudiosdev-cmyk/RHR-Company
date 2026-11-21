@@ -42,6 +42,11 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   File? _shopImageFile;
   File? _nicFrontImageFile;
   File? _nicBackImageFile;
+  // Image bytes are read the moment a photo is picked: the picker's file lives
+  // in the app cache, which Android may clear (e.g. when the salesman switches
+  // apps) before "Add Customer" uploads it — that caused PathNotFoundException.
+  final Map<String, Uint8List> _pickedBytes = {};
+  Future<Uint8List> _bytesOf(File file) async => _pickedBytes[file.path] ?? await file.readAsBytes();
 
   int _step = 1;
   List<Map<String, dynamic>> _categories = [];
@@ -129,6 +134,9 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     final picker = ImagePicker();
     final image = await picker.pickImage(source: source, imageQuality: 70);
     if (image == null) return;
+    final bytes = await image.readAsBytes();
+    if (!mounted) return;
+    _pickedBytes[image.path] = bytes;
     setState(() {
       switch (target) {
         case 'shop':
@@ -145,7 +153,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   }
 
   Future<String> _uploadImage(File file, String bucket) async {
-    final bytes = await file.readAsBytes();
+    final bytes = await _bytesOf(file);
     final ext = file.path.split('.').last.toLowerCase();
     final mimeType = ext == 'png' ? 'image/png' : (ext == 'webp' ? 'image/webp' : 'image/jpeg');
     final res = await DioClient.instance.post(ApiEndpoints.storageUpload, data: {
@@ -264,7 +272,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
           if (_isDriver && _salesmanId != null) 'salesman_id': _salesmanId,
         };
         if (_shopImageFile != null) {
-          payload['shop_image_base64'] = base64Encode(await _shopImageFile!.readAsBytes());
+          payload['shop_image_base64'] = base64Encode(await _bytesOf(_shopImageFile!));
         }
         await HiveService.queueNewCustomer(payload);
         if (mounted) {
@@ -449,7 +457,9 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
           ),
           clipBehavior: Clip.antiAlias,
           child: file != null
-              ? Image.file(file, fit: BoxFit.cover, width: double.infinity)
+              ? (_pickedBytes[file.path] != null
+                  ? Image.memory(_pickedBytes[file.path]!, fit: BoxFit.cover, width: double.infinity)
+                  : Image.file(file, fit: BoxFit.cover, width: double.infinity))
               : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                   Icon(Icons.add_photo_alternate_rounded, color: kNavy.withValues(alpha: 0.3), size: 28),
                   const SizedBox(height: 6),
