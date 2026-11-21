@@ -15,7 +15,7 @@ import { buildInvoicePdf } from '../utils/invoicePdf';
 import { MIN_TOTAL_QTY, QTY_STEP } from '../utils/orderQtyRules';
 import GroutColorPicker from '../components/GroutColorPicker';
 import { isGroutProduct, groutHex, splitLineName } from '../utils/groutColors';
-import { chargeRows, orderCharges } from '../utils/orderCharges';
+import { chargeRows } from '../utils/orderCharges';
 
 // Matches the backend's validStatuses in orders.service.js. 'undelivered'
 // is driver-only (set from their own Cancel button on the delivery run,
@@ -34,6 +34,28 @@ const TABS = [...STATUS_OPTIONS, 'all'];
 //   preparing -> dispatched | cancelled     dispatched -> delivered
 // 'delivered', 'undelivered' and 'cancelled' are terminal — nothing to update.
 const NEXT_STATUS = { pending: 'confirmed', confirmed: 'preparing', preparing: 'dispatched', dispatched: 'delivered' };
+
+// Customer's balance BEFORE this order, for the invoice's "Previous Balance":
+// the ledger balance minus only this order's own line(s) — none yet if the
+// invoice is made at dispatch (the order is posted at delivery), which is why
+// subtracting the order total blindly gave a wrong figure for new customers.
+// Older separate "Sales Tax / Conveyance Charge — Order #…" lines count as the
+// order's own too.
+async function previousBalanceFor(detail) {
+  try {
+    const res = await api.get(`/ledger/${detail.customer_id}`);
+    const current = Number(res.data?.data?.currentBalance ?? 0);
+    const num = detail.order_number || '';
+    const isOwn = (e) => (e.reference_type === 'order' && e.reference_id === detail.id)
+      || (!!num && /^(Sales Tax \(18%\)|Conveyance Charge) — Order #/.test(e.description || '') && (e.description || '').endsWith(`#${num}`));
+    const ownNet = (res.data?.data?.entries || [])
+      .filter(isOwn)
+      .reduce((s, e) => s + (e.entry_type === 'debit' ? 1 : -1) * Number(e.amount || 0), 0);
+    return Math.max(0, current - ownNet);
+  } catch (e) {
+    return 0; // ledger unavailable — skip previous balance
+  }
+}
 function availableNextStatuses(currentStatus) {
   const next = NEXT_STATUS[currentStatus];
   if (!next) return [];
@@ -679,12 +701,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
     try {
       const res = await api.get(`/orders/${order.id}`);
       const detail = res.data.data;
-      let previousBalance = 0;
-      try {
-        const ledgerRes = await api.get(`/ledger/${detail.customer_id}`);
-        const currentBalance = ledgerRes.data?.data?.currentBalance ?? 0;
-        previousBalance = Math.max(0, currentBalance - Number(detail.total_amount));
-      } catch (e) { /* ledger unavailable — skip previous balance */ }
+      const previousBalance = await previousBalanceFor(detail);
       await buildInvoicePdf(detail, { preview: true, previousBalance, withRate });
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load invoice preview.');
@@ -706,17 +723,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
       const res = await api.get(`/orders/${order.id}`);
       const detail = res.data.data;
       const printConveyance = Number(detail.invoice_conveyance) || 0;
-      // total_amount holds items + conveyance + sales tax (one ledger line). Older
-      // orders kept the tax as a separate ledger line and out of total_amount —
-      // then the tax is subtracted as well to find the balance before this order.
-      const charges = orderCharges(detail);
-      const totalHasTax = Math.abs(Number(detail.total_amount) - charges.total) < 1;
-      let previousBalance = 0;
-      try {
-        const ledgerRes = await api.get(`/ledger/${detail.customer_id}`);
-        const currentBalance = ledgerRes.data?.data?.currentBalance ?? 0;
-        previousBalance = Math.max(0, currentBalance - Number(detail.total_amount) - (totalHasTax ? 0 : charges.tax));
-      } catch (e) { /* ledger unavailable — skip previous balance */ }
+      const previousBalance = await previousBalanceFor(detail);
       await buildInvoicePdf(detail, { withTax: !!detail.invoice_with_tax, conveyance: printConveyance, previousBalance, withRate });
       toast.success(`Invoice for ${order.order_number} downloaded.`);
     } catch (err) {
@@ -751,14 +758,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
       const detail = res.data.data;
       const taxAmount = withTax ? Number(detail.total_amount) * TAX_RATE : 0;
 
-      let previousBalance = 0;
-      try {
-        const ledgerRes = await api.get(`/ledger/${detail.customer_id}`);
-        const currentBalance = ledgerRes.data?.data?.currentBalance ?? 0;
-        // Conveyance and tax are posted to the ledger only AFTER this PDF is built, so the
-        // ledger currently holds just prior balance + the order's own total_amount.
-        previousBalance = Math.max(0, currentBalance - Number(detail.total_amount));
-      } catch (e) { /* ledger unavailable — skip previous balance */ }
+      const previousBalance = await previousBalanceFor(detail);
 
       await buildInvoicePdf(detail, { withTax, conveyance, previousBalance, invoiceDate: invoiceDate || null, withRate });
 
