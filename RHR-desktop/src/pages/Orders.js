@@ -15,7 +15,7 @@ import { buildInvoicePdf } from '../utils/invoicePdf';
 import { MIN_TOTAL_QTY, QTY_STEP } from '../utils/orderQtyRules';
 import GroutColorPicker from '../components/GroutColorPicker';
 import { isGroutProduct, groutHex, splitLineName } from '../utils/groutColors';
-import { chargeRows } from '../utils/orderCharges';
+import { chargeRows, orderCharges } from '../utils/orderCharges';
 
 // Matches the backend's validStatuses in orders.service.js. 'undelivered'
 // is driver-only (set from their own Cancel button on the delivery run,
@@ -35,23 +35,25 @@ const TABS = [...STATUS_OPTIONS, 'all'];
 // 'delivered', 'undelivered' and 'cancelled' are terminal — nothing to update.
 const NEXT_STATUS = { pending: 'confirmed', confirmed: 'preparing', preparing: 'dispatched', dispatched: 'delivered' };
 
-// Customer's balance BEFORE this order, for the invoice's "Previous Balance":
-// the ledger balance minus only this order's own line(s) — none yet if the
-// invoice is made at dispatch (the order is posted at delivery), which is why
-// subtracting the order total blindly gave a wrong figure for new customers.
-// Older separate "Sales Tax / Conveyance Charge — Order #…" lines count as the
-// order's own too.
+// Customer's balance BEFORE this order, for the invoice's "Previous Balance"
+// (used by every invoice path: create, print, preview, edit/return).
+//   • order already in the ledger (delivered): the running balance just before
+//     its own line — later payments/orders never change an old invoice
+//   • not posted yet (invoice made at dispatch): the current balance
+// The order's own lines (and older separate "Sales Tax / Conveyance Charge —
+// Order #…" lines) are never counted as "previous".
 async function previousBalanceFor(detail) {
   try {
     const res = await api.get(`/ledger/${detail.customer_id}`);
-    const current = Number(res.data?.data?.currentBalance ?? 0);
+    const entries = [...(res.data?.data?.entries || [])].reverse(); // API is newest-first → oldest-first
     const num = detail.order_number || '';
     const isOwn = (e) => (e.reference_type === 'order' && e.reference_id === detail.id)
       || (!!num && /^(Sales Tax \(18%\)|Conveyance Charge) — Order #/.test(e.description || '') && (e.description || '').endsWith(`#${num}`));
-    const ownNet = (res.data?.data?.entries || [])
-      .filter(isOwn)
+    const firstOwn = entries.findIndex(isOwn);
+    const before = firstOwn === -1 ? entries : entries.slice(0, firstOwn);
+    const balance = before.filter((e) => !isOwn(e))
       .reduce((s, e) => s + (e.entry_type === 'debit' ? 1 : -1) * Number(e.amount || 0), 0);
-    return Math.max(0, current - ownNet);
+    return Math.max(0, Math.round(balance * 100) / 100);
   } catch (e) {
     return 0; // ledger unavailable — skip previous balance
   }
@@ -814,7 +816,16 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
   const editInvoiceItem = editInvoiceOrder?.order_items?.find((it) => it.id === editInvoiceItemId) || editInvoiceOrder?.order_items?.[0];
   const bagsReturnedNum = Number(bagsReturned) || 0;
   const returnAmountPreview = editInvoiceItem ? bagsReturnedNum * Number(editInvoiceItem.unit_price) : 0;
-  const updatedTotalPreview = editInvoiceOrder ? Number(editInvoiceOrder.total_amount) - returnAmountPreview : 0;
+  // New total after the return, by the same rule as the invoice (the 18% tax on
+  // the returned bags comes off too, not just their price)
+  const updatedTotalPreview = editInvoiceOrder
+    ? orderCharges({
+        ...editInvoiceOrder,
+        order_items: (editInvoiceOrder.order_items || []).map((it) => (it.id === editInvoiceItem?.id
+          ? { ...it, subtotal: Math.max(0, Number(it.quantity) - bagsReturnedNum) * Number(it.unit_price) }
+          : it)),
+      }).total
+    : 0;
 
   const confirmGenerateUpdatedInvoice = async () => {
     const order = editInvoiceOrder;
@@ -854,10 +865,12 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
       // invoice, same as Print — editing a return shouldn't silently drop them.
       const res = await api.get(`/orders/${order.id}`);
       const updated = res.data.data;
-      await buildInvoicePdf(updated, { withTax: !!updated.invoice_with_tax, conveyance: Number(updated.invoice_conveyance) || 0 });
+      const previousBalance = await previousBalanceFor(updated);
+      await buildInvoicePdf(updated, { withTax: !!updated.invoice_with_tax, conveyance: Number(updated.invoice_conveyance) || 0, previousBalance });
       setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, total_amount: updated.total_amount } : o)));
 
-      toast.success(`Updated invoice downloaded — ${order.users?.full_name || 'the customer'}'s ledger credited PKR ${returnAmount.toLocaleString()}.`);
+      const reduction = Number(order.total_amount) - Number(updated.total_amount);
+      toast.success(`Updated invoice downloaded — order total now PKR ${Number(updated.total_amount).toLocaleString()} (reduced by PKR ${reduction.toLocaleString()} incl. tax) and ${order.users?.full_name || 'the customer'}'s ledger updated.`);
       setEditInvoiceOrder(null);
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to record the return.');

@@ -1,7 +1,7 @@
 const { success, error } = require('../utils/response');
 const { resolveCompanyId } = require('../utils/companyScope');
 const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
-const { recalcCustomerLedger } = require('../services/orderLedger.service');
+const { recalcCustomerLedger, syncOrderTotal } = require('../services/orderLedger.service');
 
 // GET /api/v1/returns/materials?type=packaging|raw_material&company_id=
 const getMaterialReturns = async (req, res) => {
@@ -173,6 +173,15 @@ const createOrderReturn = async (req, res) => {
         quantity: newQty,
         subtotal: newQty * Number(returnedItem.unit_price),
       });
+    }
+
+    // Item return: recompute the order with the one total rule (items +
+    // conveyance + 18% tax when invoiced with tax) and sync its ledger line —
+    // subtracting only the goods' price left the tax on returned bags charged.
+    if (returnedItem && quantity_returned) {
+      const charges = await syncOrderTotal(order.id);
+      return success(res, { ...data, order_number: order.order_number, new_total: charges?.total ?? null, charges },
+        'Return recorded — order and customer ledger updated', 201);
     }
 
     await pgrestPatch('orders', { id: `eq.${order.id}` }, {
