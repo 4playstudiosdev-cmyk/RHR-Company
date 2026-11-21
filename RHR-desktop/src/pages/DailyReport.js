@@ -7,6 +7,7 @@ import PageHeader from '../components/PageHeader';
 import Button from '../components/Button';
 import CityFilter from '../components/CityFilter';
 import { loadLogoDataUrl, drawPdfHeader } from '../utils/pdfBranding';
+import { chargeRows } from '../utils/orderCharges';
 
 const todayISO = () => new Date().toISOString().split('T')[0];
 const fmtPKR = (n) => `Rs ${Number(n || 0).toLocaleString()}`;
@@ -798,7 +799,7 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
               </div>
               <div>
                 <p className="text-[10px] text-gray-400 uppercase tracking-wide">Total</p>
-                <p className="text-sm font-bold text-green-700">{fmtPKR(previewOrder.total_amount)}</p>
+                <p className="text-sm font-bold text-green-700">{fmtPKR((previewOrder.order_items || previewOrder.items) ? chargeRows(previewOrder).total : previewOrder.total_amount)}</p>
               </div>
             </div>
 
@@ -829,9 +830,15 @@ export default function DailyReport({ setPage, onGoToRecovery }) {
                     ))}
                   </tbody>
                   <tfoot>
+                    {chargeRows(previewOrder).rows.map(([label, amount]) => (
+                      <tr key={label} className="border-t border-gray-100">
+                        <td colSpan={5} className="px-5 py-2 text-gray-600 text-xs font-medium">{label}</td>
+                        <td className="px-5 py-2 text-right text-gray-700 font-semibold">{fmtPKR(amount)}</td>
+                      </tr>
+                    ))}
                     <tr className="bg-navy">
                       <td colSpan={5} className="px-5 py-3 text-white font-bold text-xs">TOTAL</td>
-                      <td className="px-5 py-3 text-right text-white font-bold">{fmtPKR(previewOrder.total_amount)}</td>
+                      <td className="px-5 py-3 text-right text-white font-bold">{fmtPKR(chargeRows(previewOrder).total)}</td>
                     </tr>
                   </tfoot>
                 </table>

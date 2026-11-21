@@ -1,7 +1,7 @@
 const { supabaseAdmin }    = require('../config/supabase');
 const { generateInvoice }  = require('./invoice.service');
 const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
-const { orderLedgerNet, deleteOrderLedgerEntries, recalcCustomerLedger } = require('./orderLedger.service');
+const { orderLedgerNet, deleteOrderLedgerEntries, recalcCustomerLedger, syncOrderTotal } = require('./orderLedger.service');
 const { MIN_TOTAL_QTY } = require('../utils/orderQtyRules');
 const orderMessages = require('./orderMessages.service');
 const { NAME_SEPARATOR, canonicalColor, isGroutCategory } = require('../utils/groutColors');
@@ -700,26 +700,15 @@ async function updateOrderItems(orderId, companyId, { items = [], removedIds = [
     }
   }
 
-  const remaining = await pgrestGet('order_items', { select: 'subtotal', order_id: `eq.${orderId}` });
-  const newTotal = (remaining || []).reduce((sum, it) => sum + Number(it.subtotal), 0);
-  await pgrestPatch('orders', { id: `eq.${orderId}` }, { total_amount: newTotal });
-
-  // Keep the ledger debit in sync — if a debit entry already exists for this
-  // order (posted at delivery or confirmation), update its amount to the new
-  // total and recalc running balances so the whole chain stays correct.
+  // New total = items + saved conveyance + sales tax (if invoiced with tax), and
+  // the order's ledger line follows it — previously this dropped conveyance/tax.
   try {
-    const existing = await pgrestGet('ledger_entries', {
-      select: 'id',
-      reference_type: 'eq.order',
-      reference_id: `eq.${orderId}`,
-      entry_type: 'eq.debit',
-      limit: '1',
-    });
-    if (existing?.length) {
-      await pgrestPatch('ledger_entries', { id: `eq.${existing[0].id}` }, { amount: newTotal });
-      await recalcCustomerLedger(order.customer_id);
-    }
-  } catch (_) {}
+    await syncOrderTotal(orderId);
+  } catch (_) {
+    const remaining = await pgrestGet('order_items', { select: 'subtotal', order_id: `eq.${orderId}` });
+    const newTotal = (remaining || []).reduce((sum, it) => sum + Number(it.subtotal), 0);
+    await pgrestPatch('orders', { id: `eq.${orderId}` }, { total_amount: newTotal });
+  }
 
   return getOrderById(orderId, { role: 'super_admin', id: null, company_id: null });
 }
@@ -740,7 +729,10 @@ async function markInvoiceGenerated(id, companyId, { withTax, conveyance } = {})
       invoice_with_tax: !!withTax,
       invoice_conveyance: Number(conveyance) || 0,
     });
-    return rows?.[0] || null;
+    if (!rows?.[0]) return null;
+    // Fold conveyance + sales tax into the order total and its single ledger line
+    const charges = await syncOrderTotal(id);
+    return charges ? { ...rows[0], total_amount: charges.total, charges } : rows[0];
   } catch (e) {
     try {
       const rows = await pgrestPatch('orders', filter, baseBody);

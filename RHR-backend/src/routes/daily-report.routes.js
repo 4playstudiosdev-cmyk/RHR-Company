@@ -49,7 +49,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       // Delivered orders with items — use order_date if set, else fall back
       // to updated_at so back-dated orders appear on their back-dated day.
       pgrestGetRaw(
-        `orders?select=id,order_number,total_amount,updated_at,created_at,order_date,users!customer_id(full_name,shop_name),order_items(id,product_id,product_name,quantity,unit_price,subtotal,products(unit))` +
+        `orders?select=id,order_number,total_amount,invoice_with_tax,invoice_conveyance,updated_at,created_at,order_date,users!customer_id(full_name,shop_name),order_items(id,product_id,product_name,quantity,unit_price,subtotal,products(unit))` +
         `&status=eq.delivered&invoice_deleted_at=is.null${cf}` +
         `&or=(order_date.eq.${date},and(order_date.is.null,updated_at.gte.${date}T00:00:00,updated_at.lte.${date}T23:59:59))` +
         `&order=updated_at.asc`
@@ -295,6 +295,8 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         bags: totalBags,
         kg: totalKg > 0 ? totalKg : null,
         total_amount: Number(o.total_amount || 0),
+        invoice_with_tax: !!o.invoice_with_tax,
+        invoice_conveyance: Number(o.invoice_conveyance || 0),
         cogs: orderCOGS,
         items: items.map(it => ({
           product_name: it.product_name,

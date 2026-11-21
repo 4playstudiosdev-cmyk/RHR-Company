@@ -15,6 +15,7 @@ import { buildInvoicePdf } from '../utils/invoicePdf';
 import { MIN_TOTAL_QTY, QTY_STEP } from '../utils/orderQtyRules';
 import GroutColorPicker from '../components/GroutColorPicker';
 import { isGroutProduct, groutHex, splitLineName } from '../utils/groutColors';
+import { chargeRows, orderCharges } from '../utils/orderCharges';
 
 // Matches the backend's validStatuses in orders.service.js. 'undelivered'
 // is driver-only (set from their own Cancel button on the delivery run,
@@ -695,16 +696,16 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
       const res = await api.get(`/orders/${order.id}`);
       const detail = res.data.data;
       const printConveyance = Number(detail.invoice_conveyance) || 0;
-      // total_amount now includes conveyance (merged by add-conveyance endpoint),
-      // so tax is on the base amount (total_amount - conveyance).
-      const baseForTax = Number(detail.total_amount) - printConveyance;
-      const printTax = detail.invoice_with_tax ? baseForTax * TAX_RATE : 0;
+      // total_amount holds items + conveyance + sales tax (one ledger line). Older
+      // orders kept the tax as a separate ledger line and out of total_amount —
+      // then the tax is subtracted as well to find the balance before this order.
+      const charges = orderCharges(detail);
+      const totalHasTax = Math.abs(Number(detail.total_amount) - charges.total) < 1;
       let previousBalance = 0;
       try {
         const ledgerRes = await api.get(`/ledger/${detail.customer_id}`);
         const currentBalance = ledgerRes.data?.data?.currentBalance ?? 0;
-        // total_amount already includes conveyance, so don't subtract printConveyance again
-        previousBalance = Math.max(0, currentBalance - Number(detail.total_amount) - printTax);
+        previousBalance = Math.max(0, currentBalance - Number(detail.total_amount) - (totalHasTax ? 0 : charges.tax));
       } catch (e) { /* ledger unavailable — skip previous balance */ }
       await buildInvoicePdf(detail, { withTax: !!detail.invoice_with_tax, conveyance: printConveyance, previousBalance, withRate });
       toast.success(`Invoice for ${order.order_number} downloaded.`);
@@ -751,43 +752,29 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
 
       await buildInvoicePdf(detail, { withTax, conveyance, previousBalance, invoiceDate: invoiceDate || null, withRate });
 
-      // Tax goes in as a separate ledger adjustment. Conveyance is merged
-      // into the order's existing ledger entry (and total_amount) so the
-      // customer ledger shows one combined line, not two.
-      const extraCharges = [];
-      if (taxAmount > 0) {
-        await api.post('/ledger/adjustment', {
-          customer_id: detail.customer_id,
-          entry_type: 'debit',
-          amount: taxAmount,
-          description: `Sales Tax (18%) — Order #${order.order_number}`,
-          reference_type: 'order',
-          reference_id: detail.id,
-        });
-        extraCharges.push('Sales Tax');
+      // Saving the tax / conveyance choice makes the backend fold both into the
+      // order total and its ONE ledger line ("Order … delivered") — no separate
+      // "Sales Tax" ledger line any more, so the tax can't be lost or doubled.
+      // It also flips the button to "Edit Invoice" and lets reprints reapply it.
+      const extraCharges = [taxAmount > 0 && 'Sales Tax', conveyance > 0 && 'Conveyance'].filter(Boolean);
+      try {
+        const r = await api.patch(`/orders/${order.id}/mark-invoiced`, { with_tax: withTax, conveyance });
+        const saved = r.data.data;
+        if (saved) {
+          setOrders((prev) => prev.map((o) => (o.id === order.id ? {
+            ...o,
+            invoice_generated_at: saved.invoice_generated_at || o.invoice_generated_at,
+            invoice_with_tax: withTax,
+            invoice_conveyance: conveyance,
+            total_amount: saved.total_amount ?? o.total_amount,
+          } : o)));
+        }
+        toast.success(extraCharges.length
+          ? `Invoice downloaded — ${extraCharges.join(' + ')} added to order ${order.order_number} and ${detail.users?.full_name || 'the customer'}'s ledger.`
+          : `Invoice for ${order.order_number} downloaded.`);
+      } catch (e) {
+        toast.error('Invoice downloaded, but saving tax / conveyance to the order failed: ' + (e.response?.data?.message || e.message));
       }
-      if (conveyance > 0) {
-        await api.patch(`/orders/${detail.id}/add-conveyance`, { conveyance });
-        setOrders((prev) => prev.map((o) => o.id === detail.id ? { ...o, total_amount: Number(o.total_amount) + conveyance } : o));
-        extraCharges.push('Conveyance');
-      }
-      if (extraCharges.length > 0) {
-        toast.success(`Invoice downloaded — ${extraCharges.join(' + ')} added to ${detail.users?.full_name || 'the customer'}'s ledger.`);
-      } else {
-        toast.success(`Invoice for ${order.order_number} downloaded.`);
-      }
-
-      // First invoice for this order — flips the button to "Edit
-      // Invoice" from here on, and remembers the tax/conveyance choice
-      // so Print/Edit Invoice reprints reapply it automatically instead
-      // of dropping it (no-ops quietly pre-migration).
-      api.patch(`/orders/${order.id}/mark-invoiced`, { with_tax: withTax, conveyance })
-        .then((r) => {
-          if (r.data.data?.invoice_generated_at) {
-            setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, invoice_generated_at: r.data.data.invoice_generated_at } : o)));
-          }
-        })
-        .catch(() => {});
 
       setInvoiceOrder(null);
     } catch (err) {
@@ -1614,20 +1601,18 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
               </tbody>
               <tfoot>
                 {(() => {
-                  const itemsSubtotal = (selectedOrder.order_items || []).reduce((s, it) => s + Number(it.subtotal), 0);
-                  const previewConveyance = Number(selectedOrder.invoice_conveyance) || 0;
-                  const grandTotal = itemsSubtotal + previewConveyance;
+                  const { rows, total } = chargeRows(selectedOrder);
                   return (
                     <>
-                      {previewConveyance > 0 && (
-                        <tr className="border-t border-gray-200">
-                          <td colSpan={3} className="px-4 py-2 text-gray-600 text-sm font-medium">Conveyance</td>
-                          <td className="px-4 py-2 text-gray-700 text-sm font-semibold">PKR {previewConveyance.toLocaleString()}</td>
+                      {rows.map(([label, amount], i) => (
+                        <tr key={label} className={i === 0 ? 'border-t border-gray-200' : ''}>
+                          <td colSpan={3} className="px-4 py-2 text-gray-600 text-sm font-medium">{label}</td>
+                          <td className="px-4 py-2 text-gray-700 text-sm font-semibold">PKR {Number(amount).toLocaleString()}</td>
                         </tr>
-                      )}
+                      ))}
                       <tr className="bg-navy">
                         <td colSpan={3} className="px-4 py-3 text-white font-semibold text-sm">TOTAL</td>
-                        <td className="px-4 py-3 text-orange font-bold text-sm">PKR {grandTotal.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-orange font-bold text-sm">PKR {Number(total).toLocaleString()}</td>
                       </tr>
                     </>
                   );
@@ -2087,7 +2072,7 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                   </div>
                   <div>
                     <p className="text-[10px] text-gray-400 uppercase tracking-wide">Total</p>
-                    <p className="text-sm font-bold text-green-700">PKR {Number(previewOrder.total_amount || 0).toLocaleString()}</p>
+                    <p className="text-sm font-bold text-green-700">PKR {Number(previewOrder.order_items ? chargeRows(previewOrder).total : (previewOrder.total_amount || 0)).toLocaleString()}</p>
                   </div>
                   {previewOrder.delivery_address && (
                     <div>
@@ -2123,9 +2108,15 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
                         ))}
                       </tbody>
                       <tfoot>
+                        {chargeRows(previewOrder).rows.map(([label, amount]) => (
+                          <tr key={label} className="border-t border-gray-100">
+                            <td colSpan={5} className="px-5 py-2 text-gray-600 text-xs font-medium">{label}</td>
+                            <td className="px-5 py-2 text-right text-gray-700 text-sm font-semibold">PKR {Number(amount).toLocaleString()}</td>
+                          </tr>
+                        ))}
                         <tr className="bg-navy">
                           <td colSpan={5} className="px-5 py-3 text-white font-bold text-xs">TOTAL</td>
-                          <td className="px-5 py-3 text-right text-white font-bold">PKR {Number(previewOrder.total_amount || 0).toLocaleString()}</td>
+                          <td className="px-5 py-3 text-right text-white font-bold">PKR {Number(chargeRows(previewOrder).total).toLocaleString()}</td>
                         </tr>
                       </tfoot>
                     </table>

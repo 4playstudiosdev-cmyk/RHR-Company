@@ -77,4 +77,73 @@ async function recalcSupplierLedger(supplierId) {
   }
 }
 
-module.exports = { orderLedgerNet, deleteOrderLedgerEntries, recalcCustomerLedger, recalcSupplierLedger };
+// ─── Order total = items + conveyance + sales tax ───────────────────────────
+// One rule everywhere (invoice, preview, ledger): sales tax is 18% of the items
+// subtotal when the invoice was made "with tax"; conveyance is the saved
+// invoice_conveyance. orders.total_amount holds the full amount so the order
+// list, ledger and reports all show what the customer actually owes.
+const TAX_RATE = 0.18;
+const round2 = (n) => Math.round(Number(n || 0) * 100) / 100;
+
+async function computeOrderCharges(orderId) {
+  const [orders, items] = await Promise.all([
+    pgrestGet('orders', { select: 'id,order_number,customer_id,company_id,status,total_amount,invoice_with_tax,invoice_conveyance', id: `eq.${orderId}` }),
+    pgrestGet('order_items', { select: 'subtotal', order_id: `eq.${orderId}` }),
+  ]);
+  const order = orders?.[0];
+  if (!order) return null;
+  const subtotal = round2((items || []).reduce((s, it) => s + Number(it.subtotal || 0), 0));
+  const conveyance = round2(order.invoice_conveyance);
+  const tax = order.invoice_with_tax ? round2(subtotal * TAX_RATE) : 0;
+  return { order, subtotal, conveyance, tax, total: round2(subtotal + conveyance + tax) };
+}
+
+// Writes the full total to the order and keeps the order's ONE ledger line in
+// step: amount = total, text "Order <no> delivered". A separately posted
+// "Sales Tax (18%) — Order #<no>" line (older invoices) is folded into it and
+// removed, so tax is never counted twice or lost. If the order has no ledger
+// line yet (not delivered), delivery will post the full total_amount.
+async function syncOrderTotal(orderId) {
+  const c = await computeOrderCharges(orderId);
+  if (!c) return null;
+  const { order, total } = c;
+  if (round2(order.total_amount) !== total) {
+    await pgrestPatch('orders', { id: `eq.${orderId}` }, { total_amount: total });
+  }
+
+  const taxText = `Sales Tax (18%) — Order #${order.order_number}`;
+  const convText = `Conveyance Charge — Order #${order.order_number}`;
+  const [linked, taxAdj, convAdj] = await Promise.all([
+    pgrestGet('ledger_entries', {
+      select: 'id,amount,description,created_at',
+      reference_type: 'eq.order', reference_id: `eq.${orderId}`, entry_type: 'eq.debit',
+      order: 'created_at.asc',
+    }),
+    pgrestGet('ledger_entries', {
+      select: 'id', customer_id: `eq.${order.customer_id}`, entry_type: 'eq.debit',
+      description: `eq.${taxText}`, reference_type: 'neq.order',
+    }).catch(() => []),
+    pgrestGet('ledger_entries', {
+      select: 'id,amount', customer_id: `eq.${order.customer_id}`, entry_type: 'eq.debit',
+      description: `eq.${convText}`,
+    }).catch(() => []),
+  ]);
+  const rows = linked || [];
+  if (rows.length) {
+    const main = rows.find((r) => /^Order\s/i.test(r.description || '')) || rows[0];
+    const extras = rows.filter((r) => r.id !== main.id && (r.description || '').startsWith('Sales Tax'));
+    // An old separate "Conveyance Charge" line is the same conveyance now inside
+    // the total — remove it only when it matches the saved conveyance exactly.
+    const convSum = (convAdj || []).reduce((s, x) => s + Number(x.amount || 0), 0);
+    const convFolded = c.conveyance > 0 && round2(convSum) === c.conveyance ? (convAdj || []) : [];
+    await pgrestPatch('ledger_entries', { id: `eq.${main.id}` }, {
+      amount: total,
+      description: `Order ${order.order_number} ${order.status === 'delivered' ? 'delivered' : 'confirmed'}`,
+    });
+    for (const x of [...extras, ...(taxAdj || []), ...convFolded]) await pgrestDelete('ledger_entries', { id: `eq.${x.id}` });
+    await recalcCustomerLedger(order.customer_id);
+  }
+  return { ...c, total };
+}
+
+module.exports = { orderLedgerNet, deleteOrderLedgerEntries, recalcCustomerLedger, recalcSupplierLedger, computeOrderCharges, syncOrderTotal, TAX_RATE };
