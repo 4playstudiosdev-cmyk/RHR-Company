@@ -46,6 +46,9 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   // in the app cache, which Android may clear (e.g. when the salesman switches
   // apps) before "Add Customer" uploads it — that caused PathNotFoundException.
   final Map<String, Uint8List> _pickedBytes = {};
+  // Photo uploads and the final save get 90s instead of the app-wide 15s, so a
+  // slow mobile connection (e.g. on a call) doesn't abort them with a timeout.
+  static final Options _slowNetwork = Options(sendTimeout: const Duration(seconds: 90), receiveTimeout: const Duration(seconds: 90));
   Future<Uint8List> _bytesOf(File file) async => _pickedBytes[file.path] ?? await file.readAsBytes();
 
   int _step = 1;
@@ -132,7 +135,9 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     );
     if (source == null) return;
     final picker = ImagePicker();
-    final image = await picker.pickImage(source: source, imageQuality: 70);
+    // Cap at 1600px: a full-resolution camera photo (several MB) took longer
+    // than the 15s timeout to upload on a weak connection (e.g. during a call).
+    final image = await picker.pickImage(source: source, imageQuality: 70, maxWidth: 1600, maxHeight: 1600);
     if (image == null) return;
     final bytes = await image.readAsBytes();
     if (!mounted) return;
@@ -161,7 +166,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
       'fileName':   '${DateTime.now().millisecondsSinceEpoch}.$ext',
       'fileBase64': base64Encode(bytes),
       'mimeType':   mimeType,
-    });
+    }, options: _slowNetwork);
     if (res.data['success'] == true) {
       return res.data['data']['url'] as String;
     }
@@ -308,7 +313,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         if (shopImageUrl != null) 'shop_image_url': shopImageUrl,
         if (nicFrontUrl != null) 'nic_image_url': nicFrontUrl,
         if (nicBackUrl != null) 'nic_back_image_url': nicBackUrl,
-      });
+      }, options: _slowNetwork);
       if (res.data['success'] == true) {
         final newCustomerId = res.data['data']?['id'] as String?;
 
@@ -348,9 +353,13 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     } catch (e) {
       if (mounted) {
         final backendMsg = e is DioException ? (e.response?.data?['message'] as String?) : null;
-        final msg = backendMsg ?? (e.toString().contains('already exists')
-            ? 'A customer with this phone number already exists.'
-            : 'Error: $e');
+        final isTimeout = e is DioException &&
+            (e.type == DioExceptionType.receiveTimeout || e.type == DioExceptionType.sendTimeout || e.type == DioExceptionType.connectionTimeout);
+        final msg = backendMsg ?? (isTimeout
+            ? 'Internet is too slow — the customer may already be saved. Check the customer list before trying again.'
+            : e.toString().contains('already exists')
+                ? 'A customer with this phone number already exists.'
+                : 'Error: $e');
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       }
     } finally {
