@@ -23,6 +23,9 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
   num _totalDeposited = 0;
   List<Map<String, dynamic>> _closingHistory = [];
   List<Map<String, dynamic>> _bankTransfers = [];
+  // The salesman's cheques with their office status (pending / cleared /
+  // rejected / returned) — listed in the history, not counted in the totals.
+  List<Map<String, dynamic>> _cheques = [];
   String _historyRange = 'Today';
 
   @override
@@ -50,6 +53,15 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
       }
       if (results[2].data['success'] == true) {
         _bankTransfers = List<Map<String, dynamic>>.from(results[2].data['data'] ?? []);
+      }
+      // Separate call so the screen still loads if the cheque list fails
+      try {
+        final ch = await DioClient.instance.get(ApiEndpoints.recoveryChequesMe);
+        if (ch.data['success'] == true) {
+          _cheques = List<Map<String, dynamic>>.from(ch.data['data'] ?? []);
+        }
+      } catch (e) {
+        debugPrint('Cheque list load error: $e');
       }
     } catch (e) {
       debugPrint('Cash collection load error: $e');
@@ -103,6 +115,20 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
             'isBank': true,
             'label': 'Bank Transfer from ${customerTitle(t['users'] as Map?, fallback: 'customer')}',
           }),
+      ..._cheques.map((c) {
+            final chequeStatus = (c['cheque_status'] ?? c['status'] ?? 'pending').toString();
+            final no = (c['cheque_number'] ?? '').toString();
+            final bank = (c['cheque_bank'] ?? '').toString();
+            final reason = (c['removed_reason'] ?? c['return_reason'] ?? '').toString();
+            return {
+              'amount': c['amount'],
+              'date': c['recovery_date'],
+              'status': chequeStatus,
+              'kind': 'cheque',
+              'label': 'Cheque${no.isNotEmpty ? ' #$no' : ''}${bank.isNotEmpty ? ' ($bank)' : ''} from ${customerTitle(c['users'] as Map?, fallback: 'customer')}',
+              'reason': (chequeStatus == 'rejected' || chequeStatus == 'returned') ? reason : '',
+            };
+          }),
     ];
     combined.sort((a, b) => (b['date'] ?? '').toString().compareTo((a['date'] ?? '').toString()));
     if (_historyRange == 'All Time') return combined;
@@ -111,13 +137,13 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
 
   num get _filteredCollected {
     if (_historyRange == 'All Time') return _totalCollected;
-    return _combinedHistory.fold<num>(0, (s, c) => s + _asNum(c['amount']));
+    return _combinedHistory.where((c) => c['kind'] != 'cheque').fold<num>(0, (s, c) => s + _asNum(c['amount']));
   }
 
   num get _filteredDeposited {
     if (_historyRange == 'All Time') return _totalDeposited + _totalBankTransferred;
     return _combinedHistory
-        .where((c) => (c['status'] ?? '') == 'approved')
+        .where((c) => c['kind'] != 'cheque' && (c['status'] ?? '') == 'approved')
         .fold<num>(0, (s, c) => s + _asNum(c['amount']));
   }
 
@@ -421,20 +447,25 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
                   const PremiumEmpty(icon: Icons.history_rounded, title: 'No deposits yet')
                 else
                   ..._combinedHistory.map((c) {
-                    final isApproved = (c['status'] ?? '') == 'approved';
+                    final status = (c['status'] ?? '').toString();
+                    final isApproved = status == 'approved' || status == 'cleared';
+                    final isFailed = status == 'rejected' || status == 'returned';
+                    final isCheque = c['kind'] == 'cheque';
                     final isBank = c['isBank'] == true;
+                    final iconColor = isCheque ? kAmber : (isBank ? const Color(0xFF1565C0) : kGreen);
+                    final reason = (c['reason'] ?? '').toString();
                     return PremiumCard(
                       margin: const EdgeInsets.only(bottom: 10),
                       child: Row(children: [
                         Container(
                           width: 42, height: 42,
                           decoration: BoxDecoration(
-                            color: (isBank ? const Color(0xFF1565C0) : kGreen).withValues(alpha: 0.10),
+                            color: iconColor.withValues(alpha: 0.10),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Icon(
-                            isBank ? Icons.account_balance_rounded : Icons.payments_rounded,
-                            color: isBank ? const Color(0xFF1565C0) : kGreen,
+                            isCheque ? Icons.assignment_outlined : (isBank ? Icons.account_balance_rounded : Icons.payments_rounded),
+                            color: iconColor,
                             size: 20,
                           ),
                         ),
@@ -445,8 +476,10 @@ class _CashCollectionScreenState extends State<CashCollectionScreen> {
                           Text(c['label'] as String? ?? '',
                               style: const TextStyle(color: kTextMuted, fontSize: 11)),
                           Text('${c['date']}', style: const TextStyle(color: kTextMuted, fontSize: 11)),
+                          if (reason.isNotEmpty)
+                            Text('Reason: $reason', style: const TextStyle(color: kRed, fontSize: 11, fontWeight: FontWeight.w600)),
                         ])),
-                        StatusBadge(c['status'] as String? ?? '', isApproved ? kGreen : kAmber),
+                        StatusBadge(status, isApproved ? kGreen : (isFailed ? kRed : kAmber)),
                       ]),
                     );
                   }),

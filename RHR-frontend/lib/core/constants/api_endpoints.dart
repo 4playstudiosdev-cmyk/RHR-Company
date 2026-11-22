@@ -51,6 +51,7 @@ class ApiEndpoints {
   static const String recoveryBankTransferMe  = '/api/v1/recovery/bank-transfer/me';
   static const String recoveryChequeMe        = '/api/v1/recovery/cheque/me';
   static const String recoveryBankTransfersMe  = '/api/v1/recovery/bank-transfers/me';
+  static const String recoveryChequesMe        = '/api/v1/recovery/cheques/me';
   static const String recoveryVendorTransferMe = '/api/v1/recovery/vendor-transfer/me';
 
   // SUPPLIERS (readable by salesmen for vendor-transfer)

@@ -1187,6 +1187,23 @@ router.get('/bank-transfers/me', authenticate, isSalesman, async (req, res) => {
   } catch (err) { return error(res, err.message); }
 });
 
+// GET /api/v1/recovery/cheques/me — this salesman's own cheques with their
+// status (pending / cleared / rejected / returned) and the office's reason, for
+// the app's Cash Collection history. A separate endpoint so older app builds,
+// which show /bank-transfers/me as "Bank Transfer …", are not affected.
+router.get('/cheques/me', authenticate, isSalesman, async (req, res) => {
+  try {
+    const data = await pgrestGet('salesman_recoveries', {
+      select: await withPhoto(RECOVERY_SELECT),
+      salesman_id: `eq.${req.user.id}`,
+      payment_type: 'eq.cheque',
+      status: 'neq.deleted',
+      order: 'recovery_date.desc,created_at.desc',
+    });
+    return success(res, data);
+  } catch (err) { return error(res, err.message); }
+});
+
 // GET /api/v1/recovery/transactions/me — this salesman's own collection
 // history (what "Shows total cash recovered by this salesman" reads).
 router.get('/transactions/me', authenticate, isSalesman, async (req, res) => {
