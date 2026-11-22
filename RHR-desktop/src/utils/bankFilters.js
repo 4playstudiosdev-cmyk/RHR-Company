@@ -1,7 +1,12 @@
-// The "Direct Transfer" bank account is only for vendor transfers / vendor
-// payments (a customer paying a vendor directly). Every other bank picker —
-// bank transfer recoveries, cheques, cash closing, expenses — must not offer it.
+// The "Direct Transfer" bank account is meant for vendor transfers / vendor
+// payments (a customer paying a vendor directly).
 export const isDirectTransferAccount = (b) =>
   `${b?.account_name || ''} ${b?.bank_name || ''}`.toLowerCase().includes('direct transfer');
 
-export const withoutDirectTransfer = (accounts) => (accounts || []).filter((b) => !isDirectTransferAccount(b));
+// Set to true to hide Direct Transfer from the non-vendor bank pickers again
+// (cheque deposit, bank transfer recoveries, cash closing, expenses, salesmen).
+// Turned off for now on request — Direct Transfer shows in every picker.
+const HIDE_DIRECT_TRANSFER = false;
+
+export const withoutDirectTransfer = (accounts) =>
+  HIDE_DIRECT_TRANSFER ? (accounts || []).filter((b) => !isDirectTransferAccount(b)) : (accounts || []);
