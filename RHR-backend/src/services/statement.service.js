@@ -1,7 +1,7 @@
 const PDFDocument = require('pdfkit');
 const path        = require('path');
 
-const LOGO_PATH = path.join(__dirname, '../../assets/rhr-logo.jpeg');
+const LOGO_PATH = path.join(__dirname, '../assets/rhr-logo.jpeg'); // src/assets — the old '../../assets' path did not exist, so PDFs had no logo
 
 // Pulls a human order number like "KHI-2026-00015" out of a ledger
 // description ("Order KHI-2026-00015 confirmed") — same pattern the

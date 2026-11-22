@@ -3,7 +3,7 @@ const path        = require('path');
 const { supabaseAdmin } = require('../config/supabase');
 const { freshStorageClient } = require('../utils/storageUpload');
 
-const LOGO_PATH = path.join(__dirname, '../../assets/rhr-logo.jpeg');
+const LOGO_PATH = path.join(__dirname, '../assets/rhr-logo.jpeg'); // src/assets — the old '../../assets' path did not exist, so PDFs had no logo
 
 async function generateInvoice(orderId) {
   try {

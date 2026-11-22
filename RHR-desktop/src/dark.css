@@ -23,6 +23,7 @@ html.dark .bg-gray-50\/30 { background-color: rgba(255, 255, 255, 0.015); }
 html.dark .bg-gray-50\/40 { background-color: rgba(255, 255, 255, 0.025); }
 html.dark .bg-gray-50\/50 { background-color: rgba(255, 255, 255, 0.03); }
 html.dark .bg-gray-50\/60 { background-color: rgba(255, 255, 255, 0.035); }
+html.dark .bg-gray-50\/70 { background-color: rgba(255, 255, 255, 0.04); } /* bank ledger Entry Details panel */
 html.dark .bg-gray-50\/80 { background-color: rgba(255, 255, 255, 0.045); }
 html.dark .bg-gray-100 { background-color: #222b42; }
 html.dark .bg-gray-200 { background-color: #2a3550; }
@@ -146,6 +147,7 @@ html.dark .bg-navy-chip { background-color: rgba(120, 150, 255, 0.18); }
 html.dark .bg-navy-chip\/10 { background-color: rgba(120, 150, 255, 0.05); }
 html.dark .bg-navy-chip\/30 { background-color: rgba(120, 150, 255, 0.1); }
 html.dark .bg-navy-chip\/40 { background-color: rgba(120, 150, 255, 0.13); }
+html.dark .hover\:bg-navy-chip\/30:hover { background-color: rgba(120, 150, 255, 0.1); }
 html.dark .bg-navy-chip\/50 { background-color: rgba(120, 150, 255, 0.15); }
 html.dark .bg-navy-chip\/60 { background-color: rgba(120, 150, 255, 0.17); }
 html.dark .bg-navy\/5, html.dark .hover\:bg-navy\/5:hover { background-color: rgba(120, 150, 255, 0.07); }

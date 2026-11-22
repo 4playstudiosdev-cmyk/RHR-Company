@@ -2,7 +2,7 @@ const PDFDocument = require('pdfkit');
 const path = require('path');
 const { numberToWordsPKR } = require('../utils/numberToWords');
 
-const LOGO_PATH = path.join(__dirname, '../../assets/rhr-logo.jpeg');
+const LOGO_PATH = path.join(__dirname, '../assets/rhr-logo.jpeg'); // src/assets — the old '../../assets' path did not exist, so PDFs had no logo
 
 const DARK_BLUE = '#0F2A52';
 const ORANGE    = '#E8841A';

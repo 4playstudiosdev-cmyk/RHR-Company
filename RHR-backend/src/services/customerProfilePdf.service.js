@@ -2,7 +2,7 @@ const https       = require('https');
 const PDFDocument  = require('pdfkit');
 const path         = require('path');
 
-const LOGO_PATH = path.join(__dirname, '../../assets/rhr-logo.jpeg');
+const LOGO_PATH = path.join(__dirname, '../assets/rhr-logo.jpeg'); // src/assets — the old '../../assets' path did not exist, so PDFs had no logo
 
 // profile_photo_url / nic_image_url / nic_back_image_url are all plain
 // https URLs (public Supabase Storage URL or a signed URL) — pdfkit's

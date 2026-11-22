@@ -1,6 +1,6 @@
 const PDFDocument = require('pdfkit');
 const path = require('path');
-const LOGO_PATH = path.join(__dirname, '../../assets/rhr-logo.jpeg');
+const LOGO_PATH = path.join(__dirname, '../assets/rhr-logo.jpeg'); // src/assets — the old '../../assets' path did not exist, so PDFs had no logo
 
 async function generatePayslip({ employee, structure, month, year, presentDays, lateDays, earnedSalary, lateDeduction, netSalary }) {
   return new Promise((resolve, reject) => {
