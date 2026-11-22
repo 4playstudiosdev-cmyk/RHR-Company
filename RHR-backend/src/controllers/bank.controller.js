@@ -96,7 +96,8 @@ function cashVendorTransferInText(e, payer) {
 }
 
 // A payment and the cheque / transfer that funded it are one movement: keep the
-// IN line first and its OUT line right after it, at the earlier of the two dates,
+// IN line first and its OUT line right after it, at the LATER of the two dates (e.g. when the
+// cheque actually cleared) so the ledger stays in date order,
 // instead of all the day's payments going out before the cheques come in.
 // Expense entries carry `payerId` (the funding recovery's id).
 function keepPairsTogether(entries) {
@@ -106,9 +107,10 @@ function keepPairsTogether(entries) {
     if (x.type !== 'expense' || !x.payerId) continue;
     const a = anchors.get(x.payerId);
     if (!a) continue;
-    const k = Math.min(new Date(a.date).getTime(), new Date(x.date).getTime()) + (i++) * 2;
-    a.sortKey = k;
-    x.sortKey = k + 1;
+    // +1 / +2 (never +0) so a pair never shares a slot with an unrelated line of the same time
+    const k = Math.max(new Date(a.date).getTime(), new Date(x.date).getTime()) + (i++) * 3;
+    a.sortKey = k + 1;
+    x.sortKey = k + 2;
   }
 }
 const sortKeyOf = (e) => (e.sortKey != null ? e.sortKey : new Date(e.date).getTime());
