@@ -11,6 +11,7 @@ import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
 import DateRangeFilter from '../components/DateRangeFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
+import { withoutDirectTransfer } from '../utils/bankFilters';
 
 const KARACHI_COMPANY_ID = '1e5962c6-33a7-460b-913e-9e08db46973a';
 const EXPENSE_CATEGORIES = [
@@ -1126,7 +1127,7 @@ export default function Expenses() {
                       className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
                     >
                       <option value="">— Select —</option>
-                      {bankAccounts.map((b) => (
+                      {withoutDirectTransfer(bankAccounts).map((b) => (
                         <option key={b.id} value={b.id}>{b.account_name} — {b.bank_name}</option>
                       ))}
                     </select>
@@ -1185,7 +1186,7 @@ export default function Expenses() {
                           className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
                         >
                           <option value="">— Select —</option>
-                          {bankAccounts.map((b) => (
+                          {withoutDirectTransfer(bankAccounts).map((b) => (
                             <option key={b.id} value={b.id}>{b.account_name} — {b.bank_name}</option>
                           ))}
                         </select>

@@ -12,6 +12,7 @@ import '../../../shared/widgets/rhr_input_field.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/widgets/tap_scale.dart';
 import '../../../shared/router/app_transitions.dart';
+import '../../../shared/bank_filters.dart';
 
 /// Customer self-service payment submission — mirrors the salesman app's
 /// Record Payment (Cash / Bank Transfer, photo proof required), but
@@ -260,7 +261,7 @@ class _AddPaymentScreenState extends State<AddPaymentScreen> {
                               contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                               hintText: _bankAccounts.isEmpty ? 'No bank accounts set up' : 'Select account you sent to',
                             ),
-                            items: _bankAccounts.map((a) => DropdownMenuItem(
+                            items: withoutDirectTransfer(_bankAccounts).map((a) => DropdownMenuItem(
                               value: a['id'] as String,
                               child: Text('${a['bank_name']} — ${a['account_name']}', overflow: TextOverflow.ellipsis),
                             )).toList(),

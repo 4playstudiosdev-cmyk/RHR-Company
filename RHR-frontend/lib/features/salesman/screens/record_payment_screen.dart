@@ -13,6 +13,7 @@ import '../../../shared/widgets/tap_scale.dart';
 import '../../../shared/widgets/premium_ui.dart';
 import '../../../shared/router/app_transitions.dart';
 import '../../../shared/customer_display.dart';
+import '../../../shared/bank_filters.dart';
 
 class RecordPaymentScreen extends StatefulWidget {
   final String? customerId;
@@ -661,7 +662,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                 : _dropdownField(
                     hint: _bankAccounts.isEmpty ? 'No bank accounts set up' : 'Select account',
                     value: _selectedBankAccountId,
-                    items: _bankAccounts.map((a) => DropdownMenuItem(
+                    items: withoutDirectTransfer(_bankAccounts).map((a) => DropdownMenuItem(
                       value: a['id'] as String,
                       child: Text('${a['bank_name']} — ${a['account_name']}', overflow: TextOverflow.ellipsis),
                     )).toList(),
@@ -681,7 +682,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
                 : _dropdownField(
                     hint: _bankAccounts.isEmpty ? 'No bank accounts set up' : 'Select bank',
                     value: _selectedChequeBankId,
-                    items: _bankAccounts.map((a) => DropdownMenuItem(
+                    items: withoutDirectTransfer(_bankAccounts).map((a) => DropdownMenuItem(
                       value: a['id'] as String,
                       child: Text(a['bank_name']?.toString() ?? '', overflow: TextOverflow.ellipsis),
                     )).toList(),

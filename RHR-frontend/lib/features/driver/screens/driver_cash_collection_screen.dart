@@ -7,6 +7,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/router/app_transitions.dart';
+import '../../../shared/bank_filters.dart';
 
 /// Cash Collection Management for drivers — cash is collected
 /// automatically whenever a delivery is marked "Delivered" with a
@@ -163,7 +164,7 @@ class _DriverCashCollectionScreenState extends State<DriverCashCollectionScreen>
           // place in a Bank Transfer picker (that's what "Via Cash" above
           // is already for).
           bankAccounts = List<Map<String, dynamic>>.from(res.data['data'] ?? [])
-              .where((a) => (a['bank_name']?.toString().trim().toLowerCase() ?? '') != 'cash')
+              .where((a) => (a['bank_name']?.toString().trim().toLowerCase() ?? '') != 'cash' && !isDirectTransferAccount(a))
               .toList();
         }
       } catch (e) {

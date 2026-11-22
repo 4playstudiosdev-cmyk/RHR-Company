@@ -17,6 +17,7 @@ import { exportTableToExcel } from './production/exportUtils';
 import CityFilter from '../components/CityFilter';
 import DateRangeFilter from '../components/DateRangeFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
+import { withoutDirectTransfer } from '../utils/bankFilters';
 
 // Visit time to the second in Pakistan time, and a map link for the spot the
 // salesman marked it from (see Customer Visits page).
@@ -965,7 +966,7 @@ export default function Salesmen({ onViewLedger }) {
                         className="w-full border border-gray-300 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
                       >
                         <option value="">— Select —</option>
-                        {bankAccounts.map((b) => (
+                        {withoutDirectTransfer(bankAccounts).map((b) => (
                           <option key={b.id} value={b.id}>{b.account_name} — {b.bank_name}</option>
                         ))}
                       </select>

@@ -276,9 +276,21 @@ router.patch('/transactions/:id/approve', authenticate, isAdmin, async (req, res
         } catch (_) {}
 
         const expMethod = (rawMethod === 'bank_transfer' || rawMethod === 'cheque') ? 'bank' : 'cash';
-        const bankAcctId = recovery.bank_account_id
+        const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ''));
+        let bankAcctId = recovery.bank_account_id
           || (rawMethod === 'bank_transfer' || rawMethod === 'cheque' ? recovery.reference_number : null)
           || null;
+        // A bank vendor transfer always goes through the branch's Direct Transfer
+        // account; if no valid account was stored (e.g. a typed reference in its
+        // place), use that account instead of losing the vendor payment.
+        if ((rawMethod === 'bank_transfer' || rawMethod === 'cheque') && !isUuid(bankAcctId)) {
+          try {
+            const accts = await pgrestGet('bank_accounts', { select: 'id,account_name,bank_name', company_id: `eq.${recovery.company_id}`, is_active: 'eq.true' });
+            const dt = (accts || []).find((a) => `${a.account_name || ''} ${a.bank_name || ''}`.toLowerCase().includes('direct transfer'));
+            bankAcctId = dt?.id || null;
+            if (dt) await pgrestPatch('salesman_recoveries', { id: `eq.${recovery.id}` }, { reference_number: dt.id }).catch(() => {});
+          } catch (_) { bankAcctId = null; }
+        }
 
         // Fetch bank name for description
         let bankNameLabel = '';
@@ -1503,9 +1515,13 @@ router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) =>
       if (cheque_bank)   rowData.cheque_bank   = cheque_bank;
       if (cheque_date)   rowData.cheque_date   = cheque_date;
     }
-    // Store bank_account_id in reference_number only when user gave no reference
-    if (bank_account_id && !reference_number) {
+    // reference_number holds the chosen bank account (salesman_recoveries has no
+    // bank_account_id column). A typed reference / transaction no. goes into the
+    // notes instead — before, typing one (e.g. "00") lost the bank, and on
+    // approval the vendor payment never reached the Direct Transfer account.
+    if (bank_account_id) {
       rowData.reference_number = bank_account_id;
+      if (reference_number) rowData.notes = [notes, `Ref: ${reference_number}`].filter(Boolean).join(' · ');
     }
     // photo_url (phase63) — proof photo uploaded by the app; was being dropped here
     if (photo_url && await hasPhotoColumn()) rowData.photo_url = photo_url;

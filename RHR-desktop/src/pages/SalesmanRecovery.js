@@ -13,6 +13,7 @@ import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import CityFilter from '../components/CityFilter';
 import { CITY_IDS, fetchAllCities } from '../utils/multiCityFetch';
+import { withoutDirectTransfer } from '../utils/bankFilters';
 
 const TABS = [
   { key: 'add', label: 'Add Recovery', icon: Plus },
@@ -745,7 +746,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                       className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
                     >
                       <option value="">— Select Bank Account —</option>
-                      {banksList.map((b) => (
+                      {withoutDirectTransfer(banksList).map((b) => (
                         <option key={b.id} value={b.id}>{b.account_name || b.bank_name}</option>
                       ))}
                     </select>
@@ -1089,7 +1090,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
               >
                 <option value="">— Select Bank Account —</option>
-                {banksList.map(b => (
+                {withoutDirectTransfer(banksList).map(b => (
                   <option key={b.id} value={b.id}>
                     {b.bank_name}{b.account_number ? ` — ${b.account_number}` : ''}{b.account_name ? ` (${b.account_name})` : ''}
                   </option>
@@ -1441,7 +1442,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
               >
                 <option value="">— Select —</option>
-                {[...banksList].sort((a, b) => (String(b.bank_name).toLowerCase() === 'cash') - (String(a.bank_name).toLowerCase() === 'cash')).map((b) => (
+                {withoutDirectTransfer(banksList).sort((a, b) => (String(b.bank_name).toLowerCase() === 'cash') - (String(a.bank_name).toLowerCase() === 'cash')).map((b) => (
                   <option key={b.id} value={b.id}>
                     {String(b.bank_name).toLowerCase() === 'cash' ? 'Cash — ' + b.account_name : b.bank_name + ' — ' + b.account_name}
                   </option>
