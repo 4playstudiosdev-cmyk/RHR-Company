@@ -59,14 +59,16 @@ function WhenCell({ date, createdAt }) {
 
 // "View photo" — the proof photo the salesman took in Record Payment.
 function PhotoButton({ url, onOpen }) {
+  const [broken, setBroken] = useState(false);
   if (!url) return <span className="text-gray-300">—</span>;
+  if (broken) return <span className="text-xs text-gray-400" title="This photo was not copied from the old server">Photo not available</span>;
   return (
     <button
       type="button"
       onClick={() => onOpen(url)}
       className="inline-flex items-center gap-1.5 text-xs font-semibold text-navy hover:underline"
     >
-      <img src={url} alt="" className="w-8 h-8 rounded object-cover border border-gray-200" />
+      <img src={url} alt="" onError={() => setBroken(true)} className="w-8 h-8 rounded object-cover border border-gray-200" />
       View photo
     </button>
   );
