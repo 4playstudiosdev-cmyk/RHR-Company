@@ -113,6 +113,71 @@ function keepPairsTogether(entries) {
 }
 const sortKeyOf = (e) => (e.sortKey != null ? e.sortKey : new Date(e.date).getTime());
 
+// "Entry details" shown when a bank-ledger line is expanded — where the money
+// came from (customer, salesman, cheque) or went (vendor), for every account
+// type. Adds `details: [[label, value], …]` to each entry from the rows the
+// ledger was built from; entries that already have details are left alone.
+function attachEntryDetails(entries, { transfers = [], cheques = [], expenses = [], closings = [], cashExpenses = [], payers = new Map(), cashPayers = new Map(), direct = false } = {}) {
+  const byId = (rows) => new Map((rows || []).map((r) => [String(r.id), r]));
+  const T = byId(transfers), C = byId(cheques), E = byId(expenses), P = byId(closings), X = byId(cashExpenses);
+  const who = (r) => r?.customer?.shop_name || r?.customer?.full_name || '';
+  const by = (r) => r?.salesman?.full_name || r?.salesmen?.full_name || '';
+  // vendor name = text after "Vendor payment to" up to the first dash / "via" / "Ref:" / "("
+  const vendorOf = (e) => {
+    const rest = (String(e?.description || '').match(/Vendor payment to (.+)$/) || [])[1] || '';
+    return rest.split(/\s+[—–-]\s|\s+via\s|\s+Ref:|\s*\(/)[0].trim();
+  };
+  const day = (d) => String(d || '').slice(0, 10);
+  const keep = (pairs) => pairs.filter(([, v]) => v != null && String(v).trim() !== '');
+  const customerOrUnknown = (p) => who(p) || 'Not recorded';
+
+  for (const en of entries) {
+    if (en.details || en.type === 'opening') continue;
+    const id = String(en.id).replace(/^(dout|din|cin|cexp)-/, '');
+    let d = null;
+    if (en.type === 'transfer_in' && T.has(id)) {
+      const r = T.get(id);
+      d = keep([['Received from', who(r)], ['Collected by', by(r)], ['Payment', r.payment_type === 'vendor_transfer' ? 'Vendor transfer (bank)' : 'Bank transfer'],
+        ['Recovery date', day(r.recovery_date || r.created_at)], ['Note', (r.notes || '').replace(/Bank:\s*[^·]+·?\s*/i, '').trim()]]);
+    } else if (en.type === 'cheque_in' && C.has(id)) {
+      const c = C.get(id);
+      d = keep([['Received from', who(c)], ['Collected by', by(c)], ['Cheque no.', c.cheque_number], ['Cheque bank', c.cheque_bank], ['Cleared on', day(c.cleared_at)]]);
+    } else if (en.type === 'direct_out' && (T.has(id) || C.has(id))) {
+      const r = T.get(id) || C.get(id);
+      d = keep([['Customer money', who(r)], ['Collected by', by(r)], ['Passed on', 'Paid straight to the vendor (Direct Transfer)']]);
+    } else if ((en.type === 'direct_in' || en.type === 'expense') && E.has(id)) {
+      const e = E.get(id);
+      const p = payers.get(e.id) || payers.get(id);
+      const isVendor = e.category === 'Vendor Payment';
+      d = keep([
+        [isVendor ? 'Paid to vendor' : 'Category', isVendor ? vendorOf(e) : e.category],
+        // Direct Transfer: a customer paid the vendor — say so even when unrecorded.
+        // RHR's own bank: only when a customer really funded it.
+        ['Money from customer', p ? customerOrUnknown(p) : (direct && isVendor ? 'Not recorded' : '')],
+        ['Collected by', by(p)],
+        ['Cheque no.', p?.cheque_number],
+        ['Date', day(e.expense_date)],
+        ['Description', e.description],
+      ]);
+    } else if ((en.type === 'cash_vt_in' || String(en.id).startsWith('cexp-')) && X.has(id)) {
+      const e = X.get(id);
+      const p = cashPayers.get(e.id) || cashPayers.get(id);
+      d = keep([
+        [e.category === 'Vendor Payment' ? 'Paid to vendor' : 'Category', e.category === 'Vendor Payment' ? vendorOf(e) : e.category],
+        ['Money from customer', p ? who(p) : ''],
+        ['Collected by', by(p)],
+        ['Paid', p ? 'Cash (vendor transfer)' : 'Cash'],
+        ['Date', day(e.expense_date)],
+        ['Description', e.description],
+      ]);
+    } else if (en.type === 'petty_cash_in' && P.has(id)) {
+      const c = P.get(id);
+      d = keep([['Deposited by', by(c)], ['Closing date', day(c.closing_date)], ['Note', c.notes]]);
+    }
+    if (d && d.length) en.details = d;
+  }
+}
+
 // → { inForExpense, outForTransfer, outForCheque }: Sets of source row ids to mirror
 function directTransferMirrors({ transfers = [], cheques = [], expenses = [] }) {
   // every expense here was paid by a customer directly — not only vendor payments
@@ -691,6 +756,7 @@ const getBankLedger = async (req, res) => {
       });
     }
 
+    attachEntryDetails(entries, { transfers, cheques, expenses, closings: pettyCashClosings, cashExpenses, payers: vtPairs, cashPayers, direct: isDirectTransferAccount(account) });
     keepPairsTogether(entries);
     // Sort ascending by date, opening always first
     entries.sort((a, b) => {
@@ -955,6 +1021,7 @@ const getMergedBankLedger = async (req, res) => {
           description: expenseDescription(e, cashPayers, { cash: true }),
           debit: 0, credit: Number(e.amount || 0), branch, account_name: account.account_name });
       }
+      attachEntryDetails(allEntries, { transfers, cheques, expenses, closings: pettyCashClosings, cashExpenses, payers: vtPairs, cashPayers, direct: isDirectTransferAccount(account) });
     }
 
     keepPairsTogether(allEntries);

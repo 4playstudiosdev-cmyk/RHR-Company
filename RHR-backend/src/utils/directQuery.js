@@ -37,6 +37,7 @@ function pgrestGetRaw(pathAndQuery) {
       },
     }, (res) => {
       let body = '';
+      res.setEncoding('utf8'); // decode multi-byte chars (e.g. —) safely across chunk boundaries
       res.on('data', (chunk) => { body += chunk; });
       res.on('end', () => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -76,6 +77,7 @@ function pgrestPost(table, body) {
       },
     }, (res) => {
       let respBody = '';
+      res.setEncoding('utf8'); // decode multi-byte chars (e.g. —) safely across chunk boundaries
       res.on('data', (chunk) => { respBody += chunk; });
       res.on('end', () => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -118,6 +120,7 @@ function pgrestPatch(table, params, body) {
       },
     }, (res) => {
       let respBody = '';
+      res.setEncoding('utf8'); // decode multi-byte chars (e.g. —) safely across chunk boundaries
       res.on('data', (chunk) => { respBody += chunk; });
       res.on('end', () => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -156,6 +159,7 @@ function pgrestDelete(table, params) {
       },
     }, (res) => {
       let respBody = '';
+      res.setEncoding('utf8'); // decode multi-byte chars (e.g. —) safely across chunk boundaries
       res.on('data', (chunk) => { respBody += chunk; });
       res.on('end', () => {
         if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -191,6 +195,7 @@ function supabaseSignIn(email, password) {
       },
     }, (res) => {
       let body = '';
+      res.setEncoding('utf8'); // decode multi-byte chars (e.g. —) safely across chunk boundaries
       res.on('data', (chunk) => { body += chunk; });
       res.on('end', () => {
         try {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Landmark, Plus, ArrowLeftRight, BookOpen, RefreshCw, Pencil, Trash2, Download } from 'lucide-react';
+import { Landmark, Plus, ArrowLeftRight, BookOpen, RefreshCw, Pencil, Trash2, Download, ChevronDown, ChevronUp, Info } from 'lucide-react';
 import { exportLedgerPdf, pdfAmount, pdfMoney, pdfDate, cityNameOf } from '../utils/ledgerPdf';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
@@ -36,6 +36,7 @@ export default function Bank() {
   const [txnDateFilter, setTxnDateFilter] = useState('all');
   const [txnTypeFilter, setTxnTypeFilter] = useState('all');
   const [ledgerDateFilter, setLedgerDateFilter] = useState('all');
+  const [expandedLedgerId, setExpandedLedgerId] = useState(null); // ledger line showing its Entry Details
   const [bankSummary, setBankSummary] = useState(null);
   const [editAccount, setEditAccount] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -547,7 +548,11 @@ export default function Bank() {
                   </thead>
                   <tbody>
                     {filteredLedgerEntries.map((e, i) => (
-                      <tr key={e.id} className={`border-b border-gray-50 last:border-0 ${e.type === 'opening' ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
+                      <React.Fragment key={e.id}>
+                      <tr
+                        onClick={() => e.details?.length && setExpandedLedgerId((cur) => (cur === e.id ? null : e.id))}
+                        title={e.details?.length ? 'Click for entry details' : undefined}
+                        className={`border-b border-gray-50 last:border-0 ${e.details?.length ? 'cursor-pointer hover:bg-navy-chip/30' : ''} ${expandedLedgerId === e.id ? 'bg-navy-chip/40' : e.type === 'opening' ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50/40' : ''}`}>
                         <td className="px-5 py-3 text-gray-400 text-xs">{i + 1}</td>
                         <td className="px-5 py-3 text-gray-500 whitespace-nowrap text-xs">
                           {e.date ? new Date(e.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
@@ -563,7 +568,12 @@ export default function Bank() {
                           </td>
                         )}
                         <td className="px-5 py-3 text-gray-700 text-xs">
-                          {e.type === 'opening' ? <span className="font-semibold text-navy">{isMergedLedger ? e.description : 'Opening Balance'}</span> : e.description}
+                          <span className="inline-flex items-start gap-1.5">
+                            {e.details?.length ? (expandedLedgerId === e.id
+                              ? <ChevronUp size={13} className="text-gray-400 mt-0.5 flex-shrink-0" />
+                              : <ChevronDown size={13} className="text-gray-400 mt-0.5 flex-shrink-0" />) : null}
+                            <span>{e.type === 'opening' ? <span className="font-semibold text-navy">{isMergedLedger ? e.description : 'Opening Balance'}</span> : e.description}</span>
+                          </span>
                         </td>
                         <td className="px-5 py-3 text-right font-semibold text-green-700 text-xs">
                           {e.debit > 0 ? fmtPKR(e.debit) : '—'}
@@ -575,6 +585,44 @@ export default function Bank() {
                           {fmtPKR(e.balance)}
                         </td>
                       </tr>
+                      {expandedLedgerId === e.id && e.details?.length > 0 && (
+                        <tr className="border-b border-gray-100 bg-gray-50/70">
+                          <td colSpan={isMergedLedger ? 7 : 6} className="px-6 py-4">
+                            <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-navy mb-3">
+                              <Info size={12} /> Entry Details
+                            </p>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
+                              <div>
+                                <p className="text-[11px] text-gray-400">Amount</p>
+                                <p className="text-sm font-semibold text-navy">{fmtPKR(e.debit > 0 ? e.debit : e.credit)}</p>
+                              </div>
+                              <div>
+                                <p className="text-[11px] text-gray-400">Entry Type</p>
+                                <p className="text-sm font-medium text-gray-700">{e.debit > 0 ? 'Debit (In)' : 'Credit (Out)'}</p>
+                              </div>
+                              {isMergedLedger && e.account_name && (
+                                <div>
+                                  <p className="text-[11px] text-gray-400">Account</p>
+                                  <p className="text-sm font-medium text-gray-700">{e.account_name}{e.branch ? ` · ${e.branch}` : ''}</p>
+                                </div>
+                              )}
+                              {e.details.filter(([label]) => label !== 'Description').map(([label, value]) => (
+                                <div key={label}>
+                                  <p className="text-[11px] text-gray-400">{label}</p>
+                                  <p className={`text-sm font-medium ${value === 'Not recorded' ? 'text-amber-600' : 'text-gray-700'}`}>{value}</p>
+                                </div>
+                              ))}
+                            </div>
+                            {e.details.find(([label]) => label === 'Description') && (
+                              <div className="mt-3">
+                                <p className="text-[11px] text-gray-400">Full description:</p>
+                                <p className="text-xs text-gray-600">{e.details.find(([label]) => label === 'Description')[1]}</p>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>
