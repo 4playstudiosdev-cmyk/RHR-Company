@@ -748,24 +748,38 @@ router.get('/cash-summary', authenticate, isAdmin, async (req, res) => {
       }),
     ]);
 
+    // Optional date range (?from=&to=, YYYY-MM-DD). Collected / deposited /
+    // pending and the history cover only that range; cash in hand is the
+    // balance at the END of the range (everything collected minus everything
+    // deposited up to `to`), i.e. what the salesman still held that day.
+    const { from, to } = req.query;
+    const dayOf = (v) => String(v || '').slice(0, 10);
+    const inRange = (d) => (!from || dayOf(d) >= from) && (!to || dayOf(d) <= to);
+    const upToEnd = (d) => !to || dayOf(d) <= to;
+    const closingDay = (c) => c.closing_date || c.created_at;
+
     const perSalesman = (salesmen || []).map(s => {
       const sRec = (recoveries || []).filter(r => r.salesman_id === s.id);
       const sClo = (closings || []).filter(c => c.salesman_id === s.id);
-      const totalCollected = sRec.reduce((sum, r) => sum + Number(r.amount || 0), 0);
-      const totalClosed = sClo.filter(c => c.status === 'approved').reduce((sum, c) => sum + Number(c.amount || 0), 0);
-      const pendingClosed = sClo.filter(c => c.status === 'pending').reduce((sum, c) => sum + Number(c.amount || 0), 0);
+      const sum = (rows) => rows.reduce((t, r) => t + Number(r.amount || 0), 0);
+      const totalCollected = sum(sRec.filter(r => inRange(r.recovery_date)));
+      const totalClosed = sum(sClo.filter(c => c.status === 'approved' && inRange(closingDay(c))));
+      const pendingClosed = sum(sClo.filter(c => c.status === 'pending' && inRange(closingDay(c))));
+      const cashInHand = sum(sRec.filter(r => upToEnd(r.recovery_date)))
+        - sum(sClo.filter(c => c.status === 'approved' && upToEnd(closingDay(c))));
       return {
         id: s.id,
         name: s.full_name,
         total_collected: totalCollected,
         total_deposited: totalClosed,
         pending_deposit: pendingClosed,
-        cash_in_hand: totalCollected - totalClosed,
+        cash_in_hand: cashInHand,
       };
-    }).filter(s => s.total_collected > 0 || s.total_deposited > 0 || s.pending_deposit > 0);
+    }).filter(s => s.total_collected > 0 || s.total_deposited > 0 || s.pending_deposit > 0 || s.cash_in_hand !== 0);
 
     const salesmanMap = Object.fromEntries((salesmen || []).map(s => [s.id, s.full_name]));
-    const recentClosings = (closings || []).slice(0, 100).map(c => ({
+    const closingsInRange = (from || to) ? (closings || []).filter(c => inRange(closingDay(c))) : (closings || []).slice(0, 100);
+    const recentClosings = closingsInRange.map(c => ({
       ...c,
       salesman_name: salesmanMap[c.salesman_id] || 'Unknown',
     }));

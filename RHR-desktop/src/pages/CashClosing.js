@@ -5,9 +5,17 @@ import PageHeader from '../components/PageHeader';
 import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
 import CityFilter from '../components/CityFilter';
+import DateRangeFilter from '../components/DateRangeFilter';
 import { SkeletonStatCards, SkeletonTable } from '../components/Skeleton';
 
 const fmtPKR = (n) => `Rs ${Number(n || 0).toLocaleString()}`;
+const fmtDay = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
+
+// The chosen date range is remembered on this computer for next time
+const RANGE_KEY = 'cashClosing.range';
+const loadRange = () => {
+  try { const r = JSON.parse(localStorage.getItem(RANGE_KEY) || 'null'); return r && typeof r === 'object' ? { from: r.from || '', to: r.to || '' } : { from: '', to: '' }; } catch (e) { return { from: '', to: '' }; }
+};
 
 function StatCard({ label, value, sub, color = 'text-navy', bg = 'bg-navy-chip' }) {
   return (
@@ -45,13 +53,20 @@ export default function CashClosing() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [range, setRange] = useState(loadRange);   // { from, to } — '' = all time
+
+  const applyRange = (from, to) => {
+    const r = { from: from || '', to: to || '' };
+    setRange(r);
+    try { localStorage.setItem(RANGE_KEY, JSON.stringify(r)); } catch (e) { /* storage blocked — still filters */ }
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const res = await api.get('/recovery/cash-summary', {
-        params: { company_id: selectedCity },
+        params: { company_id: selectedCity, ...(range.from ? { from: range.from } : {}), ...(range.to ? { to: range.to } : {}) },
       });
       setData(res.data.data);
     } catch (err) {
@@ -59,11 +74,16 @@ export default function CashClosing() {
     } finally {
       setLoading(false);
     }
-  }, [selectedCity]);
+  }, [selectedCity, range.from, range.to]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
   const t = data?.totals || {};
+  const filtered = !!(range.from || range.to);
+  const periodLabel = !filtered ? 'All time'
+    : range.from === range.to ? fmtDay(range.from)
+    : `${range.from ? fmtDay(range.from) : 'Start'} – ${range.to ? fmtDay(range.to) : 'Today'}`;
+  const asOfLabel = range.to ? `as of ${fmtDay(range.to)}` : 'as of today';
 
   return (
     <div className="p-6">
@@ -74,6 +94,7 @@ export default function CashClosing() {
         action={
           <div className="flex items-center gap-2">
             <CityFilter selectedCity={selectedCity} onChange={setSelectedCity} />
+            <DateRangeFilter from={range.from} to={range.to} onApply={applyRange} defaultPreset="All Time" />
             <Button variant="secondary" onClick={loadData} className="flex items-center gap-1.5">
               <RefreshCw size={14} /> Refresh
             </Button>
@@ -97,26 +118,26 @@ export default function CashClosing() {
             <StatCard
               label="Total Cash Collected"
               value={fmtPKR(t.total_collected)}
-              sub="All approved cash recoveries"
+              sub={filtered ? `Approved cash recoveries · ${periodLabel}` : 'All approved cash recoveries'}
               color="text-navy"
             />
             <StatCard
               label="Total Deposited"
               value={fmtPKR(t.total_deposited)}
-              sub="Approved closings"
+              sub={filtered ? `Approved closings · ${periodLabel}` : 'Approved closings'}
               color="text-green-700"
               bg="bg-green-50"
             />
             <StatCard
               label="Pending Deposit"
               value={fmtPKR(t.pending_deposit)}
-              sub="Awaiting admin approval"
+              sub={filtered ? `Awaiting approval · ${periodLabel}` : 'Awaiting admin approval'}
               color="text-orange"
             />
             <StatCard
               label="Total Cash In Hand"
               value={fmtPKR(t.cash_in_hand)}
-              sub="Still with salesmen"
+              sub={`Still with salesmen · ${asOfLabel}`}
               color={t.cash_in_hand > 0 ? 'text-red-600' : 'text-green-700'}
             />
           </div>
@@ -124,16 +145,16 @@ export default function CashClosing() {
           {/* ── Per-salesman breakdown ── */}
           <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden mb-5">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
-              <h3 className="font-semibold text-navy text-sm">Salesman-wise Cash Position</h3>
+              <h3 className="font-semibold text-navy text-sm">Salesman-wise Cash Position <span className="text-gray-400 font-normal">— {periodLabel}</span></h3>
             </div>
             {!data.per_salesman?.length ? (
-              <EmptyState icon={Landmark} title="No cash data available" />
+              <EmptyState icon={Landmark} title={filtered ? `No cash activity for ${periodLabel}` : 'No cash data available'} />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-navy text-white">
-                      {['Salesman', 'Total Collected', 'Total Deposited', 'Pending Deposit', 'Cash In Hand'].map(h => (
+                      {['Salesman', 'Total Collected', 'Total Deposited', 'Pending Deposit', `Cash In Hand (${asOfLabel})`].map(h => (
                         <th key={h} className="px-5 py-3 text-left text-xs font-bold">{h}</th>
                       ))}
                     </tr>
@@ -174,10 +195,10 @@ export default function CashClosing() {
           {/* ── All closings history ── */}
           <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
-              <h3 className="font-semibold text-navy text-sm">Cash Closing History</h3>
+              <h3 className="font-semibold text-navy text-sm">Cash Closing History <span className="text-gray-400 font-normal">— {periodLabel}</span></h3>
             </div>
             {!data.recent_closings?.length ? (
-              <EmptyState icon={Landmark} title="No closings submitted yet" />
+              <EmptyState icon={Landmark} title={filtered ? `No closings for ${periodLabel}` : 'No closings submitted yet'} />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
