@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Bell, BellRing, X, LogIn, Megaphone, ShoppingCart, Wallet, UserPlus, Clock, Users, UserCog, Car, HandCoins, FileCheck } from 'lucide-react';
-import api from '../services/api';
-import { routeForNotification } from '../utils/notificationRoute';
+import api, { getCurrentUser } from '../services/api';
+import { routeForNotification, isUnreadAlert } from '../utils/notificationRoute';
 
 const PENDING_LABELS = {
   recovery:  { label: 'Pending Recoveries',    icon: HandCoins,  page: 'recovery',   tab: 'pending' },
@@ -35,10 +35,9 @@ function getTimeAgo(dateStr) {
 // a preview of the logged-in user's own notifications (same /notifications
 // endpoint Sidebar's nav-item badge already polls, just not restricted to
 // super_admin/admin_login — this surfaces everything targeted at the user).
-// Opening the popup marks everything read immediately (optimistic client
-// update + the real mark-read call), same as opening the Notifications
-// page already did — the whole point of a bell preview is to let the
-// admin dismiss it at a glance without a second trip to that page.
+// An unread admin notification stays highlighted in red until the admin
+// clicks it (that one is marked read and the admin is taken to it), or uses
+// "Mark all read". Opening the popup no longer clears everything.
 export default function NotificationBell({ setPage, onViewOrderNumber, onNavigate, companyFilter, refreshKey }) {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -82,11 +81,29 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [open]);
 
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
+  const user = getCurrentUser();
+  const unreadAlerts = notifications.filter((n) => isUnreadAlert(n, user));
+  const unreadCount = unreadAlerts.length;
   const totalPending = Object.values(pendingCounts).reduce((s, v) => s + (Number(v) || 0), 0);
   const combinedCount = unreadCount + totalPending;
   const pendingItems = Object.entries(pendingCounts).filter(([, v]) => v > 0);
-  const recent = notifications.slice(0, 8);
+  // every unread alert first (newest first), then the latest read ones to fill the list
+  const unreadIds = new Set(unreadAlerts.map((n) => n.id));
+  const recent = [
+    ...unreadAlerts.slice(0, 30),
+    ...notifications.filter((n) => !unreadIds.has(n.id)).slice(0, Math.max(0, 8 - unreadAlerts.length)),
+  ];
+
+  const markOneRead = (n) => {
+    if (n.is_read) return;
+    setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)));
+    api.patch(`/notifications/${n.id}/read`).catch(() => {});
+  };
+
+  const markAllRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    api.patch('/notifications/mark-read').catch(() => {});
+  };
 
   const goToNotifications = () => {
     setOpen(false);
@@ -99,6 +116,7 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
   // or the Payments page — instead of only ever landing on the generic
   // Notifications list.
   const handleNotificationClick = (n) => {
+    markOneRead(n);
     setOpen(false);
     const route = routeForNotification(n);
     if (route.order) onViewOrderNumber?.(route.order);
@@ -108,12 +126,8 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
 
   const handleToggle = () => {
     setOpen((o) => {
-      const opening = !o;
-      if (opening && unreadCount > 0) {
-        setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-        api.patch('/notifications/mark-read').catch(() => {});
-      }
-      return opening;
+      if (!o) fetchNotifications(); // fresh list every time it opens
+      return !o;
     });
   };
 
@@ -137,9 +151,16 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
                 </span>
               )}
             </div>
-            <button onClick={() => setOpen(false)} aria-label="Close">
-              <X size={18} className="text-white hover:text-blue-200" />
-            </button>
+            <div className="flex items-center gap-3">
+              {unreadCount > 0 && (
+                <button onClick={markAllRead} className="text-[11px] font-semibold text-blue-100 hover:text-white hover:underline">
+                  Mark all read
+                </button>
+              )}
+              <button onClick={() => setOpen(false)} aria-label="Close">
+                <X size={18} className="text-white hover:text-blue-200" />
+              </button>
+            </div>
           </div>
 
           <div className="max-h-96 overflow-y-auto divide-y divide-gray-50">
@@ -184,34 +205,41 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
               </div>
             ) : recent.length > 0 && (
               <>
-                {pendingItems.length > 0 && (
-                  <div className="px-4 py-2 bg-gray-50">
-                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Notifications</span>
-                  </div>
-                )}
+                <div className="px-4 py-2 bg-gray-50 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Notifications</span>
+                  {unreadCount > 0 && (
+                    <span className="text-[11px] font-bold text-red-600">{unreadCount} unread</span>
+                  )}
+                </div>
                 {recent.map((n) => {
                   const Icon = TYPE_ICON[n.type] || Bell;
+                  const unread = unreadIds.has(n.id);
                   return (
                     <div
                       key={n.id}
                       onClick={() => handleNotificationClick(n)}
-                      className={`px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer ${
-                        !n.is_read ? 'bg-blue-50 border-l-2 border-l-blue-500' : ''
+                      title={unread ? 'Unread — click to open' : undefined}
+                      className={`px-4 py-3 transition-colors cursor-pointer border-l-4 ${
+                        unread ? 'bg-red-50 border-l-red-500 hover:bg-red-100' : 'border-l-transparent hover:bg-gray-50'
                       }`}
                     >
                       <div className="flex items-start gap-3">
-                        <span className="w-7 h-7 rounded-lg bg-navy-chip text-navy flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <span className={`relative w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                          unread ? 'bg-red-500 text-white' : 'bg-navy-chip text-navy'
+                        }`}>
                           <Icon size={14} />
+                          {unread && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-600 ring-2 ring-white animate-pulse" />}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-gray-800 font-medium leading-snug line-clamp-2">
+                          <p className={`text-sm leading-snug line-clamp-2 ${unread ? 'text-red-700 font-bold' : 'text-gray-800 font-medium'}`}>
+                            {unread && <span className="inline-block mr-1.5 px-1.5 py-px rounded bg-red-600 text-white text-[10px] font-bold align-middle">NEW</span>}
                             {n.title}
                           </p>
                           {n.body && (
-                            <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{n.body}</p>
+                            <p className={`text-xs mt-0.5 line-clamp-2 ${unread ? 'text-gray-700' : 'text-gray-500'}`}>{n.body}</p>
                           )}
                           <div className="flex items-center justify-between mt-1.5">
-                            <span className="text-xs text-gray-400">{getTimeAgo(n.created_at)}</span>
+                            <span className={`text-xs ${unread ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>{getTimeAgo(n.created_at)}</span>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleNotificationClick(n); }}
                               className="text-xs text-blue-600 hover:text-blue-800 font-medium hover:underline"

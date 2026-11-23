@@ -7,5 +7,6 @@ const { isAdmin }      = require('../middleware/role.middleware');
 router.post('/send',       authenticate, isAdmin, ctrl.sendNotification);
 router.get('/',            authenticate, ctrl.getMyNotifications);
 router.patch('/mark-read', authenticate, ctrl.markAllRead);
+router.patch('/:id/read', authenticate, ctrl.markOneRead);
 
 module.exports = router;

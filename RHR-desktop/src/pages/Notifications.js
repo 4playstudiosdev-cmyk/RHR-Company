@@ -1,8 +1,8 @@
-import { routeForNotification, isRoutable } from '../utils/notificationRoute';
+import { routeForNotification, isRoutable, isUnreadAlert } from '../utils/notificationRoute';
 import { customerLabel } from '../utils/customerLabel';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Bell, Send, History, Search, Users2, Radio, Package, MapPin } from 'lucide-react';
-import api from '../services/api';
+import api, { getCurrentUser } from '../services/api';
 import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
@@ -129,7 +129,12 @@ export default function Notifications({ setPage, onViewOrderNumber, onNavigate }
 
   const visible = filtered.slice(0, visibleCount);
 
+  const me = getCurrentUser();
   const handleRowClick = (n) => {
+    if (!n.is_read) {
+      setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)));
+      api.patch(`/notifications/${n.id}/read`).catch(() => {});
+    }
     if (!isClickable(n)) return;
     const route = routeForNotification(n);
     if (route.order) onViewOrderNumber?.(route.order);
@@ -274,13 +279,15 @@ export default function Notifications({ setPage, onViewOrderNumber, onNavigate }
                         const roleMeta = n.recipient_role ? ROLE_BADGE[n.recipient_role] : null;
                         const RoleIcon = roleMeta?.icon || Users2;
                         const clickable = isClickable(n);
+                        const unread = isUnreadAlert(n, me);
                         return (
                           <tr
                             key={n.id}
                             onClick={() => handleRowClick(n)}
-                            className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/80 transition-colors ${
-                              i % 2 === 1 ? 'bg-gray-50/40' : ''
-                            } ${clickable ? 'cursor-pointer' : ''}`}
+                            title={unread ? 'Unread — click to open' : undefined}
+                            className={`border-b border-gray-50 last:border-0 transition-colors ${
+                              unread ? 'bg-red-50 hover:bg-red-100 shadow-[inset_4px_0_0_#ef4444]' : `hover:bg-gray-50/80 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}`
+                            } ${clickable || unread ? 'cursor-pointer' : ''}`}
                           >
                             <td className="px-6 py-3.5 whitespace-nowrap text-gray-500">
                               {new Date(n.created_at).toLocaleDateString('en-GB')}
@@ -290,7 +297,10 @@ export default function Notifications({ setPage, onViewOrderNumber, onNavigate }
                                 <RoleIcon size={13} /> {roleMeta?.label || 'Specific user'}
                               </span>
                             </td>
-                            <td className="px-6 py-3.5 font-medium text-navy">{n.title}</td>
+                            <td className={`px-6 py-3.5 ${unread ? 'font-bold text-red-700' : 'font-medium text-navy'}`}>
+                              {unread && <span className="inline-block mr-1.5 px-1.5 py-px rounded bg-red-600 text-white text-[10px] font-bold align-middle">NEW</span>}
+                              {n.title}
+                            </td>
                             <td className="px-6 py-3.5 text-gray-500 truncate max-w-[220px]">{n.body}</td>
                             <td className="px-6 py-3.5 text-right">
                               <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-semibold">

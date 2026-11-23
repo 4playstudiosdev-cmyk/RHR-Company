@@ -227,13 +227,14 @@ export default function Sidebar({ page, setPage, user, onLogout, open, onClose, 
     return () => clearInterval(interval);
   }, [user?.role]);
 
-  // Clears the badge the moment the admin actually opens Notifications —
-  // marks everything read server-side too, so it doesn't reappear on the
-  // next 60s poll above.
+  // Clears the login-alert badge the moment the admin actually opens
+  // Notifications — marks only those login alerts read server-side (so the
+  // badge doesn't reappear on the next 60s poll); the other notifications stay
+  // unread (red) until each one is opened.
   useEffect(() => {
     if (page !== 'notifications' || user?.role !== 'super_admin') return;
     setLoginAlerts(0);
-    api.patch('/notifications/mark-read').catch(() => {});
+    api.patch('/notifications/mark-read', { type: 'admin_login' }).catch(() => {});
   }, [page, user?.role]);
 
   const renderChildButton = (item, groupKey) => {

@@ -137,6 +137,8 @@ const markAllRead = async (req, res) => {
       .from('notifications')
       .update({ is_read: true })
       .eq('is_read', false);
+    // optional { type } — e.g. only the admin_login alerts
+    if (req.body?.type) query = query.eq('type', String(req.body.type));
     if (req.user.role === 'super_admin') {
       // sees/clears every branch's notifications, same scope as getMyNotifications above
     } else {
@@ -151,4 +153,22 @@ const markAllRead = async (req, res) => {
   } catch (err) { return error(res, err.message); }
 };
 
-module.exports = { sendNotification, getMyNotifications, markAllRead };
+// PATCH /notifications/:id/read — one notification, when the admin opens it
+const markOneRead = async (req, res) => {
+  try {
+    let query = supabaseAdmin
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('id', req.params.id);
+    if (req.user.role !== 'super_admin') {
+      query = query
+        .or(`recipient_id.eq.${req.user.id},recipient_role.eq.${req.user.role}`)
+        .eq('company_id', req.user.company_id);
+    }
+    const { error: dbErr } = await query;
+    if (dbErr) throw new Error(dbErr.message);
+    return success(res, { marked: true });
+  } catch (err) { return error(res, err.message); }
+};
+
+module.exports = { sendNotification, getMyNotifications, markAllRead, markOneRead };
