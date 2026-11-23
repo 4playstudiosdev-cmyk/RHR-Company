@@ -1,4 +1,4 @@
-import { routeForNotification, isRoutable, isUnreadAlert } from '../utils/notificationRoute';
+import { routeForNotification, isRoutable, isUnreadAlert, isRequestNotification, isAdminAlert } from '../utils/notificationRoute';
 import { customerLabel } from '../utils/customerLabel';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Bell, Send, History, Search, Users2, Radio, Package, MapPin } from 'lucide-react';
@@ -46,10 +46,15 @@ export default function Notifications({ setPage, onViewOrderNumber, onNavigate }
   const [sending, setSending] = useState(false);
   const [search, setSearch] = useState('');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  // ids of things still waiting on an admin — a request notification about one stays red until it is done
+  const [pendingRefs, setPendingRefs] = useState(() => new Set());
 
   useEffect(() => {
     loadNotifications();
     loadRecipients();
+    api.get('/pending-counts/items')
+      .then((r) => setPendingRefs(new Set((r.data.data?.items || []).flatMap((it) => it.ref_ids || [it.id]))))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -279,7 +284,8 @@ export default function Notifications({ setPage, onViewOrderNumber, onNavigate }
                         const roleMeta = n.recipient_role ? ROLE_BADGE[n.recipient_role] : null;
                         const RoleIcon = roleMeta?.icon || Users2;
                         const clickable = isClickable(n);
-                        const unread = isUnreadAlert(n, me);
+                        const unread = isUnreadAlert(n, me)
+                          || (isRequestNotification(n) && isAdminAlert(n, me) && pendingRefs.has(n.reference_id));
                         return (
                           <tr
                             key={n.id}

@@ -52,5 +52,12 @@ export const isAdminAlert = (n, user) =>
   || n?.type === 'admin_login'
   || (!!user && !!n?.recipient_id && n.recipient_id === (user.id || user.userId));
 
-// Unread and meant for the admin -> shown in red until it is opened.
-export const isUnreadAlert = (n, user) => !n?.is_read && isAdminAlert(n, user);
+// A request for the admin to do something (approve a payment, a cheque, an
+// order...). The thing itself is listed under "Needs attention" until it is
+// done, so the notification about it is not counted a second time.
+export const isRequestNotification = (n) =>
+  /awaiting approval|pending approval|cheque received|^new order|urgent order|amount change/i.test(String(n?.title || ''));
+
+// Unread, meant for the admin and not a request already listed under "Needs
+// attention" -> shown in red until it is opened.
+export const isUnreadAlert = (n, user) => !n?.is_read && isAdminAlert(n, user) && !isRequestNotification(n);

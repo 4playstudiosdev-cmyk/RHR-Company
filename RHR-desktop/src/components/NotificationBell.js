@@ -1,16 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bell, BellRing, X, LogIn, Megaphone, ShoppingCart, Wallet, UserPlus, Clock, Users, UserCog, Car, HandCoins, FileCheck } from 'lucide-react';
+import { Bell, BellRing, X, LogIn, Megaphone, ShoppingCart, Wallet, UserPlus, Clock, Users, UserCog, Car, HandCoins, FileCheck, FileText, ArrowLeftRight } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import { routeForNotification, isUnreadAlert } from '../utils/notificationRoute';
 
-const PENDING_LABELS = {
-  recovery:  { label: 'Pending Recoveries',    icon: HandCoins,  page: 'recovery',   tab: 'pending' },
-  orders:    { label: 'Pending Orders',         icon: ShoppingCart, page: 'orders' },
-  payments:  { label: 'Pending Payments',       icon: Wallet,     page: 'payments' },
-  customers: { label: 'Customer Approvals',     icon: Users,      page: 'customers' },
-  salesmen:  { label: 'Salesman Approvals',     icon: UserCog,    page: 'salesmen' },
-  vehicles:  { label: 'Driver Approvals',       icon: Car,        page: 'vehicles' },
-  hrm:       { label: 'Leave Requests',         icon: FileCheck,  page: 'hrm' },
+// icon per pending item kind (see GET /pending-counts/items)
+const KIND_ICON = {
+  order: ShoppingCart,
+  recovery: HandCoins,
+  cash_closing: Wallet,
+  amount_change: ArrowLeftRight,
+  cheque: FileText,
+  customer: Users,
+  salesman: UserCog,
+  driver: Car,
+  payment: Wallet,
+  leave: FileCheck,
 };
 
 const TYPE_ICON = {
@@ -31,17 +35,18 @@ function getTimeAgo(dateStr) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-// Floating "always visible" bell (bottom-right, WhatsApp-Web-style) showing
-// a preview of the logged-in user's own notifications (same /notifications
-// endpoint Sidebar's nav-item badge already polls, just not restricted to
-// super_admin/admin_login — this surfaces everything targeted at the user).
-// An unread admin notification stays highlighted in red until the admin
-// clicks it (that one is marked read and the admin is taken to it), or uses
-// "Mark all read". Opening the popup no longer clears everything.
+// Floating bell (bottom-right). Two parts:
+//  • Needs attention — every item still waiting on an admin (pending order,
+//    recovery, cheque, vendor amount change, approval...), one red line each,
+//    the longest-waiting first. An item leaves the list only once it is done.
+//    The badge number is exactly how many of these there are — the same count
+//    the sidebar badges and the Salesman Recovery tabs show.
+//  • Notifications — an unread admin alert stays red until it is clicked
+//    (that one is marked read) or "Mark all read" is used.
 export default function NotificationBell({ setPage, onViewOrderNumber, onNavigate, companyFilter, refreshKey }) {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
-  const [pendingCounts, setPendingCounts] = useState({});
+  const [pendingItems, setPendingItems] = useState([]);
   const containerRef = useRef(null);
 
   const fetchNotifications = () => {
@@ -52,8 +57,8 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
 
   const fetchPending = () => {
     const params = companyFilter ? { company_id: companyFilter } : {};
-    api.get('/pending-counts', { params })
-      .then((res) => { if (res.data.success) setPendingCounts(res.data.data || {}); })
+    api.get('/pending-counts/items', { params })
+      .then((res) => { if (res.data.success) setPendingItems(res.data.data?.items || []); })
       .catch(() => {});
   };
 
@@ -82,11 +87,11 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
   }, [open]);
 
   const user = getCurrentUser();
+  const showCity = !companyFilter && new Set(pendingItems.map((it) => it.city).filter(Boolean)).size > 1;
   const unreadAlerts = notifications.filter((n) => isUnreadAlert(n, user));
   const unreadCount = unreadAlerts.length;
-  const totalPending = Object.values(pendingCounts).reduce((s, v) => s + (Number(v) || 0), 0);
-  const combinedCount = unreadCount + totalPending;
-  const pendingItems = Object.entries(pendingCounts).filter(([, v]) => v > 0);
+  const pendingCount = pendingItems.length;
+  const badgeCount = pendingCount + unreadCount;
   // every unread alert first (newest first), then the latest read ones to fill the list
   const unreadIds = new Set(unreadAlerts.map((n) => n.id));
   const recent = [
@@ -110,50 +115,51 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
     setPage('notifications');
   };
 
-  // Jumps straight to what the notification is actually about — an
-  // order (via the existing initialOrderNumber deep-link Orders.js
-  // already supports, now matching a raw id too, not just order_number)
-  // or the Payments page — instead of only ever landing on the generic
-  // Notifications list.
+  const goTo = (route) => {
+    setOpen(false);
+    if (route?.order) onViewOrderNumber?.(route.order);
+    else if (route?.page && onNavigate) onNavigate(route.page, route.tab);
+    else if (route?.page) setPage(route.page);
+  };
+
+  // A notification about something still pending is the same thing as its
+  // Needs-attention line — opening it marks it read too.
   const handleNotificationClick = (n) => {
     markOneRead(n);
-    setOpen(false);
-    const route = routeForNotification(n);
-    if (route.order) onViewOrderNumber?.(route.order);
-    else if (onNavigate) onNavigate(route.page, route.tab);
-    else setPage(route.page);
+    goTo(routeForNotification(n));
+  };
+
+  const handlePendingClick = (it) => {
+    notifications
+      .filter((n) => !n.is_read && n.reference_id && (it.ref_ids || [it.id]).includes(n.reference_id))
+      .forEach(markOneRead);
+    goTo(it.route);
   };
 
   const handleToggle = () => {
     setOpen((o) => {
-      if (!o) fetchNotifications(); // fresh list every time it opens
+      if (!o) { fetchNotifications(); fetchPending(); } // fresh list every time it opens
       return !o;
     });
-  };
-
-  const goToPending = (page, tab) => {
-    setOpen(false);
-    if (tab && onNavigate) onNavigate(page, tab);
-    else setPage(page);
   };
 
   return (
     <div className="fixed bottom-6 right-6 z-40" ref={containerRef}>
       {open && (
-        <div className="absolute bottom-16 right-0 w-80 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 bg-navy">
-            <div className="flex items-center gap-2">
-              <BellRing size={18} className="text-white" />
+        <div className="absolute bottom-16 right-0 w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+          <div className="flex items-center justify-between gap-2 px-4 py-3 bg-navy">
+            <div className="flex items-center gap-2 min-w-0">
+              <BellRing size={18} className="text-white flex-shrink-0" />
               <span className="text-white font-semibold text-sm">Notifications</span>
-              {combinedCount > 0 && (
-                <span className="text-white text-xs font-bold px-2 py-0.5 rounded-full bg-red-500">
-                  {combinedCount} pending
+              {pendingCount > 0 && (
+                <span className="text-white text-xs font-bold px-2 py-0.5 rounded-full bg-red-500 whitespace-nowrap">
+                  {pendingCount} pending
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-shrink-0">
               {unreadCount > 0 && (
-                <button onClick={markAllRead} className="text-[11px] font-semibold text-blue-100 hover:text-white hover:underline">
+                <button onClick={markAllRead} className="text-[11px] font-semibold text-blue-100 hover:text-white hover:underline whitespace-nowrap">
                   Mark all read
                 </button>
               )}
@@ -163,34 +169,42 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
             </div>
           </div>
 
-          <div className="max-h-96 overflow-y-auto divide-y divide-gray-50">
-            {/* Pending items section */}
-            {pendingItems.length > 0 && (
-              <div className="bg-orange-50 border-b border-orange-100">
-                <div className="px-4 py-2 flex items-center gap-2">
-                  <Clock size={13} className="text-orange-500" />
-                  <span className="text-xs font-semibold text-orange-700 uppercase tracking-wide">Needs Attention</span>
+          <div className="max-h-[28rem] overflow-y-auto divide-y divide-gray-50">
+            {/* Needs attention — one line per pending item, oldest first */}
+            {pendingCount > 0 && (
+              <div className="border-b border-red-100">
+                <div className="px-4 py-2 flex items-center justify-between bg-red-50">
+                  <span className="flex items-center gap-2">
+                    <Clock size={13} className="text-red-600" />
+                    <span className="text-xs font-semibold text-red-700 uppercase tracking-wide">Needs Attention</span>
+                  </span>
+                  <span className="text-[11px] font-bold text-red-600">{pendingCount} not done</span>
                 </div>
-                {pendingItems.map(([key, count]) => {
-                  const meta = PENDING_LABELS[key];
-                  if (!meta) return null;
-                  const Icon = meta.icon;
+                {pendingItems.map((it) => {
+                  const Icon = KIND_ICON[it.kind] || Clock;
                   return (
                     <div
-                      key={key}
-                      onClick={() => goToPending(meta.page, meta.tab)}
-                      className="px-4 py-2.5 hover:bg-orange-100 cursor-pointer flex items-center gap-3 transition-colors"
+                      key={`${it.kind}-${it.id}`}
+                      onClick={() => handlePendingClick(it)}
+                      title="Not done yet — click to open"
+                      className="px-4 py-2.5 cursor-pointer flex items-start gap-3 transition-colors border-l-4 border-l-red-500 bg-red-50/60 hover:bg-red-100"
                     >
-                      <span className="w-7 h-7 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center flex-shrink-0">
+                      <span className="w-7 h-7 rounded-lg bg-red-500 text-white flex items-center justify-center flex-shrink-0 mt-0.5">
                         <Icon size={14} />
                       </span>
                       <div className="flex-1 min-w-0">
-                        <span className="text-sm text-gray-800 font-medium">{meta.label}</span>
-                        {meta.tab && <span className="block text-xs text-orange-600">→ {meta.tab === 'pending' ? 'Pending Approvals' : meta.tab}</span>}
+                        <p className="text-sm font-bold text-red-700 leading-snug">
+                          {showCity && it.city && (
+                            <span className="inline-block mr-1.5 px-1.5 py-px rounded bg-navy text-white text-[10px] font-bold align-middle">{it.city}</span>
+                          )}
+                          {it.title}
+                        </p>
+                        {it.body && <p className="text-xs text-gray-700 mt-0.5 line-clamp-2">{it.body}</p>}
+                        <div className="flex items-center justify-between mt-1">
+                          <span className="text-xs text-red-500 font-semibold">waiting {getTimeAgo(it.at).replace(' ago', '')}</span>
+                          <span className="text-xs text-blue-600 font-medium">Open →</span>
+                        </div>
                       </div>
-                      <span className="bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">
-                        {count}
-                      </span>
                     </div>
                   );
                 })}
@@ -198,7 +212,7 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
             )}
 
             {/* Notifications section */}
-            {recent.length === 0 && pendingItems.length === 0 ? (
+            {recent.length === 0 && pendingCount === 0 ? (
               <div className="py-8 text-center text-gray-400 text-sm">
                 <Bell size={28} className="mx-auto mb-2 text-gray-300" />
                 No notifications yet
@@ -270,17 +284,18 @@ export default function NotificationBell({ setPage, onViewOrderNumber, onNavigat
       <button
         onClick={handleToggle}
         aria-label="Notifications"
+        title={badgeCount > 0 ? `${pendingCount} pending${unreadCount ? ` · ${unreadCount} unread` : ''}` : 'Notifications'}
         className="relative w-14 h-14 bg-navy hover:bg-navy/90 rounded-full shadow-xl flex items-center justify-center transition-all hover:scale-105 active:scale-95"
       >
-        {combinedCount > 0 ? <BellRing size={24} className="text-white" /> : <Bell size={24} className="text-white" />}
+        {badgeCount > 0 ? <BellRing size={24} className="text-white" /> : <Bell size={24} className="text-white" />}
 
-        {combinedCount > 0 && (
+        {badgeCount > 0 && (
           <span className="absolute -top-1 -right-1 min-w-[20px] h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center px-1 shadow-lg">
-            {combinedCount > 99 ? '99+' : combinedCount}
+            {badgeCount > 99 ? '99+' : badgeCount}
           </span>
         )}
 
-        {combinedCount > 0 && (
+        {badgeCount > 0 && (
           <span className="absolute inset-0 rounded-full bg-navy animate-ping opacity-20" />
         )}
       </button>
