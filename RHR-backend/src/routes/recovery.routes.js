@@ -1701,7 +1701,7 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
           entry_type:      'credit',
           amount:          Number(amount),
           running_balance: prevBal - Number(amount),
-          description:     `Admin vendor transfer — via ${vendor_payment_method === 'cash' ? 'cash' : `${vendor_payment_method === 'cheque' ? `cheque #${chequeNo}` : 'bank transfer'} — ${adminBankName}`}`,
+          description:     `Admin vendor transfer — via ${vendor_payment_method === 'cash' ? 'cash' : `${vendor_payment_method === 'cheque' ? `cheque #${chequeNo}${chequeBank ? ` (${chequeBank})` : ''}` : 'bank transfer'} — ${adminBankName}`}`,
           reference_type:  'vendor_transfer',
           created_by:      req.user.id,
           created_at:      new Date(expenseDate).toISOString(),

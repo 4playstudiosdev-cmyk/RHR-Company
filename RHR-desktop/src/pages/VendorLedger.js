@@ -48,7 +48,7 @@ function parseEntryDetails(entry) {
 
     // Bank name: after "Payment via method —" or "Payment via method"
     const bankMatch = desc.match(/Payment via \w+\s*[—\-]\s*([^(—\n]+)/i);
-    if (bankMatch) details.bank = bankMatch[1].replace(/Ref:.*/i, '').trim().replace(/\s*$/, '');
+    if (bankMatch) details.bank = bankMatch[1].replace(/Ref:.*/i, '').replace(/\s*Cheque#.*$/i, '').trim();
 
     // Reference number
     const refMatch = desc.match(/Ref:\s*([^\s(—]+)/i);
@@ -63,10 +63,33 @@ function parseEntryDetails(entry) {
     if (dateMatch) details.paymentDate = dateMatch[1];
 
     // Cheque details
-    const chequeMatch = desc.match(/Cheque#?\s*([^\s]+)/i);
+    const chequeMatch = desc.match(/Cheque\s*#\s*([\w-]+)/i);
     if (chequeMatch) details.chequeNumber = chequeMatch[1];
     const chequeDateMatch = desc.match(/dated\s+([\d-]+)/i);
     if (chequeDateMatch) details.chequeDate = chequeDateMatch[1];
+  }
+
+  // Vendor transfers: "Salesman / Admin vendor transfer (approved) — via cash"
+  //   "… — via bank transfer — Direct Transfer — from <customer>"
+  //   "… — via cheque #123 (HBL) — Direct Transfer — from <customer>"
+  if (entry.reference_type === 'vendor_transfer') {
+    const vt = desc.match(/vendor transfer(?: approved)?\s*[—-]\s*via\s+(cash|bank transfer|bank|cheque)\s*(?:#\s*([\w-]+))?\s*(?:\(([^)]+)\))?\s*(?:[—-]\s*([^—]+?))?\s*(?:[—-]\s*from\s+(.+))?$/i);
+    if (vt) {
+      const how = vt[1].toLowerCase();
+      details.method = how === 'cash' ? 'cash' : how === 'cheque' ? 'cheque' : 'bank';
+      details.bank = vt[4] && !/^from\s/i.test(vt[4]) ? vt[4].trim() : undefined;
+      details.chequeNumber = vt[2] || undefined;
+      details.chequeBank = vt[3] || undefined;
+      details.notes = undefined; // the "(HBL)" is the cheque's bank, not a note
+      const from = vt[5] || (desc.match(/[—-]\s*from\s+(.+)$/i) || [])[1];
+      if (from) details.customer = from.trim();
+    }
+  }
+  if (details.method) {
+    const how = details.method.toLowerCase() === 'bank' ? 'Bank Transfer'
+      : details.method.toLowerCase() === 'cheque' ? `Cheque${details.chequeNumber ? ` #${details.chequeNumber}` : ''}${details.chequeBank ? ` (${details.chequeBank})` : ''}`
+      : details.method.charAt(0).toUpperCase() + details.method.slice(1).toLowerCase();
+    details.methodLabel = entry.reference_type === 'vendor_transfer' ? `Vendor transfer — ${how}` : how;
   }
 
   // Purchase entries
@@ -615,10 +638,16 @@ export default function VendorLedger({ initialSupplierId }) {
                                           {new Date(e.created_at).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}
                                         </p>
                                       </div>
-                                      {isPayment && details?.method && (
+                                      {isPayment && details?.methodLabel && (
                                         <div>
                                           <p className="text-xs text-gray-400 mb-0.5">Payment Method</p>
-                                          <p className="font-medium text-gray-700 capitalize">{details.method === 'bank' ? 'Bank Transfer' : details.method}</p>
+                                          <p className="font-semibold text-emerald-700">{details.methodLabel}</p>
+                                        </div>
+                                      )}
+                                      {isPayment && details?.customer && (
+                                        <div>
+                                          <p className="text-xs text-gray-400 mb-0.5">Paid by Customer</p>
+                                          <p className="font-medium text-gray-700">{details.customer}</p>
                                         </div>
                                       )}
                                       {isPayment && details?.bank && (
