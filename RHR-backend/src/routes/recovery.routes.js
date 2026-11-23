@@ -1500,9 +1500,10 @@ router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) =>
     }
 
     const expenseDate = recovery_date || new Date().toISOString().split('T')[0];
+    // how the customer paid the vendor — shown as the Method everywhere
     const payMethod = vendor_payment_method === 'bank_transfer' ? 'bank_transfer'
       : vendor_payment_method === 'cheque' ? 'cheque'
-      : 'vendor_transfer';
+      : 'cash';
 
     const rowData = {
       company_id:       req.user.company_id,

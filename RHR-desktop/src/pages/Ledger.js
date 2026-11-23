@@ -569,6 +569,12 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
                                   <div className="text-xs text-gray-400 mb-0.5">Date Recorded</div>
                                   <div className="font-medium text-gray-700">{new Date(entry.created_at).toLocaleDateString('en-GB')}</div>
                                 </div>
+                                {entry.payment_method_label && (
+                                  <div>
+                                    <div className="text-xs text-gray-400 mb-0.5">Payment Method</div>
+                                    <div className="font-semibold text-emerald-700">{entry.payment_method_label}</div>
+                                  </div>
+                                )}
                                 {(entry.reference_type === 'vendor_transfer' || (entry.description || '').toLowerCase().includes('vendor transfer')) && (() => {
                                   const m = (entry.description || '').match(/vendor transfer to ([^—\n]+)/i);
                                   const vendor = m ? m[1].trim() : null;

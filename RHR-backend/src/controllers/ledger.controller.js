@@ -65,7 +65,61 @@ async function nameVendorTransfers(entries, customerId) {
         : e);
     } catch (_) { /* vendor_id column or join unavailable */ }
   }
-  return nameBankTransfers(data, customerId);
+  return addPaymentMethods(await nameBankTransfers(data, customerId), customerId);
+}
+
+// payment_method_label on every payment (credit) line: Cash / Cheque #… / Bank
+// Transfer — <account> / EasyPaisa / Vendor transfer — Cash… From the recovery
+// the line is linked to (reference_id); older unlinked lines from their wording.
+const titleCase = (v) => String(v || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+function methodOfRecovery(r, acctById) {
+  const bank = /^[0-9a-f-]{36}$/i.test(r.reference_number || '') ? bankLabel(acctById[r.reference_number]) : '';
+  const cheque = `Cheque${r.cheque_number ? ` #${r.cheque_number}` : ''}${r.cheque_bank ? ` (${r.cheque_bank})` : ''}`;
+  const how = (m) => (m === 'bank_transfer' ? `Bank Transfer${bank ? ` — ${bank}` : ''}`
+    : m === 'cheque' ? cheque
+    : m === 'cash' || !m ? 'Cash'
+    : titleCase(m));
+  if (r.payment_type === 'vendor_transfer') {
+    const m = r.payment_method === 'vendor_transfer' ? 'cash' : r.payment_method;
+    return `Vendor transfer — ${how(m)}`;
+  }
+  if (r.payment_type === 'cash') return 'Cash';
+  if (r.payment_type === 'cheque') return cheque;
+  return how(r.payment_method);
+}
+function methodFromText(e) {
+  const d = String(e.description || '');
+  if (/vendor transfer/i.test(d)) return 'Vendor transfer';
+  if (/cheque/i.test(d)) { const m = d.match(/cheque\s*#\s*([\w-]+)(?:\s*\(([^)]+)\))?/i); return m ? `Cheque #${m[1]}${m[2] ? ` (${m[2]})` : ''}` : 'Cheque'; }
+  if (/bank transfer/i.test(d)) return e.bank_name ? `Bank Transfer — ${e.bank_name}` : 'Bank Transfer';
+  if (/easypaisa/i.test(d)) return 'EasyPaisa';
+  if (/jazzcash/i.test(d)) return 'JazzCash';
+  if (/cash/i.test(d)) return 'Cash';
+  return null;
+}
+async function addPaymentMethods(entries, customerId) {
+  const data = entries || [];
+  const credits = data.filter((e) => e.entry_type === 'credit' && e.reference_type !== 'opening_balance');
+  if (!credits.length) return data;
+  let recById = {};
+  let acctById = {};
+  try {
+    const recs = await pgrestGetRaw(
+      `salesman_recoveries?select=id,payment_type,payment_method,reference_number,cheque_number,cheque_bank&customer_id=eq.${customerId}`
+    );
+    recById = Object.fromEntries((recs || []).map((r) => [r.id, r]));
+    const acctIds = [...new Set((recs || []).map((r) => r.reference_number).filter((v) => /^[0-9a-f-]{36}$/i.test(v || '')))];
+    if (acctIds.length) {
+      const accts = await pgrestGetRaw(`bank_accounts?select=id,account_name,bank_name&id=in.(${acctIds.join(',')})`);
+      acctById = Object.fromEntries((accts || []).map((a) => [a.id, a]));
+    }
+  } catch (_) { /* fall back to the wording */ }
+  return data.map((e) => {
+    if (e.entry_type !== 'credit' || e.reference_type === 'opening_balance') return e;
+    const r = e.reference_id && recById[e.reference_id];
+    const label = r ? methodOfRecovery(r, acctById) : methodFromText(e);
+    return label ? { ...e, payment_method_label: label } : e;
+  });
 }
 
 // "Bank transfer approved" → "Bank transfer approved — Meezan Bank": the account

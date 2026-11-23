@@ -58,6 +58,11 @@ function WhenCell({ date, createdAt }) {
 }
 
 // "View photo" — the proof photo the salesman took in Record Payment.
+// How the customer paid the vendor (older salesman cash transfers were stored as 'vendor_transfer').
+const vendorMethodLabel = (t) => (t.payment_method === 'bank_transfer' ? 'Bank Transfer'
+  : t.payment_method === 'cheque' ? `Cheque${t.cheque_number ? ` #${t.cheque_number}` : ''}`
+  : 'Cash');
+
 function PhotoButton({ url, onOpen }) {
   const [broken, setBroken] = useState(false);
   if (!url) return <span className="text-gray-300">—</span>;
@@ -1717,7 +1722,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                       </td>
                       <td className="px-6 py-3.5 text-gray-500 text-xs capitalize">
                         {t.payment_type === 'vendor_transfer'
-                          ? 'Vendor Transfer'
+                          ? vendorMethodLabel(t)
                           : t.payment_method === 'bank_transfer' && bankLabel(t.notes)
                             ? `bank_transfer (${bankLabel(t.notes)})`
                             : t.payment_method}
@@ -1769,7 +1774,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                             </div>
                             <div>
                               <div className="text-xs text-gray-400 mb-0.5">Method</div>
-                              <div className="font-medium text-gray-700 capitalize">{(t.payment_method || t.payment_type || '—').replace(/_/g, ' ')}</div>
+                              <div className="font-medium text-gray-700 capitalize">{t.payment_type === 'vendor_transfer' ? vendorMethodLabel(t) : (t.payment_method || t.payment_type || '—').replace(/_/g, ' ')}</div>
                             </div>
                             <div>
                               <div className="text-xs text-gray-400 mb-0.5">Date</div>
