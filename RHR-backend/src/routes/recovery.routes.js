@@ -280,16 +280,17 @@ router.patch('/transactions/:id/approve', authenticate, isAdmin, async (req, res
         let bankAcctId = recovery.bank_account_id
           || (rawMethod === 'bank_transfer' || rawMethod === 'cheque' ? recovery.reference_number : null)
           || null;
-        // A bank vendor transfer always goes through the branch's Direct Transfer
-        // account; if no valid account was stored (e.g. a typed reference in its
-        // place), use that account instead of losing the vendor payment.
-        if ((rawMethod === 'bank_transfer' || rawMethod === 'cheque') && !isUuid(bankAcctId)) {
+        // A cheque / bank vendor transfer always goes through the branch's Direct
+        // Transfer account (IN then OUT there) — also when another bank, or a typed
+        // reference, was stored in its place.
+        if (rawMethod === 'bank_transfer' || rawMethod === 'cheque') {
           try {
             const accts = await pgrestGet('bank_accounts', { select: 'id,account_name,bank_name', company_id: `eq.${recovery.company_id}`, is_active: 'eq.true' });
             const dt = (accts || []).find((a) => `${a.account_name || ''} ${a.bank_name || ''}`.toLowerCase().includes('direct transfer'));
-            bankAcctId = dt?.id || null;
-            if (dt) await pgrestPatch('salesman_recoveries', { id: `eq.${recovery.id}` }, { reference_number: dt.id }).catch(() => {});
-          } catch (_) { bankAcctId = null; }
+            if (dt) bankAcctId = dt.id;
+            else if (!isUuid(bankAcctId)) bankAcctId = null;
+            if (dt && recovery.reference_number !== dt.id) await pgrestPatch('salesman_recoveries', { id: `eq.${recovery.id}` }, { reference_number: dt.id }).catch(() => {});
+          } catch (_) { if (!isUuid(bankAcctId)) bankAcctId = null; }
         }
 
         // Fetch bank name for description
@@ -1481,13 +1482,22 @@ async function hasVendorColumn() {
 // null because they FK to users(id) and a salesman's id is in salesmen, not users.
 router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) => {
   try {
-    const { customer_id, supplier_id, amount, recovery_date, reference_number, notes, vendor_payment_method, bank_account_id, cheque_number, cheque_date, cheque_bank, photo_url } = req.body;
+    const { customer_id, supplier_id, amount, recovery_date, reference_number, notes, vendor_payment_method, cheque_number, cheque_date, cheque_bank, photo_url } = req.body;
+    let { bank_account_id } = req.body;
     if (!customer_id || !supplier_id || !amount || Number(amount) <= 0)
       return error(res, 'customer_id, supplier_id and a positive amount are required', 400);
-    if (vendor_payment_method === 'bank_transfer' && !bank_account_id)
-      return error(res, 'bank_account_id is required for bank transfer vendor payment', 400);
     if (vendor_payment_method === 'cheque' && (!cheque_number || !cheque_date))
       return error(res, 'cheque_number and cheque_date are required for cheque vendor payment', 400);
+    // Cash → Cash in Hand (IN then OUT on approval). Cheque / bank transfer → always the
+    // branch's Direct Transfer account (IN then OUT on approval), whatever was picked.
+    if (vendor_payment_method === 'bank_transfer' || vendor_payment_method === 'cheque') {
+      const accts = await pgrestGet('bank_accounts', { select: 'id,account_name,bank_name', company_id: `eq.${req.user.company_id}`, is_active: 'eq.true' }).catch(() => []);
+      const dt = (accts || []).find((a) => `${a.account_name || ''} ${a.bank_name || ''}`.toLowerCase().includes('direct transfer'));
+      if (dt) bank_account_id = dt.id;
+      if (!bank_account_id) return error(res, 'No Direct Transfer bank account is set up for your branch — ask the admin.', 400);
+    } else {
+      bank_account_id = null;
+    }
 
     const expenseDate = recovery_date || new Date().toISOString().split('T')[0];
     const payMethod = vendor_payment_method === 'bank_transfer' ? 'bank_transfer'
