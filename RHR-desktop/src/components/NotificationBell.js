@@ -38,7 +38,7 @@ function getTimeAgo(dateStr) {
 // Floating bell (bottom-right). Two parts:
 //  • Needs attention — every item still waiting on an admin (pending order,
 //    recovery, cheque, vendor amount change, approval...), one red line each,
-//    the longest-waiting first. An item leaves the list only once it is done.
+//    newest first. An item leaves the list only once it is done.
 //    The badge number is exactly how many of these there are — the same count
 //    the sidebar badges and the Salesman Recovery tabs show.
 //  • Notifications — an unread admin alert stays red until it is clicked

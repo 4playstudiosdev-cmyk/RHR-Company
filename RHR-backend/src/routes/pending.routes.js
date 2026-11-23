@@ -92,8 +92,8 @@ async function loadPendingItems(companyId) {
     [cust(p.customer_id), pkr(p.amount)].filter(Boolean).join(' · '), { page: 'payments' }, p.amount));
   leave.forEach((l) => add('hrm', 'leave', l, 'Leave request', l.reason || l.leave_type || '', { page: 'hrm' }));
 
-  // the longest-waiting first — an old item that is still not done stays on top
-  items.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
+  // newest first (just now at the top); older items that are still not done stay listed below
+  items.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
   return items;
 }
 
@@ -110,7 +110,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
   } catch (err) { return error(res, err.message); }
 });
 
-// GET /api/v1/pending-counts/items — the same items, one row each (oldest first)
+// GET /api/v1/pending-counts/items — the same items, one row each (newest first)
 router.get('/items', authenticate, isAdmin, async (req, res) => {
   try {
     const items = await loadPendingItems(resolveCompanyId(req));
