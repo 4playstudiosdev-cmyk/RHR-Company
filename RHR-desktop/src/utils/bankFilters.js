@@ -5,8 +5,8 @@ export const isDirectTransferAccount = (b) =>
 
 // Set to true to hide Direct Transfer from the non-vendor bank pickers again
 // (cheque deposit, bank transfer recoveries, cash closing, expenses, salesmen).
-// Turned off for now on request — Direct Transfer shows in every picker.
-const HIDE_DIRECT_TRANSFER = false;
+// On: Direct Transfer is only for vendor transfers (cheque / bank transfer ones go there automatically).
+const HIDE_DIRECT_TRANSFER = true;
 
 export const withoutDirectTransfer = (accounts) =>
   HIDE_DIRECT_TRANSFER ? (accounts || []).filter((b) => !isDirectTransferAccount(b)) : (accounts || []);

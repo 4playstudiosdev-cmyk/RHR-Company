@@ -30,7 +30,7 @@ const EMPTY_FORM = {
   reference_number: '', notes: '',
   cheque_bank: '', cheque_number: '', cheque_date: '',
   recovery_date: new Date().toISOString().split('T')[0],
-  vendor_id: '', vendor_payment_method: 'bank_transfer', bank_account_id: '',
+  vendor_id: '', vendor_payment_method: 'cash', bank_account_id: '',
 };
 
 const EMPTY_CLOSING_FORM = { salesman_id: '', amount: '', deposit_to: 'bank', bank_account: '', bank_account_id: '', notes: '', closing_date: new Date().toISOString().split('T')[0] };
@@ -396,8 +396,8 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
         toast.error('Customer, vendor and a valid amount are required.');
         return;
       }
-      if ((form.vendor_payment_method === 'bank_transfer' || form.vendor_payment_method === 'cheque') && !form.bank_account_id) {
-        toast.error('Bank account required for bank transfer / cheque vendor payment.');
+      if (form.vendor_payment_method === 'cheque' && (!form.cheque_number.trim() || !form.cheque_bank.trim())) {
+        toast.error('Cheque needs the bank name and cheque number.');
         return;
       }
       setSaving(true);
@@ -413,8 +413,8 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
           recovery_date: form.recovery_date,
           reference_number: form.reference_number || null,
           notes: form.notes || null,
+          // cash → Cash in Hand; cheque / bank transfer → the branch's Direct Transfer account (chosen by the server)
           vendor_payment_method: form.vendor_payment_method || 'cash',
-          bank_account_id: (form.vendor_payment_method === 'bank_transfer' || form.vendor_payment_method === 'cheque') ? (form.bank_account_id || null) : null,
           ...(form.vendor_payment_method === 'cheque' ? {
             cheque_number: form.cheque_number || null,
             cheque_date:   form.cheque_date   || null,
@@ -422,7 +422,9 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
           } : {}),
           photo_url: uploadedUrl || null,
         });
-        toast.success('Direct vendor transfer recorded — customer balance updated.');
+        toast.success(form.vendor_payment_method === 'cash'
+          ? 'Vendor transfer recorded — Cash in Hand IN and OUT, customer balance updated.'
+          : 'Vendor transfer recorded — Direct Transfer IN and OUT, customer balance updated.');
         setForm({ ...EMPTY_FORM, salesman_id: form.salesman_id });
         clearPhoto();
         loadTransactions();
@@ -711,7 +713,7 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                     <button
                       type="button"
                       key={pt.v}
-                      onClick={() => { clearPhoto(); setForm({ ...form, payment_type: pt.v, payment_method: pt.v === 'cash' ? 'cash' : pt.v === 'cheque' ? 'cheque' : pt.v === 'vendor_transfer' ? 'vendor_transfer' : 'easypaisa', bank_account_id: '', vendor_payment_method: 'bank_transfer' }); }}
+                      onClick={() => { clearPhoto(); setForm({ ...form, payment_type: pt.v, payment_method: pt.v === 'cash' ? 'cash' : pt.v === 'cheque' ? 'cheque' : pt.v === 'vendor_transfer' ? 'vendor_transfer' : 'easypaisa', bank_account_id: '', vendor_payment_method: 'cash' }); }}
                       className={`flex flex-col items-center gap-1 rounded-xl border-2 px-3 py-3 text-center transition-colors ${
                         active ? 'border-navy bg-navy-chip/30' : 'border-gray-200 hover:border-navy/40'
                       }`}
@@ -849,18 +851,66 @@ export default function SalesmanRecovery({ initialTab, initialTabToken, initialR
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Bank Account (RHR) *</label>
-                  <select
-                    value={form.bank_account_id}
-                    onChange={(e) => setForm({ ...form, bank_account_id: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy bg-white"
-                  >
-                    <option value="">— Select Bank Account —</option>
-                    {directTransferAccounts.map((b) => (
-                      <option key={b.id} value={b.id}>{b.account_name || b.bank_name}</option>
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">How did the customer pay the vendor? *</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { v: 'cash', label: 'Cash' },
+                      { v: 'cheque', label: 'Cheque' },
+                      { v: 'bank_transfer', label: 'Bank Transfer' },
+                    ].map((m) => (
+                      <button
+                        key={m.v}
+                        type="button"
+                        onClick={() => setForm({ ...form, vendor_payment_method: m.v })}
+                        className={`py-2 rounded-lg border text-sm font-semibold transition-colors ${
+                          form.vendor_payment_method === m.v
+                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                            : 'bg-white border-gray-300 text-gray-700 hover:border-indigo-400'
+                        }`}
+                      >
+                        {m.label}
+                      </button>
                     ))}
-                  </select>
+                  </div>
+                  <p className="text-xs text-indigo-700 mt-1.5">
+                    {form.vendor_payment_method === 'cash'
+                      ? 'Goes IN to Cash in Hand and straight OUT to the vendor.'
+                      : `Goes IN to Direct Transfer and straight OUT to the vendor${directTransferAccounts.length ? '' : ' (no Direct Transfer account found for this branch)'}.`}
+                  </p>
                 </div>
+                {form.vendor_payment_method === 'cheque' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1.5">Cheque Bank *</label>
+                      <input
+                        type="text"
+                        value={form.cheque_bank}
+                        onChange={(e) => setForm({ ...form, cheque_bank: e.target.value })}
+                        placeholder="e.g. HBL"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1.5">Cheque Number *</label>
+                      <input
+                        type="text"
+                        value={form.cheque_number}
+                        onChange={(e) => setForm({ ...form, cheque_number: e.target.value })}
+                        placeholder="e.g. 12345678"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1.5">Cheque Date</label>
+                      <input
+                        type="date"
+                        value={form.cheque_date}
+                        onChange={(e) => setForm({ ...form, cheque_date: e.target.value })}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy"
+                      />
+                    </div>
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1.5">Reference / Transaction Number</label>
                   <input

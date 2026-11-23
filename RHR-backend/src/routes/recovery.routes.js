@@ -1560,16 +1560,22 @@ router.post('/vendor-transfer/me', authenticate, isSalesman, async (req, res) =>
 });
 
 // POST /api/v1/recovery/vendor-transfer — direct customer-to-vendor transfer.
-// Auto-approved: credits customer ledger immediately. When vendor_payment_method
-// is set (cash/bank_transfer) also creates an expense and credits the supplier ledger.
+// Auto-approved: credits customer ledger immediately, creates the Vendor Payment
+// expense and credits the supplier ledger. How the customer paid decides the account:
+//   cash                   → Cash in Hand (shows IN then OUT there)
+//   cheque / bank_transfer → the branch's Direct Transfer account (IN then OUT)
 router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
   try {
     const { customer_id, supplier_id, amount, salesman_id, recovery_date, reference_number, notes,
-            vendor_payment_method, bank_account_id, photo_url } = req.body;
+            photo_url, cheque_number, cheque_bank, cheque_date } = req.body;
+    let { bank_account_id } = req.body;
+    const vendor_payment_method = ['cash', 'cheque', 'bank_transfer'].includes(req.body.vendor_payment_method)
+      ? req.body.vendor_payment_method : 'bank_transfer';
+    const viaBank = vendor_payment_method === 'bank_transfer' || vendor_payment_method === 'cheque';
     if (!customer_id || !supplier_id || !amount || Number(amount) <= 0)
       return error(res, 'customer_id, supplier_id and a positive amount are required', 400);
-    if ((vendor_payment_method === 'bank_transfer' || vendor_payment_method === 'cheque') && !bank_account_id)
-      return error(res, 'bank_account_id is required for bank transfer / cheque vendor payment', 400);
+    if (vendor_payment_method === 'cheque' && !String(cheque_number || '').trim())
+      return error(res, 'Cheque number is required for a cheque vendor transfer', 400);
 
     // The customer's company decides where the payment is booked (recovery, customer ledger,
     // expense, vendor ledger) — a super_admin's own company_id would otherwise put a Sukkur
@@ -1591,9 +1597,22 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
       ? (customerCompanyId || supplierCompanyId || req.user.company_id)
       : req.user.company_id;
     const expenseDate = recovery_date || new Date().toISOString().split('T')[0];
-    const payMethod = vendor_payment_method === 'bank_transfer' ? 'bank_transfer'
-      : vendor_payment_method === 'cash' ? 'cash'
-      : 'vendor_transfer';
+    const payMethod = vendor_payment_method; // cash | cheque | bank_transfer
+
+    // cheque / bank transfer always pass through the branch's Direct Transfer account
+    let adminBankName = '';
+    if (viaBank) {
+      const accts = await pgrestGet('bank_accounts', { select: 'id,account_name,bank_name,company_id', company_id: `eq.${companyId}`, is_active: 'eq.true' }).catch(() => []);
+      const isDT = (b) => `${b?.account_name || ''} ${b?.bank_name || ''}`.toLowerCase().includes('direct transfer');
+      const dt = (accts || []).find(isDT);
+      const picked = (accts || []).find((b) => b.id === bank_account_id);
+      const acct = dt || picked;
+      if (!acct) return error(res, 'No Direct Transfer bank account found for this branch — add one in Bank first.', 400);
+      bank_account_id = acct.id;
+      adminBankName = acct.account_name || acct.bank_name || 'Direct Transfer';
+    }
+    const chequeNo = String(cheque_number || '').trim().slice(0, 50);
+    const chequeBank = String(cheque_bank || '').trim().slice(0, 100);
 
     const rowData = {
       company_id:       companyId,
@@ -1611,12 +1630,17 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
       created_by:       req.user.id,
     };
     if (await hasVendorColumn()) rowData.vendor_id = supplier_id;
+    // the cheque's details are kept on the transfer (cheque_status stays empty — it is
+    // not a cheque waiting at the bank, the vendor transfer is already done)
+    const chequeCols = vendor_payment_method === 'cheque'
+      ? { cheque_number: chequeNo, cheque_bank: chequeBank || null, cheque_date: cheque_date || null } : {};
 
     let recovery;
     try {
-      [recovery] = await pgrestPost('salesman_recoveries', { ...rowData, photo_url: photo_url || null });
+      [recovery] = await pgrestPost('salesman_recoveries', { ...rowData, ...chequeCols, photo_url: photo_url || null });
     } catch (e) {
-      [recovery] = await pgrestPost('salesman_recoveries', rowData);
+      try { [recovery] = await pgrestPost('salesman_recoveries', { ...rowData, ...chequeCols }); }
+      catch (_) { [recovery] = await pgrestPost('salesman_recoveries', rowData); }
     }
 
     await creditLedger({
@@ -1629,27 +1653,21 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
       referenceId: recovery.id,
     });
 
-    // For cash or bank_transfer: create an expense and credit supplier ledger
-    if (vendor_payment_method === 'cash' || vendor_payment_method === 'bank_transfer') {
+    // Every vendor transfer: the Vendor Payment expense + supplier ledger credit
+    {
       const supplierName = supplierNameEarly;
-
-      // Fetch bank name for description
-      let adminBankName = '';
-      if (vendor_payment_method === 'bank_transfer' && bank_account_id) {
-        try {
-          const bankRow = await pgrestGet('bank_accounts', { select: 'bank_name', id: `eq.${bank_account_id}`, limit: '1' });
-          adminBankName = bankRow?.[0]?.bank_name || '';
-        } catch (_) {}
-      }
+      const how = vendor_payment_method === 'cheque'
+        ? `Cheque#${chequeNo}${chequeBank ? ` (${chequeBank})` : ''}`
+        : vendor_payment_method === 'bank_transfer' ? 'bank transfer' : 'cash';
 
       const expenseBase = {
         company_id:   companyId,
         category:     'Vendor Payment',
         amount:       Number(amount),
-        description:  `Vendor payment to ${supplierName}${adminBankName ? ` via ${adminBankName}` : ''}${reference_number ? ` — Ref: ${reference_number}` : ''}`,
+        description:  `Vendor payment to ${supplierName} — ${how}${adminBankName ? ` via ${adminBankName}` : ''}${reference_number ? ` — Ref: ${reference_number}` : ''}`,
         expense_date: expenseDate,
-        method:       vendor_payment_method === 'bank_transfer' ? 'bank' : 'cash',
-        ...(vendor_payment_method === 'bank_transfer' && bank_account_id ? { bank_account_id } : {}),
+        method:       viaBank ? 'bank' : 'cash',
+        ...(viaBank ? { bank_account_id } : {}),
         ...(salesman_id ? { salesman_id } : {}),
       };
       try {
@@ -1669,7 +1687,7 @@ router.post('/vendor-transfer', authenticate, isAdmin, async (req, res) => {
           entry_type:      'credit',
           amount:          Number(amount),
           running_balance: prevBal - Number(amount),
-          description:     `Admin vendor transfer — via ${vendor_payment_method === 'bank_transfer' ? `bank${adminBankName ? ` — ${adminBankName}` : ''}` : 'cash'}`,
+          description:     `Admin vendor transfer — via ${vendor_payment_method === 'cash' ? 'cash' : `${vendor_payment_method === 'cheque' ? `cheque #${chequeNo}` : 'bank transfer'} — ${adminBankName}`}`,
           reference_type:  'vendor_transfer',
           created_by:      req.user.id,
           created_at:      new Date(expenseDate).toISOString(),
