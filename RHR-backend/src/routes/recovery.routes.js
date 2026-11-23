@@ -301,17 +301,20 @@ router.patch('/transactions/:id/approve', authenticate, isAdmin, async (req, res
             bankNameLabel = bankRow?.[0]?.bank_name || '';
           } catch (_) {}
         }
+        // same wording as an admin-recorded vendor transfer: "Cheque#123 (HBL) via Direct Transfer"
+        const chequeText = `Cheque#${recovery.cheque_number || ''}${recovery.cheque_bank ? ` (${recovery.cheque_bank})` : ''}`;
+        const how = rawMethod === 'cheque' ? chequeText : rawMethod === 'bank_transfer' ? 'bank transfer' : 'cash';
         const methodLabel = rawMethod === 'bank_transfer'
-          ? `bank${bankNameLabel ? ` — ${bankNameLabel}` : ''}`
+          ? `bank transfer${bankNameLabel ? ` — ${bankNameLabel}` : ''}`
           : rawMethod === 'cheque'
-            ? `cheque${recovery.cheque_number ? `#${recovery.cheque_number}` : ''}${bankNameLabel ? ` — ${bankNameLabel}` : ''}`
+            ? `${chequeText.replace(/^Cheque/, 'cheque ')}${bankNameLabel ? ` — ${bankNameLabel}` : ''}`
             : 'cash';
 
         const expenseBase = {
           company_id:   recovery.company_id,
           category:     'Vendor Payment',
           amount:       Number(recovery.amount),
-          description:  `Vendor payment to ${supplierName} — salesman transfer${recovery.cheque_number ? ` Cheque#${recovery.cheque_number}` : ''}${bankNameLabel ? ` via ${bankNameLabel}` : ''}`,
+          description:  `Vendor payment to ${supplierName} — ${how}${bankNameLabel ? ` via ${bankNameLabel}` : ''}`,
           expense_date: expenseDate,
           method:       expMethod,
           ...(bankAcctId && (rawMethod === 'bank_transfer' || rawMethod === 'cheque') ? { bank_account_id: bankAcctId } : {}),
