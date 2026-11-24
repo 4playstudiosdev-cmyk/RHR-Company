@@ -200,79 +200,29 @@ const deleteSupplierLedgerEntry = async (req, res) => {
     const remaining = (allEntries || []).filter((e) => e.id !== entryId);
     await recalcRunningBalances(remaining);
 
-    // Delete linked expense if this was a payment or vendor_transfer credit
+    // A payment / vendor-transfer credit is also an expense (and a vendor transfer
+    // is also a Salesman Recovery + customer ledger credit) — remove it everywhere.
+    // Matching is strict: same supplier, amount and day — never another vendor's row.
     if (entryToDelete?.entry_type === 'credit' &&
         (entryToDelete?.reference_type === 'payment' || entryToDelete?.reference_type === 'vendor_transfer')) {
+      const links = require('../services/vendorPaymentLinks.service');
+      const entryDate = (entryToDelete.created_at || '').split('T')[0];
+      let rec = null;
+      if (entryToDelete.reference_type === 'vendor_transfer') {
+        rec = await links.findVendorTransfer({ supplierId, amount: entryToDelete.amount, date: entryDate }).catch(() => null);
+        if (!rec) rec = await findLinkedRecovery(supplierId, entryToDelete.amount, entryDate); // date was edited
+      }
       try {
-        const entryDate = (entryToDelete.created_at || '').split('T')[0];
-        // Try matching by supplier_id first
-        let linked = null;
-        try {
-          const rows = await pgrestGet('expenses', {
-            supplier_id: `eq.${supplierId}`,
-            amount: `eq.${Number(entryToDelete.amount)}`,
-            category: `eq.Vendor Payment`,
-            expense_date: `eq.${entryDate}`,
-            order: 'created_at.desc',
-            limit: '1',
-          });
-          if (rows?.[0]?.id) linked = rows[0];
-        } catch (_) {}
-        // Fallback: match by company_id only (expense may have been created without supplier_id)
-        if (!linked) {
-          const rows = await pgrestGet('expenses', {
-            company_id: `eq.${supplier.company_id}`,
-            amount: `eq.${Number(entryToDelete.amount)}`,
-            category: `eq.Vendor Payment`,
-            expense_date: `eq.${entryDate}`,
-            order: 'created_at.desc',
-            limit: '1',
-          });
-          if (rows?.[0]?.id) linked = rows[0];
-        }
-        if (linked?.id) {
-          await pgrestDelete('expenses', { id: `eq.${linked.id}` });
-        }
+        const exp = await links.findVendorExpense({
+          companyId: supplier.company_id, supplierId, amount: entryToDelete.amount,
+          date: rec?.recovery_date || entryDate, salesmanId: rec?.salesman_id,
+        });
+        if (exp) await pgrestDelete('expenses', { id: `eq.${exp.id}` });
       } catch (_) { /* non-fatal */ }
-
-      // Cascade: delete linked salesman_recovery + customer ledger entry
-      if (entryToDelete?.reference_type === 'vendor_transfer') {
+      if (rec) {
         try {
-          const { pgrestGetRaw } = require('../utils/directQuery');
-          const entryDate = (entryToDelete.created_at || '').split('T')[0];
-
-          // Find linked salesman_recovery (vendor_transfer, same supplier, same amount, same date)
-          const recoveries = await pgrestGetRaw(
-            `salesman_recoveries?select=id,customer_id&payment_type=eq.vendor_transfer&vendor_id=eq.${supplierId}&amount=eq.${Number(entryToDelete.amount)}&recovery_date=eq.${entryDate}&status=eq.approved&limit=3`
-          ).catch(() => []);
-
-          for (const rec of (recoveries || [])) {
-            // Delete customer ledger entry (reference_id = recovery.id)
-            try {
-              const ledRows = await pgrestGetRaw(
-                `ledger_entries?select=id,customer_id&reference_id=eq.${rec.id}&limit=5`
-              ).catch(() => []);
-              for (const le of (ledRows || [])) {
-                await pgrestDelete('ledger_entries', { id: `eq.${le.id}` });
-              }
-              // Recalc customer running balance
-              if (rec.customer_id) {
-                try {
-                  const allLed = await pgrestGetRaw(
-                    `ledger_entries?select=id,amount,entry_type&customer_id=eq.${rec.customer_id}&order=created_at.asc&limit=1000`
-                  ).catch(() => []);
-                  let bal = 0;
-                  for (const le of (allLed || [])) {
-                    bal = le.entry_type === 'debit' ? bal + Number(le.amount) : bal - Number(le.amount);
-                    await pgrestPatch('ledger_entries', { id: `eq.${le.id}` }, { running_balance: bal });
-                  }
-                } catch (_) {}
-              }
-            } catch (_) {}
-
-            // Delete the salesman_recovery row itself
-            await pgrestDelete('salesman_recoveries', { id: `eq.${rec.id}` });
-          }
+          await links.removeCustomerCredit(rec);
+          await links.markRecoveryDeleted(rec, `Vendor ledger entry deleted by ${req.user.full_name || 'admin'}`, req.user.id);
         } catch (_) { /* non-fatal */ }
       }
     }

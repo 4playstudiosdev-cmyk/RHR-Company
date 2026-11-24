@@ -365,8 +365,20 @@ const deleteExpense = async (req, res) => {
     if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
 
     const deleted = await pgrestDelete('expenses', filter);
-    if (!deleted?.[0]) return error(res, 'Expense not found or access denied', 404);
-    return success(res, { deleted: true }, 'Expense deleted');
+    const expense = deleted?.[0];
+    if (!expense) return error(res, 'Expense not found or access denied', 404);
+
+    // A vendor payment is also in the vendor ledger (and, for a vendor transfer,
+    // in Salesman Recovery + the customer ledger) — remove it there too.
+    let cascade = null;
+    if (expense.category === 'Vendor Payment' && expense.supplier_id) {
+      try {
+        const { cascadeDeletedVendorExpense } = require('../services/vendorPaymentLinks.service');
+        cascade = await cascadeDeletedVendorExpense(expense, { userId: req.user.id, adminName: req.user.full_name });
+      } catch (e) { console.error('[deleteExpense] vendor cascade failed:', e.message); }
+    }
+    const also = [cascade?.supplierLine && 'vendor ledger', cascade?.recovery && 'customer ledger and salesman recovery'].filter(Boolean);
+    return success(res, { deleted: true, cascade }, also.length ? `Expense deleted — also removed from ${also.join(' and ')}` : 'Expense deleted');
   } catch (err) { return error(res, err.message); }
 };
 

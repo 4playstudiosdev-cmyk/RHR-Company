@@ -579,43 +579,20 @@ async function deleteEntry(req, res, table, label) {
 
       // Cascade-delete supplier ledger entry + expense for vendor transfers
       if (row.payment_type === 'vendor_transfer') {
+        // Same supplier + amount + day only — never another vendor's line.
+        const links = require('../services/vendorPaymentLinks.service');
         const expDate = (row.recovery_date || '').split('T')[0];
         try {
-          // Delete supplier ledger entry — match by vendor_id + amount + date prefix
-          const { pgrestGetRaw: pgRaw } = require('../utils/directQuery');
-          const suppId = row.vendor_id || null;
-          let suppEntries = null;
-          if (suppId) {
-            // Prefer exact match by supplier_id + amount + date
-            suppEntries = await pgRaw(
-              `supplier_ledger_entries?select=id,supplier_id&supplier_id=eq.${suppId}&amount=eq.${Number(row.amount)}&created_at=gte.${expDate}T00:00:00.000Z&created_at=lte.${expDate}T23:59:59.999Z&limit=1`
-            ).catch(() => null);
-          }
-          if (!suppEntries?.[0]) {
-            // Fallback: match by reference_type + amount + date
-            suppEntries = await pgRaw(
-              `supplier_ledger_entries?select=id,supplier_id&reference_type=eq.vendor_transfer&amount=eq.${Number(row.amount)}&created_at=gte.${expDate}T00:00:00.000Z&created_at=lte.${expDate}T23:59:59.999Z&limit=1`
-            ).catch(() => null);
-          }
-          if (suppEntries?.[0]) {
-            const foundSuppId = suppEntries[0].supplier_id;
-            await pgrestDelete('supplier_ledger_entries', { id: `eq.${suppEntries[0].id}` });
+          const line = await links.findSupplierCredit({ supplierId: row.vendor_id, amount: row.amount, date: expDate, preferType: 'vendor_transfer' });
+          if (line) {
+            await pgrestDelete('supplier_ledger_entries', { id: `eq.${line.id}` });
             const { recalcSupplierLedger } = require('../services/orderLedger.service');
-            try { await recalcSupplierLedger(foundSuppId); } catch (_) {}
+            try { await recalcSupplierLedger(line.supplier_id); } catch (_) {}
           }
         } catch (_) {}
         try {
-          // Delete linked expense (match by company + amount + date + category)
-          const expRows = await pgrestGet('expenses', {
-            select: 'id',
-            company_id: `eq.${row.company_id}`,
-            category: 'eq.Vendor Payment',
-            amount: `eq.${Number(row.amount)}`,
-            expense_date: `eq.${expDate}`,
-            order: 'created_at.desc',
-            limit: '1',
-          });
-          if (expRows?.[0]) await pgrestDelete('expenses', { id: `eq.${expRows[0].id}` });
+          const exp = await links.findVendorExpense({ companyId: row.company_id, supplierId: row.vendor_id, amount: row.amount, date: expDate, salesmanId: row.salesman_id });
+          if (exp) await pgrestDelete('expenses', { id: `eq.${exp.id}` });
         } catch (_) {}
       }
 
