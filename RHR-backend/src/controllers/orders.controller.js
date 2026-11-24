@@ -312,8 +312,11 @@ const deleteInvoice = async (req, res) => {
 const getDeletedInvoices = async (req, res) => {
   try {
     const companyId = resolveCompanyId(req);
+    // No FK embed here: the migrated project has no deleted_invoices →
+    // users foreign key, so `users!deleted_by(...)` fails with PGRST200.
+    // Names are looked up separately below.
     const params = {
-      select: '*,deleted_by_user:users!deleted_by(full_name)',
+      select: '*',
       order: 'deleted_at.desc',
     };
     if (companyId) params.company_id = `eq.${companyId}`;
@@ -328,7 +331,19 @@ const getDeletedInvoices = async (req, res) => {
       const { company_id, ...fallbackParams } = params;
       data = await pgrestGet('deleted_invoices', fallbackParams);
     }
-    return success(res, data || []);
+    data = data || [];
+    const userIds = [...new Set(data.map((r) => r.deleted_by).filter(Boolean))];
+    if (userIds.length) {
+      try {
+        const users = await pgrestGet('users', { select: 'id,full_name', id: `in.(${userIds.join(',')})` });
+        const nameById = new Map((users || []).map((u) => [u.id, u.full_name]));
+        data = data.map((r) => ({
+          ...r,
+          deleted_by_user: r.deleted_by && nameById.has(r.deleted_by) ? { full_name: nameById.get(r.deleted_by) } : null,
+        }));
+      } catch (_) { /* names are optional — list still shows */ }
+    }
+    return success(res, data);
   } catch (err) { return error(res, err.message); }
 };
 
