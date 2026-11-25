@@ -37,6 +37,8 @@ app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 app.use(sanitizeRequest);
 app.use(generalLimiter);
+// Offline items resent by the app (same X-Client-Ref) are not saved twice.
+app.use(require('./src/middleware/idempotency.middleware'));
 
 // Health check
 app.get('/health', (req, res) => {

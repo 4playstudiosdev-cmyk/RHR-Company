@@ -52,6 +52,14 @@ router.post('/', authenticate, isFieldOrAdmin, requireFeature({ salesman: 'visit
     const hasLocation = validCoords(lat, lng);
     const acc = num(accuracy);
 
+    // A visit saved on the phone while offline is sent later with the time it
+    // really happened. Accepted only within the last 7 days and never in the future.
+    let visitedAt = new Date();
+    const sent = req.body.visited_at ? new Date(req.body.visited_at) : null;
+    if (sent && !isNaN(sent) && sent <= new Date(Date.now() + 5 * 60 * 1000) && sent >= new Date(Date.now() - 7 * 24 * 3600 * 1000)) {
+      visitedAt = sent;
+    }
+
     const row = {
       company_id:     customer.company_id,
       salesman_id:    req.user.id,
@@ -60,7 +68,7 @@ router.post('/', authenticate, isFieldOrAdmin, requireFeature({ salesman: 'visit
       latitude:       hasLocation ? lat : null,
       longitude:      hasLocation ? lng : null,
       follow_up_date: follow_up_date || null,
-      visited_at:     new Date().toISOString(),
+      visited_at:     visitedAt.toISOString(),
     };
 
     let data;
