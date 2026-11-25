@@ -9,6 +9,7 @@ import '../../../core/network/dio_client.dart';
 import '../../../shared/cart_store.dart';
 import '../../../shared/order_qty_rules.dart';
 import '../../../shared/router/app_transitions.dart';
+import 'package:rhr_app/shared/widgets/app_image.dart';
 
 class ProductDetailScreen extends StatefulWidget {
   final String? productId;
@@ -130,7 +131,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           child: Container(
                             color: AppColors.surfaceVariant.withValues(alpha: 0.5),
                             child: imageUrl != null && imageUrl.isNotEmpty
-                                ? Image.network(imageUrl, fit: BoxFit.contain,
+                                ? AppImage.network(imageUrl, fit: BoxFit.contain,
                                     errorBuilder: (_, __, ___) => const Icon(Icons.inventory_2_outlined, size: 120, color: AppColors.secondary))
                                 : const Icon(Icons.inventory_2_outlined, size: 120, color: AppColors.secondary),
                           ),

@@ -10,6 +10,8 @@ import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../shared/router/app_transitions.dart';
 import '../../../shared/utils/input_formatters.dart';
+import 'package:rhr_app/shared/widgets/app_image.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 /// Forced on a driver's first login once their profile is missing any
 /// required field (see drivers.routes.js's isProfileComplete), and also
@@ -277,7 +279,7 @@ class _DriverProfileSetupScreenState extends State<DriverProfileSetupScreen> {
                 ? Image.file(file, fit: BoxFit.cover, width: double.infinity)
                 : (existingUrl != null
                     ? Stack(fit: StackFit.expand, children: [
-                        Image.network(existingUrl, fit: BoxFit.cover),
+                        AppImage.network(existingUrl, fit: BoxFit.cover),
                         Container(
                           alignment: Alignment.bottomRight,
                           padding: const EdgeInsets.all(6),
@@ -305,7 +307,7 @@ class _DriverProfileSetupScreenState extends State<DriverProfileSetupScreen> {
         CircleAvatar(
           radius: 48,
           backgroundColor: AppColors.warmGrey,
-          backgroundImage: file != null ? FileImage(file) : (existingUrl != null ? NetworkImage(existingUrl) as ImageProvider : null),
+          backgroundImage: file != null ? FileImage(file) : (existingUrl != null ? CachedNetworkImageProvider(existingUrl) as ImageProvider : null),
           child: (file == null && existingUrl == null) ? const Icon(Icons.person, size: 44, color: AppColors.steelBlue) : null,
         ),
         Positioned(

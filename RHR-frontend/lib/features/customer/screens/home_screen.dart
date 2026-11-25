@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import '../../../core/features/app_features.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
@@ -49,11 +50,18 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() => _userName = name);
       }
 
-      final ordersRes = await DioClient.instance.get(
-        ApiEndpoints.orders,
-        queryParameters: {'limit': 5},
-      );
-      if (ordersRes.data['success'] == true) {
+      // The three requests go out together instead of one after another.
+      final userId = await SecureStorage.getUserId();
+      Future<Response?> safe(Future<Response> f) => f.then<Response?>((r) => r).catchError((Object e) {
+            debugPrint('Home load error: $e');
+            return null;
+          });
+      final ordersF = safe(DioClient.instance.get(ApiEndpoints.orders, queryParameters: {'limit': 5}));
+      final ledgerF = userId != null ? safe(DioClient.instance.get('${ApiEndpoints.ledger}$userId')) : Future<Response?>.value(null);
+      final profileF = safe(DioClient.instance.get(ApiEndpoints.myProfile));
+
+      final ordersRes = await ordersF;
+      if (ordersRes != null && ordersRes.data['success'] == true && mounted) {
         final orders = List<Map<String, dynamic>>.from(ordersRes.data['data'] ?? []);
         setState(() {
           _recentOrders = orders;
@@ -61,18 +69,15 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
 
-      final userId = await SecureStorage.getUserId();
-      if (userId != null) {
-        final ledgerRes = await DioClient.instance.get('${ApiEndpoints.ledger}$userId');
-        if (ledgerRes.data['success'] == true) {
-          final ledgerData = ledgerRes.data['data'] as Map<String, dynamic>? ?? {};
-          final balance = (ledgerData['currentBalance'] ?? 0) as num;
-          setState(() => _balance = 'PKR ${balance.toStringAsFixed(0)}');
-        }
+      final ledgerRes = await ledgerF;
+      if (ledgerRes != null && ledgerRes.data['success'] == true && mounted) {
+        final ledgerData = ledgerRes.data['data'] as Map<String, dynamic>? ?? {};
+        final balance = (ledgerData['currentBalance'] ?? 0) as num;
+        setState(() => _balance = 'PKR ${balance.toStringAsFixed(0)}');
       }
 
-      final profileRes = await DioClient.instance.get(ApiEndpoints.myProfile);
-      if (profileRes.data['success'] == true) {
+      final profileRes = await profileF;
+      if (profileRes != null && profileRes.data['success'] == true && mounted) {
         final profile = profileRes.data['data'] as Map<String, dynamic>? ?? {};
         final limit = profile['credit_limit'];
         if (limit != null) setState(() => _creditLimit = limit is num ? limit : num.tryParse(limit.toString()));

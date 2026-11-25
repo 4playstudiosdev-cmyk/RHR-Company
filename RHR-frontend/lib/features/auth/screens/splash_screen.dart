@@ -26,7 +26,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _decideNextRoute() async {
-    await Future.delayed(const Duration(milliseconds: 1400));
+    await Future.delayed(const Duration(milliseconds: 600)); // brief logo, then go — was 1.4s
     if (!mounted) return;
 
     // Google Play requires this shown BEFORE any location-permission

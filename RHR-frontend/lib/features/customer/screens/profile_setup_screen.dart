@@ -13,6 +13,8 @@ import '../../../core/storage/secure_storage.dart';
 import '../../../shared/widgets/wave_header.dart';
 import '../../../shared/widgets/shop_location_picker_screen.dart';
 import '../../../shared/utils/input_formatters.dart';
+import 'package:rhr_app/shared/widgets/app_image.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 /// Forced on a customer's first login once their profile is missing any
 /// required field (see customers.controller.js's isProfileComplete), and
@@ -330,7 +332,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                 ? Image.file(file, fit: BoxFit.cover, width: double.infinity)
                 : (existingUrl != null
                     ? Stack(fit: StackFit.expand, children: [
-                        Image.network(existingUrl, fit: BoxFit.cover),
+                        AppImage.network(existingUrl, fit: BoxFit.cover),
                         if (!locked)
                           Container(
                             alignment: Alignment.bottomRight,
@@ -389,7 +391,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           backgroundColor: AppColors.surfaceContainerLow,
           backgroundImage: file != null
               ? FileImage(file)
-              : (existingUrl != null ? NetworkImage(existingUrl) as ImageProvider : null),
+              : (existingUrl != null ? CachedNetworkImageProvider(existingUrl) as ImageProvider : null),
           child: (file == null && existingUrl == null)
               ? const Icon(Icons.person, size: 44, color: AppColors.secondary)
               : null,

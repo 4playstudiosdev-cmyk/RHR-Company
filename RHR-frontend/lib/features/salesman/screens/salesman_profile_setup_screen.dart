@@ -10,6 +10,8 @@ import '../../../core/storage/secure_storage.dart';
 import '../../../shared/router/app_transitions.dart';
 import '../../../shared/utils/input_formatters.dart';
 import '../../../shared/widgets/premium_ui.dart';
+import 'package:rhr_app/shared/widgets/app_image.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class SalesmanProfileSetupScreen extends StatefulWidget {
   final bool forced;
@@ -245,7 +247,7 @@ class _SalesmanProfileSetupScreenState extends State<SalesmanProfileSetupScreen>
                       backgroundColor: kNavy.withValues(alpha: 0.07),
                       backgroundImage: _profileImageFile != null
                           ? FileImage(_profileImageFile!)
-                          : (_existingProfileUrl != null ? NetworkImage(_existingProfileUrl!) as ImageProvider : null),
+                          : (_existingProfileUrl != null ? CachedNetworkImageProvider(_existingProfileUrl!) as ImageProvider : null),
                       child: (_profileImageFile == null && _existingProfileUrl == null)
                           ? const Icon(Icons.person, size: 48, color: kTextMuted) : null,
                     ),
@@ -355,7 +357,7 @@ class _SalesmanProfileSetupScreenState extends State<SalesmanProfileSetupScreen>
               ? Image.file(file, fit: BoxFit.cover)
               : (existingUrl != null
                   ? Stack(fit: StackFit.expand, children: [
-                      Image.network(existingUrl, fit: BoxFit.cover),
+                      AppImage.network(existingUrl, fit: BoxFit.cover),
                       Container(
                         alignment: Alignment.bottomRight,
                         padding: const EdgeInsets.all(6),

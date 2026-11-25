@@ -1,7 +1,7 @@
 name: rhr_app
 description: "RHR & Company Enterprise App"
 publish_to: 'none'
-version: 1.9.8+70
+version: 1.9.9+71
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -19,6 +19,9 @@ dependencies:
 
   # HTTP Client
   dio: ^5.7.0
+
+  # Disk cache for product / profile photos (downloaded once, then shown offline)
+  cached_network_image: ^3.4.1
 
   # Offline Storage
   hive_flutter: ^1.1.0

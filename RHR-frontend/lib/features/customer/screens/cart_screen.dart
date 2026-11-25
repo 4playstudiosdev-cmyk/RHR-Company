@@ -7,6 +7,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
 import '../../../shared/cart_store.dart';
 import '../../../shared/router/app_transitions.dart';
+import 'package:rhr_app/shared/widgets/app_image.dart';
 
 class CartScreen extends StatelessWidget {
   const CartScreen({super.key});
@@ -72,7 +73,7 @@ class CartScreen extends StatelessWidget {
                               width: 72, height: 72,
                               decoration: BoxDecoration(color: AppColors.surfaceVariant, borderRadius: BorderRadius.circular(AppRadius.base)),
                               child: p['image_url'] != null
-                                  ? ClipRRect(borderRadius: BorderRadius.circular(AppRadius.base), child: Image.network(p['image_url'], fit: BoxFit.cover))
+                                  ? ClipRRect(borderRadius: BorderRadius.circular(AppRadius.base), child: AppImage.network(p['image_url'], fit: BoxFit.cover))
                                   : const Icon(Icons.inventory_2_outlined, color: AppColors.outline),
                             ),
                             const SizedBox(width: AppSpacing.sm),

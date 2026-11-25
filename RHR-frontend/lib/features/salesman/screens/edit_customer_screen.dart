@@ -10,6 +10,7 @@ import '../../../shared/widgets/shop_location_picker_screen.dart';
 import '../../../shared/router/app_transitions.dart';
 import '../../../shared/utils/input_formatters.dart';
 import '../../../shared/widgets/premium_ui.dart';
+import 'package:rhr_app/shared/widgets/app_image.dart';
 
 class EditCustomerScreen extends StatefulWidget {
   final String customerId;
@@ -423,7 +424,7 @@ class _EditCustomerScreenState extends State<EditCustomerScreen> {
               ? Image.file(file, fit: BoxFit.cover)
               : (existingUrl != null
                   ? Stack(fit: StackFit.expand, children: [
-                      Image.network(existingUrl, fit: BoxFit.cover),
+                      AppImage.network(existingUrl, fit: BoxFit.cover),
                       Align(alignment: Alignment.bottomRight,
                         child: Padding(padding: const EdgeInsets.all(6),
                           child: Container(

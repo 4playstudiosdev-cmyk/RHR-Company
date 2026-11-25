@@ -8,6 +8,7 @@ import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/widgets/shimmer_box.dart';
 import '../../../shared/router/app_transitions.dart';
 import '../../../shared/widgets/premium_ui.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class CustomerDetailScreen extends StatefulWidget {
   final String? customerId;
@@ -109,7 +110,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                         CircleAvatar(
                           radius: 34,
                           backgroundColor: Colors.white.withValues(alpha: 0.15),
-                          backgroundImage: photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
+                          backgroundImage: photoUrl.isNotEmpty ? CachedNetworkImageProvider(photoUrl) : null,
                           child: photoUrl.isEmpty
                               ? Text(initials, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800))
                               : null,

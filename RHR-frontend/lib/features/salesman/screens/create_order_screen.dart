@@ -16,6 +16,7 @@ import '../../../shared/customer_display.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/router/app_transitions.dart';
+import 'package:rhr_app/shared/widgets/app_image.dart';
 
 class CreateOrderScreen extends StatefulWidget {
   const CreateOrderScreen({super.key});
@@ -60,10 +61,15 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final pRes = await DioClient.instance.get(
-          ApiEndpoints.products, queryParameters: {'limit': 50});
-      final cRes = await DioClient.instance.get(ApiEndpoints.customers);
-      final catRes = await DioClient.instance.get(ApiEndpoints.categories);
+      // Sent together (not one after another) — about 3× faster on a phone connection.
+      final results = await Future.wait([
+        DioClient.instance.get(ApiEndpoints.products, queryParameters: {'limit': 50}),
+        DioClient.instance.get(ApiEndpoints.customers),
+        DioClient.instance.get(ApiEndpoints.categories),
+      ]);
+      final pRes = results[0];
+      final cRes = results[1];
+      final catRes = results[2];
       final List<Map<String, dynamic>> loadedProducts = [];
       final List<Map<String, dynamic>> loadedCustomers = [];
       setState(() {
@@ -612,7 +618,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                           child: p['image_url'] != null
                               ? ClipRRect(
                                   borderRadius: BorderRadius.circular(8),
-                                  child: Image.network(p['image_url'],
+                                  child: AppImage.network(p['image_url'],
                                       fit: BoxFit.cover,
                                       errorBuilder: (c, e, s) => const Icon(
                                           Icons.inventory_2_outlined,

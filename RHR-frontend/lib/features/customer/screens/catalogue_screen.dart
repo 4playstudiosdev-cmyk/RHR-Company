@@ -12,6 +12,7 @@ import '../../../shared/cart_store.dart';
 import '../../../shared/order_qty_rules.dart';
 import '../../../shared/widgets/rhr_bottom_nav.dart';
 import '../../../shared/widgets/shimmer_box.dart';
+import 'package:rhr_app/shared/widgets/app_image.dart';
 
 class CatalogueScreen extends StatefulWidget {
   const CatalogueScreen({super.key});
@@ -267,7 +268,7 @@ class _CatalogueScreenState extends State<CatalogueScreen> {
             child: (imageUrl != null && imageUrl.isNotEmpty)
                 ? ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.network(imageUrl, fit: BoxFit.cover,
+                    child: AppImage.network(imageUrl, fit: BoxFit.cover,
                         errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, color: AppColors.secondary, size: 22)))
                 : const Icon(Icons.inventory_2_outlined, color: AppColors.secondary, size: 22),
           ),

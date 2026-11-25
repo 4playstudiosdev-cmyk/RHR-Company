@@ -10,6 +10,7 @@ import '../../../services/auth_service.dart';
 import '../../../shared/widgets/rhr_bottom_nav.dart';
 import '../../../shared/widgets/shop_location_picker_screen.dart';
 import '../../../widgets/location_disclosure_dialog.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 const _cityNames = {
   '1e5962c6-33a7-460b-913e-9e08db46973a': 'Karachi (Head Office)',
@@ -205,7 +206,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         shape: BoxShape.circle,
                         border: Border.all(color: AppColors.surface, width: 4),
                         image: _photoUrl.isNotEmpty
-                            ? DecorationImage(image: NetworkImage(_photoUrl), fit: BoxFit.cover)
+                            ? DecorationImage(image: CachedNetworkImageProvider(_photoUrl), fit: BoxFit.cover)
                             : null,
                       ),
                       child: _photoUrl.isNotEmpty

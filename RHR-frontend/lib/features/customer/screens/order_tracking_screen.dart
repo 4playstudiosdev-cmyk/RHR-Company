@@ -9,6 +9,7 @@ import '../../../core/storage/secure_storage.dart';
 import '../../../shared/pdf/pdf_generator.dart';
 import '../../../shared/order_charges.dart';
 import '../../../shared/router/app_transitions.dart';
+import 'package:rhr_app/shared/widgets/app_image.dart';
 
 class OrderTrackingScreen extends StatefulWidget {
   final String? orderId;
@@ -407,7 +408,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                                     child: (imageUrl != null && imageUrl.isNotEmpty)
                                         ? ClipRRect(
                                             borderRadius: BorderRadius.circular(AppRadius.sm),
-                                            child: Image.network(imageUrl, fit: BoxFit.cover,
+                                            child: AppImage.network(imageUrl, fit: BoxFit.cover,
                                                 errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, color: AppColors.outline, size: 20)),
                                           )
                                         : const Icon(Icons.inventory_2_outlined, color: AppColors.outline, size: 20),

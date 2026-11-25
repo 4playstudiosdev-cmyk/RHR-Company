@@ -3,6 +3,7 @@ import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/router/app_transitions.dart';
 import '../../../shared/widgets/premium_ui.dart';
+import 'package:rhr_app/shared/widgets/app_image.dart';
 
 class SalesmanProductsScreen extends StatefulWidget {
   const SalesmanProductsScreen({super.key});
@@ -83,7 +84,7 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
                   height: 180,
                   color: kNavy.withValues(alpha: 0.07),
                   child: (p['image_url'] != null && (p['image_url'] as String).isNotEmpty)
-                      ? Image.network(p['image_url'], fit: BoxFit.cover,
+                      ? AppImage.network(p['image_url'], fit: BoxFit.cover,
                           errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, color: kNavy, size: 56))
                       : const Icon(Icons.inventory_2_outlined, color: kNavy, size: 56),
                 ),
@@ -238,7 +239,7 @@ class _SalesmanProductsScreenState extends State<SalesmanProductsScreen> {
             decoration: BoxDecoration(color: kNavy.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(12)),
             clipBehavior: Clip.antiAlias,
             child: (imageUrl != null && imageUrl.isNotEmpty)
-                ? Image.network(imageUrl, fit: BoxFit.cover,
+                ? AppImage.network(imageUrl, fit: BoxFit.cover,
                     errorBuilder: (c, e, s) => const Icon(Icons.inventory_2_outlined, color: kNavy, size: 24))
                 : const Icon(Icons.inventory_2_outlined, color: kNavy, size: 24),
           ),

@@ -8,6 +8,7 @@ import '../../../services/auth_service.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/router/app_transitions.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class DriverProfileScreen extends StatefulWidget {
   const DriverProfileScreen({super.key});
@@ -83,7 +84,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                   CircleAvatar(
                     radius: 44,
                     backgroundColor: AppColors.orange,
-                    backgroundImage: _photoUrl.isNotEmpty ? NetworkImage(_photoUrl) : null,
+                    backgroundImage: _photoUrl.isNotEmpty ? CachedNetworkImageProvider(_photoUrl) : null,
                     child: _photoUrl.isEmpty
                         ? const Icon(Icons.local_shipping_outlined, size: 44, color: Colors.white)
                         : null,

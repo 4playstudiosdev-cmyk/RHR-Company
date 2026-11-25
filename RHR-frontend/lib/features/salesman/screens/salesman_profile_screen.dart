@@ -7,6 +7,7 @@ import '../../../services/auth_service.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/widgets/premium_ui.dart';
 import '../../../shared/router/app_transitions.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class SalesmanProfileScreen extends StatefulWidget {
   const SalesmanProfileScreen({super.key});
@@ -85,7 +86,7 @@ class _SalesmanProfileScreenState extends State<SalesmanProfileScreen> {
                     child: CircleAvatar(
                       radius: 44,
                       backgroundColor: Colors.white.withValues(alpha: 0.15),
-                      backgroundImage: _photoUrl.isNotEmpty ? NetworkImage(_photoUrl) : null,
+                      backgroundImage: _photoUrl.isNotEmpty ? CachedNetworkImageProvider(_photoUrl) : null,
                       child: _photoUrl.isEmpty
                           ? Text(initials,
                               style: const TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.w800))

@@ -6,6 +6,8 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/router/app_transitions.dart';
+import 'package:rhr_app/shared/widgets/app_image.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 /// A single order the driver is out to deliver — items, shop name, the
 /// customer's saved shop location on a map, and the two actions that end
@@ -250,7 +252,7 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
                 CircleAvatar(
                   radius: 28,
                   backgroundColor: AppColors.orange.withValues(alpha: 0.12),
-                  backgroundImage: (photoUrl != null && photoUrl.isNotEmpty) ? NetworkImage(photoUrl) : null,
+                  backgroundImage: (photoUrl != null && photoUrl.isNotEmpty) ? CachedNetworkImageProvider(photoUrl) : null,
                   child: (photoUrl == null || photoUrl.isEmpty)
                       ? const Icon(Icons.storefront, color: AppColors.orange, size: 26)
                       : null,
@@ -345,7 +347,7 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
                   leading: ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: (imageUrl != null && imageUrl.isNotEmpty)
-                        ? Image.network(imageUrl, width: 46, height: 46, fit: BoxFit.cover,
+                        ? AppImage.network(imageUrl, width: 46, height: 46, fit: BoxFit.cover,
                             errorBuilder: (c, e, s) => _itemFallback())
                         : _itemFallback(),
                   ),

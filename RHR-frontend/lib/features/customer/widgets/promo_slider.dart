@@ -4,6 +4,7 @@ import 'package:video_player/video_player.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
+import 'package:rhr_app/shared/widgets/app_image.dart';
 
 /// Admin-managed image/video carousel for the middle of the customer
 /// app's home screen — auto-slides every few seconds. Backed by
@@ -144,7 +145,7 @@ class _BannerSlideState extends State<_BannerSlide> {
         ),
       );
     }
-    return Image.network(
+    return AppImage.network(
       widget.banner['media_url'],
       width: double.infinity,
       fit: BoxFit.cover,

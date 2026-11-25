@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../shared/widgets/rhr_button.dart';
 import '../../../shared/router/app_transitions.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 /// "My Salesman" — a plain profile card (name, phone, photo) for the
 /// salesman assigned to this customer. Replaces the old live-location
@@ -109,7 +110,7 @@ class _TrackSalesmanScreenState extends State<TrackSalesmanScreen> {
                           CircleAvatar(
                             radius: 48,
                             backgroundColor: AppColors.navy,
-                            backgroundImage: _salesmanPhoto != null ? NetworkImage(_salesmanPhoto!) : null,
+                            backgroundImage: _salesmanPhoto != null ? CachedNetworkImageProvider(_salesmanPhoto!) : null,
                             child: _salesmanPhoto == null
                                 ? const Icon(Icons.handshake_outlined, color: Colors.white, size: 40)
                                 : null,

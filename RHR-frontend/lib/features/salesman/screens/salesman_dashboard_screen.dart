@@ -8,6 +8,8 @@ import '../../../core/storage/secure_storage.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/widgets/tap_scale.dart';
 import '../../../shared/customer_display.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dio/dio.dart';
 
 // Design tokens matching the RHR Connect enterprise mockups
 const _kNavy      = Color(0xFF00185D);
@@ -78,29 +80,39 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
     }
   }
 
+  // One failed call must not stop the others from showing.
+  Future<Response?> _safe(Future<Response> f, String what) =>
+      f.then<Response?>((r) => r).catchError((Object e) {
+        debugPrint('$what load error: $e');
+        return null;
+      });
+
   Future<void> _loadDashboard() async {
     try {
-      final custRes = await DioClient.instance.get(ApiEndpoints.customers);
-      if (custRes.data['success'] == true) {
+      // All four requests go out together instead of one after another —
+      // on a phone connection that is roughly 4× faster.
+      final now = DateTime.now();
+      final todayStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final custF = _safe(DioClient.instance.get(ApiEndpoints.customers), 'Customers');
+      final visitsF = _safe(DioClient.instance.get(ApiEndpoints.visits, queryParameters: {'from': todayStr, 'to': todayStr}), 'Visits');
+      final ordersF = _safe(DioClient.instance.get(ApiEndpoints.orders), 'Orders');
+      final recF = _safe(DioClient.instance.get(ApiEndpoints.recoveryTransactionsMe), 'Recovery');
+
+      final custRes = await custF;
+      if (custRes != null && custRes.data['success'] == true && mounted) {
         setState(() {
           _myCustomers = List<Map<String, dynamic>>.from(custRes.data['data'] ?? []);
         });
       }
 
-      try {
-        final now = DateTime.now();
-        final today = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-        final visitsRes = await DioClient.instance.get(ApiEndpoints.visits, queryParameters: {'from': today, 'to': today});
-        if (visitsRes.data['success'] == true) {
-          final visits = List<Map<String, dynamic>>.from(visitsRes.data['data'] ?? []);
-          setState(() => _customersVisited = visits.map((v) => v['customer_id']).toSet().length);
-        }
-      } catch (e) {
-        debugPrint('Visits load error: $e');
+      final visitsRes = await visitsF;
+      if (visitsRes != null && visitsRes.data['success'] == true && mounted) {
+        final visits = List<Map<String, dynamic>>.from(visitsRes.data['data'] ?? []);
+        setState(() => _customersVisited = visits.map((v) => v['customer_id']).toSet().length);
       }
 
-      final ordersRes = await DioClient.instance.get(ApiEndpoints.orders);
-      if (ordersRes.data['success'] == true) {
+      final ordersRes = await ordersF;
+      if (ordersRes != null && ordersRes.data['success'] == true && mounted) {
         final orders = List<Map<String, dynamic>>.from(ordersRes.data['data'] ?? []);
         final today  = DateTime.now();
         setState(() {
@@ -117,10 +129,10 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
         });
       }
 
-      final res = await DioClient.instance.get(ApiEndpoints.recoveryTransactionsMe);
+      final res = await recF;
       final today = DateTime.now().toUtc().add(const Duration(hours: 5)).toIso8601String().substring(0, 10);
       num collected = 0;
-      if (res.data['success'] == true) {
+      if (res != null && res.data['success'] == true) {
         final rows = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
         for (final r in rows) {
           if ((r['status'] ?? '') == 'approved' && (r['recovery_date'] ?? '').toString() == today) {
@@ -305,7 +317,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                   child: CircleAvatar(
                     radius: 22,
                     backgroundColor: Colors.white.withValues(alpha: 0.18),
-                    backgroundImage: _salesmanPhotoUrl.isNotEmpty ? NetworkImage(_salesmanPhotoUrl) : null,
+                    backgroundImage: _salesmanPhotoUrl.isNotEmpty ? CachedNetworkImageProvider(_salesmanPhotoUrl) : null,
                     child: _salesmanPhotoUrl.isEmpty
                         ? Text(initials, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17))
                         : null,
@@ -735,7 +747,7 @@ class _SalesmanDashboardScreenState extends State<SalesmanDashboardScreen> {
                 CircleAvatar(
                   radius: 28,
                   backgroundColor: Colors.white.withValues(alpha: 0.15),
-                  backgroundImage: _salesmanPhotoUrl.isNotEmpty ? NetworkImage(_salesmanPhotoUrl) : null,
+                  backgroundImage: _salesmanPhotoUrl.isNotEmpty ? CachedNetworkImageProvider(_salesmanPhotoUrl) : null,
                   child: _salesmanPhotoUrl.isEmpty
                       ? Text(initials, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 22))
                       : null,

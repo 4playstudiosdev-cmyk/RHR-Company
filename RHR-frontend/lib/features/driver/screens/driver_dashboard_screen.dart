@@ -10,6 +10,8 @@ import '../../../core/storage/secure_storage.dart';
 import '../../../services/gps_service.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
 import '../../../shared/widgets/tap_scale.dart';
+import 'package:rhr_app/shared/widgets/app_image.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class DriverDashboardScreen extends StatefulWidget {
   const DriverDashboardScreen({super.key});
@@ -343,7 +345,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: firstImage != null && firstImage.isNotEmpty
-                    ? Image.network(firstImage, width: 52, height: 52, fit: BoxFit.cover,
+                    ? AppImage.network(firstImage, width: 52, height: 52, fit: BoxFit.cover,
                         errorBuilder: (c, e, s) => _productFallback())
                     : _productFallback(),
               ),
@@ -362,7 +364,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
               if (customer['profile_photo_url'] != null)
                 Padding(
                   padding: const EdgeInsets.only(left: 8),
-                  child: CircleAvatar(radius: 18, backgroundImage: NetworkImage(customer['profile_photo_url'])),
+                  child: CircleAvatar(radius: 18, backgroundImage: CachedNetworkImageProvider(customer['profile_photo_url'])),
                 ),
             ]),
             if (delivered) ...[
