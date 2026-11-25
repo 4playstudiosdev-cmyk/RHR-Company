@@ -25,6 +25,10 @@ process.on('unhandledRejection', (reason) => {
 app.use(helmetMiddleware);
 app.use(corsMiddleware);
 app.use(removeFingerprint);
+// gzip every JSON / text response — lists of orders, customers and ledgers shrink
+// ~80%, which matters most for the mobile app on a slow phone connection.
+// Optional, so a missing package can never stop the server from starting.
+try { app.use(require('compression')({ threshold: 1024 })); } catch (e) { console.warn('compression not installed — responses sent uncompressed'); }
 // 10mb, not the 5mb a generic checklist suggests — uploads (product
 // images, payment-proof photos, invoices — see storage.controller.js)
 // are sent as base64 JSON, which inflates ~33% over the original file

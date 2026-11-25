@@ -80,6 +80,33 @@ const BUCKET_RULES = {
 // 10 years is effectively permanent for this app's lifetime.
 const LONG_LIVED_SIGN_SECONDS = 60 * 60 * 24 * 365 * 10;
 
+// Phone cameras give 2–4 MB photos; the app shows them a few hundred pixels wide.
+// Every image upload is shrunk to at most this many pixels on the long side and
+// re-encoded (JPEG, or PNG when it really has transparency) — typically 2 MB → 50–80 KB.
+// Documents (NIC, payment proof, receipts) keep more pixels so the text stays readable.
+const MAX_IMAGE_SIDE = {
+  'product-images': 1000, 'profile-photos': 800, 'shop-photos': 1200, 'promo-banners': 1600,
+  'nic-images': 1600, 'payment-proofs': 1600, 'expense-receipts': 1600,
+};
+let sharp = null;
+try { sharp = require('sharp'); } catch (_) { /* not installed — upload originals */ }
+
+async function optimiseImage(buffer, mimeType, bucket) {
+  const maxSide = MAX_IMAGE_SIDE[bucket];
+  if (!sharp || !maxSide || !/^image\/(jpeg|png|webp)$/.test(mimeType)) return null;
+  try {
+    const img = sharp(buffer, { failOn: 'none' }).rotate(); // apply camera orientation
+    const meta = await img.metadata();
+    const transparent = meta.hasAlpha ? !(await sharp(buffer, { failOn: 'none' }).stats()).isOpaque : false;
+    const resized = img.resize({ width: maxSide, height: maxSide, fit: 'inside', withoutEnlargement: true });
+    const doc = maxSide >= 1600;
+    const out = transparent
+      ? { buffer: await resized.png({ palette: true, quality: 85, compressionLevel: 9 }).toBuffer(), mimeType: 'image/png', ext: 'png' }
+      : { buffer: await resized.flatten({ background: '#ffffff' }).jpeg({ quality: doc ? 82 : 78, mozjpeg: true }).toBuffer(), mimeType: 'image/jpeg', ext: 'jpg' };
+    return out.buffer.length < buffer.length ? out : null;
+  } catch (_) { return null; } // unreadable image — keep the original
+}
+
 async function uploadBase64ToStorage({ bucket, fileName, fileBase64, mimeType, companyId }) {
   const rules = BUCKET_RULES[bucket];
   if (!rules) throw new Error(`Invalid bucket. Allowed: ${Object.keys(BUCKET_RULES).join(', ')}`);
@@ -92,14 +119,26 @@ async function uploadBase64ToStorage({ bucket, fileName, fileBase64, mimeType, c
     throw new Error(`File too large. Max size for ${bucket}: ${rules.maxSizeMB}MB`);
 
   const timestamp = Date.now();
-  const safeName  = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  let safeName  = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+  // Shrink camera photos before storing them (see optimiseImage).
+  let body = fileBuffer;
+  let contentType = mimeType;
+  const optimised = await optimiseImage(fileBuffer, mimeType, bucket);
+  if (optimised) {
+    body = optimised.buffer;
+    contentType = optimised.mimeType;
+    safeName = `${safeName.replace(/\.[a-zA-Z0-9]{2,5}$/, '')}.${optimised.ext}`;
+  }
   const filePath  = `${companyId || 'unassigned'}/${timestamp}_${safeName}`;
 
   const storageClient = freshStorageClient();
+  // File names are unique (timestamped) and never overwritten, so phones may keep them for a year.
+  const uploadOpts = { contentType, upsert: false, cacheControl: '31536000' };
 
   let { error: uploadError } = await storageClient.storage
     .from(bucket)
-    .upload(filePath, fileBuffer, { contentType: mimeType, upsert: false });
+    .upload(filePath, body, uploadOpts);
 
   // Every other bucket here was created once by hand in the Supabase
   // dashboard — a newly-added bucket (like promo-banners) hasn't been,
@@ -110,7 +149,7 @@ async function uploadBase64ToStorage({ bucket, fileName, fileBase64, mimeType, c
     await storageClient.storage.createBucket(bucket, { public: rules.isPublic });
     ({ error: uploadError } = await storageClient.storage
       .from(bucket)
-      .upload(filePath, fileBuffer, { contentType: mimeType, upsert: false }));
+      .upload(filePath, body, uploadOpts));
   }
   if (uploadError) throw new Error(uploadError.message);
 
@@ -126,7 +165,7 @@ async function uploadBase64ToStorage({ bucket, fileName, fileBase64, mimeType, c
     fileUrl = urlData.signedUrl;
   }
 
-  return { url: fileUrl, path: filePath, bucket, sizeMB: fileSizeMB.toFixed(2), isPublic: rules.isPublic };
+  return { url: fileUrl, path: filePath, bucket, sizeMB: (body.length / (1024 * 1024)).toFixed(2), originalSizeMB: fileSizeMB.toFixed(2), isPublic: rules.isPublic };
 }
 
 module.exports = { BUCKET_RULES, LONG_LIVED_SIGN_SECONDS, uploadBase64ToStorage, freshStorageClient };
