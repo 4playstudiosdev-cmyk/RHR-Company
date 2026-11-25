@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/network/network_status.dart';
 import '../../../shared/widgets/success_check.dart';
 import '../../../shared/widgets/shop_location_picker_screen.dart';
 import '../../../shared/router/app_transitions.dart';
@@ -259,9 +260,11 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     final online = await ConnectivityService.isOnline();
     if (!_validateStep1(requirePhoto: online)) return;
     setState(() => _saving = true);
-    try {
-      // ── Offline path ──────────────────────────────────────────────────────
-      if (!online) {
+    // Saved on the phone and sent automatically later — when there is no
+    // internet, or the connection drops while saving. Same id as the online
+    // try, so the server never creates the customer twice.
+    final clientRef = HiveService.newClientRef();
+    Future<void> saveOffline() async {
         final payload = <String, dynamic>{
           'full_name':    _nameController.text.trim(),
           'phone':        _phoneController.text.trim(),
@@ -279,6 +282,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         if (_shopImageFile != null) {
           payload['shop_image_base64'] = base64Encode(await _bytesOf(_shopImageFile!));
         }
+        payload['_client_ref'] = clientRef;
         await HiveService.queueNewCustomer(payload);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -286,6 +290,12 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
           await showSuccessCheck(context, message: 'Customer queued!');
           if (mounted) context.pop(true);
         }
+    }
+    var created = false;
+    try {
+      // ── Offline path ──────────────────────────────────────────────────────
+      if (!online) {
+        await saveOffline();
         return;
       }
 
@@ -298,6 +308,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
       if (_nicBackImageFile != null) nicBackUrl = await _uploadImage(_nicBackImageFile!, 'nic-images');
 
       final res = await DioClient.instance.post(ApiEndpoints.customers, data: {
+        '_client_ref': clientRef,
         'full_name': _nameController.text.trim(),
         'phone': _phoneController.text.trim(),
         'shop_name': _shopNameController.text.trim(),
@@ -315,6 +326,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         if (nicBackUrl != null) 'nic_back_image_url': nicBackUrl,
       }, options: _slowNetwork);
       if (res.data['success'] == true) {
+        created = true;
         final newCustomerId = res.data['data']?['id'] as String?;
 
         final pricesToApply = _customPrices.entries
@@ -351,6 +363,10 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res.data['message'] ?? 'Failed')));
       }
     } catch (e) {
+      if (!created && NetworkStatus.isNetworkError(e)) {
+        await saveOffline();
+        return;
+      }
       if (mounted) {
         final backendMsg = e is DioException ? (e.response?.data?['message'] as String?) : null;
         final isTimeout = e is DioException &&

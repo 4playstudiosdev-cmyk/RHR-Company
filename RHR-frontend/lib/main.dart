@@ -12,7 +12,11 @@ import 'services/gps_service.dart';
 import 'services/push_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'core/features/app_features.dart';
+import 'core/network/api_cache.dart';
+import 'core/network/offline_prefetch.dart';
+import 'core/storage/sync_service.dart';
 import 'shared/router/app_router.dart';
+import 'shared/widgets/offline_banner.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,20 +31,38 @@ void main() async {
   ));
   // Lets the background GPS task and the UI talk to each other.
   FlutterForegroundTask.initCommunicationPort();
+  final sw = Stopwatch()..start();
   await HiveService.init();
   ConnectivityService.startListening();
-  await GPSService().initialize();
-  await AppFeatures.restore();
-  // Push notifications (Firebase). Never blocks or breaks startup if Firebase is unavailable.
+  // Independent local setup — done together.
+  await Future.wait([GPSService().initialize(), AppFeatures.restore(), ApiCache.init()]);
+  SyncService.start();
+  debugPrint('STARTUP: local storage ready in ${sw.elapsedMilliseconds} ms');
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-  await PushService.init();
   runApp(const ProviderScope(child: RHRApp()));
-  unawaited(PushService.registerToken());
+  debugPrint('STARTUP: first screen at ${sw.elapsedMilliseconds} ms');
+  // Push notifications (Firebase) are set up after the first screen is shown —
+  // they don't need to hold the app on the splash. Never breaks startup.
+  unawaited(PushService.init().then((_) {
+    debugPrint('STARTUP: push ready at ${sw.elapsedMilliseconds} ms');
+    return PushService.registerToken();
+  }));
   // Deliberately NOT awaited before runApp: startTracking() can wait on the
   // Android location-permission dialog, which can't appear until the UI
   // exists. Awaiting it here left the phone stuck on the loading screen
   // forever whenever a salesman/driver session was already saved.
   unawaited(_resumeGpsIfFieldStaff());
+  // Offline mode: send anything saved offline, then save every screen's data
+  // on the phone for the next time the internet drops.
+  unawaited(_syncAndPrefetch());
+}
+
+Future<void> _syncAndPrefetch() async {
+  try {
+    if (!await SecureStorage.isLoggedIn()) return;
+    await SyncService.syncAll();
+    await OfflinePrefetch.run();
+  } catch (_) {/* best effort */}
 }
 
 /// If the app was killed and relaunched while a salesman/driver was still
@@ -87,6 +109,7 @@ class _RHRAppState extends State<RHRApp> with WidgetsBindingObserver {
       unawaited(GPSService().ensureTracking());
       unawaited(AppFeatures.load());
       unawaited(PushService.registerToken());
+      unawaited(_syncAndPrefetch());
     }
   }
 
@@ -96,6 +119,8 @@ class _RHRAppState extends State<RHRApp> with WidgetsBindingObserver {
       title: 'RHR & Company',
       debugShowCheckedModeBanner: false,
       routerConfig: appRouter,
+      // Offline / waiting-to-sync bar above every screen.
+      builder: (context, child) => OfflineBanner(child: child ?? const SizedBox.shrink()),
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primary),
         textTheme: GoogleFonts.interTextTheme(),

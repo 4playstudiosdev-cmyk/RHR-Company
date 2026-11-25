@@ -1,25 +1,36 @@
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'sync_service.dart';
+import '../network/network_status.dart';
 
+/// Watches the phone's network (Wi-Fi / mobile data on or off) and keeps
+/// [NetworkStatus] up to date. Whether we are really online is decided by the
+/// server answering (see NetworkStatus) — a phone on Wi-Fi without internet,
+/// or on a social-only data bundle, shows a connection but can't reach us.
 class ConnectivityService {
   static StreamSubscription? _sub;
-  static bool _wasOffline = false;
 
   static void startListening() {
     _sub = Connectivity().onConnectivityChanged.listen((results) {
-      final isOnline = results.any((r) => r != ConnectivityResult.none);
-      if (isOnline && _wasOffline) {
-        // Back online — push anything that was queued while offline
-        SyncService.syncAll();
+      final hasNetwork = results.any((r) => r != ConnectivityResult.none);
+      if (!hasNetwork) {
+        NetworkStatus.markOffline();
+      } else {
+        // Network came back (or changed) — check if the server is reachable;
+        // when it is, NetworkStatus starts the sync of anything saved offline.
+        unawaited(NetworkStatus.probe());
       }
-      _wasOffline = !isOnline;
     });
   }
 
+  /// Real reachability of our server (not just "Wi-Fi/data is on").
   static Future<bool> isOnline() async {
+    if (!NetworkStatus.isOnline) return false;
     final results = await Connectivity().checkConnectivity();
-    return results.any((r) => r != ConnectivityResult.none);
+    if (!results.any((r) => r != ConnectivityResult.none)) {
+      NetworkStatus.markOffline();
+      return false;
+    }
+    return true;
   }
 
   static void dispose() => _sub?.cancel();

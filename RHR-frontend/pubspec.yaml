@@ -1,7 +1,7 @@
 name: rhr_app
 description: "RHR & Company Enterprise App"
 publish_to: 'none'
-version: 1.9.9+71
+version: 1.10.0+72
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

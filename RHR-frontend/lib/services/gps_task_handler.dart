@@ -155,7 +155,7 @@ class GpsTaskHandler extends TaskHandler {
   Future<void> _send(double lat, double lng, double accuracy, String status) async {
     final ping = _ping(lat, lng, accuracy, status);
     try {
-      final token = await SecureStorage.getToken();
+      final token = await SecureStorage.getTokenFresh();
       if (token == null) {
         // Logged out / session gone — nothing to track for.
         await FlutterForegroundTask.stopService();
@@ -190,7 +190,7 @@ class GpsTaskHandler extends TaskHandler {
     if (q == null || q.isEmpty || _syncing) return;
     _syncing = true;
     try {
-      final token = await SecureStorage.getToken();
+      final token = await SecureStorage.getTokenFresh();
       if (token == null) return;
       final keys = q.keys.toList();
       final pings = keys.map((k) => Map<String, dynamic>.from(q.get(k) as Map)).toList();

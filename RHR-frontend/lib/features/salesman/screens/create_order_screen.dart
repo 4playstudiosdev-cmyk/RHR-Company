@@ -360,6 +360,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       'items': _orderLines(sel),
       'notes': 'Salesman order',
       'delivery_address': 'Karachi',
+      // one id for the online try and a saved-offline copy — never ordered twice
+      '_client_ref': HiveService.newClientRef(),
     };
 
     if (!_isOnline) {

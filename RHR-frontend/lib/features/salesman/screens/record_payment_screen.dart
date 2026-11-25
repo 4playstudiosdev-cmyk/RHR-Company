@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:dio/dio.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/network/network_status.dart';
 import '../../../core/storage/hive_service.dart';
 import '../../../core/storage/connectivity_service.dart';
 import '../../../shared/widgets/success_check.dart';
@@ -272,7 +273,16 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Photo upload failed. Try again.')));
       }
     } catch (e) {
-      if (mounted) {
+      if (NetworkStatus.isNetworkError(e)) {
+        // No internet — keep the photo; it is uploaded with the payment on sync.
+        final bytes = await File(image.path).readAsBytes();
+        setState(() {
+          _offlinePhotoBase64 = base64Encode(bytes);
+          _photoUploaded      = true;
+        });
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Offline — photo saved, will upload on sync.')));
+      } else if (mounted) {
         final msg = e is DioException ? (e.response?.data?['message'] ?? e.message) : e.toString();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload error: $msg')));
       }
@@ -319,14 +329,17 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
       return;
     }
     setState(() => _isLoading = true);
+    Future<void> Function()? saveOffline;
     try {
       final amount    = double.parse(_amountController.text);
       final notes     = _notesController.text.trim().isNotEmpty ? _notesController.text.trim() : null;
       final reference = _referenceController.text.trim().isNotEmpty ? _referenceController.text.trim() : null;
 
-      // Offline: queue the payment for later sync
-      final online = await ConnectivityService.isOnline();
-      if (!online) {
+      // Saved on the phone and sent automatically later — when there is no
+      // internet now, or the connection drops while sending. The online try and
+      // the saved copy share one id, so the server never records it twice.
+      final clientRef = HiveService.newClientRef();
+      saveOffline = () async {
         final payload = <String, dynamic>{
           '_method':     _selectedMethod,
           'customer_id': _selectedCustomerId,
@@ -363,11 +376,15 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
           payload['cheque_number'] = _chequeNumberController.text.trim();
           payload['cheque_date']   = '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
         }
+        payload['_client_ref'] = clientRef;
         await HiveService.queuePayment(payload);
         if (mounted) {
           await showSuccessCheck(context, message: 'Saved offline — will sync when connected');
           if (mounted) context.go('/salesman-dashboard');
         }
+      };
+      if (!await ConnectivityService.isOnline()) {
+        await saveOffline();
         return;
       }
 
@@ -376,6 +393,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
       if (_selectedMethod == 'Cash') {
         response = await DioClient.instance.post(ApiEndpoints.recoveryTransactionsMe, data: {
           'customer_id': _selectedCustomerId,
+          '_client_ref': clientRef,
           'amount': amount,
           'photo_url': _uploadedPhotoUrl,
           'recovery_date': dateStr,
@@ -386,6 +404,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
             (a) => a['id'] == _selectedBankAccountId, orElse: () => {})['bank_name'];
         response = await DioClient.instance.post(ApiEndpoints.recoveryBankTransferMe, data: {
           'customer_id': _selectedCustomerId,
+          '_client_ref': clientRef,
           'amount': amount,
           'bank_account_id': _selectedBankAccountId,
           if (bankLabel != null) 'bank_account_label': bankLabel,
@@ -400,6 +419,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
             : 'cash';
         final vtData = <String, dynamic>{
           'customer_id': _selectedCustomerId,
+          '_client_ref': clientRef,
           'supplier_id': _selectedSupplierId,
           'amount': amount,
           'vendor_payment_method': vendorMethod,
@@ -419,6 +439,7 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
         final d = _chequeDate!;
         response = await DioClient.instance.post(ApiEndpoints.recoveryChequeMe, data: {
           'customer_id': _selectedCustomerId,
+          '_client_ref': clientRef,
           'amount': amount,
           'cheque_bank': _chequeBankController.text.trim(),
           'cheque_number': _chequeNumberController.text.trim(),
@@ -446,7 +467,11 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
             SnackBar(content: Text(response.data['message'] ?? 'Payment failed')));
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Payment failed: $e')));
+      if (saveOffline != null && NetworkStatus.isNetworkError(e)) {
+        await saveOffline();
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Payment failed: $e')));
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

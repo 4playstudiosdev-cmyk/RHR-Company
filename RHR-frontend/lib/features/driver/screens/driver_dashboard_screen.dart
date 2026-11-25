@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/network/offline_prefetch.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../services/gps_service.dart';
 import '../../../shared/widgets/staggered_fade_in.dart';
@@ -36,6 +37,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     _loadOrders();
     AppFeatures.notifier.addListener(_onFeatures);
     AppFeatures.load();
+    // Save every screen's data on the phone for offline use (after this screen's own data).
+    Future.delayed(const Duration(seconds: 4), OfflinePrefetch.run);
     WidgetsBinding.instance.addPostFrameCallback((_) => BackgroundTrackingHelper.promptIfNeeded(context));
   }
 

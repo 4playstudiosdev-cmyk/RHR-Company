@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/network/network_status.dart';
+import '../../../core/storage/hive_service.dart';
 import '../../../core/location/location_service.dart';
 import '../../../shared/customer_display.dart';
 import '../../../shared/widgets/success_check.dart';
@@ -122,15 +124,20 @@ class _RecordVisitScreenState extends State<RecordVisitScreen> {
 
   Future<void> _submit(String notes) async {
     setState(() => _submitting = true);
+    Map<String, dynamic>? body;
     try {
       final pos = await LocationService.getPositionForVisit();
-      final res = await DioClient.instance.post(ApiEndpoints.visits, data: {
+      body = {
         'customer_id': _selectedCustomerId,
         'notes': notes,
         if (pos != null) 'latitude': pos.latitude,
         if (pos != null) 'longitude': pos.longitude,
         if (pos != null) 'accuracy': pos.accuracy,
-      });
+        // The real time of the visit — kept when it is sent later from offline.
+        'visited_at': DateTime.now().toUtc().toIso8601String(),
+        '_client_ref': HiveService.newClientRef(),
+      };
+      final res = await DioClient.instance.post(ApiEndpoints.visits, data: body);
       if (res.data['success'] == true) {
         if (mounted) {
           await showSuccessCheck(context, message: 'Visit Logged!');
@@ -141,7 +148,16 @@ class _RecordVisitScreenState extends State<RecordVisitScreen> {
             SnackBar(content: Text(res.data['message'] ?? 'Failed to log visit')));
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (body != null && NetworkStatus.isNetworkError(e)) {
+        // No internet — keep the visit on the phone; it is sent automatically later.
+        await HiveService.queueVisit(body);
+        if (mounted) {
+          await showSuccessCheck(context, message: 'Visit saved offline — will sync');
+          if (mounted) context.go('/salesman-dashboard');
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
