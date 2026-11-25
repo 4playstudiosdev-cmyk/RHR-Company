@@ -9,6 +9,7 @@ import 'package:dio/dio.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/api_endpoints.dart';
 import '../../../core/network/dio_client.dart';
+import '../../../core/network/network_status.dart';
 import '../../../core/storage/hive_service.dart';
 import '../../../core/storage/sync_service.dart';
 import '../../../shared/order_qty_rules.dart';
@@ -47,12 +48,25 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       if (r == 'driver' && mounted) setState(() => _home = '/driver-dashboard');
     });
     _pendingSync = HiveService.getOfflineOrderCount();
+    _isOnline = NetworkStatus.isOnline;
+    NetworkStatus.online.addListener(_onNetwork);
     _loadData();
     _customerSearchFocus.addListener(() => setState(() {}));
   }
 
+  // Badge and button follow the real connection (data may come from the phone's saved copy).
+  void _onNetwork() {
+    if (mounted) {
+      setState(() {
+        _isOnline = NetworkStatus.isOnline;
+        _pendingSync = HiveService.getOfflineOrderCount();
+      });
+    }
+  }
+
   @override
   void dispose() {
+    NetworkStatus.online.removeListener(_onNetwork);
     _customerSearchController.dispose();
     _customerSearchFocus.dispose();
     super.dispose();
@@ -73,7 +87,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       final List<Map<String, dynamic>> loadedProducts = [];
       final List<Map<String, dynamic>> loadedCustomers = [];
       setState(() {
-        _isOnline = true;
+        _isOnline = NetworkStatus.isOnline; // the lists may be the saved offline copy
         if (pRes.data['success'] == true) {
           final d = pRes.data['data'];
           _products = (d is List ? d : (d['products'] ?? []))
