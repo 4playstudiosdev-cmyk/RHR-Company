@@ -3,6 +3,7 @@ import CustomerSelect from '../components/CustomerSelect';
 import { BookOpen, Plus, FileText, FileSpreadsheet, TrendingDown, TrendingUp, Wallet, Trash2, Info, ChevronDown, ChevronUp, Pencil, Check, X } from 'lucide-react';
 import api, { getCurrentUser } from '../services/api';
 import Modal from '../components/Modal';
+import ActivityLog from '../components/ActivityLog';
 import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
@@ -639,6 +640,9 @@ export default function Ledger({ initialCustomerId, onViewOrderNumber }) {
               </>
             )}
           </div>
+
+          {/* Order tracker: attempts, cart changes, status/date and credit-limit changes */}
+          <ActivityLog customerId={customerId} title="Activity — orders, changes & credit limit" />
         </>
       )}
 

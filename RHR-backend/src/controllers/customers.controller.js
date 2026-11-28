@@ -390,12 +390,28 @@ const updateRateTier = async (req, res) => {
 // balance (debit running_balance) this customer can carry before
 // createOrder starts rejecting new orders. null/0 means no limit —
 // see orders.service.js's createOrder credit-limit check.
+function logCreditLimitChange(user, customerId, prev, newLimit) {
+  const from = prev?.credit_limit != null ? Number(prev.credit_limit) : null;
+  const to = newLimit != null ? Number(newLimit) : null;
+  if (from === to) return;
+  const { logActivity } = require('../services/activity.service');
+  const fmt = (n) => (n == null ? 'no limit' : `PKR ${n.toLocaleString('en-US')}`);
+  logActivity({
+    action: 'credit_limit', user, companyId: prev?.company_id, customerId,
+    summary: `Credit limit changed: ${fmt(from)} → ${fmt(to)}`,
+    details: { from, to },
+  });
+}
+
 const updateCreditLimit = async (req, res) => {
   try {
     const { credit_limit } = req.body;
     if (credit_limit != null && (isNaN(Number(credit_limit)) || Number(credit_limit) < 0)) {
       return error(res, 'credit_limit must be a non-negative number or null', 400);
     }
+
+    // Old value first — the change is kept in the activity log (who, old → new).
+    const prev = await pgrestGet('users', { select: 'credit_limit,company_id', id: `eq.${req.params.id}` }).then((r) => r?.[0]).catch(() => null);
 
     let query = supabaseAdmin
       .from('users')
@@ -406,6 +422,7 @@ const updateCreditLimit = async (req, res) => {
 
     const { data, error: dbErr } = await query.select('id, full_name, credit_limit').single();
     if (dbErr) return error(res, 'Customer not found or access denied', 404);
+    logCreditLimitChange(req.user, req.params.id, prev, data?.credit_limit);
     return success(res, data, 'Credit limit updated');
   } catch (err) { return error(res, err.message); }
 };

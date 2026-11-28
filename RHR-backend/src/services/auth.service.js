@@ -568,9 +568,18 @@ async function approveCustomer(customerId, adminUser, rateTier, creditLimit) {
   // them via CityFilter); branch_admin stays locked to their own.
   if (adminUser.role !== 'super_admin') filter.company_id = `eq.${adminUser.company_id}`;
 
-  const before = await pgrestGet('users', { select: 'is_approved', ...filter }).catch(() => []);
+  const before = await pgrestGet('users', { select: 'is_approved,credit_limit,company_id', ...filter }).catch(() => []);
   const rows = await pgrestPatch('users', filter, update);
   if (!rows?.[0]) throw new Error('Customer not found or access denied');
+  // Credit limit set while approving — kept in the activity log (old → new).
+  if (update.credit_limit != null && Number(before?.[0]?.credit_limit ?? -1) !== update.credit_limit) {
+    const fmt = (n) => (n == null ? 'no limit' : `PKR ${Number(n).toLocaleString('en-US')}`);
+    require('./activity.service').logActivity({
+      action: 'credit_limit', user: adminUser, companyId: rows[0].company_id, customerId,
+      summary: `Credit limit set on approval: ${fmt(before?.[0]?.credit_limit)} → ${fmt(update.credit_limit)}`,
+      details: { from: before?.[0]?.credit_limit ?? null, to: update.credit_limit },
+    });
+  }
   if (before?.[0]?.is_approved === false) notifyApproved('customer', rows[0]);
   return rows[0];
 }

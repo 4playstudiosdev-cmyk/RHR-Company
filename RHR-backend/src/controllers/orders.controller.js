@@ -6,6 +6,77 @@ const { MIN_TOTAL_QTY } = require('../utils/orderQtyRules');
 const { deleteOrderLedgerEntries, recalcCustomerLedger, syncOrderTotal } = require('../services/orderLedger.service');
 const { notifyUser } = require('../services/notify.service');
 
+// Order tracker (activity_log): every attempt — placed or refused — with what was
+// ordered, the balance and credit limit at that moment, and how the salesman built
+// the cart in the app (cart_log). Runs after the answer is decided; never blocks it.
+const { logActivity, describeItems } = require('../services/activity.service');
+const { customerBalance } = require('../services/orderLedger.service');
+const fmtPKR = (n) => `PKR ${Math.round(Number(n) || 0).toLocaleString('en-US')}`;
+function cartLogFrom(body) {
+  const log = Array.isArray(body?.cart_log) ? body.cart_log.slice(0, 300) : null;
+  return log && log.length ? log : null;
+}
+function logOrderAttempt(req, { customerId, companyId, order, error: err }) {
+  (async () => {
+    if (!customerId) return;
+    const user = req.user;
+    const cartLog = cartLogFrom(req.body);
+    const [cust, balance, items] = await Promise.all([
+      pgrestGet('users', { select: 'credit_limit,company_id,shop_name,full_name', id: `eq.${customerId}` }).then((r) => r?.[0]).catch(() => null),
+      err?.details ? Promise.resolve(err.details.current_balance) : customerBalance(customerId).catch(() => null),
+      err?.details?.lines ? Promise.resolve(err.details.lines.map((l) => ({ name: l.product_name, quantity: l.quantity, unit_price: l.unit_price, subtotal: l.subtotal })))
+        : order?.id ? pgrestGet('order_items', { select: 'product_name,quantity,unit_price,subtotal', order_id: `eq.${order.id}` })
+            .then((r) => (r || []).map((l) => ({ name: l.product_name, quantity: Number(l.quantity), unit_price: Number(l.unit_price), subtotal: Number(l.subtotal) })))
+            .catch(() => describeItems(req.body?.items))
+        : describeItems(req.body?.items),
+    ]);
+    const total = err?.details?.total ?? order?.total_amount ?? null;
+    const limit = err?.details?.credit_limit ?? (cust?.credit_limit != null ? Number(cust.credit_limit) : null);
+    const itemText = (items || []).map((i) => `${i.quantity} × ${i.name}`).join(', ');
+    const common = { items, total, balance_before: balance, credit_limit: limit, room_left: limit != null && balance != null ? limit - balance : null, source: req.get('user-agent')?.includes('Dart') ? 'app' : 'web' };
+    if (err) {
+      await logActivity({
+        action: 'order_refused', user, companyId: cust?.company_id, customerId,
+        summary: `Order refused — ${itemText}${total != null ? ` (${fmtPKR(total)})` : ''}: ${err.message}`,
+        details: { ...common, reason: err.message, code: err.code || null },
+      });
+    } else {
+      await logActivity({
+        action: 'order_placed', user, companyId: companyId || cust?.company_id, customerId, orderId: order?.id,
+        summary: `Order ${order?.order_number || ''} placed — ${itemText} (${fmtPKR(total)})`,
+        details: { ...common, order_number: order?.order_number },
+      });
+    }
+    if (cartLog) {
+      await logActivity({
+        action: 'cart_changes', user, companyId: cust?.company_id, customerId, orderId: order?.id || null,
+        summary: `${cartLog.length} quantity change${cartLog.length === 1 ? '' : 's'} while making ${order?.order_number ? `order ${order.order_number}` : 'the refused order'}`,
+        details: { changes: cartLog, order_number: order?.order_number || null, result: err ? 'refused' : 'placed' },
+      });
+    }
+  })().catch(() => {});
+}
+
+async function orderSnapshot(orderId) {
+  const [o, items] = await Promise.all([
+    pgrestGet('orders', { select: 'id,order_number,status,order_date,total_amount,customer_id,company_id', id: `eq.${orderId}` }).then((r) => r?.[0]).catch(() => null),
+    pgrestGet('order_items', { select: 'id,product_name,quantity,unit_price', order_id: `eq.${orderId}` }).catch(() => []),
+  ]);
+  return { order: o, items: items || [] };
+}
+// "Sunni Star 500 → 200 (−300)", "+ Grout 20", "− Total Tile Bond 50 (removed)"
+function itemChanges(before, after) {
+  const key = (i) => i.product_name;
+  const b = {}; for (const i of before) b[key(i)] = (b[key(i)] || 0) + Number(i.quantity);
+  const a = {}; for (const i of after) a[key(i)] = (a[key(i)] || 0) + Number(i.quantity);
+  const out = [];
+  for (const name of new Set([...Object.keys(b), ...Object.keys(a)])) {
+    const from = b[name] || 0, to = a[name] || 0;
+    if (from !== to) out.push({ name, from, to, change: to - from });
+  }
+  return out;
+}
+
 const createOrder = async (req, res) => {
   try {
     const { items, notes, delivery_address, customer_id, company_id, order_date } = req.body;
@@ -41,8 +112,10 @@ const createOrder = async (req, res) => {
       createdById:     user.id,
       orderDate:       order_date || null,
     });
+    logOrderAttempt(req, { customerId, companyId, order: data });
     return success(res, data, 'Order placed successfully', 201);
   } catch (err) {
+    logOrderAttempt(req, { customerId: req.user.role === 'customer' ? req.user.id : req.body.customer_id, error: err });
     // The apps show a dedicated "already one order in line" popup for this.
     if (err.code === 'ORDER_IN_LINE') {
       return res.status(409).json({ success: false, message: err.message, code: 'ORDER_IN_LINE', errors: null });
@@ -79,6 +152,7 @@ const updateOrderStatus = async (req, res) => {
     if (!status) return error(res, 'status is required', 400);
     if (status === 'cancelled' && !cancellation_reason)
       return error(res, 'A cancellation reason is required', 400);
+    const before = await orderSnapshot(req.params.id);
     const data = await svc.updateOrderStatus(req.params.id, req.user.company_id, status, {
       driverId: driver_id,
       carNumber: car_number,
@@ -89,6 +163,13 @@ const updateOrderStatus = async (req, res) => {
       priority,
       cancellationReason: cancellation_reason,
     });
+    if (before.order && before.order.status !== status) {
+      logActivity({
+        action: 'order_status', user: req.user, companyId: before.order.company_id, customerId: before.order.customer_id, orderId: req.params.id,
+        summary: `Order ${before.order.order_number}: ${before.order.status} → ${status}`,
+        details: { order_number: before.order.order_number, from: before.order.status, to: status, cancellation_reason: cancellation_reason || null },
+      });
+    }
     return success(res, data, `Order status updated to ${status}`);
   } catch (err) {
     console.log('ERROR:', err.message);
@@ -115,12 +196,18 @@ const driverUpdateOrderStatus = async (req, res) => {
     if (order.driver_id !== req.user.id)
       return error(res, 'Access denied — this order is not assigned to you', 403);
 
+    const beforeDrv = await orderSnapshot(req.params.id);
     const data = await svc.updateOrderStatus(req.params.id, order.company_id, status, {
       deliveredBags: delivered_bags,
       returnedBags: returned_bags,
       deliveryNotes: delivery_notes,
       amountCollected: amount_collected,
       collectingDriverId: req.user.id,
+    });
+    logActivity({
+      action: 'order_status', user: req.user, companyId: order.company_id, customerId: beforeDrv.order?.customer_id, orderId: req.params.id,
+      summary: `Order ${beforeDrv.order?.order_number || ''}: ${beforeDrv.order?.status || '?'} → ${status} (by driver)`,
+      details: { order_number: beforeDrv.order?.order_number, from: beforeDrv.order?.status, to: status, amount_collected: amount_collected ?? null, delivered_bags: delivered_bags ?? null, returned_bags: returned_bags ?? null },
     });
 
     // Best-effort — admin previously had no way to find out a delivery
@@ -145,14 +232,30 @@ const driverUpdateOrderStatus = async (req, res) => {
   } catch (err) { return error(res, err.message, 400); }
 };
 
+function logItemEdit(req, before) {
+  (async () => {
+    const after = await orderSnapshot(req.params.id);
+    const changes = itemChanges(before.items, after.items);
+    if (!changes.length && Number(before.order?.total_amount) === Number(after.order?.total_amount)) return;
+    const text = changes.map((c) => c.from === 0 ? `+ ${c.name} ${c.to}` : c.to === 0 ? `− ${c.name} ${c.from} (removed)` : `${c.name} ${c.from} → ${c.to} (${c.change > 0 ? '+' : ''}${c.change})`).join(', ');
+    await logActivity({
+      action: 'order_items', user: req.user, companyId: after.order?.company_id, customerId: after.order?.customer_id, orderId: req.params.id,
+      summary: `Order ${after.order?.order_number || ''} edited: ${text || 'prices'} — total ${fmtPKR(before.order?.total_amount)} → ${fmtPKR(after.order?.total_amount)}`,
+      details: { order_number: after.order?.order_number, changes, total_from: before.order?.total_amount, total_to: after.order?.total_amount },
+    });
+  })().catch(() => {});
+}
+
 const updateOrderItems = async (req, res) => {
   try {
     const { items, removed_ids, added_items } = req.body;
+    const before = await orderSnapshot(req.params.id);
     const data = await svc.updateOrderItems(
       req.params.id,
       req.user.role === 'super_admin' ? null : req.user.company_id,
       { items: items || [], removedIds: removed_ids || [], addedItems: added_items || [] }
     );
+    logItemEdit(req, before);
     return success(res, data, 'Order updated');
   } catch (err) { return error(res, err.message, 400); }
 };
@@ -183,11 +286,13 @@ const customerUpdateOrderItems = async (req, res) => {
       + (added_items || []).reduce((a, it) => a + (Number(it.quantity) || 0), 0);
     if (total < MIN_TOTAL_QTY) return error(res, `An order must keep at least one item.`, 400);
 
+    const beforeCust = await orderSnapshot(req.params.id);
     const data = await svc.updateOrderItems(
       req.params.id,
       order.company_id,
       { items: items || [], removedIds: removed_ids || [], addedItems: added_items || [] }
     );
+    logItemEdit(req, beforeCust);
     return success(res, data, 'Order updated');
   } catch (err) { return error(res, err.message, 400); }
 };
@@ -404,8 +509,16 @@ const updateOrderDate = async (req, res) => {
     const filter = { id: `eq.${req.params.id}` };
     if (req.user.role !== 'super_admin') filter.company_id = `eq.${req.user.company_id}`;
 
+    const prev = await pgrestGet('orders', { select: 'order_date,order_number,customer_id,company_id', ...filter }).then((r) => r?.[0]).catch(() => null);
     const rows = await pgrestPatch('orders', filter, { order_date });
     if (!rows?.[0]) return error(res, 'Order not found or access denied', 404);
+    if (prev && prev.order_date !== order_date) {
+      logActivity({
+        action: 'order_date', user: req.user, companyId: prev.company_id, customerId: prev.customer_id, orderId: req.params.id,
+        summary: `Order ${prev.order_number} date changed: ${prev.order_date || '—'} → ${order_date}`,
+        details: { order_number: prev.order_number, from: prev.order_date, to: order_date },
+      });
+    }
     return success(res, rows[0], 'Order date updated');
   } catch (err) { return error(res, err.message); }
 };

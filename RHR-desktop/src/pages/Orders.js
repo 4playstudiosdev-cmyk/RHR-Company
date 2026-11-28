@@ -8,6 +8,7 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonTable } from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import Modal from '../components/Modal';
+import ActivityLog from '../components/ActivityLog';
 import Button from '../components/Button';
 import CityFilter from '../components/CityFilter';
 import { fetchAllCities } from '../utils/multiCityFetch';
@@ -1653,6 +1654,8 @@ export default function Orders({ initialOrderNumber, autoOpenCreate, onGlobalCom
               <p className="text-xs text-amber-800">📝 Notes: {selectedOrder.notes}</p>
             </div>
           )}
+
+          <ActivityLog orderId={selectedOrder.id} title="Order activity" />
 
           <div className="flex justify-end pt-2">
             <Button type="button" variant="secondary" onClick={() => setSelectedOrder(null)}>Close</Button>
