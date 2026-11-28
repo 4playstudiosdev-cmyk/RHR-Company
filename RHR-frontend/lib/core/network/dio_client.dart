@@ -45,6 +45,13 @@ class DioClient {
           options.data = copy;
         }
 
+        // Photo uploads on a slow connection need longer than the normal 15 s
+        // (the server also resizes the photo before storing it).
+        if (options.path.endsWith('/storage/upload')) {
+          options.sendTimeout = const Duration(seconds: 90);
+          options.receiveTimeout = const Duration(seconds: 60);
+        }
+
         // Known offline: answer straight from the phone instead of waiting
         // 15 s for a request that cannot get through.
         if (!NetworkStatus.isOnline && !_alwaysTry(options)) {

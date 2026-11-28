@@ -146,7 +146,7 @@ class _EditCustomerScreenState extends State<EditCustomerScreen> {
       ),
     );
     if (source == null) return;
-    final image = await ImagePicker().pickImage(source: source, imageQuality: 70);
+    final image = await ImagePicker().pickImage(source: source, imageQuality: 70, maxWidth: 1280, maxHeight: 1280);
     if (image == null) return;
     setState(() {
       switch (target) {

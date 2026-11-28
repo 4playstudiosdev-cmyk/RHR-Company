@@ -105,7 +105,7 @@ class _DriverProfileSetupScreenState extends State<DriverProfileSetupScreen> {
     );
     if (source == null) return;
     final picker = ImagePicker();
-    final image = await picker.pickImage(source: source, imageQuality: 70);
+    final image = await picker.pickImage(source: source, imageQuality: 70, maxWidth: 1280, maxHeight: 1280);
     if (image == null) return;
     setState(() {
       switch (target) {

@@ -201,6 +201,45 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
   int get _totalQty => _products.fold(0, (s, p) => s + ((p['qty'] ?? 0) as int));
 
+  // ── Order tracker: how the salesman built the cart ──────────────────────
+  // Every quantity change (product, from → to, time) is sent with the order and
+  // shown to the office (Order activity). Typing "5", "50", "500" quickly counts
+  // as one change 0 → 500.
+  final List<Map<String, dynamic>> _cartLog = [];
+  int _cartLogSent = 0; // entries already sent with an earlier (refused) try
+
+  void _logQty(Map<String, dynamic> p, int from, int to, {String? color}) {
+    if (from == to) return;
+    final now = DateTime.now().toUtc();
+    if (_cartLog.length > _cartLogSent) {
+      final last = _cartLog.last;
+      final lastAt = DateTime.tryParse(last['at'] as String? ?? '');
+      if (last['product_id'] == p['id'] && last['color'] == color && lastAt != null && now.difference(lastAt).inSeconds < 4) {
+        last['to'] = to;
+        last['at'] = now.toIso8601String();
+        if (last['from'] == last['to']) _cartLog.removeLast();
+        return;
+      }
+    }
+    if (_cartLog.length >= 300) return;
+    _cartLog.add({
+      'product_id': p['id'],
+      'name': (p['name'] ?? '').toString(),
+      if (color != null) 'color': color,
+      'from': from,
+      'to': to,
+      'at': now.toIso8601String(),
+    });
+  }
+
+  void _setQty(int index, int value) {
+    final p = _products[index];
+    final from = (p['qty'] ?? 0) as int;
+    final to = value < 0 ? 0 : value;
+    p['qty'] = to;
+    _logQty(p, from, to);
+  }
+
   // Grout: {colour: packets}. Kept on the product row; 'qty' is always the sum.
   Map<String, int> _colorsOf(Map<String, dynamic> p) =>
       Map<String, int>.from((p['colors'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt())) ?? {});
@@ -216,9 +255,13 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       confirmLabel: 'Done',
     );
     if (picked == null) return;
+    final before = _colorsOf(p);
     setState(() {
       p['colors'] = picked;
       p['qty'] = picked.values.fold(0, (s, v) => s + v);
+      for (final c in {...before.keys, ...picked.keys}) {
+        _logQty(p, before[c] ?? 0, picked[c] ?? 0, color: c);
+      }
     });
   }
 
@@ -376,7 +419,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       'delivery_address': 'Karachi',
       // one id for the online try and a saved-offline copy — never ordered twice
       '_client_ref': HiveService.newClientRef(),
+      // order tracker: quantity changes made since the last try
+      if (_cartLog.length > _cartLogSent) 'cart_log': _cartLog.sublist(_cartLogSent),
     };
+    _cartLogSent = _cartLog.length;
 
     if (!_isOnline) {
       await HiveService.saveOfflineOrder(data);
@@ -666,7 +712,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                         Row(children: [
                           GestureDetector(
                             onTap: () => setState(() {
-                              _products[allIndex]['qty'] = qty - qtyRule.step < 1 ? 0 : qty - qtyRule.step;
+                              _setQty(allIndex, qty - qtyRule.step < 1 ? 0 : qty - qtyRule.step);
                             }),
                             child: Container(
                               width: 30,
@@ -681,11 +727,11 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                             width: 50,
                             borderColor: AppColors.orange,
                             style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy, fontSize: 16),
-                            onChanged: (v) => setState(() => _products[allIndex]['qty'] = v < 0 ? 0 : v),
+                            onChanged: (v) => setState(() => _setQty(allIndex, v)),
                           ),
                           GestureDetector(
                             onTap: () => setState(() =>
-                                _products[allIndex]['qty'] = qty == 0 ? qtyRule.step : qty + qtyRule.step),
+                                _setQty(allIndex, qty == 0 ? qtyRule.step : qty + qtyRule.step)),
                             child: Container(
                               width: 30,
                               height: 30,

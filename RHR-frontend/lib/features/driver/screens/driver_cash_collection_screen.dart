@@ -218,7 +218,7 @@ class _DriverCashCollectionScreenState extends State<DriverCashCollectionScreen>
             OutlinedButton.icon(
               onPressed: uploading ? null : () async {
                 final picker = ImagePicker();
-                final image = await picker.pickImage(source: ImageSource.camera, imageQuality: 70);
+                final image = await picker.pickImage(source: ImageSource.camera, imageQuality: 70, maxWidth: 1280, maxHeight: 1280);
                 if (image == null) return;
                 setDialogState(() => uploading = true);
                 try {
