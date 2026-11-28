@@ -104,9 +104,10 @@ const getSalesmanAnalytics = async (req, res) => {
 
     // Customer-wise: this salesman's customers, with orders / sales / what was
     // collected from each in the period, and what each still owes right now.
-    const balances = await Promise.all((customers || []).map((c) =>
-      pgrestGet('ledger_entries', { select: 'running_balance', customer_id: `eq.${c.id}`, order: 'created_at.desc', limit: '1' })
-        .then((r) => Number(r?.[0]?.running_balance) || 0).catch(() => null)));
+    // Sum of each ledger (same as the Ledger page), not a possibly stale stored snapshot.
+    const { customerBalances } = require('../services/orderLedger.service');
+    const balMap = await customerBalances((customers || []).map((c) => c.id)).catch(() => ({}));
+    const balances = (customers || []).map((c) => (c.id in balMap ? balMap[c.id] : null));
     const customerBreakdown = (customers || []).map((c, i) => {
       const co = saleOrders.filter((o) => o.customer_id === c.id);
       const cr = approvedRec.filter((r) => r.customer_id === c.id);

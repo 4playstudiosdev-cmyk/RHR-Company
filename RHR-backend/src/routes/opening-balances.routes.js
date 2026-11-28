@@ -112,6 +112,7 @@ router.post('/', authenticate, requireRole('super_admin', 'branch_admin', 'sales
         reference_type:  'opening_balance',
         created_by:      isSalesman ? null : req.user.id,
       });
+      await recalcCustomerLedger(entity_id); // opening balance leads — later snapshots shift
     }
 
     if (entity_type === 'vendor') {

@@ -1,3 +1,4 @@
+const { customerBalances } = require('../services/orderLedger.service');
 const XLSX = require('xlsx');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
@@ -18,20 +19,14 @@ const getOutstanding = async (req, res) => {
     if (companyId) custQuery = custQuery.eq('company_id', companyId);
     const { data: customers } = await custQuery;
 
-    const rows = await Promise.all((customers || []).map(async (c) => {
-      const { data: last } = await supabaseAdmin
-        .from('ledger_entries')
-        .select('running_balance')
-        .eq('customer_id', c.id)
-        .order('created_at', { ascending: false })
-        .limit(1).single();
-      return {
-        customer_id: c.id,
-        full_name:   c.full_name,
-        shop_name:   c.shop_name || null,
-        phone:       c.phone,
-        outstanding: last?.running_balance || 0
-      };
+    // Outstanding = sum of each ledger (same as the Ledger page).
+    const balMap = await customerBalances((customers || []).map((c) => c.id));
+    const rows = (customers || []).map((c) => ({
+      customer_id: c.id,
+      full_name:   c.full_name,
+      shop_name:   c.shop_name || null,
+      phone:       c.phone,
+      outstanding: balMap[c.id] || 0
     }));
 
     rows.sort((a, b) => b.outstanding - a.outstanding);
@@ -91,18 +86,13 @@ const exportReport = async (req, res) => {
       if (companyId) outstandingQuery = outstandingQuery.eq('company_id', companyId);
       const { data: customers } = await outstandingQuery;
 
+      const balMap = await customerBalances((customers || []).map((c) => c.id));
       for (const c of customers) {
-        const { data: last } = await supabaseAdmin
-          .from('ledger_entries')
-          .select('running_balance')
-          .eq('customer_id', c.id)
-          .order('created_at', { ascending: false })
-          .limit(1).single();
         data.push({
           'Customer':       c.full_name,
           'Shop Name':      c.shop_name || '—',
           'Phone':          c.phone,
-          'Outstanding (PKR)': last?.running_balance || 0,
+          'Outstanding (PKR)': balMap[c.id] || 0,
         });
       }
       sheetName = 'Outstanding Report';
@@ -292,15 +282,15 @@ const getCustomerSummary = async (req, res) => {
     if (companyId) q = q.eq('company_id', companyId);
     const { data: customers } = await q;
 
+    const balMap = await customerBalances((customers || []).map((c) => c.id));
     const rows = await Promise.all((customers || []).map(async (c) => {
-      const [salesRes, payRes, ledgerRes] = await Promise.all([
+      const [salesRes, payRes] = await Promise.all([
         supabaseAdmin.from('orders').select('total_amount').eq('customer_id', c.id).neq('status', 'cancelled'),
         supabaseAdmin.from('payments').select('amount').eq('customer_id', c.id).eq('status', 'approved'),
-        supabaseAdmin.from('ledger_entries').select('running_balance').eq('customer_id', c.id).order('created_at', { ascending: false }).limit(1),
       ]);
       const totalSales = (salesRes.data || []).reduce((s, o) => s + Number(o.total_amount), 0);
       const totalRecovery = (payRes.data || []).reduce((s, p) => s + Number(p.amount), 0);
-      const currentBalance = ledgerRes.data?.[0]?.running_balance || 0;
+      const currentBalance = balMap[c.id] || 0;
       return {
         customer_id: c.id,
         full_name: c.full_name,

@@ -51,7 +51,7 @@ async function creditLedger({ companyId, customerId, amount, description, userId
   };
   if (date) entryRow.created_at = new Date(date).toISOString();
   await pgrestPost('ledger_entries', entryRow);
-  if (date) await recalcCustomerLedger(customerId);
+  await recalcCustomerLedger(customerId); // keep every stored running balance right
 }
 
 // GET /api/v1/recovery/transactions
@@ -542,6 +542,7 @@ async function debitLedger({ companyId, customerId, amount, description, userId 
     reference_type: 'adjustment',
     created_by: userId,
   });
+  await recalcCustomerLedger(customerId);
 }
 
 // A deleted payment is NOT erased: it stays with status 'deleted' (every total only counts

@@ -1,3 +1,4 @@
+const { recalcCustomerLedger } = require('./orderLedger.service');
 const { supabaseAdmin } = require('../config/supabase');
 const { pgrestGet, pgrestPost } = require('../utils/directQuery');
 
@@ -128,6 +129,7 @@ async function reviewPayment(id, companyId, adminId, { status, adminNote }) {
       reference_type: 'payment',
       created_by: adminId,
     });
+    await recalcCustomerLedger(data.customer_id);
   }
 
   return data;

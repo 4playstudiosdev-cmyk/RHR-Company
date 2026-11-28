@@ -74,12 +74,14 @@ async function fetchAll(table, params) {
 // Latest running balance per customer = what they currently owe (positive)
 // or have in credit (negative).
 async function outstandingByCustomer(cf) {
+  // Sum of every entry (debits − credits) — same as the Ledger page. The newest
+  // entry's stored running_balance can be stale for back-dated entries.
   const rows = await fetchAll('ledger_entries', {
-    select: 'customer_id,running_balance,created_at', order: 'created_at.desc', ...cf,
+    select: 'customer_id,entry_type,amount', order: 'id.asc', ...cf,
   });
   const map = {};
   rows.forEach((r) => {
-    if (!(r.customer_id in map)) map[r.customer_id] = Number(r.running_balance) || 0;
+    map[r.customer_id] = (map[r.customer_id] || 0) + (r.entry_type === 'debit' ? Number(r.amount) : -Number(r.amount));
   });
   return map;
 }

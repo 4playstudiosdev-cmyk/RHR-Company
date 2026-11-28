@@ -13,6 +13,35 @@ async function orderLedgerNet(orderId) {
     (n, r) => n + (r.entry_type === 'debit' ? Number(r.amount) : -Number(r.amount)), 0);
 }
 
+// What each customer owes NOW = all debits − all credits, the same sum the Ledger
+// page shows. Never use "the newest entry's running_balance": entries back-dated to
+// the same moment (e.g. opening balance and a vendor transfer both at 00:00) leave
+// that stored snapshot wrong. Paged, so a branch with >1000 ledger rows is complete.
+async function customerBalances(customerIds) {
+  const ids = [...new Set((customerIds || []).filter(Boolean))];
+  const out = Object.fromEntries(ids.map((id) => [id, 0]));
+  const PAGE = 1000;
+  for (let i = 0; i < ids.length; i += 150) {
+    const chunk = ids.slice(i, i + 150).join(',');
+    for (let offset = 0; ; offset += PAGE) {
+      const rows = await pgrestGet('ledger_entries', {
+        select: 'customer_id,entry_type,amount',
+        customer_id: `in.(${chunk})`,
+        order: 'id.asc', limit: String(PAGE), offset: String(offset),
+      });
+      for (const r of rows || []) {
+        out[r.customer_id] += r.entry_type === 'debit' ? Number(r.amount) : -Number(r.amount);
+      }
+      if (!rows || rows.length < PAGE) break;
+    }
+  }
+  return out;
+}
+
+async function customerBalance(customerId) {
+  return (await customerBalances([customerId]))[customerId] || 0;
+}
+
 // Recalculate and patch running_balance for all of a customer's ledger entries.
 // Needed after hard-deleting an entry so stored running_balance values stay accurate
 // for future writes (getLedger recalculates on the fly, but creditLedger/adjustLedger
@@ -21,7 +50,7 @@ async function recalcCustomerLedger(customerId) {
   const entries = await pgrestGet('ledger_entries', {
     select: 'id,entry_type,amount,running_balance,reference_type',
     customer_id: `eq.${customerId}`,
-    order: 'created_at.asc',
+    order: 'created_at.asc,id.asc', // fixed order for entries at the same moment
   });
   if (!entries?.length) return;
   // Opening balance always leads
@@ -146,4 +175,4 @@ async function syncOrderTotal(orderId) {
   return { ...c, total };
 }
 
-module.exports = { orderLedgerNet, deleteOrderLedgerEntries, recalcCustomerLedger, recalcSupplierLedger, computeOrderCharges, syncOrderTotal, TAX_RATE };
+module.exports = { orderLedgerNet, deleteOrderLedgerEntries, recalcCustomerLedger, recalcSupplierLedger, customerBalances, customerBalance, computeOrderCharges, syncOrderTotal, TAX_RATE };

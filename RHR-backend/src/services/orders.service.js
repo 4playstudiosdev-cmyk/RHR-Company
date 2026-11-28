@@ -1,7 +1,7 @@
 const { supabaseAdmin }    = require('../config/supabase');
 const { generateInvoice }  = require('./invoice.service');
 const { pgrestGet, pgrestPost, pgrestPatch, pgrestDelete } = require('../utils/directQuery');
-const { orderLedgerNet, deleteOrderLedgerEntries, recalcCustomerLedger, syncOrderTotal } = require('./orderLedger.service');
+const { orderLedgerNet, deleteOrderLedgerEntries, recalcCustomerLedger, syncOrderTotal, customerBalance } = require('./orderLedger.service');
 const { MIN_TOTAL_QTY } = require('../utils/orderQtyRules');
 const orderMessages = require('./orderMessages.service');
 const { NAME_SEPARATOR, canonicalColor, isGroutCategory } = require('../utils/groutColors');
@@ -74,7 +74,9 @@ async function createOrder({ customerId, salesmanId, companyId, items, notes, de
     throw e;
   }
 
-  const currentBalance = lastLedgerEntries?.[0]?.running_balance || 0;
+  // What the customer really owes now (sum of the ledger) — the newest entry's stored
+  // running_balance can be stale and wrongly blocked orders on the credit limit.
+  const currentBalance = await customerBalance(customerId);
   const creditLimit = customer?.credit_limit != null ? Number(customer.credit_limit) : null;
 
   const tierAdjustment = RATE_TIER_ADJUSTMENT[customer?.rate_tier] || 0;
@@ -500,6 +502,7 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
           reference_id: updated.id,
           created_by: null,
         });
+        await recalcCustomerLedger(updated.customer_id);
       }
     } catch (err) {
       console.error(`Ledger debit for delivered order ${id} failed:`, err.message);
@@ -529,6 +532,7 @@ async function updateOrderStatus(id, companyId, status, dispatchInfo = {}) {
           reference_type: 'delivery',
           created_by: null, // driver's own id isn't a `users` row — see recovery.routes.js's identical FK note
         });
+        await recalcCustomerLedger(updated.customer_id);
       } catch (err) {
         console.error(`Ledger credit for delivered order ${id} failed:`, err.message);
       }

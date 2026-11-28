@@ -1,3 +1,4 @@
+const { customerBalance, recalcCustomerLedger } = require('../services/orderLedger.service');
 const { supabaseAdmin } = require('../config/supabase');
 const { success, error } = require('../utils/response');
 const { buildStatementPDF } = require('../services/statement.service');
@@ -216,7 +217,8 @@ const adjustLedger = async (req, res) => {
       .limit(1)
       .single();
 
-    const prevBalance = last?.running_balance || 0;
+    void last; // stored snapshot can be stale — start from the real balance
+    const prevBalance = await customerBalance(customer_id);
     const newBalance  = entry_type === 'debit'
       ? prevBalance + Number(amount)
       : prevBalance - Number(amount);
@@ -238,6 +240,7 @@ const adjustLedger = async (req, res) => {
       .single();
 
     if (dbErr) throw new Error(dbErr.message);
+    await recalcCustomerLedger(customer_id);
     return success(res, data, 'Ledger entry added', 201);
   } catch (err) { return error(res, err.message); }
 };
@@ -263,7 +266,8 @@ const setOutstandingBalance = async (req, res) => {
     const { data: last } = await supabaseAdmin
       .from('ledger_entries').select('running_balance')
       .eq('customer_id', customerId).order('created_at', { ascending: false }).limit(1).maybeSingle();
-    const current = Number(last?.running_balance) || 0;
+    void last; // the newest stored snapshot can be stale — use the real balance
+    const current = await customerBalance(customerId);
     const diff = Math.round((target - current) * 100) / 100;
     if (diff === 0) return success(res, { balance: current, changed: false }, 'Balance is already that amount');
 
@@ -283,6 +287,7 @@ const setOutstandingBalance = async (req, res) => {
       .select()
       .single();
     if (dbErr) throw new Error(dbErr.message);
+    await recalcCustomerLedger(customerId);
 
     // tell the customer and their salesman (app + push + WhatsApp); never blocks the response
     paymentMessages.balanceChanged({ customer, previous: current, current: target });
