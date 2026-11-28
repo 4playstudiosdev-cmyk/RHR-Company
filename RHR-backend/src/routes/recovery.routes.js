@@ -1778,7 +1778,7 @@ router.patch('/:id/date', authenticate, isAdmin, async (req, res) => {
 
     // Fetch the recovery
     const rows = await pgrestGet('salesman_recoveries', {
-      select: 'id,company_id,amount,recovery_date,payment_type,customer_id,vendor_id',
+      select: 'id,company_id,amount,recovery_date,payment_type,customer_id,vendor_id,salesman_id,approved_at,created_at',
       ...scopeFilter(req),
       limit: '1',
     });
@@ -1787,51 +1787,55 @@ router.patch('/:id/date', authenticate, isAdmin, async (req, res) => {
 
     const oldDate = (rec.recovery_date || '').split('T')[0];
     const newTs = `${new_date}T00:00:00.000Z`;
+    const { pgrestGetRaw } = require('../utils/directQuery');
 
     // 1. Update recovery_date on the main record
     await pgrestPatch('salesman_recoveries', { id: `eq.${id}` }, { recovery_date: new_date });
 
-    // 2. Update customer ledger entry date (reference_id = recovery id)
-    try {
-      const { pgrestGetRaw } = require('../utils/directQuery');
-      const ledRows = await pgrestGetRaw(
-        `ledger_entries?select=id&reference_id=eq.${id}&limit=5`
-      ).catch(() => []);
-      for (const le of (ledRows || [])) {
-        await pgrestPatch('ledger_entries', { id: `eq.${le.id}` }, { created_at: newTs });
-      }
-    } catch (_) {}
-
-    // 3. For vendor_transfer: update expense_date + supplier_ledger_entries.created_at
-    if (rec.payment_type === 'vendor_transfer') {
-      // Update expense
-      try {
-        const expRows = await pgrestGet('expenses', {
-          select: 'id',
-          company_id: `eq.${rec.company_id}`,
-          category: 'eq.Vendor Payment',
-          amount: `eq.${Number(rec.amount)}`,
-          expense_date: `eq.${oldDate}`,
-          order: 'created_at.desc',
-          limit: '3',
-        });
-        for (const exp of (expRows || [])) {
-          await pgrestPatch('expenses', { id: `eq.${exp.id}` }, { expense_date: new_date });
-        }
-      } catch (_) {}
-
-      // Update supplier ledger entry
-      try {
-        const { pgrestGetRaw } = require('../utils/directQuery');
-        const sleRows = await pgrestGetRaw(
-          `supplier_ledger_entries?select=id,supplier_id&amount=eq.${Number(rec.amount)}&created_at=gte.${oldDate}T00:00:00.000Z&created_at=lte.${oldDate}T23:59:59.999Z&limit=3`
+    // 2. The customer ledger line moves with it. Linked by reference_id on newer
+    //    lines; older ones (before the link existed) are found by customer +
+    //    amount + credit, dated on the old recovery date or at the approval
+    //    moment — then linked, so the next change finds it directly.
+    let ledgerMoved = 0;
+    if (rec.customer_id) {
+      let led = await pgrestGetRaw(`ledger_entries?select=id&customer_id=eq.${rec.customer_id}&reference_id=eq.${id}&limit=5`).catch(() => []);
+      if (!led?.length) {
+        const cands = await pgrestGetRaw(
+          `ledger_entries?select=id,created_at&customer_id=eq.${rec.customer_id}&entry_type=eq.credit&amount=eq.${Number(rec.amount)}&reference_type=eq.recovery&reference_id=is.null&order=created_at.asc`
         ).catch(() => []);
-        for (const sle of (sleRows || [])) {
-          await pgrestPatch('supplier_ledger_entries', { id: `eq.${sle.id}` }, { created_at: newTs });
+        const near = (t, ref) => ref && Math.abs(new Date(t) - new Date(ref)) <= 10 * 60 * 1000;
+        const pick = (cands || []).find((c) => near(c.created_at, rec.approved_at))
+          || (cands || []).find((c) => String(c.created_at).slice(0, 10) === oldDate)
+          || ((cands || []).length === 1 ? cands[0] : null);
+        led = pick ? [pick] : [];
+      }
+      for (const le of (led || [])) {
+        await pgrestPatch('ledger_entries', { id: `eq.${le.id}` }, { created_at: newTs, reference_id: id });
+        ledgerMoved++;
+      }
+      if (ledgerMoved) { try { await recalcCustomerLedger(rec.customer_id); } catch (_) {} }
+    }
+
+    // 3. Vendor transfer: its expense and vendor-ledger line move too — the SAME
+    //    supplier, amount and day only (never another vendor's line).
+    if (rec.payment_type === 'vendor_transfer') {
+      const links = require('../services/vendorPaymentLinks.service');
+      try {
+        const exp = await links.findVendorExpense({ companyId: rec.company_id, supplierId: rec.vendor_id, amount: rec.amount, date: oldDate, salesmanId: rec.salesman_id });
+        if (exp) await pgrestPatch('expenses', { id: `eq.${exp.id}` }, { expense_date: new_date });
+      } catch (_) {}
+      try {
+        const line = await links.findSupplierCredit({ supplierId: rec.vendor_id, amount: rec.amount, date: oldDate, preferType: 'vendor_transfer' });
+        if (line) {
+          await pgrestPatch('supplier_ledger_entries', { id: `eq.${line.id}` }, { created_at: newTs });
+          try { await recalcSupplierLedger(line.supplier_id); } catch (_) {}
         }
       } catch (_) {}
     }
 
+    if (rec.customer_id && !ledgerMoved) {
+      console.warn(`[recovery date] ${id}: no customer ledger line found to move (${oldDate} → ${new_date})`);
+    }
     return success(res, { id, new_date }, 'Date updated successfully');
   } catch (err) { return error(res, err.message, err.status || 500); }
 });
